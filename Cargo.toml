@@ -32,5 +32,4 @@ url = "2.5.7"
 [build-dependencies]
 
 [features]
-default = []
 hegel = ["dep:hegel"]
