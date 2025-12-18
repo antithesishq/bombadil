@@ -1,10 +1,10 @@
 use anyhow::{anyhow, bail};
 use chromiumoxide::browser::HeadlessMode;
-use chromiumoxide::cdp::browser_protocol::emulation;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
 };
 use chromiumoxide::cdp::browser_protocol::target::{self, TargetId};
+use chromiumoxide::cdp::browser_protocol::{dom, emulation};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
 use chromiumoxide::{BrowserConfig, Page};
@@ -53,8 +53,30 @@ pub enum InnerEvent {
     FrameRequestedNavigation(FrameId, ClientNavigationReason, String),
     FrameNavigated(FrameId, NavigationType),
     TargetDestroyed(TargetId),
+    NodeTreeModified(NodeModification),
     ConsoleEntry(ConsoleEntry),
     ActionApplied(BrowserAction),
+}
+
+#[derive(Clone, Debug)]
+pub enum NodeModification {
+    ChildNodeInserted {
+        parent: dom::NodeId,
+        child: dom::Node,
+    },
+    ChildNodeCountUpdated {
+        parent: dom::NodeId,
+        count: u64,
+    },
+    ChildNodeRemoved {
+        parent: dom::NodeId,
+        child: dom::NodeId,
+    },
+    AttributeModified {
+        node: dom::NodeId,
+        name: String,
+        value: String,
+    },
 }
 
 struct BrowserContext {
@@ -301,6 +323,67 @@ async fn inner_events(
             .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone())),
     ) as InnerEventStream;
 
+    let events_node_inserted = Box::pin(
+        context
+            .page
+            .event_listener::<dom::EventChildNodeInserted>()
+            .await?
+            .map(|event| {
+                InnerEvent::NodeTreeModified(
+                    NodeModification::ChildNodeInserted {
+                        parent: event.parent_node_id,
+                        child: event.node.clone(),
+                    },
+                )
+            }),
+    ) as InnerEventStream;
+
+    let events_node_count_updated = Box::pin(
+        context
+            .page
+            .event_listener::<dom::EventChildNodeCountUpdated>()
+            .await?
+            .map(|event| {
+                InnerEvent::NodeTreeModified(
+                    NodeModification::ChildNodeCountUpdated {
+                        parent: event.node_id,
+                        count: event.child_node_count as u64,
+                    },
+                )
+            }),
+    ) as InnerEventStream;
+
+    let events_node_removed = Box::pin(
+        context
+            .page
+            .event_listener::<dom::EventChildNodeRemoved>()
+            .await?
+            .map(|event| {
+                InnerEvent::NodeTreeModified(
+                    NodeModification::ChildNodeRemoved {
+                        parent: event.parent_node_id,
+                        child: event.node_id,
+                    },
+                )
+            }),
+    ) as InnerEventStream;
+
+    let events_attribute_modified = Box::pin(
+        context
+            .page
+            .event_listener::<dom::EventAttributeModified>()
+            .await?
+            .map(|event| {
+                InnerEvent::NodeTreeModified(
+                    NodeModification::AttributeModified {
+                        node: event.node_id,
+                        name: event.name.clone(),
+                        value: event.value.clone(),
+                    },
+                )
+            }),
+    ) as InnerEventStream;
+
     let events_console = Box::pin(
         context
             .page
@@ -340,6 +423,10 @@ async fn inner_events(
         events_frame_requested_navigation,
         events_frame_navigated,
         events_target_destroyed,
+        events_node_inserted,
+        events_node_count_updated,
+        events_node_removed,
+        events_attribute_modified,
         events_console,
         events_action_applied,
     ])))
@@ -363,11 +450,25 @@ async fn run_state_machine(
                             let _ = spawn(pause(context.page.clone()));
                             InnerState::Pausing(console_entries)
                         }
+                        (
+                            InnerState::Running(console_entries),
+                            InnerEvent::NodeTreeModified(modification),
+                        ) => {
+                            handle_node_modification(&context, &modification)
+                                .await?;
+                            let _ = spawn(pause(context.page.clone()));
+                            InnerState::Pausing(console_entries)
+                        }
                         (state, InnerEvent::StateRequested) => {
                             debug!(
                                 "cannot request new browser state when in state {:?}, ignoring",
                                 &state
                             );
+                            state
+                        }
+                        (state, InnerEvent::NodeTreeModified(modification)) => {
+                            handle_node_modification(&context, &modification)
+                                .await?;
                             state
                         }
                         (
@@ -494,8 +595,6 @@ async fn run_state_machine(
                             InnerState::Loading(console_entries),
                             InnerEvent::Loaded,
                         ) => {
-                            debug!("setting up DOM breakpoints");
-
                             context
                                 .inner_events_sender
                                 .send(InnerEvent::StateRequested)?;
@@ -552,6 +651,17 @@ async fn run_state_machine(
                             ),
                         ) => {
                             if frame_id == context.frame_id {
+                                // Track all nodes.
+                                context
+                                    .page
+                                    .execute(
+                                        dom::GetDocumentParams::builder()
+                                            .depth(-1)
+                                            .pierce(false) // not through iframes and shadow roots
+                                            .build(),
+                                    )
+                                    .await?;
+
                                 match navigation_type {
                                     NavigationType::Navigation => {
                                         InnerState::Loading(vec![])
@@ -613,6 +723,29 @@ async fn run_state_machine(
             }
         }),
     );
+    Ok(())
+}
+
+async fn handle_node_modification(
+    context: &BrowserContext,
+    modification: &NodeModification,
+) -> anyhow::Result<()> {
+    match modification {
+        NodeModification::ChildNodeInserted { parent, .. } => {
+            context
+                .page
+                .execute(dom::RequestChildNodesParams::new(parent.clone()))
+                .await?;
+        }
+        NodeModification::ChildNodeCountUpdated { parent, .. } => {
+            context
+                .page
+                .execute(dom::RequestChildNodesParams::new(parent.clone()))
+                .await?;
+        }
+        NodeModification::ChildNodeRemoved { .. } => {}
+        NodeModification::AttributeModified { .. } => {}
+    }
     Ok(())
 }
 

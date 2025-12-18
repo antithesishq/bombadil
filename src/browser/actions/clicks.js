@@ -96,7 +96,7 @@ function clicks() {
         continue;
       }
 
-      clicks.push([3, 100, {
+      clicks.push([3, 300, {
         Click: {
           name: element.nodeName,
           content: element.textContent.trim().replaceAll(/\s+/g, " "),
