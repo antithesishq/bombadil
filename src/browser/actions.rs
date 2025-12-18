@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use chromiumoxide::cdp::browser_protocol::{input, page};
 use chromiumoxide::Page;
 use include_dir::{include_dir, Dir};
@@ -13,6 +13,7 @@ use crate::browser::actions::tree::{Tree, Weight};
 use crate::browser::state::BrowserState;
 use crate::geometry::Point;
 
+#[cfg(feature = "hegel")]
 pub mod hegel;
 pub mod keys;
 pub mod random;
@@ -66,7 +67,7 @@ impl Timeout {
 }
 
 impl BrowserAction {
-    pub async fn apply(&self, page: &Page) -> anyhow::Result<()> {
+    pub async fn apply(&self, page: &Page) -> Result<()> {
         match self {
             BrowserAction::Back => {
                 let history =
@@ -157,7 +158,7 @@ async fn run_script<Input: Into<json::Value>, Output: DeserializeOwned>(
     state: &BrowserState,
     name: impl Into<&str>,
     input: Input,
-) -> anyhow::Result<Output> {
+) -> Result<Output> {
     let script_path = format!("{}.js", name.into());
     let script_file = ACTIONS_DIR
         .get_file(&script_path)
@@ -175,7 +176,7 @@ async fn run_script<Input: Into<json::Value>, Output: DeserializeOwned>(
 async fn run_actions_script(
     state: &BrowserState,
     name: impl Into<&str>,
-) -> anyhow::Result<Vec<Tree<(BrowserAction, Timeout)>>> {
+) -> Result<Vec<Tree<(BrowserAction, Timeout)>>> {
     let actions: Vec<(Weight, u64, BrowserAction)> =
         run_script(state, name, ()).await?;
     Ok(actions
@@ -188,7 +189,7 @@ async fn run_actions_script(
 
 pub async fn available_actions(
     state: &BrowserState,
-) -> anyhow::Result<Tree<(BrowserAction, Timeout)>> {
+) -> Result<Tree<(BrowserAction, Timeout)>> {
     let tree = Tree::Branch(vec![
         (Tree::Branch(run_actions_script(state, "clicks").await?)),
         (Tree::Branch(run_actions_script(state, "inputs").await?)),

@@ -2,10 +2,7 @@ use ::url::Url;
 use clap::Parser;
 use tempfile::TempDir;
 
-use crate::{
-    browser::BrowserOptions,
-    runner::{run_test, TestOptions},
-};
+use crate::{browser::BrowserOptions, runner::run_test};
 
 mod browser;
 mod geometry;
@@ -32,8 +29,6 @@ enum Command {
         width: u16,
         #[arg(long, default_value_t = 768)]
         height: u16,
-        #[arg(long, default_value_t = false)]
-        hegel: bool,
     },
 }
 
@@ -55,13 +50,11 @@ async fn main() -> anyhow::Result<()> {
             headless,
             width,
             height,
-            hegel,
         }) => {
             let user_data_directory = TempDir::new()?;
 
             match run_test(
                 origin,
-                TestOptions { hegel },
                 BrowserOptions {
                     headless,
                     user_data_directory: user_data_directory

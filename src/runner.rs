@@ -1,7 +1,9 @@
 use std::time::UNIX_EPOCH;
 
+#[cfg(feature = "hegel")]
+use crate::browser::actions::hegel;
+use crate::browser::actions::random;
 use crate::browser::actions::{available_actions, Timeout};
-use crate::browser::actions::{hegel, random};
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
 use anyhow::bail;
@@ -12,14 +14,7 @@ use tokio::time::timeout;
 use crate::browser::state::{BrowserState, ConsoleEntryLevel};
 use crate::browser::{Browser, BrowserOptions};
 
-pub struct TestOptions {
-    pub hegel: bool,
-}
-
-pub async fn run(
-    browser: &mut Browser,
-    test_options: TestOptions,
-) -> anyhow::Result<()> {
+pub async fn run(browser: &mut Browser) -> anyhow::Result<()> {
     let mut rng = rand::rng();
     let mut last_action_timeout = Timeout::from_secs(1);
     loop {
@@ -32,11 +27,13 @@ pub async fn run(
                     check_page_ok(&state).await?;
 
                     let actions = available_actions(&state).await?;
-                    let action = if test_options.hegel {
-                        hegel::pick_action(actions)
-                    } else {
-                        random::pick_action(&mut rng, actions)
-                    };
+
+                    #[cfg(feature = "hegel")]
+                    let action = hegel::pick_action(actions);
+
+                    #[cfg(not(feature = "hegel"))]
+                    let action = random::pick_action(&mut rng, actions);
+
                     match action {
                         (action, timeout) => {
                             info!("picked action: {:?}", action);
@@ -62,14 +59,13 @@ pub async fn run(
 
 pub async fn run_test(
     origin: Url,
-    test_options: TestOptions,
     browser_options: BrowserOptions,
 ) -> anyhow::Result<()> {
     info!("testing {}", &origin);
     let mut browser = Browser::new(origin, browser_options).await?;
 
     browser.initiate().await?;
-    let result = run(&mut browser, test_options).await;
+    let result = run(&mut browser).await;
     browser.terminate().await?;
 
     result
