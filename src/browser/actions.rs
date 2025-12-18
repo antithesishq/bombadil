@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::{anyhow, bail};
 use chromiumoxide::cdp::browser_protocol::{input, page};
 use chromiumoxide::Page;
-use hegel::r#gen::{floats, just, one_of, BoxedGenerator, Generate};
 use include_dir::{include_dir, Dir};
 use serde::Serialize;
 use serde::{de::DeserializeOwned, Deserialize};
@@ -14,7 +13,9 @@ use crate::browser::actions::tree::{Tree, Weight};
 use crate::browser::state::BrowserState;
 use crate::geometry::Point;
 
+pub mod hegel;
 pub mod keys;
+pub mod random;
 pub mod tree;
 
 #[allow(unused, reason = "some fields are useful for debugging")]
@@ -146,53 +147,6 @@ impl BrowserAction {
             }
         };
         Ok(())
-    }
-
-    pub fn generator(&self) -> BoxedGenerator<Self> {
-        match self {
-            BrowserAction::Back => {
-                BoxedGenerator::new(just(BrowserAction::Back))
-            }
-            BrowserAction::Click { .. } => {
-                BoxedGenerator::new(just(self.clone()))
-            }
-            BrowserAction::TypeText { .. } => BoxedGenerator::new(
-                hegel::r#gen::text()
-                    .map(|text| BrowserAction::TypeText { text }),
-            ),
-            BrowserAction::PressKey { .. } => BoxedGenerator::new(
-                one_of(vec![
-                    BoxedGenerator::new(hegel::r#gen::just::<u8>(13)),
-                    BoxedGenerator::new(hegel::r#gen::just::<u8>(27)),
-                ])
-                .map(|code| BrowserAction::PressKey { code }),
-            ),
-            BrowserAction::ScrollUp { origin, distance } => {
-                let origin = origin.clone();
-                BoxedGenerator::new(
-                    floats().with_min(*distance / 2.0).with_max(*distance).map(
-                        move |distance| BrowserAction::ScrollUp {
-                            origin,
-                            distance,
-                        },
-                    ),
-                )
-            }
-            BrowserAction::ScrollDown { origin, distance } => {
-                let origin = origin.clone();
-                BoxedGenerator::new(
-                    floats().with_min(*distance / 2.0).with_max(*distance).map(
-                        move |distance| BrowserAction::ScrollDown {
-                            origin,
-                            distance,
-                        },
-                    ),
-                )
-            }
-            BrowserAction::Reload => {
-                BoxedGenerator::new(just(BrowserAction::Reload))
-            }
-        }
     }
 }
 

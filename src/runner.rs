@@ -1,11 +1,10 @@
 use std::time::UNIX_EPOCH;
 
 use crate::browser::actions::{available_actions, Timeout};
+use crate::browser::actions::{hegel, random};
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
 use anyhow::bail;
-use hegel::r#gen::BoxedGenerator;
-use hegel::Generate;
 use log::{debug, info};
 use serde_json as json;
 use tokio::time::timeout;
@@ -13,7 +12,15 @@ use tokio::time::timeout;
 use crate::browser::state::{BrowserState, ConsoleEntryLevel};
 use crate::browser::{Browser, BrowserOptions};
 
-pub async fn run(browser: &mut Browser) -> anyhow::Result<()> {
+pub struct TestOptions {
+    pub hegel: bool,
+}
+
+pub async fn run(
+    browser: &mut Browser,
+    test_options: TestOptions,
+) -> anyhow::Result<()> {
+    let mut rng = rand::rng();
     let mut last_action_timeout = Timeout::from_secs(1);
     loop {
         match timeout(last_action_timeout.to_duration(), browser.next_event())
@@ -25,18 +32,12 @@ pub async fn run(browser: &mut Browser) -> anyhow::Result<()> {
                     check_page_ok(&state).await?;
 
                     let actions = available_actions(&state).await?;
-                    match actions
-                        .map(|(action, timeout)| {
-                            let timeout = timeout.clone();
-                            BoxedGenerator::new(
-                                action
-                                    .generator()
-                                    .map(move |action| (action, timeout)),
-                            )
-                        })
-                        .pick()
-                        .generate()
-                    {
+                    let action = if test_options.hegel {
+                        hegel::pick_action(actions)
+                    } else {
+                        random::pick_action(&mut rng, actions)
+                    };
+                    match action {
                         (action, timeout) => {
                             info!("picked action: {:?}", action);
                             browser.apply(action.clone()).await?;
@@ -61,13 +62,14 @@ pub async fn run(browser: &mut Browser) -> anyhow::Result<()> {
 
 pub async fn run_test(
     origin: Url,
+    test_options: TestOptions,
     browser_options: BrowserOptions,
 ) -> anyhow::Result<()> {
     info!("testing {}", &origin);
     let mut browser = Browser::new(origin, browser_options).await?;
 
     browser.initiate().await?;
-    let result = run(&mut browser).await;
+    let result = run(&mut browser, test_options).await;
     browser.terminate().await?;
 
     result

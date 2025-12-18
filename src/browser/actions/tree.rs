@@ -1,6 +1,3 @@
-use hegel::r#gen::BoxedGenerator;
-use serde::Deserialize;
-
 pub type Weight = u16;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -42,22 +39,6 @@ impl<T> Tree<T> {
             None
         } else {
             Some(self)
-        }
-    }
-}
-
-impl<T: for<'de> Deserialize<'de> + 'static> Tree<BoxedGenerator<T>> {
-    pub fn pick(&self) -> BoxedGenerator<T> {
-        match self {
-            Tree::Leaf(x) => x.clone(),
-            Tree::Branch(branches) => {
-                BoxedGenerator::new(hegel::r#gen::one_of(
-                    branches
-                        .iter()
-                        .map(|branch| branch.clone().pick())
-                        .collect(),
-                ))
-            }
         }
     }
 }
