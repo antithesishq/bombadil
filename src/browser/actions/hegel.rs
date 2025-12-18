@@ -3,60 +3,56 @@ use serde::Deserialize;
 
 use crate::browser::actions::{tree::Tree, BrowserAction, Timeout};
 
-pub fn generate_action(
-    action: &BrowserAction,
-) -> BoxedGenerator<BrowserAction> {
+pub fn generate_action<'a>(
+    action: BrowserAction,
+) -> BoxedGenerator<'a, BrowserAction> {
     match action {
-        BrowserAction::Back => BoxedGenerator::new(just(BrowserAction::Back)),
-        BrowserAction::Click { .. } => {
-            BoxedGenerator::new(just(action.clone()))
-        }
-        BrowserAction::TypeText { .. } => BoxedGenerator::new(
-            hegel::r#gen::text().map(|text| BrowserAction::TypeText { text }),
-        ),
-        BrowserAction::PressKey { .. } => BoxedGenerator::new(
-            one_of(vec![
-                BoxedGenerator::new(hegel::r#gen::just::<u8>(13)),
-                BoxedGenerator::new(hegel::r#gen::just::<u8>(27)),
-            ])
-            .map(|code| BrowserAction::PressKey { code }),
-        ),
+        BrowserAction::Back => just(BrowserAction::Back).boxed(),
+        BrowserAction::Click { .. } => just(action.clone()).boxed(),
+        BrowserAction::TypeText { .. } => hegel::r#gen::text()
+            .map(|text| BrowserAction::TypeText { text })
+            .boxed(),
+        BrowserAction::PressKey { .. } => one_of(vec![
+            hegel::r#gen::just::<u8>(13).boxed(),
+            hegel::r#gen::just::<u8>(27).boxed(),
+        ])
+        .map(|code| BrowserAction::PressKey { code })
+        .boxed(),
         BrowserAction::ScrollUp { origin, distance } => {
             let origin = origin.clone();
-            BoxedGenerator::new(
-                floats().with_min(*distance / 2.0).with_max(*distance).map(
-                    move |distance| BrowserAction::ScrollUp {
-                        origin,
-                        distance,
-                    },
-                ),
-            )
+            floats()
+                .with_min(distance / 2.0)
+                .with_max(distance)
+                .map(move |distance| BrowserAction::ScrollUp {
+                    origin,
+                    distance,
+                })
+                .boxed()
         }
         BrowserAction::ScrollDown { origin, distance } => {
             let origin = origin.clone();
-            BoxedGenerator::new(
-                floats().with_min(*distance / 2.0).with_max(*distance).map(
-                    move |distance| BrowserAction::ScrollDown {
-                        origin,
-                        distance,
-                    },
-                ),
-            )
+            floats()
+                .with_min(distance / 2.0)
+                .with_max(distance)
+                .map(move |distance| BrowserAction::ScrollDown {
+                    origin,
+                    distance,
+                })
+                .boxed()
         }
-        BrowserAction::Reload => {
-            BoxedGenerator::new(just(BrowserAction::Reload))
-        }
+        BrowserAction::Reload => just(BrowserAction::Reload).boxed(),
     }
 }
 
-pub fn pick_from_tree<T: for<'de> Deserialize<'de> + 'static>(
-    tree: &Tree<BoxedGenerator<T>>,
-) -> BoxedGenerator<T> {
+pub fn pick_from_tree<'a, T: for<'de> Deserialize<'de> + 'static>(
+    tree: &'a Tree<BoxedGenerator<T>>,
+) -> BoxedGenerator<'a, T> {
     match tree {
         Tree::Leaf(x) => x.clone(),
-        Tree::Branch(branches) => BoxedGenerator::new(hegel::r#gen::one_of(
-            branches.iter().map(pick_from_tree).collect(),
-        )),
+        Tree::Branch(branches) => {
+            hegel::r#gen::one_of(branches.iter().map(pick_from_tree).collect())
+                .boxed()
+        }
     }
 }
 
@@ -64,10 +60,11 @@ pub fn pick_action(
     actions: Tree<(BrowserAction, Timeout)>,
 ) -> (BrowserAction, Timeout) {
     pick_from_tree(&actions.map(|(action, timeout)| {
+        let action = action.clone();
         let timeout = timeout.clone();
-        BoxedGenerator::new(
-            generate_action(action).map(move |action| (action, timeout)),
-        )
+        generate_action(action)
+            .map(move |action| (action, timeout))
+            .boxed()
     }))
     .generate()
 }
