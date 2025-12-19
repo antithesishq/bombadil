@@ -12,7 +12,7 @@ use log::{debug, info};
 use serde_json as json;
 use tokio::time::timeout;
 
-use crate::browser::state::{BrowserState, ConsoleEntryLevel};
+use crate::browser::state::{BrowserState, ConsoleEntryLevel, Exception};
 use crate::browser::{Browser, BrowserOptions};
 
 pub async fn run(browser: &mut Browser) -> anyhow::Result<()> {
@@ -99,11 +99,20 @@ async fn check_page_ok(state: &BrowserState) -> anyhow::Result<()> {
     }
 
     if let Some(exception) = &state.exception {
-        let formatted = match exception {
-            json::Value::String(s) => s.clone(),
-            other => json::to_string_pretty(other)?,
-        };
-        bail!("uncaught exception: {}", formatted)
+        fn formatted(value: &json::Value) -> anyhow::Result<String> {
+            match value {
+                json::Value::String(s) => Ok(s.clone()),
+                other => json::to_string_pretty(other).map_err(Into::into),
+            }
+        }
+        match exception {
+            Exception::UncaughtException(value) => {
+                bail!("uncaught exception: {}", formatted(value)?)
+            }
+            Exception::UnhandledPromiseRejection(value) => {
+                bail!("unhandled promise rejection: {}", formatted(value)?)
+            }
+        }
     }
 
     Ok(())

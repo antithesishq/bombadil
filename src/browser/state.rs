@@ -7,7 +7,7 @@ use chromiumoxide::{
     page::ScreenshotParams,
     Page,
 };
-use serde::de::DeserializeOwned;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json as json;
 use std::{io::Write, path::Path};
 use std::{
@@ -29,10 +29,16 @@ pub struct BrowserState {
     pub title: String,
     pub content_type: String,
     pub console_entries: Vec<ConsoleEntry>,
-    pub exception: Option<json::Value>,
+    pub exception: Option<Exception>,
 
     #[allow(unused, reason = "we'll store this later")]
     screenshot_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Exception {
+    UncaughtException(json::Value),
+    UnhandledPromiseRejection(json::Value),
 }
 
 #[derive(Clone, Debug)]
@@ -53,7 +59,7 @@ impl BrowserState {
         page: Arc<Page>,
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
-        exception: Option<json::Value>,
+        exception: Option<Exception>,
         screenshots_directory: &Path,
     ) -> anyhow::Result<Self> {
         let url: String = evaluate_expression_in_debugger(

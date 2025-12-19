@@ -22,7 +22,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
-use crate::browser::state::{BrowserState, ConsoleEntry};
+use crate::browser::state::{BrowserState, ConsoleEntry, Exception};
 use crate::state_machine;
 
 pub mod actions;
@@ -509,6 +509,7 @@ async fn run_state_machine(
                                             .or(Some(json::Value::Object(
                                                 object,
                                             )))
+                                            .map(Exception::UncaughtException)
                                     } else {
                                         bail!(
                                             "unexpected exception data: {:?}",
@@ -521,12 +522,12 @@ async fn run_state_machine(
                                         exception
                                     {
                                         object
-                                            .get("value")
-                                            .or(object.get("description"))
-                                            .map(|value| value.clone())
-                                            .or(Some(json::Value::Object(
-                                                object,
-                                            )))
+                                                .get("value")
+                                                .or(object.get("description"))
+                                                .map(|value| value.clone())
+                                                .or(Some(json::Value::Object(
+                                                    object,
+                                                ))).map( Exception::UnhandledPromiseRejection)
                                     } else {
                                         bail!("unexpected promise rejection data: {:?}", &exception)
                                     }
