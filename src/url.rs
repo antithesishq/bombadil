@@ -1,7 +1,6 @@
 use anyhow::anyhow;
 use url::Url;
 
-#[allow(unused, reason = "porting this to js scripts")]
 pub fn is_within_domain(uri: &Url, domain: &Url) -> bool {
     dbg!((uri.host(), uri.port(), domain.host(), domain.port()));
     (uri.host().is_none() || uri.host() == domain.host())
