@@ -1,7 +1,6 @@
 function type_text() {
   let element = document.activeElement;
 
-  debugger;
   if (element === undefined || element === null || element === document.body) {
     return [];
   }
