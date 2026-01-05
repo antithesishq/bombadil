@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use chromiumoxide::browser::HeadlessMode;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
@@ -114,7 +114,7 @@ impl Browser {
     pub async fn new(
         origin: Url,
         browser_options: BrowserOptions,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let browser_config = BrowserConfig::builder()
             .headless_mode(if browser_options.headless {
                 HeadlessMode::New
@@ -223,7 +223,7 @@ impl state_machine::StateMachine for Browser {
     type State = BrowserState;
     type Action = BrowserAction;
 
-    async fn initiate(&mut self) -> anyhow::Result<()> {
+    async fn initiate(&mut self) -> Result<()> {
         let page = self.page.clone();
         let origin = self.origin.to_string();
         spawn(async move {
@@ -232,7 +232,7 @@ impl state_machine::StateMachine for Browser {
         Ok(())
     }
 
-    async fn terminate(&mut self) -> anyhow::Result<()> {
+    async fn terminate(&mut self) -> Result<()> {
         self.browser.close().await?;
         Ok(())
     }
@@ -253,7 +253,7 @@ impl state_machine::StateMachine for Browser {
         let _ = self.inner_events_sender.send(InnerEvent::StateRequested);
     }
 
-    async fn apply(&mut self, action: Self::Action) -> anyhow::Result<()> {
+    async fn apply(&mut self, action: Self::Action) -> Result<()> {
         self.actions_sender.send(action)?;
         Ok(())
     }
@@ -261,7 +261,7 @@ impl state_machine::StateMachine for Browser {
 
 async fn inner_events(
     context: &BrowserContext,
-) -> anyhow::Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
+) -> Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
     type InnerEventStream =
         Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
 
@@ -443,9 +443,9 @@ async fn inner_events(
 async fn run_state_machine(
     context: BrowserContext,
     mut events: impl stream::Stream<Item = InnerEvent> + Send + Unpin + 'static,
-) -> anyhow::Result<()> {
-    spawn::<Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>>(
-        Box::pin(async move {
+) -> Result<()> {
+    spawn::<Pin<Box<dyn Future<Output = Result<()>> + Send>>>(Box::pin(
+        async move {
             let mut state_current = InnerState::Initial;
             loop {
                 match events.next().await {
@@ -470,8 +470,8 @@ async fn run_state_machine(
                     }
                 };
             }
-        }),
-    );
+        },
+    ));
     Ok(())
 }
 
@@ -479,7 +479,7 @@ async fn process_event(
     context: &BrowserContext,
     state_current: InnerState,
     event: InnerEvent,
-) -> anyhow::Result<InnerState> {
+) -> Result<InnerState> {
     Ok(match (state_current, event) {
         (InnerState::Running(console_entries), InnerEvent::StateRequested) => {
             let _ = spawn(pause(context.page.clone()));
@@ -693,7 +693,7 @@ async fn process_event(
 async fn handle_node_modification(
     context: &BrowserContext,
     modification: &NodeModification,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     match modification {
         NodeModification::ChildNodeInserted { parent, .. } => {
             context
@@ -725,7 +725,7 @@ fn receiver_to_stream<T: Clone + Send + 'static>(
     }))
 }
 
-async fn pause(page: Arc<Page>) -> anyhow::Result<()> {
+async fn pause(page: Arc<Page>) -> Result<()> {
     page.evaluate_function("function () { debugger; }")
         .await
         .map_err(|err| anyhow!(err).context("evaluate function call failed"))?;

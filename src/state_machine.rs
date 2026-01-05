@@ -1,11 +1,10 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum Event<State> {
     StateChanged(Arc<State>),
-    // TODO: get rid of anyhow? This is contorted.
-    Error(Arc<anyhow::Error>),
+    Error(Arc<Error>),
 }
 
 pub trait StateMachine {

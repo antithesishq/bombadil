@@ -7,7 +7,7 @@ use crate::browser::hegel;
 use crate::browser::random;
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
-use anyhow::bail;
+use anyhow::{bail, Result};
 use log::{debug, info};
 use serde_json as json;
 use tokio::time::timeout;
@@ -15,7 +15,7 @@ use tokio::time::timeout;
 use crate::browser::state::{BrowserState, ConsoleEntryLevel, Exception};
 use crate::browser::{Browser, BrowserOptions};
 
-pub async fn run(origin: &Url, browser: &mut Browser) -> anyhow::Result<()> {
+pub async fn run(origin: &Url, browser: &mut Browser) -> Result<()> {
     let mut rng = rand::rng();
     let mut last_action_timeout = Timeout::from_secs(1);
     loop {
@@ -61,7 +61,7 @@ pub async fn run(origin: &Url, browser: &mut Browser) -> anyhow::Result<()> {
 pub async fn run_test(
     origin: Url,
     browser_options: BrowserOptions,
-) -> anyhow::Result<()> {
+) -> Result<()> {
     info!("testing {}", &origin);
     let mut browser = Browser::new(origin.clone(), browser_options).await?;
 
@@ -72,7 +72,7 @@ pub async fn run_test(
     result
 }
 
-async fn check_page_ok(state: &BrowserState) -> anyhow::Result<()> {
+async fn check_page_ok(state: &BrowserState) -> Result<()> {
     let status: Option<u16> = state.evaluate_function_call(
                         "() => window.performance.getEntriesByType('navigation')[0]?.responseStatus", vec![]
                     ).await?;
@@ -99,7 +99,7 @@ async fn check_page_ok(state: &BrowserState) -> anyhow::Result<()> {
     }
 
     if let Some(exception) = &state.exception {
-        fn formatted(value: &json::Value) -> anyhow::Result<String> {
+        fn formatted(value: &json::Value) -> Result<String> {
             match value {
                 json::Value::String(s) => Ok(s.clone()),
                 other => json::to_string_pretty(other).map_err(Into::into),

@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use url::Url;
 
 pub fn is_within_domain(uri: &Url, domain: &Url) -> bool {
@@ -8,7 +8,7 @@ pub fn is_within_domain(uri: &Url, domain: &Url) -> bool {
 }
 
 #[allow(unused, reason = "porting this to js scripts")]
-pub fn parse_browser_url(string: &str, context: &Url) -> anyhow::Result<Url> {
+pub fn parse_browser_url(string: &str, context: &Url) -> Result<Url> {
     context.join(string).map_err(|err| anyhow!(err))
 }
 

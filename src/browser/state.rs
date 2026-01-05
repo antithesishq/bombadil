@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, Result};
 use chromiumoxide::{
     cdp::{
         browser_protocol::page::CaptureScreenshotFormat,
@@ -62,7 +62,7 @@ impl BrowserState {
         console_entries: Vec<ConsoleEntry>,
         exception: Option<Exception>,
         screenshots_directory: &Path,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
                 &page,
@@ -119,7 +119,7 @@ impl BrowserState {
         &self,
         function_expression: impl Into<String>,
         arguments: Vec<json::Value>,
-    ) -> anyhow::Result<Output> {
+    ) -> Result<Output> {
         evaluate_function_call_in_debugger(
             &self.page,
             &self.call_frame_id,

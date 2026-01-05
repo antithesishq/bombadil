@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Result};
 use chromiumoxide::{
     cdp::js_protocol::{debugger, runtime},
     Page,
@@ -10,7 +10,7 @@ pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
     page: &Page,
     call_frame_id: &debugger::CallFrameId,
     expression: impl Into<String>,
-) -> anyhow::Result<Output> {
+) -> Result<Output> {
     let returns: debugger::EvaluateOnCallFrameReturns = page
         .execute(
             debugger::EvaluateOnCallFrameParams::builder()
@@ -51,7 +51,7 @@ pub async fn evaluate_function_call_in_debugger<Output: DeserializeOwned>(
     call_frame_id: &debugger::CallFrameId,
     function_expression: impl Into<String>,
     arguments: Vec<json::Value>,
-) -> anyhow::Result<Output> {
+) -> Result<Output> {
     let mut arguments_json = Vec::with_capacity(arguments.len());
     for arg in arguments {
         arguments_json.push(json::to_string(&arg)?);

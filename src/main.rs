@@ -1,4 +1,5 @@
 use ::url::Url;
+use anyhow::Result;
 use clap::Parser;
 use tempfile::TempDir;
 
@@ -27,7 +28,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
+async fn main() -> Result<()> {
     env_logger::builder()
         .format_timestamp_millis()
         .format_target(true)
