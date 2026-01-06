@@ -35,6 +35,10 @@
         devShells = {
           default = pkgs.mkShell {
             CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
+            TODOMVC = pkgs.fetchzip {
+              url = "https://github.com/tastejs/todomvc/archive/refs/heads/master.zip";
+              hash = "sha256-YlI6qx8Bm6atTJzYlQxp0qGpXJkoUxN+FnHyX0ALLgw=";
+            };
             inputsFrom = [ self.packages.${system}.default ];
             buildInputs = with pkgs; [
               rust-analyzer
