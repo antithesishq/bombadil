@@ -39,7 +39,13 @@ impl FromStr for Origin {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         Url::parse(s)
-            .or(Url::parse(&format!("file://{s}")))
+            .or(Url::parse(&format!(
+                "file://{}",
+                std::path::absolute(s)
+                    .expect("invalid path")
+                    .to_str()
+                    .expect("invalid path")
+            )))
             .map(|url| Origin { url })
     }
 }
