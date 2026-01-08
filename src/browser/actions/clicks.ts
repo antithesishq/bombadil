@@ -107,6 +107,12 @@ result = (() => {
         continue;
       }
 
+
+      if (element === document.activeElement && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) && element.value) {
+        console.debug(element, "is blank and active, no need to click");
+        continue;
+      }
+
       clicks.push([3, 300, {
         Click: {
           name: element.nodeName,
