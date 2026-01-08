@@ -18,7 +18,6 @@ chromiumoxide = "0.8.0"
 clap = { version = "4.5.46", features = ["derive"] }
 env_logger = "0.11.8"
 futures = "0.3.31"
-hegel = { path = "../star/hegel/sdks/rust", optional = true }
 http = "1.4.0"
 include_dir = "0.7.4"
 log = "0.4.29"
@@ -33,9 +32,6 @@ url = "2.5.7"
 
 [build-dependencies]
 glob = "0.3.3"
-
-[features]
-hegel = ["dep:hegel"]
 
 [dev-dependencies]
 axum = "0.8.8"

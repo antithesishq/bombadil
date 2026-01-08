@@ -27,8 +27,6 @@ use crate::state_machine;
 
 pub mod actions;
 pub mod evaluation;
-#[cfg(feature = "hegel")]
-pub mod hegel;
 pub mod keys;
 pub mod random;
 pub mod state;

@@ -1,9 +1,6 @@
 use std::time::UNIX_EPOCH;
 
 use crate::browser::actions::{available_actions, Timeout};
-#[cfg(feature = "hegel")]
-use crate::browser::hegel;
-#[cfg(not(feature = "hegel"))]
 use crate::browser::random;
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
@@ -28,11 +25,6 @@ pub async fn run(origin: &Url, browser: &mut Browser) -> Result<()> {
                     check_page_ok(&state).await?;
 
                     let actions = available_actions(origin, &state).await?;
-
-                    #[cfg(feature = "hegel")]
-                    let action = hegel::pick_action(actions);
-
-                    #[cfg(not(feature = "hegel"))]
                     let action = random::pick_action(&mut rng, actions);
 
                     match action {

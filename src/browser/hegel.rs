@@ -1,3 +1,5 @@
+/// Exceluded for now, until Hegel is available in crates.io.
+///
 use hegel::r#gen::{floats, just, one_of, BoxedGenerator, Generate};
 use serde::Deserialize;
 
