@@ -25,7 +25,12 @@ use hyper::server::conn::http1;
 use hyper::{body::Incoming, upgrade::Upgraded};
 use hyper_util::rt::TokioIo;
 use oxc::span::SourceType;
-use std::{convert::Infallible, net::SocketAddr, str::from_utf8};
+use std::{
+    convert::Infallible,
+    hash::{DefaultHasher, Hash, Hasher},
+    net::SocketAddr,
+    str::from_utf8,
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     spawn,
@@ -199,7 +204,21 @@ async fn proxy_with_instrumentation(
         && content_type.to_str()?.starts_with("text/javascript")
     {
         let bytes = response_body.collect().await?.to_bytes();
+
+        // Calculate source ID from etag or body.
+        let mut hasher = DefaultHasher::new();
+        match response_parts
+            .headers
+            .get("etag")
+            .and_then(|value| value.to_str().ok())
+        {
+            Some(etag) => etag.hash(&mut hasher),
+            None => bytes.hash(&mut hasher),
+        };
+        let source_id = instrumentation::SourceId(hasher.finish());
+
         match instrumentation::instrument_source_code(
+            source_id,
             from_utf8(&bytes)?,
             SourceType::cjs(),
         ) {
@@ -216,8 +235,6 @@ async fn proxy_with_instrumentation(
     } else {
         response_body
     };
-
-    // log::info!("we have javascript");
 
     Ok(Response::from_parts(response_parts, body))
 }

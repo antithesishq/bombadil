@@ -1,4 +1,5 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 use oxc::allocator;
 use oxc::ast::ast::{
@@ -15,7 +16,6 @@ use oxc::{
 use oxc_codegen::Codegen;
 use oxc_semantic::SemanticBuilder;
 use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
-use rand::{Rng, SeedableRng};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstrumentationError {
@@ -38,13 +38,16 @@ impl fmt::Display for InstrumentationError {
 
 pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 
+pub struct SourceId(pub u64);
+
 pub fn instrument_source_code(
+    source_id: SourceId,
     source_text: &str,
     source_type: SourceType,
 ) -> InstrumentationResult<String> {
     let allocator = Allocator::default();
     let mut program = parse(&allocator, source_text, source_type)?;
-    instrument_program(&allocator, &mut program)?;
+    instrument_program(&allocator, &mut program, source_id)?;
 
     let program_codegen = Codegen::new().build(&program);
 
@@ -69,9 +72,10 @@ fn parse<'a>(
     return Ok(result.program);
 }
 
-pub fn instrument_program<'a>(
+fn instrument_program<'a>(
     allocator: &'a Allocator,
     program: &mut ast::Program<'a>,
+    source_id: SourceId,
 ) -> InstrumentationResult<()> {
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
@@ -82,18 +86,21 @@ pub fn instrument_program<'a>(
         return Err(InstrumentationError::SemanticErrors(errors));
     }
     let scopes = semantic.semantic.into_scoping();
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
-    let mut instrumenter = Instrumenter { rng: &mut rng };
+    let mut instrumenter = Instrumenter {
+        source_id,
+        next_block_id: 0,
+    };
     traverse_mut(&mut instrumenter, &allocator, program, scopes, ());
 
     Ok(())
 }
 
-struct Instrumenter<'a> {
-    rng: &'a mut rand::rngs::StdRng,
+struct Instrumenter {
+    source_id: SourceId,
+    next_block_id: u64,
 }
 
-impl<'a> Instrumenter<'a> {
+impl<'a> Instrumenter {
     fn coverage_hooks<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
@@ -109,9 +116,15 @@ impl<'a> Instrumenter<'a> {
                 false,
             )
             .into();
+
+        let mut hasher = std::hash::DefaultHasher::new();
+        (self.source_id.0, self.next_block_id).hash(&mut hasher);
+        let id = hasher.finish();
+        self.next_block_id += 1;
+
         let branch_id = ctx.ast.expression_numeric_literal(
             SPAN,
-            self.rng.random::<u64>() as f64,
+            id as f64,
             None,
             ast::NumberBase::Decimal,
         );
@@ -246,7 +259,7 @@ impl<'a> Instrumenter<'a> {
     }
 }
 
-impl<'a, 'b> Traverse<'a, ()> for Instrumenter<'b> {
+impl<'a> Traverse<'a, ()> for Instrumenter {
     /// Add coverage hooks to ternary expression branches.
     fn exit_conditional_expression(
         &mut self,
@@ -314,7 +327,8 @@ mod tests {
         "#;
 
         let code =
-            instrument_source_code(source_text, SourceType::cjs()).unwrap();
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
         assert_snapshot!(code);
     }
 
@@ -331,7 +345,8 @@ mod tests {
         "#;
 
         let code =
-            instrument_source_code(source_text, SourceType::cjs()).unwrap();
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
         assert_snapshot!(code);
     }
 
@@ -349,7 +364,8 @@ mod tests {
         "#;
 
         let code =
-            instrument_source_code(source_text, SourceType::cjs()).unwrap();
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
         assert_snapshot!(code);
     }
 
@@ -364,7 +380,8 @@ mod tests {
         "#;
 
         let code =
-            instrument_source_code(source_text, SourceType::cjs()).unwrap();
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
         assert_snapshot!(code);
     }
 
@@ -381,7 +398,8 @@ mod tests {
         "#;
 
         let code =
-            instrument_source_code(source_text, SourceType::cjs()).unwrap();
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
         assert_snapshot!(code);
     }
 }

@@ -6,13 +6,13 @@ window.antithesis_branch_coverage = window.antithesis_branch_coverage || new Uin
 window.antithesis_location_previous = window.antithesis_location_previous || 0;
 let x;
 function example(a, b) {
-	if (a == true) {
-		antithesis_branch_coverage[(0xbb2a3fb2cd2c7000 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
-		antithesis_location_previous = 0xbb2a3fb2cd2c7000 >> 1;
+	if (a) {
+		antithesis_branch_coverage[(0x76be999e3e25b400 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
+		antithesis_location_previous = 0x76be999e3e25b400 >> 1;
 		x = b;
 	} else {
-		antithesis_branch_coverage[(0xc6017c948e276800 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
-		antithesis_location_previous = 0xc6017c948e276800 >> 1;
+		antithesis_branch_coverage[(0x7359aa1156ce8800 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
+		antithesis_location_previous = 0x7359aa1156ce8800 >> 1;
 	}
 }
 console.log(example(true, 1));
