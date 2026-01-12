@@ -2,19 +2,18 @@
 source: src/instrumentation.rs
 expression: code
 ---
-window.antithesis_branch_coverage = window.antithesis_branch_coverage || new Uint8Array(64 * 1024);
-window.antithesis_location_previous = window.antithesis_location_previous || 0;
+window.antithesis = window.antithesis || { coverage: new Uint8Array(65536), previous = 0 };
 let x = 1;
 let y = 2;
 let z = 3;
 function example(a, b, c) {
 	return a ? (() => {
-		antithesis_branch_coverage[(0x76be999e3e25b400 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
-		antithesis_location_previous = 0x76be999e3e25b400 >> 1;
+		antithesis.coverage[(0x76be999e3e25b400 ^ antithesis.previous) % 65536] += 1;
+		antithesis.previous = 0x76be999e3e25b400 >> 1;
 		return x = y, b;
 	})() : (() => {
-		antithesis_branch_coverage[(0x7359aa1156ce8800 ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
-		antithesis_location_previous = 0x7359aa1156ce8800 >> 1;
+		antithesis.coverage[(0x7359aa1156ce8800 ^ antithesis.previous) % 65536] += 1;
+		antithesis.previous = 0x7359aa1156ce8800 >> 1;
 		return y = z, c;
 	})();
 }

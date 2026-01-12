@@ -40,6 +40,11 @@ pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 
 pub struct SourceId(pub u64);
 
+const NAMESPACE: &'static str = "antithesis";
+const COVERAGE_MAP: &'static str = "coverage";
+const LOCATION_PREVIOUS: &'static str = "previous";
+const SIZE_BYTES: u32 = 64 * 1024;
+
 pub fn instrument_source_code(
     source_id: SourceId,
     source_text: &str,
@@ -52,7 +57,7 @@ pub fn instrument_source_code(
     let program_codegen = Codegen::new().build(&program);
 
     let code = format!(
-        "window.antithesis_branch_coverage = window.antithesis_branch_coverage || new Uint8Array(64 * 1024);\nwindow.antithesis_location_previous = window.antithesis_location_previous || 0;\n{}",
+        "window.{NAMESPACE} = window.{NAMESPACE} || {{ {COVERAGE_MAP}: new Uint8Array({SIZE_BYTES}), {LOCATION_PREVIOUS} = 0 }};\n{}",
         program_codegen.code
     );
     return Ok(code);
@@ -105,17 +110,16 @@ impl<'a> Instrumenter {
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
     ) -> allocator::Vec<'b, Statement<'b>> {
-        let branch_coverage_length: Expression = ctx
-            .ast
-            .member_expression_static(
-                SPAN,
-                ctx.ast
-                    .expression_identifier(SPAN, "antithesis_branch_coverage")
-                    .into(),
-                ctx.ast.identifier_name(SPAN, "length"),
-                false,
-            )
-            .into();
+        let antithesis_member = |name: &'static str| -> Expression {
+            ctx.ast
+                .member_expression_static(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, NAMESPACE).into(),
+                    ctx.ast.identifier_name(SPAN, name),
+                    false,
+                )
+                .into()
+        };
 
         let mut hasher = std::hash::DefaultHasher::new();
         (self.source_id.0, self.next_block_id).hash(&mut hasher);
@@ -134,12 +138,15 @@ impl<'a> Instrumenter {
                 SPAN,
                 branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
                 ast::BinaryOperator::BitwiseXOR,
-                ctx.ast
-                    .expression_identifier(SPAN, "antithesis_location_previous")
-                    .into(),
+                antithesis_member(LOCATION_PREVIOUS).into(),
             ),
             ast::BinaryOperator::Remainder,
-            branch_coverage_length,
+            ctx.ast.expression_numeric_literal(
+                SPAN,
+                (64 * 1024u32) as f64,
+                None,
+                ast::NumberBase::Decimal,
+            ),
         );
         let branch_addition: Statement = ctx.ast.statement_expression(
             SPAN,
@@ -149,12 +156,7 @@ impl<'a> Instrumenter {
                 AssignmentTarget::ComputedMemberExpression(
                     ctx.ast.alloc_computed_member_expression(
                         SPAN,
-                        ctx.ast
-                            .expression_identifier(
-                                SPAN,
-                                "antithesis_branch_coverage",
-                            )
-                            .into(),
+                        antithesis_member(COVERAGE_MAP).into(),
                         branch_index,
                         false,
                     ),
@@ -172,10 +174,12 @@ impl<'a> Instrumenter {
             ctx.ast.expression_assignment(
                 SPAN,
                 AssignmentOperator::Assign,
-                AssignmentTarget::AssignmentTargetIdentifier(
-                    ctx.ast.alloc_identifier_reference(
+                AssignmentTarget::StaticMemberExpression(
+                    ctx.ast.alloc_static_member_expression(
                         SPAN,
-                        "antithesis_location_previous",
+                        ctx.ast.expression_identifier(SPAN, NAMESPACE),
+                        ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
+                        false,
                     ),
                 ),
                 ctx.ast.expression_binary(
@@ -201,8 +205,8 @@ impl<'a> Instrumenter {
     /// in a block with these two at the start:
     ///
     /// ```not_rust
-    /// antithesis_branch_coverage[(<id> ^ antithesis_location_previous) % antithesis_branch_coverage.length] += 1;
-    /// antithesis_location_previous = <id> >> 1;
+    /// antithesis.coverage[(<id> ^ antithesis.previous) % 65536] += 1;
+    /// antithesis.previous = <id> >> 1;
     /// ```
     ///
     /// The <id> is a random integer identifying branch.
