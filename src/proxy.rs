@@ -19,10 +19,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use http::{uri::PathAndQuery, HeaderValue};
+use http::{uri::PathAndQuery, HeaderValue, Method};
 use http_body_util::BodyExt;
-use hyper::body::Incoming;
 use hyper::server::conn::http1;
+use hyper::{body::Incoming, upgrade::Upgraded};
 use hyper_util::rt::TokioIo;
 use oxc::span::SourceType;
 use std::{convert::Infallible, net::SocketAddr, str::from_utf8};
@@ -37,13 +37,25 @@ use crate::instrumentation;
 pub async fn start_proxy(port: u16) -> Result<()> {
     let tower_service = tower::service_fn(move |req: Request<_>| async move {
         let req = req.map(Body::new);
-        log::debug!("proxying: {:?}", req.uri());
-        match proxy(req).await {
-            Ok(response) => Ok::<Response<Body>, Infallible>(response),
-            Err(err) => {
-                log::warn!("proxy error: {:?}", err);
-                Ok((StatusCode::INTERNAL_SERVER_ERROR, "proxy error")
-                    .into_response())
+        if req.method() == Method::CONNECT {
+            log::debug!("proxying https");
+            match proxy_https(req).await {
+                Ok(response) => Ok::<Response<Body>, Infallible>(response),
+                Err(err) => {
+                    log::warn!("proxy (https) error: {:?}", err);
+                    Ok((StatusCode::INTERNAL_SERVER_ERROR, "proxy error")
+                        .into_response())
+                }
+            }
+        } else {
+            log::debug!("proxying with instrumentation: {:?}", req.uri());
+            match proxy_with_instrumentation(req).await {
+                Ok(response) => Ok::<Response<Body>, Infallible>(response),
+                Err(err) => {
+                    log::warn!("proxy (instrumenting) error: {:?}", err);
+                    Ok((StatusCode::INTERNAL_SERVER_ERROR, "proxy error")
+                        .into_response())
+                }
             }
         }
     });
@@ -66,6 +78,7 @@ pub async fn start_proxy(port: u16) -> Result<()> {
                         },
                     )
                 })
+                .with_upgrades()
                 .await
             {
                 println!("Failed to serve connection: {err:?}");
@@ -74,16 +87,62 @@ pub async fn start_proxy(port: u16) -> Result<()> {
     }
 }
 
-async fn proxy(req: Request<Body>) -> Result<Response<Body>> {
-    let (parts, body) = req.into_parts();
-    // let host = parts
-    //     .headers
-    //     .get("host")
-    //     .ok_or(anyhow!("no `host` header in request"))?
-    //     .to_str()?;
+async fn proxy_https(req: Request) -> Result<Response, hyper::Error> {
+    log::trace!("{:?}", req);
 
-    // Fake for now:
-    let host = "localhost:8000";
+    if let Some(host_addr) = req.uri().authority().map(|auth| auth.to_string())
+    {
+        tokio::task::spawn(async move {
+            match hyper::upgrade::on(req).await {
+                Ok(upgraded) => {
+                    if let Err(e) = tunnel(upgraded, host_addr).await {
+                        log::warn!("server io error: {}", e);
+                    };
+                }
+                Err(e) => log::warn!("upgrade error: {}", e),
+            }
+        });
+
+        Ok(Response::new(Body::empty()))
+    } else {
+        log::warn!("CONNECT host is not socket addr: {:?}", req.uri());
+        Ok((
+            StatusCode::BAD_REQUEST,
+            "CONNECT must be to a socket address",
+        )
+            .into_response())
+    }
+}
+
+async fn tunnel(upgraded: Upgraded, addr: String) -> std::io::Result<()> {
+    let mut server = TcpStream::connect(addr).await?;
+    let mut upgraded = TokioIo::new(upgraded);
+
+    let (from_client, from_server) =
+        tokio::io::copy_bidirectional(&mut upgraded, &mut server).await?;
+
+    log::debug!(
+        "client wrote {} bytes and received {} bytes",
+        from_client,
+        from_server
+    );
+
+    Ok(())
+}
+
+async fn proxy_with_instrumentation(
+    req: Request<Body>,
+) -> Result<Response<Body>> {
+    let (parts, body) = req.into_parts();
+    let host = parts
+        .headers
+        .get("host")
+        .ok_or(anyhow!("no `host` header in request"))?
+        .to_str()?;
+
+    // // Fake for now:
+    // let host = "localhost:8000";
+    //
 
     let stream = TcpStream::connect(host).await?;
     let io = TokioIo::new(stream);
