@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::time::UNIX_EPOCH;
 
 use crate::browser::actions::{available_actions, Timeout};
@@ -7,7 +8,6 @@ use crate::proxy::Proxy;
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
 use anyhow::{bail, Result};
-use bit_set::BitSet;
 use log::{debug, error, info};
 use serde_json as json;
 use tokio::time::timeout;
@@ -26,7 +26,7 @@ pub async fn run(
 ) -> Result<()> {
     let mut rng = rand::rng();
     let mut last_action_timeout = Timeout::from_secs(1);
-    let mut edges = BitSet::with_capacity(EDGE_MAP_SIZE);
+    let mut edges = [0u8; EDGE_MAP_SIZE];
     loop {
         match timeout(last_action_timeout.to_duration(), browser.next_event())
             .await
@@ -58,12 +58,32 @@ pub async fn run(
                         );
                     info!("edge delta: +{}/-{}", added, removed);
 
+                    // Update global edges.
                     for (index, bucket) in &state.coverage.edges_new {
-                        if *bucket > 0 {
-                            edges.insert(*index as usize);
+                        edges[*index as usize] =
+                            max(edges[*index as usize], *bucket);
+                    }
+
+                    let mut buckets = [0u64; 8];
+                    let mut hits_total: u64 = 0;
+                    for bucket in edges {
+                        if bucket > 0 {
+                            buckets[bucket as usize - 1] += 1;
+                            hits_total += 1;
                         }
                     }
-                    info!("total edges: {}", edges.len());
+                    info!("total hits: {}", hits_total);
+                    info!(
+                        "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
+                        buckets[0],
+                        buckets[1],
+                        buckets[2],
+                        buckets[3],
+                        buckets[4],
+                        buckets[5],
+                        buckets[6],
+                        buckets[7],
+                    );
 
                     let actions = available_actions(origin, &state).await?;
                     let action = random::pick_action(&mut rng, actions);
