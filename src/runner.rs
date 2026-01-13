@@ -76,7 +76,7 @@ pub async fn run_test(
     browser_options: &BrowserOptions,
 ) -> Result<()> {
     info!("testing {}", &origin);
-    let proxy = Proxy::spawn(3128).await?;
+    let proxy = Proxy::spawn(0).await?;
 
     let mut browser_options = browser_options.clone();
     browser_options.proxy = Some(format!("http://127.0.0.1:{}", proxy.port));
