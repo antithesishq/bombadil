@@ -69,7 +69,6 @@ pub fn instrument_source_code(
 
     let program_codegen = Codegen::new().build(&program);
 
-    log::info!("adding prelude: {PRELUDE}");
     let code = format!("{PRELUDE}\n{}", program_codegen.code);
     return Ok(code);
 }
