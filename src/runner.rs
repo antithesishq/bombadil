@@ -2,10 +2,12 @@ use std::time::UNIX_EPOCH;
 
 use crate::browser::actions::{available_actions, Timeout};
 use crate::browser::random;
+use crate::instrumentation::EDGE_MAP_SIZE;
 use crate::proxy::Proxy;
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
 use anyhow::{bail, Result};
+use bit_set::BitSet;
 use log::{debug, error, info};
 use serde_json as json;
 use tokio::time::timeout;
@@ -24,6 +26,7 @@ pub async fn run(
 ) -> Result<()> {
     let mut rng = rand::rng();
     let mut last_action_timeout = Timeout::from_secs(1);
+    let mut edges = BitSet::with_capacity(EDGE_MAP_SIZE);
     loop {
         match timeout(last_action_timeout.to_duration(), browser.next_event())
             .await
@@ -42,7 +45,25 @@ pub async fn run(
                         }
                     }
 
-                    info!("covered edges: {}", state.coverage.edges);
+                    let (added, removed) =
+                        state.coverage.edges_new.iter().fold(
+                            (0usize, 0usize),
+                            |(added, removed), (_, bucket)| {
+                                if *bucket > 0 {
+                                    (added + 1, removed)
+                                } else {
+                                    (added, removed + 1)
+                                }
+                            },
+                        );
+                    info!("edge delta: +{}/-{}", added, removed);
+
+                    for (index, bucket) in &state.coverage.edges_new {
+                        if *bucket > 0 {
+                            edges.insert(*index as usize);
+                        }
+                    }
+                    info!("total edges: {}", edges.len());
 
                     let actions = available_actions(origin, &state).await?;
                     let action = random::pick_action(&mut rng, actions);

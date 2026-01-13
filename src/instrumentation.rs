@@ -42,13 +42,15 @@ pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 pub struct SourceId(pub u64);
 
 pub const NAMESPACE: &'static str = "antithesis";
-pub const GLOBAL_EDGE_MAP: &'static str = "edges_global";
+pub const EDGES_PREVIOUS: &'static str = "edges_previous";
+pub const EDGES_CURRENT: &'static str = "edges_current";
 const LOCATION_PREVIOUS: &'static str = "previous";
-const EDGE_MAP_SIZE_BYTES: u32 = 64 * 1024;
+pub const EDGE_MAP_SIZE: usize = 64 * 1024;
 const PRELUDE: &'static str = str_replace!(
     formatcp!(
         "window.{NAMESPACE} = window.{NAMESPACE} || {{
-            {GLOBAL_EDGE_MAP}: new Uint8Array({EDGE_MAP_SIZE_BYTES}),
+            {EDGES_PREVIOUS}: new Uint8Array({EDGE_MAP_SIZE}),
+            {EDGES_CURRENT}: new Uint8Array({EDGE_MAP_SIZE}),
             {LOCATION_PREVIOUS}: 0,
         }};"
     ),
@@ -165,7 +167,7 @@ impl<'a> Instrumenter {
                 AssignmentTarget::ComputedMemberExpression(
                     ctx.ast.alloc_computed_member_expression(
                         SPAN,
-                        antithesis_member(GLOBAL_EDGE_MAP).into(),
+                        antithesis_member(EDGES_CURRENT).into(),
                         branch_index,
                         false,
                     ),

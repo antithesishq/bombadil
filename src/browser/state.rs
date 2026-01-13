@@ -1,4 +1,6 @@
-use crate::instrumentation::{GLOBAL_EDGE_MAP, NAMESPACE};
+use crate::instrumentation::{
+    EDGES_CURRENT, EDGES_PREVIOUS, EDGE_MAP_SIZE, NAMESPACE,
+};
 use anyhow::{Context, Result};
 use chromiumoxide::{
     cdp::{
@@ -39,9 +41,12 @@ pub struct BrowserState {
     screenshot_path: PathBuf,
 }
 
+pub type EdgeIndex = u32;
+pub type EdgeBucket = u8;
+
 #[derive(Clone, Debug)]
 pub struct Coverage {
-    pub edges: u32,
+    pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
 }
 
 #[derive(Clone, Debug)]
@@ -146,11 +151,43 @@ impl BrowserState {
         let mut screenshot_file = std::fs::File::create(&screenshot_path)?;
         screenshot_file.write_all(&screenshot_content)?;
 
-        let coverage_edges: u32 = evaluate_expression_in_debugger(
+        let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
-            format!(
-                "window.{NAMESPACE}?.{GLOBAL_EDGE_MAP}?.filter(x => x > 0).length || 0"
+            format!("
+                (() => {{
+                    if (!window.{NAMESPACE}) return [];
+
+                    // Bucket current hits into [1,8], similar to AFL.
+                    function bucket(hits) {{
+                        if (hits <= 3) return hits;
+                        let msb = 0;
+                        let n = hits;
+                        while (n > 0) {{
+                            n = n >> 1;
+                            msb++;
+                        }}
+                        return Math.min(msb + 1, 8);
+                    }}
+                    for (let i = 0; i < window.{NAMESPACE}.{EDGES_CURRENT}.length; i++) {{
+                        window.{NAMESPACE}.{EDGES_CURRENT}[i] = bucket(window.{NAMESPACE}.{EDGES_CURRENT}[i]);
+                    }}
+
+                    // Compute differences.
+                    const differences = [];
+                    for (let i = 0; i < window.{NAMESPACE}.{EDGES_CURRENT}.length; i++) {{
+                        if (window.{NAMESPACE}.{EDGES_CURRENT}[i] !== window.{NAMESPACE}.{EDGES_PREVIOUS}[i]) {{
+                            differences.push([i, window.{NAMESPACE}.{EDGES_CURRENT}[i]]);
+                        }}
+                    }}
+
+                    // Shift the arrays.
+                    window.{NAMESPACE}.{EDGES_PREVIOUS} = window.{NAMESPACE}.{EDGES_CURRENT};
+                    window.{NAMESPACE}.{EDGES_CURRENT} = new Uint8Array({EDGE_MAP_SIZE});
+
+                    return differences;
+                }})()
+                "
             ),
         )
         .await?;
@@ -164,9 +201,7 @@ impl BrowserState {
             console_entries,
             navigation_history,
             exception,
-            coverage: Coverage {
-                edges: coverage_edges,
-            },
+            coverage: Coverage { edges_new },
             screenshot_path,
         })
     }
