@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -22,6 +23,12 @@ use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
 pub enum InstrumentationError {
     ParseErrors(Vec<oxc::diagnostics::OxcDiagnostic>),
     SemanticErrors(Vec<oxc::diagnostics::OxcDiagnostic>),
+}
+
+impl From<InstrumentationError> for anyhow::Error {
+    fn from(value: InstrumentationError) -> Self {
+        anyhow!(value)
+    }
 }
 
 impl fmt::Display for InstrumentationError {

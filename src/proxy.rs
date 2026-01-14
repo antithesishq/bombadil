@@ -19,6 +19,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use bytes::Bytes;
 use http::{uri::PathAndQuery, HeaderValue, Method};
 use http_body_util::BodyExt;
 use hyper::server::conn::http1;
@@ -239,7 +240,7 @@ async fn proxy_with_instrumentation(
     log::debug!("response from target: {:?}", &response_parts);
 
     let body = if parts.uri.path().contains("node_modules") {
-        log::info!("not instrumenting third-party scripts: {}", parts.uri);
+        log::info!("not instrumenting third-party files: {}", parts.uri);
         response_body
     } else if let Some(content_type) =
         response_parts.headers.get("content-type")
@@ -247,23 +248,12 @@ async fn proxy_with_instrumentation(
     {
         let bytes = response_body.collect().await?.to_bytes();
 
-        // Calculate source ID from etag or body.
-        let mut hasher = DefaultHasher::new();
-        match response_parts
+        let etag = response_parts
             .headers
             .get("etag")
-            .and_then(|value| value.to_str().ok())
-        {
-            Some(etag) => etag.hash(&mut hasher),
-            None => bytes.hash(&mut hasher),
-        };
-        let source_id = instrumentation::SourceId(hasher.finish());
-
-        match instrumentation::instrument_source_code(
-            source_id,
-            from_utf8(&bytes)?,
-            SourceType::cjs(),
-        ) {
+            .and_then(|value| value.to_str().ok());
+        let source_id = source_id(etag, &bytes);
+        match instrument_javascript(source_id, &bytes) {
             Ok(code) => {
                 let headers = response_parts
                     .headers
@@ -279,4 +269,26 @@ async fn proxy_with_instrumentation(
     };
 
     Ok(Response::from_parts(response_parts, body))
+}
+
+/// Calculate source ID from etag or body.
+fn source_id(etag: Option<&str>, body: &Bytes) -> instrumentation::SourceId {
+    let mut hasher = DefaultHasher::new();
+    match etag {
+        Some(etag) => etag.hash(&mut hasher),
+        None => body.hash(&mut hasher),
+    };
+    instrumentation::SourceId(hasher.finish())
+}
+
+fn instrument_javascript(
+    source_id: instrumentation::SourceId,
+    body: &Bytes,
+) -> Result<Bytes> {
+    let code = instrumentation::instrument_source_code(
+        source_id,
+        from_utf8(&body)?,
+        SourceType::cjs(),
+    )?;
+    Ok(Bytes::from(code))
 }
