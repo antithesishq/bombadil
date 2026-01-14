@@ -141,8 +141,8 @@ pub async fn run(
                             "got new transition hash: {:?}",
                             state.transition_hash
                         );
-                        hash_previous = state.transition_hash;
                     };
+                    hash_previous = state.transition_hash;
 
                     let actions = available_actions(origin, &state).await?;
                     let action = random::pick_action(&mut rng, actions);
