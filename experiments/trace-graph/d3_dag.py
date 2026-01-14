@@ -94,7 +94,6 @@ def url_features(url):
 
 def url_simhash(url):
     feats = url_features(url)
-    print(f"url features: {feats}")
     v = [0] * 64
     for f in feats:
         h = feature_hash(f)
@@ -128,11 +127,6 @@ def combined_distance(a, b):
     d_cov = bin(a["cov_hash"] ^ b["cov_hash"]).count("1")
     d_url = bin(a.get("url_simhash", 0) ^ b.get("url_simhash", 0)).count("1")
     total_weight = coverage_weight + url_weight
-    print(
-        coverage_weight * d_cov,
-        url_weight * d_url,
-        (coverage_weight * d_cov + url_weight * d_url) / total_weight,
-    )
     return (coverage_weight * d_cov + url_weight * d_url) / total_weight
 
 
