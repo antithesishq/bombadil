@@ -133,12 +133,12 @@ async fn main() -> Result<()> {
                             log::info!("got new transition hash: {:?}", hash);
                         };
 
-                        if let Some(ref err) = *violation {
+                        if let Some(violation) = violation {
                             if exit_on_violation {
-                                eprintln!("violation: {}", err);
+                                eprintln!("violation: {}", violation);
                                 std::process::exit(2);
                             } else {
-                                log::error!("violation: {}", err);
+                                log::error!("violation: {}", violation);
                             }
                         }
                     }

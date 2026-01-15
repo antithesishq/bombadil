@@ -1,16 +1,35 @@
-use std::time::Duration;
-
 use axum::Router;
+use std::{fmt::Display, time::Duration};
 use tempfile::TempDir;
-use tokio::time::error::Elapsed;
+use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
 use url::Url;
 
-use antithesis_browser::{browser::BrowserOptions, runner::run_test};
+use antithesis_browser::{
+    browser::BrowserOptions,
+    runner::{run_test, Violation},
+};
 
 enum Expect {
     Error { substring: &'static str },
+    Violation { substring: &'static str },
     Success,
+}
+
+impl Display for Expect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expect::Error { substring } => {
+                write!(f, "expecting an error with substring {:?}", substring)
+            }
+            Expect::Violation { substring } => write!(
+                f,
+                "expecting a violation with substring {:?}",
+                substring
+            ),
+            Expect::Success => write!(f, "expecting success"),
+        }
+    }
 }
 
 /// Run a named browser test with a given expectation.
@@ -56,37 +75,88 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let result = tokio::time::timeout(
-        timeout,
-        run_test(
-            origin,
-            &BrowserOptions {
-                headless: true,
-                no_sandbox: false,
-                user_data_directory: user_data_directory.path().to_path_buf(),
-                width: 800,
-                height: 600,
-                proxy: None,
-            },
-        ),
+    let mut events = run_test(
+        origin,
+        &BrowserOptions {
+            headless: true,
+            no_sandbox: false,
+            user_data_directory: user_data_directory.path().to_path_buf(),
+            width: 800,
+            height: 600,
+            proxy: None,
+        },
     )
-    .await;
-    match (result, expect) {
-        (Ok(Err(err)), Expect::Error { substring }) => {
-            if !err.to_string().contains(substring) {
-                panic!("expected error message not found in: {}", err);
+    .await
+    .expect("run_test failed");
+
+    let violation = async move {
+        loop {
+            match events.recv().await {
+                Ok(antithesis_browser::runner::RunEvent::NewTraceEntry {
+                    entry: _,
+                    violation,
+                }) => {
+                    if violation.is_some() {
+                        return Ok(violation);
+                    }
+                }
+                Ok(antithesis_browser::runner::RunEvent::Error(err)) => {
+                    anyhow::bail!("{}", err)
+                }
+
+                Err(broadcast::error::RecvError::Closed) => return Ok(None),
+                Err(err) => anyhow::bail!("events recv error: {}", err),
             }
         }
-        (Ok(Err(err)), Expect::Success) => {
-            panic!("unexpected error: {}", err);
+    };
+
+    enum Outcome {
+        Success,
+        Violation(Violation),
+        Error(anyhow::Error),
+        Timeout,
+    }
+
+    impl Display for Outcome {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Outcome::Success => write!(f, "success"),
+                Outcome::Violation(violation) => {
+                    write!(f, "violation: {}", violation)
+                }
+                Outcome::Error(error) => {
+                    write!(f, "error: {}", error)
+                }
+                Outcome::Timeout => write!(f, "timeout"),
+            }
         }
-        (Ok(Ok(_)), Expect::Success) => {}
-        (Ok(Ok(_)), Expect::Error { .. }) => {
-            panic!("expected error but got success",);
+    }
+
+    let outcome = match tokio::time::timeout(timeout, violation).await {
+        Ok(Ok(None)) => Outcome::Success,
+        Ok(Ok(Some(violation))) => Outcome::Violation(violation),
+        Ok(Err(error)) => Outcome::Error(error),
+        Err(_elapsed) => Outcome::Timeout,
+    };
+
+    match (outcome, expect) {
+        (Outcome::Violation(violation), Expect::Violation { substring }) => {
+            if !violation.to_string().contains(substring) {
+                panic!(
+                    "expected violation message not found in: {}",
+                    violation
+                );
+            }
         }
-        (Err(Elapsed { .. }), Expect::Success) => {}
-        (Err(Elapsed { .. }), Expect::Error { .. }) => {
-            panic!("expected error but got timeout")
+        (Outcome::Error(error), Expect::Error { substring }) => {
+            if !error.to_string().contains(substring) {
+                panic!("expected error message not found in: {}", error);
+            }
+        }
+        (Outcome::Success, Expect::Success) => {}
+        (Outcome::Timeout, Expect::Success) => {}
+        (outcome, expect) => {
+            panic!("{} but got {}", expect, outcome);
         }
     }
 }
@@ -95,7 +165,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
 async fn test_console_error() {
     run_browser_test(
         "console-error",
-        Expect::Error {
+        Expect::Violation {
             substring: "oh no you pressed all of them",
         },
         Duration::from_secs(10),
@@ -107,7 +177,7 @@ async fn test_console_error() {
 async fn test_links() {
     run_browser_test(
         "links",
-        Expect::Error {
+        Expect::Violation {
             substring: "got 404 at localhost",
         },
         Duration::from_secs(5),
@@ -119,7 +189,7 @@ async fn test_links() {
 async fn test_uncaught_exception() {
     run_browser_test(
         "uncaught-exception",
-        Expect::Error {
+        Expect::Violation {
             substring: "oh no you pressed all of them",
         },
         Duration::from_secs(10),
@@ -131,7 +201,7 @@ async fn test_uncaught_exception() {
 async fn test_unhandled_promise_rejection() {
     run_browser_test(
         "unhandled-promise-rejection",
-        Expect::Error {
+        Expect::Violation {
             substring: "oh no you pressed all of them",
         },
         Duration::from_secs(10),

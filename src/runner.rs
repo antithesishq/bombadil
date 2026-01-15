@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -9,7 +10,6 @@ use crate::instrumentation::EDGE_MAP_SIZE;
 use crate::proxy::Proxy;
 use crate::state_machine::{self, StateMachine};
 use ::url::Url;
-use anyhow::{bail, Result};
 use serde::Serialize;
 use serde_json as json;
 use tokio::spawn;
@@ -32,7 +32,7 @@ pub struct TraceEntry {
 pub enum RunEvent {
     NewTraceEntry {
         entry: TraceEntry,
-        violation: Arc<Option<anyhow::Error>>,
+        violation: Option<Violation>,
     },
     Error(Arc<anyhow::Error>),
 }
@@ -41,7 +41,7 @@ pub async fn run(
     origin: Url,
     browser: &mut Browser,
     sender: broadcast::Sender<RunEvent>,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let mut last_action: Option<BrowserAction> = None;
     let mut last_action_timeout = Timeout::from_secs(1);
     let mut edges = [0u8; EDGE_MAP_SIZE];
@@ -107,7 +107,7 @@ pub async fn run(
                     sender
                         .send(RunEvent::NewTraceEntry {
                             entry: entry.clone(),
-                            violation: Arc::new(violation),
+                            violation,
                         })
                         .expect("send failed");
                     hash_previous = state.transition_hash;
@@ -129,11 +129,11 @@ pub async fn run(
                     }
                 }
                 state_machine::Event::Error(error) => {
-                    bail!("state machine error: {}", error)
+                    anyhow::bail!("state machine error: {}", error)
                 }
             },
             Ok(None) => {
-                bail!("browser closed")
+                anyhow::bail!("browser closed")
             }
             Err(_) => {
                 log::debug!("timed out");
@@ -146,7 +146,7 @@ pub async fn run(
 pub async fn run_test(
     origin: Url,
     browser_options: &BrowserOptions,
-) -> Result<broadcast::Receiver<RunEvent>> {
+) -> anyhow::Result<broadcast::Receiver<RunEvent>> {
     log::info!("testing {}", &origin);
 
     let (sender, receiver) = broadcast::channel(16);
@@ -176,14 +176,51 @@ pub async fn run_test(
     Ok(receiver)
 }
 
-async fn check_page_ok(state: &BrowserState) -> Result<()> {
+#[derive(Clone, Debug)]
+pub enum Violation {
+    Invariant(String),
+    Unknown(Arc<anyhow::Error>),
+}
+
+impl<E: Into<anyhow::Error>> From<E> for Violation {
+    fn from(value: E) -> Self {
+        Violation::Unknown(Arc::new(value.into()))
+    }
+}
+
+impl Display for Violation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Violation::Invariant(message) => {
+                write!(f, "invariant: {}", message)
+            }
+            Violation::Unknown(error) => {
+                write!(f, "{}", error)
+            }
+        }
+    }
+}
+
+macro_rules! invariant_violation {
+    ($msg:literal $(,)?) => {
+        return Result::Err(Violation::Invariant(format!("{}", $msg)))
+    };
+    ($err:expr $(,)?) => {
+        return Result::Err(Violation::Invariant(format!("{}", $err)))
+    };
+    ($fmt:expr, $($arg:tt)*) => {
+        return Result::Err(Violation::Invariant(format!($fmt, $($arg)*)))
+    };
+}
+
+async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
     let status: Option<u16> = state.evaluate_function_call(
                         "() => window.performance.getEntriesByType('navigation')[0]?.responseStatus", vec![]
                     ).await?;
     if let Some(status) = status
         && status >= 400
     {
-        bail!(
+        invariant_violation!(
             "expected 2xx or 3xx but got {} at {} ({})",
             status,
             state.title,
@@ -193,7 +230,7 @@ async fn check_page_ok(state: &BrowserState) -> Result<()> {
 
     for entry in &state.console_entries {
         match entry.level {
-            ConsoleEntryLevel::Error => bail!(
+            ConsoleEntryLevel::Error => invariant_violation!(
                 "console.error at {}: {:?}",
                 entry.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
                 entry.args
@@ -203,7 +240,7 @@ async fn check_page_ok(state: &BrowserState) -> Result<()> {
     }
 
     if let Some(exception) = &state.exception {
-        fn formatted(value: &json::Value) -> Result<String> {
+        fn formatted(value: &json::Value) -> Result<String, Violation> {
             match value {
                 json::Value::String(s) => Ok(s.clone()),
                 other => json::to_string_pretty(other).map_err(Into::into),
@@ -211,10 +248,16 @@ async fn check_page_ok(state: &BrowserState) -> Result<()> {
         }
         match exception {
             Exception::UncaughtException(value) => {
-                bail!("uncaught exception: {}", formatted(value)?)
+                invariant_violation!(
+                    "uncaught exception: {}",
+                    formatted(value)?
+                )
             }
             Exception::UnhandledPromiseRejection(value) => {
-                bail!("unhandled promise rejection: {}", formatted(value)?)
+                invariant_violation!(
+                    "unhandled promise rejection: {}",
+                    formatted(value)?
+                )
             }
         }
     }
