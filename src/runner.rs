@@ -1,17 +1,14 @@
-use std::cmp::max;
-use std::fmt::Display;
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::UNIX_EPOCH;
-
 use crate::browser::actions::{available_actions, BrowserAction, Timeout};
 use crate::browser::random;
 use crate::instrumentation::EDGE_MAP_SIZE;
+use crate::invariant_violation;
 use crate::proxy::Proxy;
 use crate::state_machine::{self, StateMachine};
+use crate::trace::{TraceEntry, Violation};
 use ::url::Url;
-use serde::Serialize;
 use serde_json as json;
+use std::cmp::max;
+use std::time::UNIX_EPOCH;
 use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
 use tokio::{select, spawn};
@@ -20,15 +17,6 @@ use crate::browser::state::{
     BrowserState, ConsoleEntryLevel, Coverage, Exception,
 };
 use crate::browser::{Browser, BrowserOptions};
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TraceEntry {
-    pub url: Url,
-    pub hash_previous: Option<u64>,
-    pub hash_current: Option<u64>,
-    pub action: Option<BrowserAction>,
-    pub screenshot_path: PathBuf,
-}
 
 pub struct RunnerOptions {
     pub stop_on_violation: bool,
@@ -238,43 +226,6 @@ impl RunEvents {
         let _ = self.shutdown.send(());
         (&mut self.done).await?
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum Violation {
-    Invariant(String),
-    Unknown(Arc<anyhow::Error>),
-}
-
-impl<E: Into<anyhow::Error>> From<E> for Violation {
-    fn from(value: E) -> Self {
-        Violation::Unknown(Arc::new(value.into()))
-    }
-}
-
-impl Display for Violation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Violation::Invariant(message) => {
-                write!(f, "invariant: {}", message)
-            }
-            Violation::Unknown(error) => {
-                write!(f, "{}", error)
-            }
-        }
-    }
-}
-
-macro_rules! invariant_violation {
-    ($msg:literal $(,)?) => {
-        return Result::Err(Violation::Invariant(format!("{}", $msg)))
-    };
-    ($err:expr $(,)?) => {
-        return Result::Err(Violation::Invariant(format!("{}", $err)))
-    };
-    ($fmt:expr, $($arg:tt)*) => {
-        return Result::Err(Violation::Invariant(format!($fmt, $($arg)*)))
-    };
 }
 
 async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {

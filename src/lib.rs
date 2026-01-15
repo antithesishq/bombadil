@@ -4,5 +4,6 @@ pub mod instrumentation;
 pub mod proxy;
 pub mod runner;
 pub mod state_machine;
+pub mod trace;
 pub mod tree;
 pub mod url;
