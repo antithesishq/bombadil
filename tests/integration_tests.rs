@@ -6,10 +6,7 @@ use tokio::time::error::Elapsed;
 use tower_http::services::ServeDir;
 use url::Url;
 
-use antithesis_browser::{
-    browser::BrowserOptions,
-    runner::{run_test, RunnerOptions},
-};
+use antithesis_browser::{browser::BrowserOptions, runner::run_test};
 
 enum Expect {
     Error { substring: &'static str },
@@ -58,16 +55,11 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     let origin =
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
-    let states_directory = TempDir::new().unwrap();
 
     let result = tokio::time::timeout(
         timeout,
         run_test(
             origin,
-            &RunnerOptions {
-                exit_on_violation: true,
-                states_directory: states_directory.path().to_path_buf(),
-            },
             &BrowserOptions {
                 headless: true,
                 no_sandbox: false,

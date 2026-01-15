@@ -1,15 +1,14 @@
-use std::str::FromStr;
-
 use ::url::Url;
 use anyhow::Result;
 use clap::Parser;
+use serde_json as json;
+use std::str::FromStr;
 use tempfile::TempDir;
-use tokio::sync::broadcast;
+use tokio::io::AsyncWriteExt;
+use tokio::{fs::File, sync::broadcast};
 
 use antithesis_browser::{
-    browser::BrowserOptions,
-    proxy::Proxy,
-    runner::{run_test, RunnerOptions},
+    browser::BrowserOptions, proxy::Proxy, runner::run_test,
 };
 
 #[derive(Parser)]
@@ -82,11 +81,8 @@ async fn main() -> Result<()> {
             exit_on_violation,
         } => {
             let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let states_directory = TempDir::with_prefix("states_")?;
-            let runner_options = RunnerOptions {
-                exit_on_violation,
-                states_directory: states_directory.keep(),
-            };
+            // TODO: make this configurable with CLI option
+            let states_directory = TempDir::with_prefix("states_")?.keep();
             let browser_options = BrowserOptions {
                 headless,
                 user_data_directory: user_data_directory.path().to_path_buf(),
@@ -95,12 +91,60 @@ async fn main() -> Result<()> {
                 no_sandbox,
                 proxy: None,
             };
-            let mut events =
-                run_test(origin.url, &runner_options, &browser_options).await?;
+            let mut events = run_test(origin.url, &browser_options).await?;
+
+            let mut trace_file = File::options()
+                .append(true)
+                .create(true)
+                .open(states_directory.join("trace.jsonl"))
+                .await?;
+            let screenshots_dir_path = states_directory.join("screenshots");
+            tokio::fs::create_dir_all(&screenshots_dir_path).await?;
+
             loop {
                 match events.recv().await {
-                    Ok(event) => {
-                        log::info!("{:?}", event);
+                    Ok(
+                        antithesis_browser::runner::RunEvent::NewTraceEntry {
+                            entry,
+                            violation,
+                        },
+                    ) => {
+                        log::debug!("new trace entry: {:?}", entry);
+
+                        let screenshot_path = screenshots_dir_path.join(
+                            entry
+                                .screenshot_path
+                                .file_name()
+                                .expect("screenshot must have a file name"),
+                        );
+                        // TODO: keep screenshot in memory until this point, no need to copy.
+                        tokio::fs::copy(
+                            &entry.screenshot_path,
+                            &screenshot_path,
+                        )
+                        .await?;
+
+                        trace_file
+                            .write(json::to_string(&entry)?.as_bytes())
+                            .await?;
+                        trace_file.write_u8(b'\n').await?;
+
+                        if let Some(hash) = entry.hash_current {
+                            log::info!("got new transition hash: {:?}", hash);
+                        };
+
+                        if let Some(ref err) = *violation {
+                            if exit_on_violation {
+                                eprintln!("violation: {}", err);
+                                std::process::exit(2);
+                            } else {
+                                log::error!("violation: {}", err);
+                            }
+                        }
+                    }
+                    Ok(antithesis_browser::runner::RunEvent::Error(err)) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
                     }
                     Err(broadcast::error::RecvError::Closed) => return Ok(()),
                     Err(err) => {
