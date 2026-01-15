@@ -12,7 +12,7 @@ pub trait StateMachine {
     type Action;
 
     fn initiate(&mut self) -> impl Future<Output = Result<()>>;
-    fn terminate(&mut self) -> impl Future<Output = Result<()>>;
+    fn terminate(self) -> impl Future<Output = Result<()>>;
     fn next_event(
         &mut self,
     ) -> impl Future<Output = Option<Event<Self::State>>>;

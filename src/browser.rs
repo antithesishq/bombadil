@@ -16,9 +16,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
-use tokio::spawn;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::oneshot;
+use tokio::{select, spawn};
 use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
@@ -86,6 +87,7 @@ struct BrowserContext {
     sender: Sender<state_machine::Event<BrowserState>>,
     actions_sender: Sender<BrowserAction>,
     inner_events_sender: Sender<InnerEvent>,
+    shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
     frame_id: FrameId,
     screenshots_directory: PathBuf,
@@ -107,6 +109,8 @@ pub struct Browser {
     receiver: Receiver<state_machine::Event<BrowserState>>,
     actions_sender: Sender<BrowserAction>,
     inner_events_sender: Sender<InnerEvent>,
+    shutdown_sender: oneshot::Sender<()>,
+    done_receiver: oneshot::Receiver<()>,
     browser: chromiumoxide::Browser,
     page: Arc<Page>,
     origin: Url,
@@ -174,6 +178,9 @@ impl Browser {
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
 
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
+        let (done_sender, done_receiver) = oneshot::channel::<()>();
+
         let frame_id = page
             .mainframe()
             .await?
@@ -183,6 +190,7 @@ impl Browser {
             sender,
             actions_sender: actions_sender.clone(),
             inner_events_sender: inner_events_sender.clone(),
+            shutdown_receiver,
             page: page.clone(),
             screenshots_directory,
             frame_id,
@@ -199,13 +207,15 @@ impl Browser {
             Box::pin(browser_events),
             receiver_to_stream(inner_events_receiver),
         ]);
-        run_state_machine(context, events_all).await?;
+        run_state_machine(context, events_all, done_sender).await?;
 
         Ok(Browser {
             browser,
             receiver,
             actions_sender,
             inner_events_sender,
+            shutdown_sender,
+            done_receiver,
             page,
             origin,
         })
@@ -225,8 +235,21 @@ impl state_machine::StateMachine for Browser {
         Ok(())
     }
 
-    async fn terminate(&mut self) -> Result<()> {
-        self.browser.close().await?;
+    async fn terminate(self) -> Result<()> {
+        let Browser {
+            shutdown_sender,
+            done_receiver,
+            mut browser,
+            ..
+        } = self;
+        shutdown_sender
+            .send(())
+            .map_err(|_| anyhow!("failed to send done signal"))?;
+        done_receiver.await?;
+        browser.close().await?;
+        if let Some(exit_code) = browser.wait().await? {
+            log::info!("browser exited with code {}", exit_code)
+        }
         Ok(())
     }
 
@@ -434,37 +457,48 @@ async fn inner_events(
 }
 
 async fn run_state_machine(
-    context: BrowserContext,
+    mut context: BrowserContext,
     mut events: impl stream::Stream<Item = InnerEvent> + Send + Unpin + 'static,
+    done_sender: oneshot::Sender<()>,
 ) -> Result<()> {
-    spawn::<Pin<Box<dyn Future<Output = Result<()>> + Send>>>(Box::pin(
-        async move {
-            let mut state_current = InnerState::Initial;
+    spawn(async move {
+        let mut state_current = InnerState::Initial;
+        async {
             loop {
-                match events.next().await {
-                    Some(event) => {
-                        match process_event(&context, state_current, event)
-                            .await
-                        {
-                            Ok(state_new) => state_current = state_new,
-                            Err(err) => {
-                                context.sender.send(
-                                    state_machine::Event::Error(Arc::new(
-                                        anyhow!("process_event: {:?}", err),
-                                    )),
-                                )?;
-                                return Ok(());
+                select! {
+                    _ = &mut context.shutdown_receiver => {
+                        log::info!("shutting down browser state machine");
+                        break;
+                    },
+                    event = events.next() => match event {
+                        Some(event) => {
+                            match process_event(&context, state_current, event)
+                                .await
+                            {
+                                Ok(state_new) => state_current = state_new,
+                                Err(err) => {
+                                    context.sender.send(
+                                        state_machine::Event::Error(Arc::new(
+                                            anyhow!("process_event: {:?}", err),
+                                        )),
+                                    )?;
+                                    break;
+                                }
                             }
                         }
+                        None => {
+                            info!("no more events, closing state machine loop");
+                            break;
+                        }
                     }
-                    None => {
-                        info!("no more events, closing state machine loop");
-                        return Ok(());
-                    }
-                };
+                }
             }
-        },
-    ));
+            done_sender.send(()).expect("failed to send done signal");
+            Ok::<(), anyhow::Error>(())
+        }
+        .await
+    });
+
     Ok(())
 }
 

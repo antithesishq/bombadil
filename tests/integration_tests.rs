@@ -1,13 +1,12 @@
 use axum::Router;
 use std::{fmt::Display, time::Duration};
 use tempfile::TempDir;
-use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
 use url::Url;
 
 use antithesis_browser::{
     browser::BrowserOptions,
-    runner::{run_test, Violation},
+    runner::{Runner, Violation},
 };
 
 enum Expect {
@@ -75,7 +74,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let mut events = run_test(
+    let runner = Runner::new(
         origin,
         &BrowserOptions {
             headless: true,
@@ -89,23 +88,23 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     .await
     .expect("run_test failed");
 
+    let mut events = runner.start();
+
     let violation = async move {
         loop {
-            match events.recv().await {
-                Ok(antithesis_browser::runner::RunEvent::NewTraceEntry {
-                    entry: _,
-                    violation,
-                }) => {
+            match events.next().await {
+                Ok(Some(
+                    antithesis_browser::runner::RunEvent::NewTraceEntry {
+                        entry: _,
+                        violation,
+                    },
+                )) => {
                     if violation.is_some() {
                         return Ok(violation);
                     }
                 }
-                Ok(antithesis_browser::runner::RunEvent::Error(err)) => {
-                    anyhow::bail!("{}", err)
-                }
-
-                Err(broadcast::error::RecvError::Closed) => return Ok(None),
-                Err(err) => anyhow::bail!("events recv error: {}", err),
+                Ok(None) => return Ok(None),
+                Err(err) => anyhow::bail!(err),
             }
         }
     };

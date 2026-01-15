@@ -4,11 +4,11 @@ use clap::Parser;
 use serde_json as json;
 use std::str::FromStr;
 use tempfile::TempDir;
+use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::{fs::File, sync::broadcast};
 
 use antithesis_browser::{
-    browser::BrowserOptions, proxy::Proxy, runner::run_test,
+    browser::BrowserOptions, proxy::Proxy, runner::Runner,
 };
 
 #[derive(Parser)]
@@ -91,7 +91,8 @@ async fn main() -> Result<()> {
                 no_sandbox,
                 proxy: None,
             };
-            let mut events = run_test(origin.url, &browser_options).await?;
+            let runner = Runner::new(origin.url, &browser_options).await?;
+            let mut events = runner.start();
 
             let mut trace_file = File::options()
                 .append(true)
@@ -101,14 +102,15 @@ async fn main() -> Result<()> {
             let screenshots_dir_path = states_directory.join("screenshots");
             tokio::fs::create_dir_all(&screenshots_dir_path).await?;
 
-            loop {
-                match events.recv().await {
-                    Ok(
+            let exit_code: anyhow::Result<Option<i32>> = async {
+                loop {
+                    match events.next().await {
+                    Ok(Some(
                         antithesis_browser::runner::RunEvent::NewTraceEntry {
                             entry,
                             violation,
                         },
-                    ) => {
+                    )) => {
                         log::debug!("new trace entry: {:?}", entry);
 
                         let screenshot_path = screenshots_dir_path.join(
@@ -136,23 +138,29 @@ async fn main() -> Result<()> {
                         if let Some(violation) = violation {
                             if exit_on_violation {
                                 eprintln!("violation: {}", violation);
-                                std::process::exit(2);
+                                break Ok(Some(2));
                             } else {
                                 log::error!("violation: {}", violation);
                             }
                         }
                     }
-                    Ok(antithesis_browser::runner::RunEvent::Error(err)) => {
-                        eprintln!("{}", err);
-                        std::process::exit(1);
-                    }
-                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                    Ok(None) => break Ok(None),
                     Err(err) => {
                         eprintln!("{}", err);
-                        std::process::exit(1);
+                        break Ok(Some(1));
                     }
                 }
+                }
             }
+            .await;
+
+            events.shutdown().await?;
+
+            if let Some(exit_code) = exit_code? {
+                std::process::exit(exit_code);
+            }
+
+            Ok(())
         }
         Command::Proxy { port } => {
             let mut proxy = Proxy::spawn(port).await?;

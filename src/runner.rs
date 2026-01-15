@@ -12,9 +12,9 @@ use crate::state_machine::{self, StateMachine};
 use ::url::Url;
 use serde::Serialize;
 use serde_json as json;
-use tokio::spawn;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
+use tokio::{select, spawn};
 
 use crate::browser::state::{BrowserState, ConsoleEntryLevel, Exception};
 use crate::browser::{Browser, BrowserOptions};
@@ -34,146 +34,224 @@ pub enum RunEvent {
         entry: TraceEntry,
         violation: Option<Violation>,
     },
-    Error(Arc<anyhow::Error>),
 }
 
-pub async fn run(
+pub struct Runner {
     origin: Url,
-    browser: &mut Browser,
-    sender: broadcast::Sender<RunEvent>,
-) -> anyhow::Result<()> {
-    let mut last_action: Option<BrowserAction> = None;
-    let mut last_action_timeout = Timeout::from_secs(1);
-    let mut edges = [0u8; EDGE_MAP_SIZE];
-    let mut hash_previous: Option<u64> = None;
+    browser: Browser,
+    proxy: Proxy,
+    events: broadcast::Sender<RunEvent>,
+    shutdown_sender: oneshot::Sender<()>,
+    shutdown_receiver: oneshot::Receiver<()>,
+    done_sender: oneshot::Sender<anyhow::Result<()>>,
+    done_receiver: oneshot::Receiver<anyhow::Result<()>>,
+}
 
-    loop {
-        match timeout(last_action_timeout.to_duration(), browser.next_event())
-            .await
-        {
-            Ok(Some(event)) => match event {
-                state_machine::Event::StateChanged(state) => {
-                    // very basic check until we have spec language and all that
-                    let violation = check_page_ok(&state).await.err();
+impl Runner {
+    pub async fn new(
+        origin: Url,
+        browser_options: &BrowserOptions,
+    ) -> anyhow::Result<Self> {
+        let (events, _) = broadcast::channel(16);
+        let (done_sender, done_receiver) = oneshot::channel();
+        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
+        let proxy = Proxy::spawn(0).await?;
 
-                    let (added, removed) =
-                        state.coverage.edges_new.iter().fold(
-                            (0usize, 0usize),
-                            |(added, removed), (_, bucket)| {
-                                if *bucket > 0 {
-                                    (added + 1, removed)
-                                } else {
-                                    (added, removed + 1)
-                                }
-                            },
-                        );
-                    log::info!("edge delta: +{}/-{}", added, removed);
+        let mut browser_options = browser_options.clone();
+        browser_options.proxy =
+            Some(format!("http://127.0.0.1:{}", proxy.port));
 
-                    // Update global edges.
-                    for (index, bucket) in &state.coverage.edges_new {
-                        edges[*index as usize] =
-                            max(edges[*index as usize], *bucket);
-                    }
+        let browser = Browser::new(origin.clone(), &browser_options).await?;
 
-                    let mut buckets = [0u64; 8];
-                    let mut hits_total: u64 = 0;
-                    for bucket in edges {
-                        if bucket > 0 {
-                            buckets[bucket as usize - 1] += 1;
-                            hits_total += 1;
-                        }
-                    }
-                    log::info!("total hits: {}", hits_total);
-                    log::info!(
-                        "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
-                        buckets[0],
-                        buckets[1],
-                        buckets[2],
-                        buckets[3],
-                        buckets[4],
-                        buckets[5],
-                        buckets[6],
-                        buckets[7],
-                    );
+        Ok(Runner {
+            origin,
+            browser,
+            proxy,
+            events,
+            shutdown_sender,
+            shutdown_receiver,
+            done_sender,
+            done_receiver,
+        })
+    }
 
-                    let entry = TraceEntry {
-                        url: state.url.clone(),
-                        hash_previous,
-                        hash_current: state.transition_hash,
-                        action: last_action,
-                        screenshot_path: state.screenshot_path.clone(),
-                    };
+    pub fn start(self) -> RunEvents {
+        let Runner {
+            origin,
+            mut browser,
+            proxy,
+            events,
+            shutdown_sender,
+            shutdown_receiver,
+            done_sender,
+            done_receiver,
+        } = self;
 
-                    sender
-                        .send(RunEvent::NewTraceEntry {
-                            entry: entry.clone(),
-                            violation,
-                        })
-                        .expect("send failed");
-                    hash_previous = state.transition_hash;
+        log::info!("starting test of {}", origin);
+        let events_receiver = events.subscribe();
 
-                    let actions = available_actions(&origin, &state).await?;
-
-                    let action = {
-                        let mut rng = rand::rng();
-                        random::pick_action(&mut rng, actions)
-                    };
-
-                    match action {
-                        (action, timeout) => {
-                            log::info!("picked action: {:?}", action);
-                            browser.apply(action.clone()).await?;
-                            last_action = Some(action);
-                            last_action_timeout = timeout;
-                        }
-                    }
-                }
-                state_machine::Event::Error(error) => {
-                    anyhow::bail!("state machine error: {}", error)
-                }
-            },
-            Ok(None) => {
-                anyhow::bail!("browser closed")
+        spawn(async move {
+            let result = async {
+                browser.initiate().await?;
+                Runner::run_test(
+                    origin,
+                    browser,
+                    proxy,
+                    events,
+                    shutdown_receiver,
+                )
+                .await
             }
-            Err(_) => {
-                log::debug!("timed out");
-                browser.request_state().await;
+            .await;
+
+            done_sender
+                .send(result)
+                .expect("couldn't send runner completion")
+        });
+
+        RunEvents {
+            events: events_receiver,
+            done: done_receiver,
+            shutdown: shutdown_sender,
+        }
+    }
+
+    async fn run_test(
+        origin: Url,
+        mut browser: Browser,
+        proxy: Proxy,
+        events: broadcast::Sender<RunEvent>,
+        mut shutdown: oneshot::Receiver<()>,
+    ) -> anyhow::Result<()> {
+        let mut last_action: Option<BrowserAction> = None;
+        let mut last_action_timeout = Timeout::from_secs(1);
+        let mut edges = [0u8; EDGE_MAP_SIZE];
+        let mut hash_previous: Option<u64> = None;
+
+        loop {
+            select! {
+                _ = &mut shutdown => {
+                    log::info!("shutting down...");
+                    browser.terminate().await?;
+                    proxy.stop();
+                    log::info!("browser and proxy have been shut down");
+                    return Ok(())
+                },
+                event = timeout( last_action_timeout.to_duration(), browser.next_event() ) => match event {
+                    Ok(Some(event)) => match event {
+                        state_machine::Event::StateChanged(state) => {
+                            // very basic check until we have spec language and all that
+                            let violation = check_page_ok(&state).await.err();
+
+                            let (added, removed) =
+                                state.coverage.edges_new.iter().fold(
+                                    (0usize, 0usize),
+                                    |(added, removed), (_, bucket)| {
+                                        if *bucket > 0 {
+                                            (added + 1, removed)
+                                        } else {
+                                            (added, removed + 1)
+                                        }
+                                    },
+                                );
+                            log::info!("edge delta: +{}/-{}", added, removed);
+
+                            // Update global edges.
+                            for (index, bucket) in &state.coverage.edges_new {
+                                edges[*index as usize] =
+                                    max(edges[*index as usize], *bucket);
+                            }
+
+                            let mut buckets = [0u64; 8];
+                            let mut hits_total: u64 = 0;
+                            for bucket in edges {
+                                if bucket > 0 {
+                                    buckets[bucket as usize - 1] += 1;
+                                    hits_total += 1;
+                                }
+                            }
+                            log::info!("total hits: {}", hits_total);
+                            log::info!(
+                                "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
+                                buckets[0],
+                                buckets[1],
+                                buckets[2],
+                                buckets[3],
+                                buckets[4],
+                                buckets[5],
+                                buckets[6],
+                                buckets[7],
+                            );
+
+                            let entry = TraceEntry {
+                                url: state.url.clone(),
+                                hash_previous,
+                                hash_current: state.transition_hash,
+                                action: last_action,
+                                screenshot_path: state.screenshot_path.clone(),
+                            };
+                            events.send(RunEvent::NewTraceEntry {
+                                entry: entry.clone(),
+                                violation,
+                            })?;
+
+                            hash_previous = state.transition_hash;
+
+                            let actions =
+                                available_actions(&origin, &state).await?;
+
+                            let action = {
+                                let mut rng = rand::rng();
+                                random::pick_action(&mut rng, actions)
+                            };
+
+                            match action {
+                                (action, timeout) => {
+                                    log::info!("picked action: {:?}", action);
+                                    browser.apply(action.clone()).await?;
+                                    last_action = Some(action);
+                                    last_action_timeout = timeout;
+                                }
+                            }
+                        }
+                        state_machine::Event::Error(error) => {
+                            anyhow::bail!("state machine error: {}", error)
+                        }
+                    },
+                    Ok(None) => {
+                        anyhow::bail!("browser closed")
+                    }
+                    Err(_) => {
+                        log::debug!("timed out");
+                        browser.request_state().await;
+                    }
+                }
             }
         }
     }
 }
 
-pub async fn run_test(
-    origin: Url,
-    browser_options: &BrowserOptions,
-) -> anyhow::Result<broadcast::Receiver<RunEvent>> {
-    log::info!("testing {}", &origin);
+pub struct RunEvents {
+    events: broadcast::Receiver<RunEvent>,
+    done: oneshot::Receiver<anyhow::Result<()>>,
+    shutdown: oneshot::Sender<()>,
+}
 
-    let (sender, receiver) = broadcast::channel(16);
-    let proxy = Proxy::spawn(0).await?;
-
-    let mut browser_options = browser_options.clone();
-    browser_options.proxy = Some(format!("http://127.0.0.1:{}", proxy.port));
-
-    let mut browser = Browser::new(origin.clone(), &browser_options).await?;
-    browser.initiate().await?;
-
-    spawn(async move {
-        let result = run(origin, &mut browser, sender.clone()).await;
-        // Try to gracefully shutdown first.
-        if let Err(err) = browser.terminate().await {
-            log::warn!("browser didn't close successfully: {}", err)
-        };
-        proxy.stop();
-        // Then send the error.
-        if let Err(err) = result {
-            sender
-                .send(RunEvent::Error(Arc::new(err)))
-                .expect("send error failed");
+impl RunEvents {
+    pub async fn next(&mut self) -> anyhow::Result<Option<RunEvent>> {
+        match self.events.recv().await {
+            Ok(event) => Ok(Some(event)),
+            Err(broadcast::error::RecvError::Closed) => Ok(None),
+            Err(error) => Err(error.into()),
         }
-    });
+    }
 
-    Ok(receiver)
+    pub async fn shutdown(mut self) -> anyhow::Result<()> {
+        self.shutdown
+            .send(())
+            .map_err(|_| anyhow::anyhow!("sending shutdown signal failed"))?;
+        (&mut self.done).await?
+    }
 }
 
 #[derive(Clone, Debug)]
