@@ -16,7 +16,9 @@ use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
 use tokio::{select, spawn};
 
-use crate::browser::state::{BrowserState, ConsoleEntryLevel, Exception};
+use crate::browser::state::{
+    BrowserState, ConsoleEntryLevel, Coverage, Exception,
+};
 use crate::browser::{Browser, BrowserOptions};
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,45 +157,13 @@ impl Runner {
                             // very basic check until we have spec language and all that
                             let violation = check_page_ok(&state).await.err();
 
-                            let (added, removed) =
-                                state.coverage.edges_new.iter().fold(
-                                    (0usize, 0usize),
-                                    |(added, removed), (_, bucket)| {
-                                        if *bucket > 0 {
-                                            (added + 1, removed)
-                                        } else {
-                                            (added, removed + 1)
-                                        }
-                                    },
-                                );
-                            log::info!("edge delta: +{}/-{}", added, removed);
-
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {
                                 edges[*index as usize] =
                                     max(edges[*index as usize], *bucket);
                             }
-
-                            let mut buckets = [0u64; 8];
-                            let mut hits_total: u64 = 0;
-                            for bucket in edges {
-                                if bucket > 0 {
-                                    buckets[bucket as usize - 1] += 1;
-                                    hits_total += 1;
-                                }
-                            }
-                            log::info!("total hits: {}", hits_total);
-                            log::info!(
-                                "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
-                                buckets[0],
-                                buckets[1],
-                                buckets[2],
-                                buckets[3],
-                                buckets[4],
-                                buckets[5],
-                                buckets[6],
-                                buckets[7],
-                            );
+                            log_coverage_stats_increment(&state.coverage);
+                            log_coverage_stats_total(&edges);
 
                             let entry = TraceEntry {
                                 url: state.url.clone(),
@@ -357,4 +327,45 @@ async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
     }
 
     Ok(())
+}
+
+fn log_coverage_stats_increment(coverage: &Coverage) {
+    if log::log_enabled!(log::Level::Debug) {
+        let (added, removed) = coverage.edges_new.iter().fold(
+            (0usize, 0usize),
+            |(added, removed), (_, bucket)| {
+                if *bucket > 0 {
+                    (added + 1, removed)
+                } else {
+                    (added, removed + 1)
+                }
+            },
+        );
+        log::debug!("edge delta: +{}/-{}", added, removed);
+    }
+}
+
+fn log_coverage_stats_total(edges: &[u8; EDGE_MAP_SIZE]) {
+    if log::log_enabled!(log::Level::Debug) {
+        let mut buckets = [0u64; 8];
+        let mut hits_total: u64 = 0;
+        for bucket in edges {
+            if *bucket > 0 {
+                buckets[*bucket as usize - 1] += 1;
+                hits_total += 1;
+            }
+        }
+        log::debug!("total hits: {}", hits_total);
+        log::debug!(
+            "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
+            buckets[0],
+            buckets[1],
+            buckets[2],
+            buckets[3],
+            buckets[4],
+            buckets[5],
+            buckets[6],
+            buckets[7],
+        );
+    }
 }
