@@ -109,7 +109,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     let result = async {
         loop {
             match events.next().await {
-                Ok(Some(RunEvent::NewTraceEntry { entry, violation })) => {
+                Ok(Some(RunEvent::NewTraceEntry { violation, .. })) => {
                     if let Some(violation) = violation {
                         break Err(anyhow!("violation: {}", violation));
                     }
