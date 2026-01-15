@@ -147,11 +147,9 @@ async fn main() -> Result<()> {
                             };
 
                             if let Some(violation) = violation {
+                                log::error!("violation: {}", violation);
                                 if exit_on_violation {
-                                    log::error!("violation: {}", violation);
                                     break Ok(Some(2));
-                                } else {
-                                    log::error!("violation: {}", violation);
                                 }
                             }
                         }

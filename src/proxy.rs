@@ -57,6 +57,7 @@ impl Proxy {
     }
 
     pub fn stop(self) {
+        log::info!("stopping proxy");
         match self.shutdown.send(()) {
             Ok(_) => {}
             Err(_) => log::error!("failed to stop proxy"),
@@ -107,7 +108,6 @@ async fn start_proxy(
     spawn(async move {
         loop {
             if let Ok(_) = shutdown.try_recv() {
-                log::info!("shutting down proxy");
                 break;
             }
             let (stream, _) = listener.accept().await.unwrap();

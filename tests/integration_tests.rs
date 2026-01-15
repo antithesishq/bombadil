@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use axum::Router;
 use std::{fmt::Display, sync::Once, time::Duration};
 use tempfile::TempDir;
@@ -8,7 +9,7 @@ use url::Url;
 
 use antithesis_browser::{
     browser::{actions::BrowserAction, Browser, BrowserOptions},
-    runner::{Runner, RunnerOptions},
+    runner::{RunEvent, Runner, RunnerOptions},
     state_machine::StateMachine,
 };
 
@@ -108,7 +109,11 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     let result = async {
         loop {
             match events.next().await {
-                Ok(Some(_event)) => {}
+                Ok(Some(RunEvent::NewTraceEntry { entry, violation })) => {
+                    if let Some(violation) = violation {
+                        break Err(anyhow!("violation: {}", violation));
+                    }
+                }
                 Ok(None) => break events.shutdown().await,
                 Err(err) => {
                     log::error!("next event error: {}", err);

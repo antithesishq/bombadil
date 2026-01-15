@@ -101,30 +101,25 @@ impl Runner {
         spawn(async move {
             let run = async || {
                 browser.initiate().await?;
-                log::info!("browser initiated");
-                let result = Runner::run_test(
+                log::debug!("browser initiated");
+                Runner::run_test(
                     origin,
                     options,
                     &mut browser,
                     events,
                     shutdown_receiver,
                 )
-                .await;
-                log::info!("test finished");
-                result
+                .await
             };
             let result = run().await;
+            log::debug!("test finished");
 
-            log::info!("shutting down after result: {:?}", &result);
             browser
                 .terminate()
                 .await
                 .expect("browser failed to terminate");
-            log::info!("stopping proxy");
             proxy.stop();
-            log::info!("browser and proxy have been shut down");
 
-            log::info!("signaling that we're done...");
             done_sender
                 .send(result)
                 .expect("couldn't send runner completion")
@@ -211,8 +206,8 @@ impl Runner {
                                 entry: entry.clone(),
                                 violation: violation.clone(),
                             })?;
-                            if let Some(violation) = violation && options.stop_on_violation {
-                                anyhow::bail!("stopping due to {}", violation);
+                            if let Some(_) = violation && options.stop_on_violation {
+                                return Ok(())
                             }
 
                             hash_previous = state.transition_hash;

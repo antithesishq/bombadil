@@ -9,7 +9,7 @@ use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
 use chromiumoxide::{BrowserConfig, Page};
 use futures::{stream, StreamExt};
-use log::{debug, error, info, warn};
+use log;
 use serde_json as json;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -173,7 +173,7 @@ impl Browser {
         .await?;
 
         let screenshots_directory = tempfile::tempdir()?.keep();
-        info!("storing screenshots in {:?}", &screenshots_directory);
+        log::debug!("storing screenshots in {:?}", &screenshots_directory);
 
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
@@ -244,7 +244,6 @@ impl state_machine::StateMachine for Browser {
         } = self;
         if let Ok(()) = shutdown_sender.send(()) {
             done_receiver.await?;
-            log::info!("received done, killing browser...");
         } else {
             log::warn!("couldn't send shutdown signal and receive done signal, killing browser anyway...");
         }
@@ -253,7 +252,7 @@ impl state_machine::StateMachine for Browser {
         //
         // Reported here: https://github.com/mattsse/chromiumoxide/issues/287
         drop(browser);
-        log::info!("terminate end");
+
         Ok(())
     }
 
@@ -471,7 +470,7 @@ fn run_state_machine(
             loop {
                 select! {
                     _ = &mut context.shutdown_receiver => {
-                        log::info!("shutting down browser state machine");
+                        log::debug!("shutting down browser state machine");
                         break;
                     },
                     event = events.next() => match event {
@@ -479,7 +478,7 @@ fn run_state_machine(
                             state_current = process_event(&context, state_current, event).await?;
                         }
                         None => {
-                            info!("no more events, shutting down state machine loop");
+                            log::debug!("no more events, shutting down state machine loop");
                             break;
                         }
                     }
@@ -519,7 +518,7 @@ async fn process_event(
             InnerState::Pausing(console_entries)
         }
         (state, InnerEvent::StateRequested) => {
-            debug!(
+            log::debug!(
                 "cannot request new browser state when in state {:?}, ignoring",
                 &state
             );
@@ -610,7 +609,7 @@ async fn process_event(
             InnerState::Resuming(browser_action)
         }
         (InnerState::Running(_), InnerEvent::Resumed) => {
-            warn!("running + resumed");
+            log::warn!("running + resumed");
             InnerState::Running(vec![])
         }
         (InnerState::Resuming(browser_action), InnerEvent::Resumed) => {
@@ -621,11 +620,15 @@ async fn process_event(
             // This gives us a chance to receive the "Debugger.paused" event and
             // resume (extracting the uncaught exception information).
             spawn(async move {
-                log::info!("applying: {:?}", browser_action);
+                log::debug!("applying: {:?}", browser_action);
                 match action.apply(&page).await {
                     Ok(_) => {}
                     Err(err) => {
-                        error!("failed to apply action {:?}: {:?}", action, err)
+                        log::error!(
+                            "failed to apply action {:?}: {:?}",
+                            action,
+                            err
+                        )
                     }
                 }
             });
@@ -642,9 +645,11 @@ async fn process_event(
             InnerEvent::FrameRequestedNavigation(frame_id, reason, url),
         ) => {
             if frame_id == context.frame_id {
-                info!(
+                log::debug!(
                     "navigating to {} due to {:?} (current state is {:?})",
-                    url, reason, state
+                    url,
+                    reason,
+                    state
                 );
                 InnerState::Navigating
             } else {
