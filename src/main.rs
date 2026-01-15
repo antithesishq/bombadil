@@ -4,6 +4,7 @@ use ::url::Url;
 use anyhow::Result;
 use clap::Parser;
 use tempfile::TempDir;
+use tokio::sync::broadcast;
 
 use antithesis_browser::{
     browser::BrowserOptions,
@@ -94,12 +95,18 @@ async fn main() -> Result<()> {
                 no_sandbox,
                 proxy: None,
             };
-            match run_test(origin.url, &runner_options, &browser_options).await
-            {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    eprintln!("{}", error);
-                    std::process::exit(2);
+            let mut events =
+                run_test(origin.url, &runner_options, &browser_options).await?;
+            loop {
+                match events.recv().await {
+                    Ok(event) => {
+                        log::info!("{:?}", event);
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        std::process::exit(1);
+                    }
                 }
             }
         }
