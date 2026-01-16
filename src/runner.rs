@@ -156,6 +156,11 @@ impl Runner {
                             let actions =
                                 available_actions(&origin, &state).await?;
 
+                            let action = {
+                                let mut rng = rand::rng();
+                                random::pick_action(&mut rng, actions)
+                            };
+
                             let entry = TraceEntry {
                                 timestamp: state.timestamp,
                                 url: state.url.clone(),
@@ -173,11 +178,6 @@ impl Runner {
                             }
 
                             hash_previous = state.transition_hash;
-
-                            let action = {
-                                let mut rng = rand::rng();
-                                random::pick_action(&mut rng, actions)
-                            };
 
                             match action {
                                 (action, timeout) => {
