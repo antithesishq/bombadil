@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use axum::Router;
 use std::{fmt::Display, sync::Once, time::Duration};
 use tempfile::TempDir;
-use tokio::spawn;
+use tokio::{spawn, sync::Semaphore};
 use tokio_stream::StreamExt;
 use tower_http::services::ServeDir;
 use url::Url;
@@ -44,6 +44,10 @@ fn setup() {
     });
 }
 
+/// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
+/// causing a timeout, so we limit parallelism.
+const TEST_SEMAPHORE: Semaphore = Semaphore::const_new(4);
+
 /// Run a named browser test with a given expectation.
 ///
 /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -56,6 +60,7 @@ fn setup() {
 /// Which means that every named test case directory should have an index.html file.
 async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     setup();
+    let _ = TEST_SEMAPHORE.acquire().await.unwrap();
     let app = Router::new().fallback_service(ServeDir::new("./tests"));
     let app_other = app.clone();
 
@@ -94,7 +99,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
             stop_on_violation: true,
         },
         &BrowserOptions {
-            headless: true,
+            headless: false,
             no_sandbox: false,
             user_data_directory: user_data_directory.path().to_path_buf(),
             width: 800,
