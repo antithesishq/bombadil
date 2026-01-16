@@ -12,12 +12,7 @@ use chromiumoxide::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json as json;
-use std::{io::Write, path::Path};
-use std::{
-    path::PathBuf,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{sync::Arc, time::SystemTime};
 use url::Url;
 
 use crate::browser::evaluation::{
@@ -29,6 +24,7 @@ pub struct BrowserState {
     page: Arc<Page>,
     call_frame_id: CallFrameId,
 
+    pub timestamp: SystemTime,
     pub url: Url,
     pub title: String,
     pub content_type: String,
@@ -37,8 +33,7 @@ pub struct BrowserState {
     pub exception: Option<Exception>,
     pub transition_hash: Option<u64>,
     pub coverage: Coverage,
-
-    pub screenshot_path: PathBuf,
+    pub screenshot: Screenshot,
 }
 
 pub type EdgeIndex = u32;
@@ -82,13 +77,36 @@ pub enum ConsoleEntryLevel {
     Error,
 }
 
+#[derive(Clone, Debug)]
+pub enum ScreenshotFormat {
+    Webp,
+    Png,
+    Jpeg,
+}
+
+impl ScreenshotFormat {
+    fn extension(&self) -> &str {
+        match self {
+            ScreenshotFormat::Webp => "webp",
+            ScreenshotFormat::Png => "png",
+            ScreenshotFormat::Jpeg => "jpeg",
+        }
+    }
+    fn to_chromiumoxide()
+}
+
+#[derive(Clone, Debug)]
+pub struct Screenshot {
+    pub format: ScreenshotFormat,
+    pub data: Vec<u8>,
+}
+
 impl BrowserState {
     pub(crate) async fn current(
         page: Arc<Page>,
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
         exception: Option<Exception>,
-        screenshots_directory: &Path,
     ) -> Result<Self> {
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
@@ -134,22 +152,19 @@ impl BrowserState {
             current: navigation_entries[index].clone(),
             forward: navigation_entries[index..].to_vec(),
         };
-        let screenshot_content = page
-            .screenshot(
-                ScreenshotParams::builder()
-                    .omit_background(true)
-                    .format(CaptureScreenshotFormat::Webp)
-                    .build(),
-            )
-            .await
-            .context("take screenshot")?;
 
-        let screenshot_path = screenshots_directory.join(format!(
-            "{}.webp",
-            SystemTime::now().duration_since(UNIX_EPOCH)?.as_micros()
-        ));
-        let mut screenshot_file = std::fs::File::create(&screenshot_path)?;
-        screenshot_file.write_all(&screenshot_content)?;
+        let screenshot = Screenshot {
+            data: page
+                .screenshot(
+                    ScreenshotParams::builder()
+                        .omit_background(true)
+                        .format(CaptureScreenshotFormat::Webp)
+                        .build(),
+                )
+                .await
+                .context("take screenshot")?,
+            format: CaptureScreenshotFormat::Webp,
+        };
 
         let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
             &page,
@@ -248,6 +263,7 @@ impl BrowserState {
         };
 
         Ok(BrowserState {
+            timestamp: SystemTime::now(),
             page: page.clone(),
             call_frame_id: call_frame_id.clone(),
             url,
@@ -258,7 +274,7 @@ impl BrowserState {
             exception,
             coverage: Coverage { edges_new },
             transition_hash,
-            screenshot_path,
+            screenshot,
         })
     }
 

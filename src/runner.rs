@@ -153,12 +153,16 @@ impl Runner {
                             log_coverage_stats_increment(&state.coverage);
                             log_coverage_stats_total(&edges);
 
+                            let actions =
+                                available_actions(&origin, &state).await?;
+
                             let entry = TraceEntry {
+                                timestamp: state.timestamp,
                                 url: state.url.clone(),
                                 hash_previous,
                                 hash_current: state.transition_hash,
                                 action: last_action,
-                                screenshot_path: state.screenshot_path.clone(),
+                                screenshot: state.screenshot,
                             };
                             events.send(RunEvent::NewTraceEntry {
                                 entry: entry.clone(),
@@ -169,9 +173,6 @@ impl Runner {
                             }
 
                             hash_previous = state.transition_hash;
-
-                            let actions =
-                                available_actions(&origin, &state).await?;
 
                             let action = {
                                 let mut rng = rand::rng();

@@ -2,7 +2,7 @@ use ::url::Url;
 use anyhow::Result;
 use clap::Parser;
 use serde_json as json;
-use std::str::FromStr;
+use std::{str::FromStr, time::UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -11,6 +11,7 @@ use antithesis_browser::{
     browser::BrowserOptions,
     proxy::Proxy,
     runner::{Runner, RunnerOptions},
+    trace::TraceEntry,
 };
 
 #[derive(Parser)]
@@ -87,6 +88,13 @@ async fn main() -> Result<()> {
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             // TODO: make this configurable with CLI option
             let states_directory = TempDir::with_prefix("states_")?.keep();
+            log::info!(
+                "storing trace in {}",
+                &states_directory
+                    .to_str()
+                    .expect("states directory is invalid")
+            );
+
             let browser_options = BrowserOptions {
                 headless,
                 user_data_directory: user_data_directory.path().to_path_buf(),
@@ -125,17 +133,18 @@ async fn main() -> Result<()> {
                             log::debug!("new trace entry: {:?}", entry);
 
                             let screenshot_path = screenshots_dir_path.join(
-                                entry
-                                    .screenshot_path
-                                    .file_name()
-                                    .expect("screenshot must have a file name"),
+                                format!("{}.{}", entry.timestamp.duration_since(UNIX_EPOCH)?.as_micros(), &entry.screenshot.format)
                             );
-                            // TODO: keep screenshot in memory until this point, no need to copy.
-                            tokio::fs::copy(
-                                &entry.screenshot_path,
-                                &screenshot_path,
-                            )
-                            .await?;
+                            File::create_new(&screenshot_path).await?.write_all(&entry.screenshot.data).await?;
+
+                            let entry = TraceEntry {
+                                timestamp: entry.timestamp,
+                                url: entry.url,
+                                hash_previous: entry.hash_previous,
+                                hash_current: entry.hash_current,
+                                action: entry.action,
+                                screenshot: screenshot_path
+                            };
 
                             trace_file
                                 .write(json::to_string(&entry)?.as_bytes())

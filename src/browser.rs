@@ -90,7 +90,6 @@ struct BrowserContext {
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
     frame_id: FrameId,
-    screenshots_directory: PathBuf,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
 }
@@ -172,9 +171,6 @@ impl Browser {
         )
         .await?;
 
-        let screenshots_directory = tempfile::tempdir()?.keep();
-        log::debug!("storing screenshots in {:?}", &screenshots_directory);
-
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
 
@@ -192,7 +188,6 @@ impl Browser {
             inner_events_sender: inner_events_sender.clone(),
             shutdown_receiver,
             page: page.clone(),
-            screenshots_directory,
             frame_id,
             origin: origin.clone(),
         };
@@ -584,20 +579,17 @@ async fn process_event(
 
             let call_frame_id = call_frame_id
                 .ok_or(anyhow!("no call frame id at breakpoint"))?;
-            let browser_state = Arc::new(
-                BrowserState::current(
-                    context.page.clone(),
-                    &call_frame_id,
-                    console_entries,
-                    exception,
-                    &context.screenshots_directory,
-                )
-                .await?,
-            );
+            let browser_state = BrowserState::current(
+                context.page.clone(),
+                &call_frame_id,
+                console_entries,
+                exception,
+            )
+            .await?;
 
-            context.sender.send(state_machine::Event::StateChanged(
-                browser_state.clone(),
-            ))?;
+            context
+                .sender
+                .send(state_machine::Event::StateChanged(browser_state))?;
 
             InnerState::Paused
         }

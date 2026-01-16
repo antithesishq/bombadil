@@ -1,17 +1,18 @@
-use std::{fmt::Display, path::PathBuf, sync::Arc};
+use std::{fmt::Display, sync::Arc, time::SystemTime};
 
 use serde::Serialize;
 use url::Url;
 
-use crate::browser::actions::BrowserAction;
+use crate::browser::{actions::BrowserAction, state};
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TraceEntry {
+pub struct TraceEntry<Screenshot = state::Screenshot> {
+    pub timestamp: SystemTime,
     pub url: Url,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
     pub action: Option<BrowserAction>,
-    pub screenshot_path: PathBuf,
+    pub screenshot: Screenshot,
 }
 
 #[derive(Clone, Debug)]

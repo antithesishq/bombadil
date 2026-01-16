@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum Event<State> {
-    StateChanged(Arc<State>),
+    StateChanged(State),
     Error(Arc<Error>),
 }
 
