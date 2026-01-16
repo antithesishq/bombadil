@@ -40,6 +40,7 @@
               chromium
               typescript
               typescript-language-server
+              nil
               esbuild
             ];
           };
