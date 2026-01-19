@@ -882,6 +882,8 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         .filter(|t| t.r#type == "page")
         .collect::<Vec<_>>();
 
+    log::debug!("targets: {:?}", page_targets);
+
     let target = page_targets
         .first()
         .ok_or(anyhow!("no page target available"))?;
