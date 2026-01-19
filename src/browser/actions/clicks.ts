@@ -1,7 +1,18 @@
 import { Point, Actions } from "../actions";
 
-result = (() => {
+const ARIA_ROLES_CLICKABLE = [
+  "button",
+  "link",
+  "checkbox",
+  "radio",
+  "switch",
+  "tab",
+  "menuitem",
+  "option",
+  "treeitem",
+];
 
+result = (() => {
   function clickable_point(element: Element) {
     // naive calculation of center of element
     const rect = element.getBoundingClientRect();
@@ -30,6 +41,8 @@ result = (() => {
   }
 
   const clicks: Actions = [];
+  const added = new Set<Element>();
+
   const url_current = new URL(window.location.toString());
   for (const anchor of document.querySelectorAll("a")) {
     try {
@@ -72,6 +85,10 @@ result = (() => {
         continue;
       }
 
+      if (added.has(anchor)) {
+        continue;
+      }
+
       clicks.push([1, 500, {
         Click: {
           name: anchor.nodeName,
@@ -80,6 +97,8 @@ result = (() => {
           element: anchor,
         }
       }]);
+
+      added.add(anchor);
     } catch (e) {
       console.error(e);
       continue;
@@ -111,6 +130,10 @@ result = (() => {
         continue;
       }
 
+      if (added.has(element)) {
+        continue;
+      }
+
       clicks.push([3, 300, {
         Click: {
           name: element.nodeName,
@@ -119,6 +142,48 @@ result = (() => {
           element: element,
         }
       }]);
+
+      added.add(element);
+    } catch (e) {
+      console.error(e);
+      continue;
+    }
+  }
+
+  const aria_selector = ARIA_ROLES_CLICKABLE.map(role => `[role=${role}]`).join(",");
+  for (const element of document.querySelectorAll(aria_selector)) {
+    try {
+      if (!is_visible(element)) {
+        console.debug(element, "is not visible");
+        continue;
+      }
+
+      const point = clickable_point(element);
+      if (!point) {
+        console.debug(element, "is not clickable");
+        continue;
+      }
+
+      const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      if (!contains(viewport, point)) {
+        console.debug(element, "is out of viewport");
+        continue;
+      }
+
+      if (added.has(element)) {
+        continue;
+      }
+
+      clicks.push([1, 500, {
+        Click: {
+          name: element.nodeName,
+          content: element.textContent.trim().replaceAll(/\s+/g, " "),
+          point,
+          element: element,
+        }
+      }]);
+
+      added.add(element);
     } catch (e) {
       console.error(e);
       continue;
