@@ -106,6 +106,7 @@ pub struct LaunchOptions {
 pub struct Emulation {
     pub width: u16,
     pub height: u16,
+    pub device_scale_factor: f64,
 }
 
 #[derive(Clone)]
@@ -182,10 +183,9 @@ impl Browser {
             emulation::SetDeviceMetricsOverrideParams::builder()
                 .width(browser_options.emulation.width)
                 .height(browser_options.emulation.height)
-                // This is currently hardcoded to whatever the unnamed original developer of this
-                // code has Wayland configured to. This is set to prevent the screenshotting from
-                // flickering the headful browser.
-                .device_scale_factor(1.5)
+                .device_scale_factor(
+                    browser_options.emulation.device_scale_factor,
+                )
                 .mobile(false)
                 .scale(1)
                 .build()

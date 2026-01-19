@@ -105,6 +105,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
             emulation: Emulation {
                 width: 800,
                 height: 600,
+                device_scale_factor: 2.0,
             },
         },
         DebuggerOptions::Managed {

@@ -29,6 +29,8 @@ struct TestSharedOptions {
     width: u16,
     #[arg(long, default_value_t = 768)]
     height: u16,
+    #[arg(long, default_value_t = 2.0)]
+    device_scale_factor: f64,
 }
 
 #[derive(clap::Subcommand)]
@@ -99,6 +101,7 @@ async fn main() -> Result<()> {
                 emulation: Emulation {
                     width: shared.width,
                     height: shared.height,
+                    device_scale_factor: shared.device_scale_factor,
                 },
             };
             let debugger_options = DebuggerOptions::Managed {
@@ -123,6 +126,7 @@ async fn main() -> Result<()> {
                 emulation: Emulation {
                     width: shared.width,
                     height: shared.height,
+                    device_scale_factor: shared.device_scale_factor,
                 },
             };
             let debugger_options = DebuggerOptions::External {
