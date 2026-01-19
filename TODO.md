@@ -7,8 +7,6 @@
     to avoid getting stuck
     
 * electron
-  * check quality of actions scripts in vscode target
-  * try on slack app
   * handle file pickers
 * proxy
   * replace proxy altogether with interception?!
