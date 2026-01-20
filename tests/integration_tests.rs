@@ -113,7 +113,6 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
                 headless: true,
                 no_sandbox: false,
                 user_data_directory: user_data_directory.path().to_path_buf(),
-                proxy: None,
             },
         },
     )
@@ -276,7 +275,6 @@ async fn test_browser_lifecycle() {
                 headless: true,
                 no_sandbox: false,
                 user_data_directory: user_data_directory.path().to_path_buf(),
-                proxy: None,
             },
         },
     )

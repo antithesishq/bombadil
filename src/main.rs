@@ -6,7 +6,6 @@ use tempfile::TempDir;
 
 use antithesis_browser::{
     browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
-    proxy::Proxy,
     runner::{Runner, RunnerOptions},
     trace::writer::TraceWriter,
 };
@@ -50,10 +49,6 @@ enum Command {
         remote_debugger: Url,
         #[arg(long)]
         create_target: bool,
-    },
-    Proxy {
-        #[arg(long)]
-        port: u16,
     },
 }
 
@@ -111,7 +106,6 @@ async fn main() -> Result<()> {
                         .path()
                         .to_path_buf(),
                     no_sandbox,
-                    proxy: None,
                 },
             };
             test(shared, browser_options, debugger_options).await
@@ -133,11 +127,6 @@ async fn main() -> Result<()> {
                 remote_debugger: remote_debugger,
             };
             test(shared, browser_options, debugger_options).await
-        }
-        Command::Proxy { port } => {
-            let mut proxy = Proxy::spawn(port).await?;
-            log::info!("proxy started on 127.0.0.1:{}", proxy.port);
-            Ok(proxy.done().await)
         }
     }
 }

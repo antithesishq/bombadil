@@ -105,7 +105,6 @@ pub struct LaunchOptions {
     pub headless: bool,
     pub user_data_directory: PathBuf,
     pub no_sandbox: bool,
-    pub proxy: Option<String>,
 }
 
 #[derive(Clone)]
@@ -849,17 +848,7 @@ fn launch_options_to_config(
                 builder
             }
         };
-    let apply_proxy = |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
-        if let Some(proxy_address) = &launch_options.proxy {
-            builder.args([
-                format!("--proxy-server={}", proxy_address),
-                "--proxy-bypass-list=<-loopback>".to_string(),
-            ])
-        } else {
-            builder
-        }
-    };
-    apply_proxy(apply_sandbox(BrowserConfig::builder()))
+    apply_sandbox(BrowserConfig::builder())
         .headless_mode(if launch_options.headless {
             HeadlessMode::New
         } else {

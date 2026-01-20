@@ -2,7 +2,6 @@ use crate::browser::actions::{available_actions, BrowserAction, Timeout};
 use crate::browser::{random, BrowserOptions};
 use crate::instrumentation::EDGE_MAP_SIZE;
 use crate::invariant_violation;
-use crate::proxy::Proxy;
 use crate::state_machine::{self, StateMachine};
 use crate::trace::Violation;
 use ::url::Url;
@@ -35,7 +34,6 @@ pub struct Runner {
     origin: Url,
     options: RunnerOptions,
     browser: Browser,
-    proxy: Proxy,
     events: broadcast::Sender<RunEvent>,
     shutdown_sender: oneshot::Sender<()>,
     shutdown_receiver: oneshot::Receiver<()>,
@@ -48,23 +46,11 @@ impl Runner {
         origin: Url,
         options: RunnerOptions,
         browser_options: BrowserOptions,
-        mut debugger_options: DebuggerOptions,
+        debugger_options: DebuggerOptions,
     ) -> anyhow::Result<Self> {
         let (events, _) = broadcast::channel(16);
         let (done_sender, done_receiver) = oneshot::channel();
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-        let proxy = Proxy::spawn(0).await?;
-
-        if let DebuggerOptions::Managed {
-            ref mut launch_options,
-            ..
-        } = debugger_options
-        {
-            launch_options.proxy =
-                Some(format!("http://127.0.0.1:{}", proxy.port));
-        } else {
-            log::warn!("coverage instrumentation proxy is not supported when using an externally managed debugger");
-        }
 
         let browser =
             Browser::new(origin.clone(), browser_options, debugger_options)
@@ -74,7 +60,6 @@ impl Runner {
             origin,
             options,
             browser,
-            proxy,
             events,
             shutdown_sender,
             shutdown_receiver,
@@ -88,7 +73,6 @@ impl Runner {
             origin,
             options,
             mut browser,
-            proxy,
             events,
             shutdown_sender,
             shutdown_receiver,
@@ -119,7 +103,6 @@ impl Runner {
                 .terminate()
                 .await
                 .expect("browser failed to terminate");
-            proxy.stop();
 
             done_sender
                 .send(result)

@@ -1,7 +1,6 @@
 pub mod browser;
 pub mod geometry;
 pub mod instrumentation;
-pub mod proxy;
 pub mod runner;
 pub mod state_machine;
 pub mod trace;
