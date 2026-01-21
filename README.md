@@ -1,6 +1,8 @@
 # antithesis_browser
 
-A prototype of generative browser testing.
+Generative browser testing for local use, CI, and Antithesis.
+
+<img alt="You were never tested like I was" src="https://i.imgflip.com/ahxk0j.jpg" width=400 />
 
 ## Usage
 
