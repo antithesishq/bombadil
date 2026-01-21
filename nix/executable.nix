@@ -1,21 +1,11 @@
-{
-  callPackage,
-  rustPlatform,
-  pkg-config,
-  esbuild,
-  chromium,
-}:
+{ callPackage, rustPlatform, pkg-config, esbuild, chromium, }:
 let
-  customBuildRustCrateForPkgs =
-    pkgs:
+  customBuildRustCrateForPkgs = pkgs:
     pkgs.buildRustCrate.override {
       defaultCrateOverrides = pkgs.defaultCrateOverrides // {
-        antithesis_browser = attrs: {
-          nativeBuildInputs = [ esbuild ];
-        };
+        bombadil = attrs: { nativeBuildInputs = [ esbuild ]; };
       };
     };
-in
-(callPackage ./Cargo.nix {
+in (callPackage ./Cargo.nix {
   buildRustCrateForPkgs = customBuildRustCrateForPkgs;
 }).rootCrate.build

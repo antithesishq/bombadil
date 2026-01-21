@@ -6,7 +6,7 @@ use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
 use url::Url;
 
-use antithesis_browser::{
+use bombadil::{
     browser::{
         actions::BrowserAction, Browser, BrowserOptions, DebuggerOptions,
         Emulation, LaunchOptions,
@@ -295,10 +295,10 @@ async fn test_browser_lifecycle() {
     browser.initiate().await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        antithesis_browser::state_machine::Event::StateChanged(state) => {
+        bombadil::state_machine::Event::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        antithesis_browser::state_machine::Event::Error(error) => {
+        bombadil::state_machine::Event::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }
@@ -306,10 +306,10 @@ async fn test_browser_lifecycle() {
     browser.apply(BrowserAction::Reload).await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        antithesis_browser::state_machine::Event::StateChanged(state) => {
+        bombadil::state_machine::Event::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        antithesis_browser::state_machine::Event::Error(error) => {
+        bombadil::state_machine::Event::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }

@@ -83,46 +83,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "antithesis_browser"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "bytes",
- "chromiumoxide",
- "clap",
- "const_format",
- "env_logger",
- "futures",
- "glob",
- "html5ever",
- "http",
- "http-body-util",
- "include_dir",
- "indoc",
- "insta",
- "log",
- "markup5ever_rcdom",
- "oxc",
- "oxc_codegen",
- "oxc_semantic",
- "oxc_sourcemap",
- "oxc_traverse",
- "rand",
- "rand_chacha",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-stream",
- "tower",
- "tower-http",
- "tracing-subscriber",
- "url",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -256,6 +216,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "bombadil"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64",
+ "bytes",
+ "chromiumoxide",
+ "clap",
+ "const_format",
+ "env_logger",
+ "futures",
+ "glob",
+ "html5ever",
+ "http",
+ "http-body-util",
+ "include_dir",
+ "indoc",
+ "insta",
+ "log",
+ "markup5ever_rcdom",
+ "oxc",
+ "oxc_codegen",
+ "oxc_semantic",
+ "oxc_sourcemap",
+ "oxc_traverse",
+ "rand",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tower-http",
+ "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

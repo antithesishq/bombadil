@@ -1,15 +1,15 @@
 [package]
-name = "antithesis_browser"
+name = "bombadil"
 version = "0.1.0"
 edition = "2024"
 exclude = []
 
 [[bin]]
-name = "antithesis_browser"
+name = "bombadil"
 path = "src/main.rs"
 
 [lib]
-name = "antithesis_browser"
+name = "bombadil"
 path = "src/lib.rs"
 
 [dependencies]

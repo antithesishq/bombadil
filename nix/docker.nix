@@ -1,25 +1,11 @@
-{
-  dockerTools,
-  callPackage,
-  buildEnv,
-  coreutils,
-  runtimeShell,
-  bash,
-  chromium,
+{ dockerTools, callPackage, buildEnv, coreutils, runtimeShell, bash, chromium,
 }:
-let
-  executable = callPackage ./executable.nix { };
-in
-dockerTools.buildImage {
-  name = "antithesis_browser_docker";
+let executable = callPackage ./executable.nix { };
+in dockerTools.buildImage {
+  name = "bombadil_docker";
   copyToRoot = buildEnv {
     name = "image_root";
-    paths = [
-      executable
-      coreutils
-      bash
-      chromium
-    ];
+    paths = [ executable coreutils bash chromium ];
     pathsToLink = [ "/bin" ];
   };
   runAsRoot = ''
@@ -40,12 +26,7 @@ dockerTools.buildImage {
   '';
   config = {
     User = "browser";
-    Cmd = [
-    ];
-    Entrypoint = [
-      "${executable}/bin/antithesis_browser"
-      "test"
-      "--headless"
-    ];
+    Cmd = [ ];
+    Entrypoint = [ "${executable}/bin/bombadil" "test" "--headless" ];
   };
 }

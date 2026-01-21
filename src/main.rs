@@ -4,7 +4,7 @@ use clap::{Args, Parser};
 use std::{path::PathBuf, str::FromStr};
 use tempfile::TempDir;
 
-use antithesis_browser::{
+use bombadil::{
     browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
     runner::{Runner, RunnerOptions},
     trace::writer::TraceWriter,
@@ -157,7 +157,7 @@ async fn test(
     let exit_code: anyhow::Result<Option<i32>> = async {
         loop {
             match events.next().await {
-                Ok(Some(antithesis_browser::runner::RunEvent::NewState {
+                Ok(Some(bombadil::runner::RunEvent::NewState {
                     state,
                     last_action,
                     violation,
