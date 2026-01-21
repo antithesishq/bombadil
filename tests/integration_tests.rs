@@ -231,6 +231,16 @@ async fn test_other_domain() {
 }
 
 #[tokio::test]
+async fn test_action_within_iframe() {
+    run_browser_test(
+        "action-within-iframe",
+        Expect::Success,
+        Duration::from_secs(3),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_no_action_available() {
     run_browser_test(
         "no-action-available",

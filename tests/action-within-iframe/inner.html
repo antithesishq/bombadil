@@ -1,0 +1,17 @@
+<html>
+  <head>
+    <title>Inner frame</title>
+  </head>
+  <body>
+    <button id="a">Click me (0)</button>
+
+    <script>
+      const button = document.querySelector("button");
+      let count = 0;
+      button.addEventListener("click", event => {
+        count++;
+        button.textContent = `Click me (${count})`;
+      });
+    </script>
+  </body>
+</html>
