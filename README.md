@@ -1,6 +1,6 @@
 <h1 align="center">Bombadil</h1>
-<p align="center">Fuzzing web and Electron apps &mdash; locally, in CI, and in Antithesis.</p>
-<p align="center"><img alt="Tom Bombadil" src="tom.png" width=240 /></p>
+<p align="center">Advanced testing of any web or Electron app.</em></p>
+<p align="center"><img alt="Tom Bombadil" src="tom.png" width=360 /></p>
 
 ## Usage
 
