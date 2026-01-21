@@ -5,7 +5,7 @@
   * "quiescence checker": debounce outbound network request events and DOM update events and trigger
     a new state once settled (as opposed to fixed timeouts after actions), with some max timeout too
     to avoid getting stuck
-  * pierce shadow roots and iframes in queries
+  * fix click action within shadow root (some point offset?)
   * allow "no actions available" for a short period of time before failing, for instance to allow for splash and loading screens
     
 * electron

@@ -2,7 +2,8 @@ use glob::glob;
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/browser/actions");
+    println!("cargo:rerun-if-changed=src/browser/*.ts");
+    println!("cargo:rerun-if-changed=src/browser/actions/*.ts");
 
     let entry_points: Vec<_> = glob("src/browser/actions/*.ts")
         .expect("Failed to read glob pattern")

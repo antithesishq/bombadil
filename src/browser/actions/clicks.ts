@@ -1,4 +1,4 @@
-import { Point, Actions } from "../actions";
+import { Point, Actions, query_all } from "../actions";
 
 const ARIA_ROLES_CLICKABLE = [
   "button",
@@ -44,8 +44,12 @@ result = (() => {
   const added = new Set<Element>();
 
   const url_current = new URL(window.location.toString());
-  for (const anchor of document.querySelectorAll("a")) {
+  for (const anchor of query_all(document.body, "a")) {
     try {
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        continue;
+      }
+
       let url;
       try {
         url = new URL(anchor.href);
@@ -104,7 +108,7 @@ result = (() => {
       continue;
     }
   }
-  for (const element of document.querySelectorAll("button,input,textarea,label[for]")) {
+  for (const element of query_all(document.body, "button,input,textarea,label[for]")) {
     try {
       // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
       if (!(element instanceof HTMLInputElement) && !is_visible(element)) {
@@ -151,7 +155,7 @@ result = (() => {
   }
 
   const aria_selector = ARIA_ROLES_CLICKABLE.map(role => `[role=${role}]`).join(",");
-  for (const element of document.querySelectorAll(aria_selector)) {
+  for (const element of query_all(document.body, aria_selector)) {
     try {
       if (!is_visible(element)) {
         console.debug(element, "is not visible");
