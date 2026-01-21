@@ -31,14 +31,20 @@ use url::Url;
 
 use crate::browser::actions::BrowserAction;
 use crate::browser::state::{BrowserState, ConsoleEntry, Exception};
+use crate::instrumentation;
 use crate::instrumentation::source_id::SourceId;
-use crate::{instrumentation, state_machine};
 
 pub mod actions;
 pub mod evaluation;
 pub mod keys;
 pub mod random;
 pub mod state;
+
+#[derive(Debug, Clone)]
+pub enum BrowserEvent {
+    StateChanged(BrowserState),
+    Error(Arc<anyhow::Error>),
+}
 
 #[derive(Debug)]
 enum InnerState {
@@ -90,7 +96,7 @@ pub enum NodeModification {
 }
 
 struct BrowserContext {
-    sender: Sender<state_machine::Event<BrowserState>>,
+    sender: Sender<BrowserEvent>,
     actions_sender: Sender<BrowserAction>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_receiver: oneshot::Receiver<()>,
@@ -127,7 +133,7 @@ pub enum DebuggerOptions {
 }
 
 pub struct Browser {
-    receiver: Receiver<state_machine::Event<BrowserState>>,
+    receiver: Receiver<BrowserEvent>,
     actions_sender: Sender<BrowserAction>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_sender: oneshot::Sender<()>,
@@ -166,8 +172,7 @@ impl Browser {
             }
         });
 
-        let (sender, receiver) =
-            channel::<state_machine::Event<BrowserState>>(1);
+        let (sender, receiver) = channel::<BrowserEvent>(1);
 
         let (actions_sender, _) = channel::<BrowserAction>(1);
 
@@ -262,13 +267,8 @@ impl Browser {
             ),
         })
     }
-}
 
-impl state_machine::StateMachine for Browser {
-    type State = BrowserState;
-    type Action = BrowserAction;
-
-    async fn initiate(&mut self) -> Result<()> {
+    pub async fn initiate(&mut self) -> Result<()> {
         if self.go_to_origin_on_init {
             let page = self.page.clone();
             let origin = self.origin.to_string();
@@ -284,7 +284,7 @@ impl state_machine::StateMachine for Browser {
         Ok(())
     }
 
-    async fn terminate(self) -> Result<()> {
+    pub async fn terminate(self) -> Result<()> {
         let Browser {
             shutdown_sender,
             done_receiver,
@@ -305,23 +305,19 @@ impl state_machine::StateMachine for Browser {
         Ok(())
     }
 
-    async fn next_event(
-        &mut self,
-    ) -> Option<state_machine::Event<Self::State>> {
+    pub async fn next_event(&mut self) -> Option<BrowserEvent> {
         match self.receiver.recv().await {
             Ok(event) => Some(event),
             Err(RecvError::Closed) => None,
-            Err(error) => {
-                Some(state_machine::Event::Error(Arc::new(anyhow!(error))))
-            }
+            Err(error) => Some(BrowserEvent::Error(Arc::new(anyhow!(error)))),
         }
     }
 
-    async fn request_state(&mut self) {
+    pub async fn request_state(&mut self) {
         let _ = self.inner_events_sender.send(InnerEvent::StateRequested);
     }
 
-    async fn apply(&mut self, action: Self::Action) -> Result<()> {
+    pub async fn apply(&mut self, action: BrowserAction) -> Result<()> {
         self.actions_sender.send(action)?;
         Ok(())
     }
@@ -540,7 +536,7 @@ fn run_state_machine(
         if let Err(error) = result {
             context
                 .sender
-                .send(state_machine::Event::Error(Arc::new(anyhow!(
+                .send(BrowserEvent::Error(Arc::new(anyhow!(
                     "error when processing event: {:?}",
                     error
                 ))))
@@ -643,7 +639,7 @@ async fn process_event(
 
             context
                 .sender
-                .send(state_machine::Event::StateChanged(browser_state))?;
+                .send(BrowserEvent::StateChanged(browser_state))?;
 
             InnerState::Paused
         }

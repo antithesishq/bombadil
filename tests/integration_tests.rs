@@ -12,7 +12,6 @@ use bombadil::{
         Emulation, LaunchOptions,
     },
     runner::{RunEvent, Runner, RunnerOptions},
-    state_machine::StateMachine,
 };
 
 enum Expect {
@@ -294,10 +293,10 @@ async fn test_browser_lifecycle() {
     browser.initiate().await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::state_machine::Event::StateChanged(state) => {
+        bombadil::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::state_machine::Event::Error(error) => {
+        bombadil::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }
@@ -305,10 +304,10 @@ async fn test_browser_lifecycle() {
     browser.apply(BrowserAction::Reload).await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::state_machine::Event::StateChanged(state) => {
+        bombadil::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::state_machine::Event::Error(error) => {
+        bombadil::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }

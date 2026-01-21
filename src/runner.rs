@@ -1,8 +1,7 @@
 use crate::browser::actions::{available_actions, BrowserAction, Timeout};
-use crate::browser::{random, BrowserOptions};
+use crate::browser::{random, BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::invariant_violation;
-use crate::state_machine::{self, StateMachine};
 use crate::trace::Violation;
 use ::url::Url;
 use serde_json as json;
@@ -134,7 +133,7 @@ impl Runner {
                 },
                 event = timeout( last_action_timeout.to_duration(), browser.next_event() ) => match event {
                     Ok(Some(event)) => match event {
-                        state_machine::Event::StateChanged(state) => {
+                        BrowserEvent::StateChanged(state) => {
                             // very basic check until we have spec language and all that
                             let violation = check_page_ok(&state).await.err();
 
@@ -172,7 +171,7 @@ impl Runner {
                                 }
                             }
                         }
-                        state_machine::Event::Error(error) => {
+                        BrowserEvent::Error(error) => {
                             anyhow::bail!("state machine error: {}", error)
                         }
                     },

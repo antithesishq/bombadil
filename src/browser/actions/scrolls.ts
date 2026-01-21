@@ -1,4 +1,4 @@
-import { Point, Actions } from "../actions";
+import { Actions } from "../actions";
 
 result = (() => {
   const scrolls: Actions = [];
