@@ -6,6 +6,7 @@
     a new state once settled (as opposed to fixed timeouts after actions), with some max timeout too
     to avoid getting stuck
   * pierce shadow roots and iframes in queries
+  * allow "no actions available" for a short period of time before failing, for instance to allow for splash and loading screens
     
 * electron
   * handle file pickers
