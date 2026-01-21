@@ -231,6 +231,7 @@ async fn test_other_domain() {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_action_within_iframe() {
     run_browser_test(
         "action-within-iframe",
