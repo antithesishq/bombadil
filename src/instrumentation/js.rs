@@ -48,7 +48,7 @@ impl fmt::Display for InstrumentationError {
 
 pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 
-pub const NAMESPACE: &'static str = "antithesis";
+pub const NAMESPACE: &'static str = "__bombadil__";
 
 pub const EDGES_PREVIOUS: &'static str = "edges_previous";
 pub const EDGES_CURRENT: &'static str = "edges_current";

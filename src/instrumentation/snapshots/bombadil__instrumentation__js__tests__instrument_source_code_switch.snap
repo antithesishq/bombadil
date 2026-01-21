@@ -2,7 +2,7 @@
 source: src/instrumentation/js.rs
 expression: code
 ---
-window.antithesis = window.antithesis || {
+window.__bombadil__ = window.__bombadil__ || {
     edges_previous: new Uint8Array(65536),
     edges_current: new Uint8Array(65536),
     previous: 0,
@@ -12,26 +12,26 @@ function foo() {
 	while (true) {
 		switch (bar) {
 			case 1:
-				antithesis.edges_current[(0x76be999e3e25b400 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0x76be999e3e25b400 >> 1;
+				__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x76be999e3e25b400 >> 1;
 				return bar;
 			case 2:
-				antithesis.edges_current[(0x7359aa1156ce8800 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0x7359aa1156ce8800 >> 1;
+				__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x7359aa1156ce8800 >> 1;
 				break;
 			case "foo":
-				antithesis.edges_current[(0xeaf7d87e9d1ee800 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0xeaf7d87e9d1ee800 >> 1;
+				__bombadil__.edges_current[(0xeaf7d87e9d1ee800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0xeaf7d87e9d1ee800 >> 1;
 			case "bar":
-				antithesis.edges_current[(0x7f8ce92d548e8c0 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0x7f8ce92d548e8c0 >> 1;
+				__bombadil__.edges_current[(0x7f8ce92d548e8c0 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x7f8ce92d548e8c0 >> 1;
 			case "baz":
-				antithesis.edges_current[(0x6881f435bc0ca800 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0x6881f435bc0ca800 >> 1;
+				__bombadil__.edges_current[(0x6881f435bc0ca800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x6881f435bc0ca800 >> 1;
 				continue;
 			default:
-				antithesis.edges_current[(0xb71d6a24ef50e800 ^ antithesis.previous) % 65536] += 1;
-				antithesis.previous = 0xb71d6a24ef50e800 >> 1;
+				__bombadil__.edges_current[(0xb71d6a24ef50e800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0xb71d6a24ef50e800 >> 1;
 				return no;
 		}
 	}
