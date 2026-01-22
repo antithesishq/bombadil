@@ -33,15 +33,24 @@
             CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
             inputsFrom = [ self.packages.${system}.default ];
             buildInputs = with pkgs; [
+              # Rust
               rust-analyzer
               rustfmt
               crate2nix
               cargo-insta
-              chromium
+
+              # Nix
+              nil
+
+              # TS/JS
               typescript
               typescript-language-server
-              nil
               esbuild
+              bun
+              biome
+
+              # Runtime
+              chromium
             ];
           };
         };
