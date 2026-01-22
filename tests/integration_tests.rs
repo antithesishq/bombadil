@@ -110,7 +110,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
                 headless: true,
-                no_sandbox: false,
+                no_sandbox: true,
                 user_data_directory: user_data_directory.path().to_path_buf(),
             },
         },
@@ -282,7 +282,7 @@ async fn test_browser_lifecycle() {
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
                 headless: true,
-                no_sandbox: false,
+                no_sandbox: true,
                 user_data_directory: user_data_directory.path().to_path_buf(),
             },
         },
@@ -312,5 +312,6 @@ async fn test_browser_lifecycle() {
         }
     }
 
+    log::info!("just changing for CI");
     browser.terminate().await.unwrap();
 }
