@@ -36,9 +36,9 @@ bombadil test --exit-on-violation https://example.com
 
 <img alt="Tom Bombadil" src="docs/tom.png" width=360 />
 
-> Old Tom Bombadil is a merry fellow,
-> Bright blue his jacket is, and his boots are yellow.
-> Bugs have never fooled him yet, for Tom, he is the Master:
+> Old Tom Bombadil is a merry fellow,<br>
+> Bright blue his jacket is, and his boots are yellow.<br>
+> Bugs have never fooled him yet, for Tom, he is the Master:<br>
 > His specs are stronger specs, and his fuzzer is faster.
 
 Built by [Antithesis](https://antithesis.com).
