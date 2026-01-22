@@ -1,0 +1,10 @@
+{
+  "name": "bombadil",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fast-check": "^4.5.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
