@@ -21,7 +21,7 @@ export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
     private runtime: Runtime<S>,
     private extract: (state: S) => T,
   ) {
-    runtime.register_cell(this);
+    runtime.register_extractor(this);
   }
 
   update(state: S, time: Time): void {
@@ -53,6 +53,10 @@ export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
       return this.current;
     }
   }
+
+  as_js_function(): string {
+    return this.extract.toString();
+  }
 }
 
 export class TimeCell implements Cell<Time, any> {
@@ -71,7 +75,7 @@ export class TimeCell implements Cell<Time, any> {
 
 export class Runtime<S> {
   private current_state: { state: S; time: Time } | null = null;
-  private cells: Cell<any, S>[] = [];
+  private cells: ExtractorCell<any, S>[] = [];
 
   get time(): Time {
     if (this.current_state === null) {
@@ -95,7 +99,7 @@ export class Runtime<S> {
     return time_new;
   }
 
-  register_cell(cell: Cell<any, S>) {
+  register_extractor(cell: ExtractorCell<any, S>) {
     this.cells.push(cell);
   }
 
