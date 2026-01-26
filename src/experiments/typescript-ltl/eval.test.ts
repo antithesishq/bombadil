@@ -1,8 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { evaluate } from "./eval";
-import { ExtractorCell, condition, eventually, always } from "./bombadil";
+import { condition, eventually, always } from "./bombadil";
 
-import { Runtime } from "./runtime";
+import { ExtractorCell, Runtime } from "./runtime";
 import fc, { type IProperty } from "fast-check";
 import assert from "node:assert";
 import { test } from "./test";

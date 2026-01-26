@@ -1,6 +1,6 @@
 import { evaluate, step, type Residual, type ViolationTree } from "./eval";
 import { Formula } from "./bombadil";
-import { Runtime, runtime_default } from "./runtime";
+import { Runtime } from "./runtime";
 
 export type TestResult =
   | { type: "passed" }
@@ -15,8 +15,6 @@ export function test<S>(
   if (trace.length === 0) {
     throw new Error("cant evaluate against empty trace");
   }
-
-  runtime_default.reset();
 
   const time = runtime.register_state(trace[0]!.state, trace[0]!.timestamp_ms);
   let value = evaluate(formula, time);

@@ -41,11 +41,7 @@ export const error_disappears_no_implies = always(() =>
 
 const name = extract((state) => {
   const element = state.document.body.querySelector("#name-field");
-  if (element instanceof HTMLInputElement) {
-    return element.value;
-  } else {
-    return null;
-  }
+  return (element as HTMLInputElement | null)?.value ?? null;
 });
 
 const submit_in_progress = extract(

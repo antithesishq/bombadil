@@ -1,8 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { test } from "./test";
-import * as example from "./example";
 import assert from "node:assert";
-import { runtime_default } from "./runtime";
+import { runtime_default } from "./bombadil";
 
 class TestElement {
   constructor(public nodeName: string) {}
@@ -36,7 +35,7 @@ class TestState {
 }
 
 describe("LTL formula tests", () => {
-  it("max notifications violation", () => {
+  it("max notifications violation", async () => {
     const trace = [
       {
         state: new TestState({ ".notification": [new TestElement("DIV")] }),
@@ -55,6 +54,10 @@ describe("LTL formula tests", () => {
         timestamp_ms: 3000,
       },
     ];
+
+    runtime_default.reset();
+    const example = await import("./example");
+
     const result = test(
       runtime_default,
       example.max_notifications_shown,
@@ -66,7 +69,7 @@ describe("LTL formula tests", () => {
     expect(result.violation.type).toEqual("false");
   });
 
-  it("error disappears eventually", () => {
+  it("error disappears eventually", async () => {
     const trace = [
       { state: new TestState({ ".error": [] }), timestamp_ms: 0 },
       {
@@ -75,11 +78,15 @@ describe("LTL formula tests", () => {
       },
       { state: new TestState({ ".error": [] }), timestamp_ms: 3000 }, // eventually satisfied
     ];
+
+    runtime_default.reset();
+    const example = await import("./example");
+
     const violation = test(runtime_default, example.error_disappears, trace);
     expect(violation.type).toBe("inconclusive");
   });
 
-  it("error never disappears (still pending)", () => {
+  it("error never disappears (still pending)", async () => {
     const trace = [
       {
         state: new TestState({ ".notification": [new TestElement("DIV")] }),
@@ -94,6 +101,10 @@ describe("LTL formula tests", () => {
         timestamp_ms: 0,
       }, // still pending
     ];
+
+    runtime_default.reset();
+    const example = await import("./example");
+
     const violation = test(runtime_default, example.error_disappears, trace);
     expect(violation.type).toBe("inconclusive");
   });

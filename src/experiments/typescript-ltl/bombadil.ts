@@ -1,4 +1,10 @@
-import { runtime_default, Runtime, type State } from "./runtime";
+import {
+  Runtime,
+  type Serializable,
+  ExtractorCell,
+  type Cell,
+  TimeCell,
+} from "./runtime";
 import { Duration, type Time, type TimeUnit } from "./time";
 
 export class Formula {
@@ -131,71 +137,16 @@ export function eventually(x: IntoCondition) {
   };
 }
 
-type Serializable =
-  | string
-  | number
-  | boolean
-  | null
-  | Serializable[]
-  | { [key: string]: Serializable }
-  | { toJSON(): Serializable };
-
-export interface Cell<T> {
-  get current(): T;
-  at(time: Time): T;
-}
-
-export class ExtractorCell<T extends Serializable, S = State>
-  implements Cell<T>
-{
-  private cache = new Map<Time, T>();
-  constructor(
-    private runtime: Runtime<S>,
-    private query: (state: S) => T,
-  ) {}
-
-  get current(): T {
-    const value = this.cache.get(this.runtime.time);
-    if (value === undefined) {
-      const value = this.query(this.runtime.current);
-      this.cache.set(this.runtime.time, value);
-      return value;
-    } else {
-      return value;
-    }
-  }
-
-  at(time: Time): T {
-    if (time.is_before(this.runtime.time)) {
-      const value = this.cache.get(time);
-      if (value === undefined) {
-        throw new Error("cannot get value from unknown time");
-      }
-      return value;
-    } else if (time > this.runtime.time) {
-      throw new Error("cannot get cell value from the future");
-    } else {
-      return this.current;
-    }
-  }
-}
-
-export class TimeCell implements Cell<Time> {
-  constructor(private runtime: Runtime<any>) {}
-
-  get current(): Time {
-    return this.runtime.time;
-  }
-
-  at(time: Time): Time {
-    return time;
-  }
-}
+export const runtime_default = new Runtime<State>();
 
 export function extract<T extends Serializable>(
   query: (state: State) => T,
-): ExtractorCell<T, State> {
+): Cell<T, State> {
   return new ExtractorCell(runtime_default, query);
 }
 
-export const time = new TimeCell(runtime_default);
+export const time: Cell<Time, any> = new TimeCell(runtime_default);
+
+export interface State {
+  document: HTMLDocument;
+}
