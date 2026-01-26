@@ -17,6 +17,10 @@ export class Pure extends Formula {
   constructor(public value: boolean) {
     super();
   }
+
+  override toString() {
+    return `pure(${this.value})`;
+  }
 }
 
 export class And extends Formula {
@@ -25,6 +29,10 @@ export class And extends Formula {
     public right: Formula,
   ) {
     super();
+  }
+
+  override toString() {
+    return `${this.left}.and(${this.right}`;
   }
 }
 
@@ -44,6 +52,10 @@ export class Implies extends Formula {
   ) {
     super();
   }
+
+  override toString() {
+    return `${this.antecedent}.implies(${this.consequent}`;
+  }
 }
 
 export class Not extends Formula {
@@ -56,6 +68,10 @@ export class Always extends Formula {
   constructor(public subformula: Formula) {
     super();
   }
+
+  override toString() {
+    return `always(${this.subformula})`;
+  }
 }
 
 export class Eventually extends Formula {
@@ -65,11 +81,22 @@ export class Eventually extends Formula {
   ) {
     super();
   }
+
+  override toString() {
+    return `eventually(${this.subformula}).within(${this.timeout.milliseconds}, "milliseconds")`;
+  }
 }
 
 export class Contextful extends Formula {
-  constructor(public apply: () => Formula) {
+  constructor(
+    private string: string,
+    public apply: () => Formula,
+  ) {
     super();
+  }
+
+  override toString() {
+    return this.string;
   }
 }
 
@@ -80,11 +107,13 @@ export function not(value: IntoCondition) {
 }
 
 export function condition(x: IntoCondition): Formula {
+  const string = x.toString();
+
   if (typeof x === "boolean") {
     return new Pure(x);
   }
   if (typeof x === "function") {
-    return new Contextful(() => condition(x()));
+    return new Contextful(string, () => condition(x()));
   }
 
   return x;
