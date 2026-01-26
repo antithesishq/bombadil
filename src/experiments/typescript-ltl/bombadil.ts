@@ -1,4 +1,5 @@
-import { runtime_default, Runtime, type State, type Time } from "./runtime";
+import { runtime_default, Runtime, type State } from "./runtime";
+import { Duration, type Time, type TimeUnit } from "./time";
 
 export class Formula {
   and(that: IntoCondition): Formula {
@@ -59,7 +60,7 @@ export class Always extends Formula {
 
 export class Eventually extends Formula {
   constructor(
-    public seconds: Duration,
+    public timeout: Duration,
     public subformula: Formula,
   ) {
     super();
@@ -136,7 +137,7 @@ export class ExtractorCell<T extends Serializable, S = State>
   }
 
   at(time: Time): T {
-    if (time < this.runtime.time) {
+    if (time.is_before(this.runtime.time)) {
       const value = this.cache.get(time);
       if (value === undefined) {
         throw new Error("cannot get value from unknown time");
@@ -169,12 +170,3 @@ export function extract<T extends Serializable>(
 }
 
 export const time = new TimeCell(runtime_default);
-
-export type TimeUnit = "milliseconds" | "seconds";
-
-export class Duration {
-  constructor(
-    private n: number,
-    unit: TimeUnit,
-  ) {}
-}

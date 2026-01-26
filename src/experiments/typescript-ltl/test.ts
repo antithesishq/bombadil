@@ -1,27 +1,31 @@
 import { evaluate, step, type Residual, type ViolationTree } from "./eval";
 import { Formula } from "./bombadil";
-import { runtime_default, type State } from "./runtime";
+import { Runtime, runtime_default } from "./runtime";
 
 export type TestResult =
   | { type: "passed" }
-  | { type: "inconclusive"; residual_type: Residual["type"] }
+  | { type: "inconclusive"; residual: Residual }
   | { type: "failed"; violation: ViolationTree };
 
-export function test(formula: Formula, trace: State[]): TestResult {
+export function test<S>(
+  runtime: Runtime<S>,
+  formula: Formula,
+  trace: { state: S; timestamp_ms: number }[],
+): TestResult {
   if (trace.length === 0) {
     throw new Error("cant evaluate against empty trace");
   }
 
   runtime_default.reset();
 
-  const time = runtime_default.register_state(trace[0]!);
+  const time = runtime.register_state(trace[0]!.state, trace[0]!.timestamp_ms);
   let value = evaluate(formula, time);
 
-  for (const state of trace.slice(1)) {
+  for (const entry of trace.slice(1)) {
     if (value.type !== "residual") {
       break;
     }
-    const time = runtime_default.register_state(state);
+    const time = runtime.register_state(entry.state, entry.timestamp_ms);
     value = step(value.residual, time);
   }
 
@@ -31,6 +35,6 @@ export function test(formula: Formula, trace: State[]): TestResult {
     case "false":
       return { type: "failed", violation: value.violation };
     case "residual":
-      return { type: "inconclusive", residual_type: value.residual.type };
+      return { type: "inconclusive", residual: value.residual };
   }
 }

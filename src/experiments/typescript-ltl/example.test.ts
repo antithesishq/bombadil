@@ -1,6 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { test } from "./test";
 import * as example from "./example";
+import assert from "node:assert";
+import { runtime_default } from "./runtime";
 
 class TestElement {
   constructor(public nodeName: string) {}
@@ -36,37 +38,63 @@ class TestState {
 describe("LTL formula tests", () => {
   it("max notifications violation", () => {
     const trace = [
-      new TestState({ ".notification": [new TestElement("DIV")] }),
-      new TestState({ ".notification": [new TestElement("DIV")] }),
-      new TestState({
-        // violation
-        ".notification": new Array(6).fill(new TestElement("DIV")),
-      }),
+      {
+        state: new TestState({ ".notification": [new TestElement("DIV")] }),
+        timestamp_ms: 0,
+      },
+      {
+        state: new TestState({ ".notification": [new TestElement("DIV")] }),
+
+        timestamp_ms: 1000,
+      },
+      {
+        state: new TestState({
+          // violation
+          ".notification": new Array(6).fill(new TestElement("DIV")),
+        }),
+        timestamp_ms: 3000,
+      },
     ];
-    const result = test(example.max_notifications_shown, trace);
-    expect(result).toEqual({
-      type: "failed",
-      violation: { time: 3, type: "false" },
-    });
+    const result = test(
+      runtime_default,
+      example.max_notifications_shown,
+      trace,
+    );
+    expect(result.type).toEqual("failed");
+
+    assert(result.type === "failed");
+    expect(result.violation.type).toEqual("false");
   });
 
   it("error disappears eventually", () => {
     const trace = [
-      new TestState({ ".error": [] }),
-      new TestState({ ".error": [new TestElement("DIV")] }),
-      new TestState({ ".error": [] }), // eventually satisfied
+      { state: new TestState({ ".error": [] }), timestamp_ms: 0 },
+      {
+        state: new TestState({ ".error": [new TestElement("DIV")] }),
+        timestamp_ms: 1000,
+      },
+      { state: new TestState({ ".error": [] }), timestamp_ms: 3000 }, // eventually satisfied
     ];
-    const violation = test(example.error_disappears, trace);
+    const violation = test(runtime_default, example.error_disappears, trace);
     expect(violation.type).toBe("inconclusive");
   });
 
   it("error never disappears (still pending)", () => {
     const trace = [
-      new TestState({ ".notification": [new TestElement("DIV")] }),
-      new TestState({ ".notification": [new TestElement("DIV")] }),
-      new TestState({ ".notification": [new TestElement("DIV")] }), // still pending
+      {
+        state: new TestState({ ".notification": [new TestElement("DIV")] }),
+        timestamp_ms: 0,
+      },
+      {
+        state: new TestState({ ".notification": [new TestElement("DIV")] }),
+        timestamp_ms: 0,
+      },
+      {
+        state: new TestState({ ".notification": [new TestElement("DIV")] }),
+        timestamp_ms: 0,
+      }, // still pending
     ];
-    const violation = test(example.error_disappears, trace);
+    const violation = test(runtime_default, example.error_disappears, trace);
     expect(violation.type).toBe("inconclusive");
   });
 });

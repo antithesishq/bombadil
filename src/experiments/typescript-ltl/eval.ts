@@ -7,8 +7,8 @@ import {
   Implies,
   Or,
   Pure,
-  type Time,
 } from "./bombadil";
+import type { Time } from "./time";
 
 export type Value =
   | { type: "true" }
@@ -33,11 +33,17 @@ export type Residual =
       left: Residual;
       right: Residual;
     }
-  | { type: "or_eventually"; left: Residual; right: Residual };
+  | {
+      type: "or_eventually";
+      start: Time;
+      deadline: Time;
+      left: Residual;
+      right: Residual;
+    };
 
 export type DerivedFormula =
   | { type: "always"; start: Time; formula: Formula }
-  | { type: "eventually"; start: Time; formula: Formula };
+  | { type: "eventually"; start: Time; deadline: Time; formula: Formula };
 
 export type ViolationTree =
   | { type: "false"; time: Time }
@@ -72,8 +78,12 @@ export function evaluate(formula: Formula, time: Time): Value {
       return evaluate_implies(formula.antecedent, antecedent, consequent);
     }
     case formula instanceof Eventually:
-      // TODO: use formula.seconds for timeout
-      return evaluate_eventually(formula.subformula, time, time);
+      return evaluate_eventually(
+        formula.subformula,
+        time,
+        time.plus(formula.timeout),
+        time,
+      );
 
     case formula instanceof Always:
       return evaluate_always(formula.subformula, time, time);
@@ -238,6 +248,7 @@ function evaluate_implies(
 function evaluate_eventually(
   subformula: Formula,
   start: Time,
+  deadline: Time,
   time: Time,
 ): Value {
   const residual: Residual = {
@@ -246,6 +257,7 @@ function evaluate_eventually(
       type: "eventually",
       formula: subformula,
       start,
+      deadline,
     },
   };
   const value = evaluate(subformula, time);
@@ -253,12 +265,19 @@ function evaluate_eventually(
     case "true":
       return value;
     case "false":
-      return { type: "residual", residual };
+      return time.is_before(deadline)
+        ? { type: "residual", residual }
+        : {
+            type: "false",
+            violation: { type: "eventually", formula: subformula, time },
+          };
     case "residual":
       return {
         type: "residual",
         residual: {
           type: "or_eventually",
+          start,
+          deadline,
           left: value.residual,
           right: residual,
         },
@@ -266,7 +285,12 @@ function evaluate_eventually(
   }
 }
 
-function evaluate_or_eventually(left: Value, right: Value): Value {
+function evaluate_or_eventually(
+  start: Time,
+  deadline: Time,
+  left: Value,
+  right: Value,
+): Value {
   switch (left.type) {
     case "true":
       return left;
@@ -298,6 +322,8 @@ function evaluate_or_eventually(left: Value, right: Value): Value {
             type: "residual",
             residual: {
               type: "or_eventually",
+              start,
+              deadline,
               left: left.residual,
               right: right.residual,
             },
@@ -411,6 +437,7 @@ export function step(residual: Residual, time: Time): Value {
           return evaluate_eventually(
             residual.derived.formula,
             residual.derived.start,
+            residual.derived.deadline,
             time,
           );
       }
@@ -421,6 +448,8 @@ export function step(residual: Residual, time: Time): Value {
       );
     case "or_eventually":
       return evaluate_or_eventually(
+        residual.start,
+        residual.deadline,
         step(residual.left, time),
         step(residual.right, time),
       );

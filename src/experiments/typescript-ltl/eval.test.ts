@@ -1,10 +1,11 @@
 import { describe, it, expect } from "bun:test";
-import { evaluate, step } from "./eval";
+import { evaluate } from "./eval";
 import { ExtractorCell, condition, eventually, always } from "./bombadil";
 
 import { Runtime } from "./runtime";
 import fc, { type IProperty } from "fast-check";
 import assert from "node:assert";
+import { test } from "./test";
 
 function check(property: IProperty<any>) {
   try {
@@ -47,7 +48,7 @@ describe("eval", () => {
         const formula = condition(() => pair.current.left).and(
           () => pair.current.right,
         );
-        const time = runtime.register_state({ left, right });
+        const time = runtime.register_state({ left, right }, 0);
         const value = evaluate(formula, time);
         const type_expected = left && right ? "true" : "false";
         expect(value.type).toEqual(type_expected);
@@ -66,7 +67,7 @@ describe("eval", () => {
         const formula = condition(() => pair.current.left).or(
           () => pair.current.right,
         );
-        const time = runtime.register_state({ left, right });
+        const time = runtime.register_state({ left, right }, 0);
         const value = evaluate(formula, time);
         const type_expected = left || right ? "true" : "false";
         expect(value.type).toEqual(type_expected);
@@ -80,16 +81,17 @@ describe("eval", () => {
 
   function default_up_to(
     value: boolean,
-    length: number,
+    length: number | fc.Arbitrary<number>,
   ): fc.Arbitrary<boolean[]> {
-    if (length <= 0) {
-      throw new Error("default_up_to length must be >= 1");
-    }
-    return fc
-      .boolean()
-      .map((last) =>
-        length > 1 ? [...new Array(length - 1).fill(value), last] : [last],
-      );
+    length = typeof length === "number" ? fc.constant(length) : length;
+
+    return length.chain((length) =>
+      fc
+        .boolean()
+        .map((last) =>
+          length > 1 ? [...new Array(length - 1).fill(value), last] : [last],
+        ),
+    );
   }
 
   function zip_pairs<T>(left: T[], right: T[]): Pair<T>[] {
@@ -113,39 +115,27 @@ describe("eval", () => {
   it("(eventually left) and (eventually right)", () => {
     check(
       fc.property(pairs_of_default(false), (states) => {
-        expect(states).not.toBeEmpty();
         const { runtime, pair } = test_bool_pair();
         const formula = eventually(() => pair.current.left)
           .within(5, "seconds")
           .and(eventually(() => pair.current.right).within(5, "seconds"));
 
-        let state_last = states.shift()!;
-        const time = runtime.register_state(state_last);
-        let value = evaluate(formula, time);
+        const result = test(
+          runtime,
+          formula,
+          states.map((state, i) => ({ state, timestamp_ms: i * 1000 })),
+        );
+        const state_last = states[states.length - 1]!;
 
-        while (states.length > 0) {
-          if (value.type !== "residual") {
-            break;
-          }
-          state_last = states.shift()!;
-          const time = runtime.register_state(state_last);
-          value = step(value.residual, time);
-        }
-
-        const type_expected =
-          state_last.left && state_last.right ? "true" : "residual";
-
-        expect(value.type).toEqual(type_expected);
-
-        switch (value.type) {
-          case "false":
+        switch (result.type) {
+          case "failed":
             throw new Error("eventually shouldn't return false");
-          case "true": {
+          case "passed": {
             expect(state_last.left || state_last.right).toBe(true);
             break;
           }
-          case "residual": {
-            expect(value.residual.type).toMatch(/and|derived/);
+          case "inconclusive": {
+            expect(result.residual.type).toMatch(/and|derived/);
           }
         }
       }),
@@ -155,37 +145,66 @@ describe("eval", () => {
   it("(always left) and (always right)", () => {
     check(
       fc.property(pairs_of_default(true), (states) => {
-        expect(states).not.toBeEmpty();
         const { runtime, pair } = test_bool_pair();
         const formula = always(() => pair.current.left).and(
           always(() => pair.current.right),
         );
 
-        let state_last = states.shift()!;
-        const time = runtime.register_state(state_last);
-        let value = evaluate(formula, time);
+        const result = test(
+          runtime,
+          formula,
+          states.map((state, i) => ({ state, timestamp_ms: i * 1000 })),
+        );
+        const state_last = states[states.length - 1]!;
 
-        while (states.length > 0) {
-          if (value.type !== "residual") {
-            break;
-          }
-          state_last = states.shift()!;
-          const time = runtime.register_state(state_last);
-          value = step(value.residual, time);
-        }
-
-        switch (value.type) {
-          case "true":
+        switch (result.type) {
+          case "passed":
             throw new Error("always shouldn't return true");
-          case "false": {
+          case "failed": {
             expect(!state_last.left || !state_last.right).toBe(true);
             break;
           }
-          case "residual": {
-            expect(value.residual.type).toBe("and");
+          case "inconclusive": {
+            expect(result.residual.type).toBe("and");
           }
         }
       }),
+    );
+  });
+
+  it("eventually with timeout", () => {
+    check(
+      fc.property(
+        default_up_to(false, fc.integer({ min: 2, max: 10 })),
+        (states) => {
+          const runtime = new Runtime<boolean>();
+          let pair = new ExtractorCell<boolean, boolean>(runtime, identity);
+          const formula = eventually(() => pair.current).within(
+            states.length - 1,
+            "seconds",
+          );
+
+          const result = test(
+            runtime,
+            formula,
+            states.map((state, i) => ({ state, timestamp_ms: i * 1000 })),
+          );
+          const state_last = states[states.length - 1]!;
+
+          switch (result.type) {
+            case "failed":
+              expect(state_last).toBe(false);
+              break;
+            case "passed": {
+              expect(state_last).toBe(true);
+              break;
+            }
+            case "inconclusive": {
+              throw new Error("eventually should terminate");
+            }
+          }
+        },
+      ),
     );
   });
 });

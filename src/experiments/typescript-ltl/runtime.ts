@@ -1,12 +1,12 @@
+import { Time } from "./time";
+
 export interface State {
   document: HTMLDocument;
 }
 
-export type Time = number;
-
 export class Runtime<S = State> {
   private index_next = 0;
-  private current_state: { state: S; index: number } | null = null;
+  private current_state: { state: S; time: Time } | null = null;
 
   get current(): S {
     if (this.current_state === null) {
@@ -19,13 +19,20 @@ export class Runtime<S = State> {
     if (this.current_state === null) {
       throw new Error("runtime has no current time");
     }
-    return this.current_state.index;
+    return this.current_state.time;
   }
 
-  register_state(state: S): Time {
-    this.current_state = { state, index: this.index_next };
+  register_state(state: S, timestamp_ms: number): Time {
+    const time_new = new Time(timestamp_ms);
+    if (
+      this.current_state !== null &&
+      time_new.is_before(this.current_state.time)
+    ) {
+      throw new Error("non-monotonic time update in register_state");
+    }
+    this.current_state = { state, time: time_new };
     this.index_next += 1;
-    return this.index_next;
+    return time_new;
   }
 
   reset() {
