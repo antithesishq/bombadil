@@ -34,6 +34,8 @@
             inputsFrom = [ self.packages.${system}.default ];
             buildInputs = with pkgs; [
               # Rust
+              cargo
+              rustc
               rust-analyzer
               rustfmt
               crate2nix

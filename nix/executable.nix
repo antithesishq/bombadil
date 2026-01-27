@@ -1,6 +1,5 @@
 {
   callPackage,
-  rustPlatform,
   pkg-config,
   esbuild,
   chromium,
