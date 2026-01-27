@@ -452,7 +452,6 @@ export function step(residual: Residual, time: Time): Value {
     case "derived":
       switch (residual.derived.type) {
         case "next":
-          console.log("evaluating next at", time.valueOf());
           return evaluate(residual.derived.formula, time);
         case "always":
           return evaluate_always(
@@ -461,7 +460,6 @@ export function step(residual: Residual, time: Time): Value {
             time,
           );
         case "eventually":
-          console.log("evaluating eventually at", time.valueOf());
           return evaluate_eventually(
             residual.derived.formula,
             residual.derived.start,

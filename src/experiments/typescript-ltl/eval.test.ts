@@ -79,8 +79,8 @@ describe("eval", () => {
     );
   });
 
-  function default_up_to(
-    value: boolean,
+  function bools_with_prefix(
+    prefix: boolean,
     length: number | fc.Arbitrary<number>,
   ): fc.Arbitrary<boolean[]> {
     length = typeof length === "number" ? fc.constant(length) : length;
@@ -88,9 +88,10 @@ describe("eval", () => {
     return length.chain((length) =>
       fc
         .boolean()
-        .map((last) =>
-          length > 1 ? [...new Array(length - 1).fill(value), last] : [last],
-        ),
+        .map((suffix) => [
+          ...new Array(length).fill(prefix),
+          ...new Array(length).fill(suffix),
+        ]),
     );
   }
 
@@ -102,11 +103,16 @@ describe("eval", () => {
     return pairs;
   }
 
-  function pairs_of_default(value: boolean): fc.Arbitrary<Pair<boolean>[]> {
+  function pairs_of_bools_with_prefix(
+    prefix: boolean,
+  ): fc.Arbitrary<Pair<boolean>[]> {
     return fc.noShrink(
       fc.integer({ min: 1, max: 3 }).chain((length) => {
         return fc
-          .tuple(default_up_to(value, length), default_up_to(value, length))
+          .tuple(
+            bools_with_prefix(prefix, length),
+            bools_with_prefix(prefix, length),
+          )
           .map(([left, right]) => zip_pairs(left, right));
       }),
     );
@@ -114,7 +120,7 @@ describe("eval", () => {
 
   it("(eventually left) and (eventually right)", () => {
     check(
-      fc.property(pairs_of_default(false), (states) => {
+      fc.property(pairs_of_bools_with_prefix(false), (states) => {
         const { runtime, pair } = test_bool_pair();
         const formula = eventually(() => pair.current.left)
           .within(5, "seconds")
@@ -125,7 +131,7 @@ describe("eval", () => {
           formula,
           states.map((state, i) => ({ state, timestamp_ms: i * 1000 })),
         );
-        const state_last = states[states.length - 1]!;
+        const state_last = states[states.length / 2]!;
 
         switch (result.type) {
           case "failed":
@@ -144,7 +150,7 @@ describe("eval", () => {
 
   it("(always left) and (always right)", () => {
     check(
-      fc.property(pairs_of_default(true), (states) => {
+      fc.property(pairs_of_bools_with_prefix(true), (states) => {
         const { runtime, pair } = test_bool_pair();
         const formula = always(() => pair.current.left).and(
           always(() => pair.current.right),
@@ -175,12 +181,12 @@ describe("eval", () => {
   it("eventually with timeout", () => {
     check(
       fc.property(
-        default_up_to(false, fc.integer({ min: 2, max: 10 })),
+        bools_with_prefix(false, fc.integer({ min: 2, max: 4 })),
         (states) => {
           const runtime = new Runtime<boolean>();
-          let pair = new ExtractorCell<boolean, boolean>(runtime, identity);
-          const formula = eventually(() => pair.current).within(
-            states.length - 1,
+          const value = new ExtractorCell<boolean, boolean>(runtime, identity);
+          const formula = eventually(() => value.current).within(
+            states.length / 2,
             "seconds",
           );
 
@@ -189,14 +195,20 @@ describe("eval", () => {
             formula,
             states.map((state, i) => ({ state, timestamp_ms: i * 1000 })),
           );
-          const state_last = states[states.length - 1]!;
+          const states_suffix_first = states[states.length / 2]!;
 
           switch (result.type) {
             case "failed":
-              expect(state_last).toBe(false);
+              expect(
+                states_suffix_first,
+                "last state when failed should be false",
+              ).toBe(false);
               break;
             case "passed": {
-              expect(state_last).toBe(true);
+              expect(
+                states_suffix_first,
+                "last state when passed should be true",
+              ).toBe(true);
               break;
             }
             case "inconclusive": {
