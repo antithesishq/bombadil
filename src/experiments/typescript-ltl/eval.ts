@@ -36,6 +36,7 @@ export type Residual =
     }
   | {
       type: "or_eventually";
+      subformula: Formula;
       start: Time;
       deadline: Time;
       left: Residual;
@@ -260,6 +261,13 @@ function evaluate_eventually(
   deadline: Time,
   time: Time,
 ): Value {
+  if (deadline.is_before(time)) {
+    return {
+      type: "false",
+      violation: { type: "eventually", formula: subformula, time },
+    };
+  }
+
   const residual: Residual = {
     type: "derived",
     derived: {
@@ -269,22 +277,19 @@ function evaluate_eventually(
       deadline,
     },
   };
+
   const value = evaluate(subformula, time);
   switch (value.type) {
     case "true":
       return value;
     case "false":
-      return time.is_before(deadline)
-        ? { type: "residual", residual }
-        : {
-            type: "false",
-            violation: { type: "eventually", formula: subformula, time },
-          };
+      return { type: "residual", residual };
     case "residual":
       return {
         type: "residual",
         residual: {
           type: "or_eventually",
+          subformula,
           start,
           deadline,
           left: value.residual,
@@ -297,9 +302,18 @@ function evaluate_eventually(
 function evaluate_or_eventually(
   start: Time,
   deadline: Time,
+  subformula: Formula,
+  time: Time,
   left: Value,
   right: Value,
 ): Value {
+  if (deadline.is_before(time)) {
+    return {
+      type: "false",
+      violation: { type: "eventually", formula: subformula, time },
+    };
+  }
+
   switch (left.type) {
     case "true":
       return left;
@@ -331,6 +345,7 @@ function evaluate_or_eventually(
             type: "residual",
             residual: {
               type: "or_eventually",
+              subformula,
               start,
               deadline,
               left: left.residual,
@@ -437,6 +452,7 @@ export function step(residual: Residual, time: Time): Value {
     case "derived":
       switch (residual.derived.type) {
         case "next":
+          console.log("evaluating next at", time.valueOf());
           return evaluate(residual.derived.formula, time);
         case "always":
           return evaluate_always(
@@ -445,6 +461,7 @@ export function step(residual: Residual, time: Time): Value {
             time,
           );
         case "eventually":
+          console.log("evaluating eventually at", time.valueOf());
           return evaluate_eventually(
             residual.derived.formula,
             residual.derived.start,
@@ -461,6 +478,8 @@ export function step(residual: Residual, time: Time): Value {
       return evaluate_or_eventually(
         residual.start,
         residual.deadline,
+        residual.subformula,
+        time,
         step(residual.left, time),
         step(residual.right, time),
       );

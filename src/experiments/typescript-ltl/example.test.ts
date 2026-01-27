@@ -133,7 +133,7 @@ describe("LTL formula tests", () => {
           dialog_message: null,
           error_message: null,
           last_action: {
-            id: "upload_file",
+            id: "wait",
           },
         } satisfies TestState,
         timestamp_ms: 0,
@@ -145,7 +145,7 @@ describe("LTL formula tests", () => {
           dialog_message: null,
           error_message: null,
           last_action: {
-            id: "wait",
+            id: "upload_file",
           },
         } satisfies TestState,
         timestamp_ms: 100,
@@ -172,15 +172,18 @@ describe("LTL formula tests", () => {
     const file_upload = condition(() => {
       const file_name = state.current.file_name.trim();
       return next(
-        () =>
-          state.current.spinner_visible &&
-          state.current.last_action.id === "upload_file",
-      ).implies(
-        eventually(
+        condition(
           () =>
-            state.current.dialog_message?.includes(file_name) ||
-            !!state.current.error_message,
-        ).within(5, "seconds"),
+            file_name !== "" &&
+            state.current.spinner_visible &&
+            state.current.last_action.id === "upload_file",
+        ).implies(
+          eventually(
+            () =>
+              state.current.dialog_message?.includes(file_name) ||
+              !!state.current.error_message,
+          ).within(5, "seconds"),
+        ),
       );
     });
 
