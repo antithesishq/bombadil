@@ -116,7 +116,7 @@ export class Contextful extends Formula {
   }
 }
 
-type IntoCondition = boolean | (() => Formula | boolean) | Formula;
+type IntoCondition = (() => Formula | boolean) | Formula;
 
 export function not(value: IntoCondition) {
   return new Not(condition(value));
@@ -125,11 +125,11 @@ export function not(value: IntoCondition) {
 export function condition(x: IntoCondition): Formula {
   const string = x.toString();
 
-  if (typeof x === "boolean") {
-    return new Pure(x);
+  function lift_result(result: Formula | boolean) {
+    return typeof result === "boolean" ? new Pure(result) : result;
   }
   if (typeof x === "function") {
-    return new Contextful(string, () => condition(x()));
+    return new Contextful(string, () => lift_result(x()));
   }
 
   return x;
