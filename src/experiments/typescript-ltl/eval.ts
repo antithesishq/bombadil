@@ -30,6 +30,7 @@ export type Residual =
     }
   | {
       type: "and_always";
+      formula: Formula;
       start: Time;
       left: Residual;
       right: Residual;
@@ -49,10 +50,9 @@ export type DerivedFormula =
   | { type: "eventually"; start: Time; deadline: Time; formula: Formula };
 
 export type ViolationTree =
-  | { type: "false"; time: Time }
-  | { type: "violation"; time: Time; atom: Formula }
+  | { type: "false"; time: Time; condition: string }
   | { type: "next"; time: Time; formula: Formula }
-  | { type: "always"; time: Time; problem: ViolationTree }
+  | { type: "always"; time: Time; formula: Formula; violation: ViolationTree }
   | { type: "eventually"; time: Time; formula: Formula }
   | { type: "and"; left: ViolationTree; right: ViolationTree }
   | { type: "or"; left: ViolationTree; right: ViolationTree }
@@ -63,7 +63,10 @@ export function evaluate(formula: Formula, time: Time): Value {
     case formula instanceof Pure:
       return formula.value
         ? { type: "true" }
-        : { type: "false", violation: { type: "false", time } };
+        : {
+            type: "false",
+            violation: { type: "false", time, condition: formula.toString() },
+          };
     case formula instanceof Contextful:
       return evaluate(formula.apply(), time);
     case formula instanceof And: {
@@ -377,6 +380,7 @@ function evaluate_always(subformula: Formula, start: Time, time: Time): Value {
         type: "residual",
         residual: {
           type: "and_always",
+          formula: subformula,
           left: value.residual,
           right: residual,
           start,
@@ -385,14 +389,27 @@ function evaluate_always(subformula: Formula, start: Time, time: Time): Value {
   }
 }
 
-function evaluate_and_always(left: Value, right: Value): Value {
+function evaluate_and_always(
+  formula: Formula,
+  time: Time,
+  left: Value,
+  right: Value,
+): Value {
   switch (left.type) {
     case "true":
       return right;
     case "false": {
       switch (right.type) {
         case "true":
-          return left;
+          return {
+            type: "false",
+            violation: {
+              type: "always",
+              violation: left.violation,
+              formula,
+              time,
+            },
+          };
         case "false":
           return {
             type: "false",
@@ -469,6 +486,8 @@ export function step(residual: Residual, time: Time): Value {
       }
     case "and_always":
       return evaluate_and_always(
+        residual.formula,
+        time,
         step(residual.left, time),
         step(residual.right, time),
       );

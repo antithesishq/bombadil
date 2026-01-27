@@ -20,12 +20,15 @@ export class Formula {
 }
 
 export class Pure extends Formula {
-  constructor(public value: boolean) {
+  constructor(
+    private string: string,
+    public value: boolean,
+  ) {
     super();
   }
 
   override toString() {
-    return `pure(${this.value})`;
+    return this.string;
   }
 }
 
@@ -123,10 +126,13 @@ export function not(value: IntoCondition) {
 }
 
 export function condition(x: IntoCondition): Formula {
-  const string = x.toString();
+  const string = x
+    .toString()
+    .replace(/^\(\)\s*=>\s*/, "")
+    .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
 
   function lift_result(result: Formula | boolean) {
-    return typeof result === "boolean" ? new Pure(result) : result;
+    return typeof result === "boolean" ? new Pure(string, result) : result;
   }
   if (typeof x === "function") {
     return new Contextful(string, () => lift_result(x()));

@@ -10,6 +10,7 @@ import {
   runtime_default,
 } from "./bombadil";
 import { ExtractorCell, type Cell, Runtime } from "./runtime";
+import { render_violation } from "./render";
 
 class TestElement {
   constructor(public nodeName: string) {}
@@ -188,6 +189,13 @@ describe("LTL formula tests", () => {
     });
 
     const result = test(runtime, file_upload, trace);
-    expect(result.type).toBe("passed");
+    switch (result.type) {
+      case "passed":
+        return;
+      case "failed":
+        throw new Error("violation:\n\n" + render_violation(result.violation));
+      case "inconclusive":
+        throw new Error("formula should terminate");
+    }
   });
 });
