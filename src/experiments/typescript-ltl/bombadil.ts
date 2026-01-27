@@ -21,14 +21,14 @@ export class Formula {
 
 export class Pure extends Formula {
   constructor(
-    private string: string,
+    private rendered: string,
     public value: boolean,
   ) {
     super();
   }
 
   override toString() {
-    return this.string;
+    return this.rendered;
   }
 }
 
@@ -41,7 +41,7 @@ export class And extends Formula {
   }
 
   override toString() {
-    return `${this.left}.and(${this.right}`;
+    return `(${this.left}) && (${this.right})`;
   }
 }
 
@@ -126,16 +126,17 @@ export function not(value: IntoCondition) {
 }
 
 export function condition(x: IntoCondition): Formula {
-  const string = x
-    .toString()
-    .replace(/^\(\)\s*=>\s*/, "")
-    .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
-
-  function lift_result(result: Formula | boolean) {
-    return typeof result === "boolean" ? new Pure(string, result) : result;
-  }
   if (typeof x === "function") {
-    return new Contextful(string, () => lift_result(x()));
+    const rendered = x
+      .toString()
+      .replace(/^\(\)\s*=>\s*/, "")
+      .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
+
+    function lift_result(result: Formula | boolean): Formula {
+      return typeof result === "boolean" ? new Pure(rendered, result) : result;
+    }
+
+    return new Contextful(rendered, () => lift_result(x()));
   }
 
   return x;

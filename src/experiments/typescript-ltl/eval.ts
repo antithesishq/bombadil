@@ -52,7 +52,13 @@ export type DerivedFormula =
 export type ViolationTree =
   | { type: "false"; time: Time; condition: string }
   | { type: "next"; time: Time; formula: Formula }
-  | { type: "always"; time: Time; formula: Formula; violation: ViolationTree }
+  | {
+      type: "always";
+      start: Time;
+      time: Time;
+      formula: Formula;
+      violation: ViolationTree;
+    }
   | { type: "eventually"; time: Time; formula: Formula }
   | { type: "and"; left: ViolationTree; right: ViolationTree }
   | { type: "or"; left: ViolationTree; right: ViolationTree }
@@ -374,7 +380,16 @@ function evaluate_always(subformula: Formula, start: Time, time: Time): Value {
     case "true":
       return { type: "residual", residual };
     case "false":
-      return value;
+      return {
+        type: "false",
+        violation: {
+          type: "always",
+          violation: value.violation,
+          formula: subformula,
+          start,
+          time,
+        },
+      };
     case "residual":
       return {
         type: "residual",
@@ -391,6 +406,7 @@ function evaluate_always(subformula: Formula, start: Time, time: Time): Value {
 
 function evaluate_and_always(
   formula: Formula,
+  start: Time,
   time: Time,
   left: Value,
   right: Value,
@@ -407,6 +423,7 @@ function evaluate_and_always(
               type: "always",
               violation: left.violation,
               formula,
+              start,
               time,
             },
           };
@@ -414,9 +431,15 @@ function evaluate_and_always(
           return {
             type: "false",
             violation: {
-              type: "and",
-              left: left.violation,
-              right: right.violation,
+              type: "always",
+              violation: {
+                type: "and",
+                left: left.violation,
+                right: right.violation,
+              },
+              formula,
+              start,
+              time,
             },
           };
         case "residual":
@@ -487,6 +510,7 @@ export function step(residual: Residual, time: Time): Value {
     case "and_always":
       return evaluate_and_always(
         residual.formula,
+        residual.start,
         time,
         step(residual.left, time),
         step(residual.right, time),
