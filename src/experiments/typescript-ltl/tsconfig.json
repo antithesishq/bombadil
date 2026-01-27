@@ -1,7 +1,8 @@
 {
+  "include": ["*.ts"],
   "compilerOptions": {
     // Environment setup & latest features
-    "lib": ["ESNext", "dom"],
+    "lib": ["es2021", "dom"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
@@ -12,7 +13,10 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true,
+    "rootDir": ".",
+    "outDir": "dist",
+    "declaration": true,
+    "emitDeclarationOnly": true,
 
     // Best practices
     "strict": true,
