@@ -1,7 +1,15 @@
 import { describe, it, expect } from "bun:test";
 import { test } from "./test";
 import assert from "node:assert";
-import { runtime_default } from "./bombadil";
+import {
+  always,
+  condition,
+  eventually,
+  extract,
+  next,
+  runtime_default,
+} from "./bombadil";
+import { ExtractorCell, type Cell, Runtime } from "./runtime";
 
 class TestElement {
   constructor(public nodeName: string) {}
@@ -107,5 +115,76 @@ describe("LTL formula tests", () => {
 
     const violation = test(runtime_default, example.error_disappears, trace);
     expect(violation.type).toBe("inconclusive");
+  });
+
+  it("file upload", async () => {
+    type TestState = {
+      file_name: string;
+      spinner_visible: boolean;
+      dialog_message: string | null;
+      error_message: string | null;
+      last_action: { id: "wait" | "upload_file" };
+    };
+    const trace = [
+      {
+        state: {
+          file_name: "file.txt",
+          spinner_visible: false,
+          dialog_message: null,
+          error_message: null,
+          last_action: {
+            id: "upload_file",
+          },
+        } satisfies TestState,
+        timestamp_ms: 0,
+      },
+      {
+        state: {
+          file_name: "",
+          spinner_visible: true,
+          dialog_message: null,
+          error_message: null,
+          last_action: {
+            id: "wait",
+          },
+        } satisfies TestState,
+        timestamp_ms: 100,
+      },
+      {
+        state: {
+          file_name: "",
+          spinner_visible: false,
+          dialog_message: null,
+          error_message: "Uh-oh, file too big!",
+          last_action: {
+            id: "wait",
+          },
+        } satisfies TestState,
+        timestamp_ms: 4000,
+      },
+    ];
+    const runtime = new Runtime<TestState>();
+    const state = new ExtractorCell<TestState, TestState>(
+      runtime,
+      (state) => state,
+    );
+
+    const file_upload = condition(() => {
+      const file_name = state.current.file_name.trim();
+      return next(
+        () =>
+          state.current.spinner_visible &&
+          state.current.last_action.id === "upload_file",
+      ).implies(
+        eventually(
+          () =>
+            state.current.dialog_message?.includes(file_name) ||
+            !!state.current.error_message,
+        ).within(5, "seconds"),
+      );
+    });
+
+    const result = test(runtime, file_upload, trace);
+    expect(result.type).toBe("passed");
   });
 });

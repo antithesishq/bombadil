@@ -5,6 +5,7 @@ import {
   Eventually,
   Formula,
   Implies,
+  Next,
   Or,
   Pure,
 } from "./bombadil";
@@ -42,12 +43,14 @@ export type Residual =
     };
 
 export type DerivedFormula =
+  | { type: "next"; start: Time; formula: Formula }
   | { type: "always"; start: Time; formula: Formula }
   | { type: "eventually"; start: Time; deadline: Time; formula: Formula };
 
 export type ViolationTree =
   | { type: "false"; time: Time }
   | { type: "violation"; time: Time; atom: Formula }
+  | { type: "next"; time: Time; formula: Formula }
   | { type: "always"; time: Time; problem: ViolationTree }
   | { type: "eventually"; time: Time; formula: Formula }
   | { type: "and"; left: ViolationTree; right: ViolationTree }
@@ -77,6 +80,14 @@ export function evaluate(formula: Formula, time: Time): Value {
       const consequent = evaluate(formula.consequent, time);
       return evaluate_implies(formula.antecedent, antecedent, consequent);
     }
+    case formula instanceof Next:
+      return {
+        type: "residual",
+        residual: {
+          type: "derived",
+          derived: { type: "next", start: time, formula: formula.subformula },
+        },
+      };
     case formula instanceof Eventually:
       return evaluate_eventually(
         formula.subformula,
@@ -84,10 +95,8 @@ export function evaluate(formula: Formula, time: Time): Value {
         time.plus(formula.timeout),
         time,
       );
-
     case formula instanceof Always:
       return evaluate_always(formula.subformula, time, time);
-
     default:
       throw new Error(`unsupported formula: ${formula}`);
   }
@@ -427,6 +436,8 @@ export function step(residual: Residual, time: Time): Value {
       );
     case "derived":
       switch (residual.derived.type) {
+        case "next":
+          return evaluate(residual.derived.formula, time);
         case "always":
           return evaluate_always(
             residual.derived.formula,
