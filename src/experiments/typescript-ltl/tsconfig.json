@@ -1,5 +1,5 @@
 {
-  "include": ["*.ts"],
+  "include": ["src/**/*.ts"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["es2021", "dom"],
@@ -13,7 +13,7 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
-    "rootDir": ".",
+    "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
     "emitDeclarationOnly": true,
