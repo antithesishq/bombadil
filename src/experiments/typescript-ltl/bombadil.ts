@@ -70,6 +70,16 @@ export class Not extends Formula {
   }
 }
 
+export class Next extends Formula {
+  constructor(public subformula: Formula) {
+    super();
+  }
+
+  override toString() {
+    return `next(${this.subformula})`;
+  }
+}
+
 export class Always extends Formula {
   constructor(public subformula: Formula) {
     super();
@@ -123,6 +133,10 @@ export function condition(x: IntoCondition): Formula {
   }
 
   return x;
+}
+
+export function next(x: IntoCondition): Formula {
+  return new Next(condition(x));
 }
 
 export function always(x: IntoCondition): Formula {
