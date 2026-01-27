@@ -1,15 +1,8 @@
 import { describe, it, expect } from "bun:test";
 import { test } from "./test";
 import assert from "node:assert";
-import {
-  always,
-  condition,
-  eventually,
-  extract,
-  next,
-  runtime_default,
-} from "./bombadil";
-import { ExtractorCell, type Cell, Runtime } from "./runtime";
+import { condition, eventually, next, runtime_default } from "./bombadil";
+import { ExtractorCell, Runtime } from "./runtime";
 import { render_violation } from "./render";
 
 class TestElement {
@@ -75,7 +68,7 @@ describe("LTL formula tests", () => {
     expect(result.type).toEqual("failed");
 
     assert(result.type === "failed");
-    expect(result.violation.type).toEqual("false");
+    expect(result.violation.type).toEqual("always");
   });
 
   it("error disappears eventually", async () => {
