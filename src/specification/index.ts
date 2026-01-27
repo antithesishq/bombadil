@@ -1,11 +1,17 @@
 import {
-  Runtime,
-  type Serializable,
+  type JSON,
   ExtractorCell,
   type Cell,
-  TimeCell,
-} from "./runtime";
-import { Duration, type Time, type TimeUnit } from "./time";
+  Runtime,
+  Duration,
+  type TimeUnit,
+} from "bombadil/internal";
+
+/** @internal */
+export const runtime_default = new Runtime<State>();
+
+// Reexports
+export { time, type Cell } from "bombadil/internal";
 
 export class Formula {
   and(that: IntoCondition): Formula {
@@ -21,14 +27,14 @@ export class Formula {
 
 export class Pure extends Formula {
   constructor(
-    private rendered: string,
+    private pretty: string,
     public value: boolean,
   ) {
     super();
   }
 
   override toString() {
-    return this.rendered;
+    return this.pretty;
   }
 }
 
@@ -108,14 +114,14 @@ export class Eventually extends Formula {
 
 export class Contextful extends Formula {
   constructor(
-    private string: string,
+    private pretty: string,
     public apply: () => Formula,
   ) {
     super();
   }
 
   override toString() {
-    return this.string;
+    return this.pretty;
   }
 }
 
@@ -127,16 +133,16 @@ export function not(value: IntoCondition) {
 
 export function condition(x: IntoCondition): Formula {
   if (typeof x === "function") {
-    const rendered = x
+    const pretty = x
       .toString()
       .replace(/^\(\)\s*=>\s*/, "")
       .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
 
     function lift_result(result: Formula | boolean): Formula {
-      return typeof result === "boolean" ? new Pure(rendered, result) : result;
+      return typeof result === "boolean" ? new Pure(pretty, result) : result;
     }
 
-    return new Contextful(rendered, () => lift_result(x()));
+    return new Contextful(pretty, () => lift_result(x()));
   }
 
   return x;
@@ -158,16 +164,22 @@ export function eventually(x: IntoCondition) {
   };
 }
 
-export const runtime_default = new Runtime<State>();
-
-export function extract<T extends Serializable>(
-  query: (state: State) => T,
-): Cell<T, State> {
-  return new ExtractorCell(runtime_default, query);
+export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
+  return new ExtractorCell<T, State>(runtime_default, query);
 }
-
-export const time: Cell<Time, any> = new TimeCell(runtime_default);
 
 export interface State {
   document: HTMLDocument;
+  window: Window;
+  errors: {
+    uncaught_exception: JSON;
+    unhandled_promise_rejection: JSON;
+  };
+  console: ConsoleEntry[];
 }
+
+export type ConsoleEntry = {
+  timestamp: number;
+  level: "warning" | "error";
+  args: JSON[];
+};

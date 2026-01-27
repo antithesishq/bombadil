@@ -52,6 +52,7 @@
               rustfmt
               crate2nix
               cargo-insta
+              clippy
 
               # Nix
               nil

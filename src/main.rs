@@ -1,5 +1,5 @@
 use ::url::Url;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Args, Parser};
 use std::{path::PathBuf, str::FromStr};
 use tempfile::TempDir;
@@ -7,6 +7,7 @@ use tempfile::TempDir;
 use bombadil::{
     browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
     runner::{Runner, RunnerOptions},
+    specification::render::render_violation,
     trace::writer::TraceWriter,
 };
 
@@ -20,6 +21,7 @@ struct CLI {
 #[derive(Args)]
 struct TestSharedOptions {
     origin: Origin,
+    specification_file: PathBuf,
     #[arg(long)]
     output_path: Option<PathBuf>,
     #[arg(long)]
@@ -137,6 +139,18 @@ async fn test(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
+    let specification_source =
+        tokio::fs::read_to_string(&shared_options.specification_file)
+            .await
+            .map_err(|error| {
+                anyhow!(
+                    "could not read specification file at {}: {}",
+                    &shared_options.specification_file.display(),
+                    error
+                )
+            })?
+            .into_bytes();
+
     let output_path = match shared_options.output_path {
         Some(path) => path,
         None => TempDir::with_prefix("states_")?.keep().to_path_buf(),
@@ -144,6 +158,7 @@ async fn test(
 
     let runner = Runner::new(
         shared_options.origin.url,
+        specification_source,
         RunnerOptions {
             stop_on_violation: shared_options.exit_on_violation,
         },
@@ -160,15 +175,22 @@ async fn test(
                 Ok(Some(bombadil::runner::RunEvent::NewState {
                     state,
                     last_action,
-                    violation,
+                    violations,
                 })) => {
-                    writer.write(last_action, state, violation.clone()).await?;
+                    let has_violations = !violations.is_empty();
 
-                    if let Some(violation) = violation {
-                        log::error!("violation: {}", violation);
-                        if shared_options.exit_on_violation {
-                            break Ok(Some(2));
-                        }
+                    for violation in &violations {
+                        log::error!(
+                            "violation of property `{}`:\n{}",
+                            violation.name,
+                            render_violation(&violation.violation)
+                        );
+                    }
+
+                    writer.write(last_action, state, violations).await?;
+
+                    if has_violations && shared_options.exit_on_violation {
+                        break Ok(Some(2));
                     }
                 }
                 Ok(None) => break Ok(None),

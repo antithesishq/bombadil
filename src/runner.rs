@@ -1,19 +1,17 @@
 use crate::browser::actions::{available_actions, BrowserAction, Timeout};
 use crate::browser::{random, BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::invariant_violation;
-use crate::trace::Violation;
+use crate::specification::worker::{PropertyValue, VerifierWorker};
+use crate::trace::PropertyViolation;
 use ::url::Url;
 use serde_json as json;
 use std::cmp::max;
-use std::time::UNIX_EPOCH;
+use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use tokio::time::timeout;
 use tokio::{select, spawn};
 
-use crate::browser::state::{
-    BrowserState, ConsoleEntryLevel, Coverage, Exception,
-};
+use crate::browser::state::{BrowserState, Coverage, Exception};
 use crate::browser::{Browser, DebuggerOptions};
 
 pub struct RunnerOptions {
@@ -25,7 +23,7 @@ pub enum RunEvent {
     NewState {
         state: BrowserState,
         last_action: Option<BrowserAction>,
-        violation: Option<Violation>,
+        violations: Vec<PropertyViolation>,
     },
 }
 
@@ -33,6 +31,7 @@ pub struct Runner {
     origin: Url,
     options: RunnerOptions,
     browser: Browser,
+    verifier: Arc<VerifierWorker>,
     events: broadcast::Sender<RunEvent>,
     shutdown_sender: oneshot::Sender<()>,
     shutdown_receiver: oneshot::Receiver<()>,
@@ -43,6 +42,7 @@ pub struct Runner {
 impl Runner {
     pub async fn new(
         origin: Url,
+        specification_source: Vec<u8>,
         options: RunnerOptions,
         browser_options: BrowserOptions,
         debugger_options: DebuggerOptions,
@@ -55,10 +55,13 @@ impl Runner {
             Browser::new(origin.clone(), browser_options, debugger_options)
                 .await?;
 
+        let verifier = VerifierWorker::start(specification_source)?;
+
         Ok(Runner {
             origin,
             options,
             browser,
+            verifier,
             events,
             shutdown_sender,
             shutdown_receiver,
@@ -72,6 +75,7 @@ impl Runner {
             origin,
             options,
             mut browser,
+            verifier,
             events,
             shutdown_sender,
             shutdown_receiver,
@@ -90,6 +94,7 @@ impl Runner {
                     origin,
                     options,
                     &mut browser,
+                    verifier,
                     events,
                     shutdown_receiver,
                 )
@@ -119,6 +124,7 @@ impl Runner {
         origin: Url,
         options: RunnerOptions,
         browser: &mut Browser,
+        verifier: Arc<VerifierWorker>,
         events: broadcast::Sender<RunEvent>,
         mut shutdown: oneshot::Receiver<()>,
     ) -> anyhow::Result<()> {
@@ -126,7 +132,10 @@ impl Runner {
         let mut last_action_timeout = Timeout::from_secs(1);
         let mut edges = [0u8; EDGE_MAP_SIZE];
 
+        let extractors = verifier.extractors().await?;
+
         loop {
+            let verifier = verifier.clone();
             select! {
                 _ = &mut shutdown => {
                     return Ok(())
@@ -134,8 +143,16 @@ impl Runner {
                 event = timeout( last_action_timeout.to_duration(), browser.next_event() ) => match event {
                     Ok(Some(event)) => match event {
                         BrowserEvent::StateChanged(state) => {
-                            // very basic check until we have spec language and all that
-                            let violation = check_page_ok(&state).await.err();
+                            // Step formulas and collect violations.
+                            let snapshots = run_extractors(&state, &extractors).await?;
+                            let property_results = verifier.step(snapshots, state.timestamp).await?;
+                            let mut violations = Vec::with_capacity(property_results.len());
+                            for (name, value) in property_results {
+                                if let PropertyValue::False(violation) = value {
+                                    violations.push(PropertyViolation{ name, violation });
+                                }
+                            }
+                            let has_violations = !violations.is_empty();
 
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {
@@ -156,20 +173,17 @@ impl Runner {
                             events.send(RunEvent::NewState {
                                 state,
                                 last_action,
-                                violation: violation.clone(),
+                                violations,
                             })?;
-                            if let Some(_) = violation && options.stop_on_violation {
+                            if has_violations && options.stop_on_violation {
                                 return Ok(())
                             }
 
-                            match action {
-                                (action, timeout) => {
-                                    log::info!("picked action: {:?}", action);
-                                    browser.apply(action.clone()).await?;
-                                    last_action = Some(action);
-                                    last_action_timeout = timeout;
-                                }
-                            }
+                            let (action, timeout) = action;
+                            log::info!("picked action: {:?}", action);
+                            browser.apply(action.clone()).await?;
+                            last_action = Some(action);
+                            last_action_timeout = timeout;
                         }
                         BrowserEvent::Error(error) => {
                             anyhow::bail!("state machine error: {}", error)
@@ -212,6 +226,64 @@ impl RunEvents {
     }
 }
 
+async fn run_extractors(
+    state: &BrowserState,
+    extractors: &Vec<(u64, String)>,
+) -> anyhow::Result<Vec<(u64, json::Value)>> {
+    let mut results = Vec::with_capacity(extractors.len());
+
+    let uncaught_exception =
+        if let Some(Exception::UncaughtException(e)) = &state.exception {
+            Some(e)
+        } else {
+            None
+        };
+
+    let unhandled_promise_rejection =
+        if let Some(Exception::UnhandledPromiseRejection(e)) = &state.exception
+        {
+            Some(e)
+        } else {
+            None
+        };
+
+    let console_entries: Vec<json::Value> = state
+        .console_entries
+        .iter()
+        .map(|entry| {
+            json::json!({
+                "timestamp": entry.timestamp,
+                "level": format!("{:?}", entry.level).to_ascii_lowercase(),
+                "args": entry.args,
+            })
+        })
+        .collect();
+
+    let state_partial = json::json!({
+        "errors": {
+            "uncaught_exception": uncaught_exception,
+            "unhandled_promise_rejection": unhandled_promise_rejection,
+        },
+        "console": console_entries
+
+    });
+
+    for (key, function) in extractors {
+        let json: json::Value = state
+            .evaluate_function_call(
+                format!(
+                    "(state) => ({})({{ ...state, document, window }})",
+                    function
+                ),
+                vec![state_partial.clone()],
+            )
+            .await?;
+        results.push((*key, json));
+    }
+    Ok(results)
+}
+
+/*
 async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
     let status: Option<u16> = state.evaluate_function_call(
                         "() => window.performance.getEntriesByType('navigation')[0]?.responseStatus", vec![]
@@ -228,13 +300,12 @@ async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
     }
 
     for entry in &state.console_entries {
-        match entry.level {
-            ConsoleEntryLevel::Error => invariant_violation!(
+        if let ConsoleEntryLevel::Error = entry.level {
+            invariant_violation!(
                 "console.error at {}: {:?}",
                 entry.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
                 entry.args
-            ),
-            _ => {}
+            )
         }
     }
 
@@ -263,6 +334,7 @@ async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
 
     Ok(())
 }
+*/
 
 fn log_coverage_stats_increment(coverage: &Coverage) {
     if log::log_enabled!(log::Level::Debug) {

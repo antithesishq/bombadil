@@ -2,6 +2,7 @@
   callPackage,
   pkg-config,
   esbuild,
+  typescript,
   chromium,
 }:
 let
@@ -10,7 +11,10 @@ let
     pkgs.buildRustCrate.override {
       defaultCrateOverrides = pkgs.defaultCrateOverrides // {
         bombadil = attrs: {
-          nativeBuildInputs = [ esbuild ];
+          nativeBuildInputs = [
+            esbuild
+            typescript
+          ];
         };
       };
     };

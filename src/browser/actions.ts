@@ -1,38 +1,40 @@
 export type Point = {
-  x: number,
-  y: number,
+  x: number;
+  y: number;
 };
 
-export type Action = {
-  Click: {
-    name: string,
-    content: string,
-    point: Point,
-  }
-} | {
-  TypeText: {
-    format: "Text" | "Email" | "Number"
-  }
-}
+export type Action =
+  | {
+      Click: {
+        name: string;
+        content: string;
+        point: Point;
+      };
+    }
+  | {
+      TypeText: {
+        format: "Text" | "Email" | "Number";
+      };
+    }
   | "PressKey"
   | {
-    ScrollUp: {
-      origin: {
-        x: number,
-        y: number,
-      },
-      distance: number,
+      ScrollUp: {
+        origin: {
+          x: number;
+          y: number;
+        };
+        distance: number;
+      };
     }
-  }
   | {
-    ScrollDown: {
-      origin: {
-        x: number,
-        y: number,
-      },
-      distance: number,
-    }
-  };
+      ScrollDown: {
+        origin: {
+          x: number;
+          y: number;
+        };
+        distance: number;
+      };
+    };
 
 export type Weight = number;
 
@@ -59,10 +61,12 @@ export function query_all(root: Element, selector: string): Element[] {
       for (const child of element.shadowRoot.children) {
         queue.push(child);
       }
-    } else if (element instanceof HTMLIFrameElement && element.contentDocument) {
+    } else if (
+      element instanceof HTMLIFrameElement &&
+      element.contentDocument
+    ) {
       queue.push(element.contentDocument.body);
     } else {
-
       for (const child of element.children) {
         queue.push(child);
       }
