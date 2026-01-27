@@ -5,6 +5,9 @@ correctness properties, *finding harder bugs earlier*.
 
 Runs in your local developer environment, in CI, and inside Antithesis.
 
+*NOTE: Bombadil is new and experimental. Stuff is going to change in the early
+days. That said, we hope you'll try it out!*
+
 ## Usage
 
 Start a test:
@@ -28,9 +31,8 @@ bombadil test --exit-on-violation https://example.com
 
 ## More Resources
 
-* [Contributing](docs/contributing.md)
-* [Project Charter](https://docs.google.com/document/d/1r4jl8DxNPgCk_RC6GJgn7yBa_LB3iTSaIHcpnUiT3ss/edit?tab=t.0) (internal document)
-* [TODO](docs/TODO.md) (temporary issue tracker)
+* [Contributing](docs/contributing.md): if you want to hack on it
+* [Quickstrom](https://quickstrom.io/): a predecessor to Bombadil
 
 <hr>
 
