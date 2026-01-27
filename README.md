@@ -6,7 +6,7 @@ correctness properties, *finding harder bugs earlier*.
 Runs in your local developer environment, in CI, and inside Antithesis.
 
 *NOTE: Bombadil is new and experimental. Stuff is going to change in the early
-days. That said, we hope you'll try it out!*
+days, and generally stuff will be missing. Even so, we hope you'll try it out!*
 
 ## Usage
 
