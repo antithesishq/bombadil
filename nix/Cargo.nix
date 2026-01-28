@@ -807,6 +807,7 @@ rec {
           }
         ];
         src = lib.cleanSourceWith { filter = sourceFilter;  src = ../.; };
+        build = "src/build.rs";
         dependencies = [
           {
             name = "anyhow";
