@@ -28,6 +28,13 @@
           docker = pkgs.callPackage ./nix/docker.nix { };
         };
 
+        apps = {
+          default = {
+            type = "app";
+            program = "${self.packages.${system}.default}/bin/bombadil";
+          };
+        };
+
         devShells = {
           default = pkgs.mkShell {
             CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
