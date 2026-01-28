@@ -8,9 +8,7 @@ result = (() => {
   }
 
   if (element instanceof HTMLTextAreaElement) {
-    return [
-      [1, 50, { TypeText: { format: "Text" } }],
-    ];
+    return [[1, 50, { TypeText: { format: "Text" } }]];
   }
 
   if (element instanceof HTMLInputElement) {
@@ -28,7 +26,7 @@ result = (() => {
       case "number":
         return [
           [1, 50, "PressKey"],
-          [1, 50, { TypeText: { format: "Number" } }]
+          [1, 50, { TypeText: { format: "Number" } }],
         ];
 
       case "color":

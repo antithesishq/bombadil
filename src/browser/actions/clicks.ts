@@ -17,7 +17,7 @@ result = (() => {
     // naive calculation of center of element
     const rect = element.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-      return { x: rect.left + (rect.width / 2), y: rect.top + (rect.height / 2) };
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     } else {
       return null;
     }
@@ -25,19 +25,25 @@ result = (() => {
 
   function is_visible(element: Element) {
     const style = window.getComputedStyle(element);
-    return style.display !== "none" && style.visibility !== "hidden" && parseFloat(style.opacity || "1") > 0.0;
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      parseFloat(style.opacity || "1") > 0.0
+    );
   }
 
   type Rect = Point & {
-    width: number,
-    height: number,
+    width: number;
+    height: number;
   };
 
   function contains(rect: Rect, point: Point) {
-    return point.x >= rect.x &&
-      point.x <= (rect.x + rect.width) &&
+    return (
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.width &&
       point.y >= rect.y &&
-      point.y <= (rect.y + rect.height);
+      point.y <= rect.y + rect.height
+    );
   }
 
   const clicks: Actions = [];
@@ -62,7 +68,7 @@ result = (() => {
         continue;
       }
 
-      if (!url.protocol.startsWith('http')) {
+      if (!url.protocol.startsWith("http")) {
         console.debug(url, "is not an http(s) URL");
         continue;
       }
@@ -83,7 +89,12 @@ result = (() => {
         continue;
       }
 
-      const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      const viewport = {
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       if (!contains(viewport, point)) {
         console.debug(anchor, "is out of viewport");
         continue;
@@ -93,14 +104,18 @@ result = (() => {
         continue;
       }
 
-      console.debug('adding click action', anchor);
-      clicks.push([1, 500, {
-        Click: {
-          name: anchor.nodeName,
-          content: anchor.textContent.trim().replaceAll(/\s+/g, " "),
-          point,
-        }
-      }]);
+      console.debug("adding click action", anchor);
+      clicks.push([
+        1,
+        500,
+        {
+          Click: {
+            name: anchor.nodeName,
+            content: anchor.textContent.trim().replaceAll(/\s+/g, " "),
+            point,
+          },
+        },
+      ]);
 
       added.add(anchor);
     } catch (e) {
@@ -108,7 +123,10 @@ result = (() => {
       continue;
     }
   }
-  for (const element of query_all(document.body, "button,input,textarea,label[for]")) {
+  for (const element of query_all(
+    document.body,
+    "button,input,textarea,label[for]",
+  )) {
     try {
       // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
       if (!(element instanceof HTMLInputElement) && !is_visible(element)) {
@@ -122,14 +140,23 @@ result = (() => {
         continue;
       }
 
-      const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      const viewport = {
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       if (!contains(viewport, point)) {
         console.debug(element, "is out of viewport");
         continue;
       }
 
-
-      if (element === document.activeElement && (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) && element.value) {
+      if (
+        element === document.activeElement &&
+        (element instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement) &&
+        element.value
+      ) {
         console.debug(element, "is blank and active, no need to click");
         continue;
       }
@@ -138,14 +165,18 @@ result = (() => {
         continue;
       }
 
-      console.debug('adding click action', element);
-      clicks.push([3, 300, {
-        Click: {
-          name: element.nodeName,
-          content: element.textContent.trim().replaceAll(/\s+/g, " "),
-          point,
-        }
-      }]);
+      console.debug("adding click action", element);
+      clicks.push([
+        3,
+        300,
+        {
+          Click: {
+            name: element.nodeName,
+            content: element.textContent.trim().replaceAll(/\s+/g, " "),
+            point,
+          },
+        },
+      ]);
 
       added.add(element);
     } catch (e) {
@@ -154,7 +185,9 @@ result = (() => {
     }
   }
 
-  const aria_selector = ARIA_ROLES_CLICKABLE.map(role => `[role=${role}]`).join(",");
+  const aria_selector = ARIA_ROLES_CLICKABLE.map(
+    (role) => `[role=${role}]`,
+  ).join(",");
   for (const element of query_all(document.body, aria_selector)) {
     try {
       if (!is_visible(element)) {
@@ -168,7 +201,12 @@ result = (() => {
         continue;
       }
 
-      const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+      const viewport = {
+        x: 0,
+        y: 0,
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
       if (!contains(viewport, point)) {
         console.debug(element, "is out of viewport");
         continue;
@@ -178,14 +216,18 @@ result = (() => {
         continue;
       }
 
-      console.debug('adding click action', element);
-      clicks.push([1, 500, {
-        Click: {
-          name: element.nodeName,
-          content: element.textContent.trim().replaceAll(/\s+/g, " "),
-          point,
-        }
-      }]);
+      console.debug("adding click action", element);
+      clicks.push([
+        1,
+        500,
+        {
+          Click: {
+            name: element.nodeName,
+            content: element.textContent.trim().replaceAll(/\s+/g, " "),
+            point,
+          },
+        },
+      ]);
 
       added.add(element);
     } catch (e) {
