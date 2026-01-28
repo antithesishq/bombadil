@@ -3,6 +3,7 @@ name = "bombadil"
 version = "0.1.0"
 edition = "2024"
 exclude = []
+build = "src/build.rs"
 
 [[bin]]
 name = "bombadil"
