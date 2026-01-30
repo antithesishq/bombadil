@@ -163,11 +163,11 @@ export function eventually(x: IntoCondition) {
 
 export function extract<T extends Serializable>(
   query: (state: State) => T,
-): Cell<T, State> {
+): Cell<T> {
   return new ExtractorCell(runtime_default, query);
 }
 
-export const time: Cell<Time, any> = new TimeCell(runtime_default);
+export const time: Cell<Time> = new TimeCell(runtime_default);
 
 export interface State {
   document: HTMLDocument;

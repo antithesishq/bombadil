@@ -1,4 +1,4 @@
-use crate::specification::result::Result;
+use crate::specification::result::{Result, SpecificationError};
 use boa_engine::{object::builtins::JsArray, *};
 use std::collections::HashMap;
 
@@ -41,64 +41,27 @@ impl Extractors {
         Ok(functions)
     }
 
-    pub fn update_from_results(
+    pub fn update_from_snapshots(
         &self,
         results: HashMap<u64, serde_json::Value>,
         context: &mut Context,
     ) -> Result<()> {
         for (id, json_result) in results {
             if let Some(obj) = self.get(id) {
-                // Convert JSON to JsValue and update the object
-                let js_value = json_to_jsvalue(&json_result, context)?;
-                obj.set(js_string!("state"), js_value, true, context)?;
+                let js_value = JsValue::from_json(&json_result, context)?;
+                let method = obj
+                    .get(js_string!("update"), context)?
+                    .as_callable()
+                    .ok_or(SpecificationError::ModuleError(
+                        "update is not callable".to_string(),
+                    ))?;
+                method.call(
+                    &JsValue::from(obj.clone()),
+                    &[js_value],
+                    context,
+                )?;
             }
         }
         Ok(())
-    }
-}
-
-fn json_to_jsvalue(
-    json: &serde_json::Value,
-    context: &mut Context,
-) -> Result<JsValue> {
-    match json {
-        serde_json::Value::Null => Ok(JsValue::null()),
-        serde_json::Value::Bool(b) => Ok(JsValue::new(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(JsValue::new(i))
-            } else if let Some(f) = n.as_f64() {
-                Ok(JsValue::new(f))
-            } else {
-                Ok(JsValue::undefined())
-            }
-        }
-        serde_json::Value::String(s) => {
-            Ok(JsValue::new(js_string!(s.as_str())))
-        }
-        serde_json::Value::Array(arr) => {
-            let js_arr = JsArray::new(context);
-            for (i, item) in arr.iter().enumerate() {
-                js_arr.set(
-                    i,
-                    json_to_jsvalue(item, context)?,
-                    false,
-                    context,
-                )?;
-            }
-            Ok(js_arr.into())
-        }
-        serde_json::Value::Object(obj) => {
-            let js_obj = JsObject::with_null_proto();
-            for (key, value) in obj {
-                js_obj.set(
-                    js_string!(key.as_str()),
-                    json_to_jsvalue(value, context)?,
-                    true,
-                    context,
-                )?;
-            }
-            Ok(js_obj.into())
-        }
     }
 }

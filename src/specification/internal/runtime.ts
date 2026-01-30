@@ -1,9 +1,9 @@
 import { Time } from "./time";
 
-export interface Cell<T, S> {
+export interface Cell<T> {
   get current(): T;
   at(time: Time): T;
-  update(state: S, time: Time): void;
+  update(snapshot: T, time: Time): void;
 }
 
 export type Serializable =
@@ -15,8 +15,8 @@ export type Serializable =
   | { [key: string]: Serializable }
   | { toJSON(): Serializable };
 
-export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
-  private cache = new Map<Time, T>();
+export class ExtractorCell<T extends Serializable, S> implements Cell<T> {
+  private snapshots = new Map<Time, T>();
   constructor(
     private runtime: Runtime<S>,
     private extract: (state: S) => T,
@@ -24,13 +24,12 @@ export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
     runtime.register_extractor(this);
   }
 
-  update(state: S, time: Time): void {
-    const value = this.extract(state);
-    this.cache.set(time, value);
+  update(snapshot: T, time: Time): void {
+    this.snapshots.set(time, snapshot);
   }
 
   get current(): T {
-    const value = this.cache.get(this.runtime.time);
+    const value = this.snapshots.get(this.runtime.time);
     if (value === undefined) {
       throw new Error(
         `no cell value available in current state (this is a bug in the runtime)`,
@@ -42,7 +41,7 @@ export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
 
   at(time: Time): T {
     if (time.is_before(this.runtime.time)) {
-      const value = this.cache.get(time);
+      const value = this.snapshots.get(time);
       if (value === undefined) {
         throw new Error("cannot get value from unknown time");
       }
@@ -59,7 +58,7 @@ export class ExtractorCell<T extends Serializable, S> implements Cell<T, S> {
   }
 }
 
-export class TimeCell implements Cell<Time, any> {
+export class TimeCell implements Cell<Time> {
   constructor(private runtime: Runtime<any>) {}
 
   update(): void {}
