@@ -75,7 +75,7 @@ export class TimeCell implements Cell<Time, any> {
 
 export class Runtime<S> {
   private current_state: { state: S; time: Time } | null = null;
-  private cells: ExtractorCell<any, S>[] = [];
+  private extractors: ExtractorCell<any, S>[] = [];
 
   get time(): Time {
     if (this.current_state === null) {
@@ -93,18 +93,18 @@ export class Runtime<S> {
       throw new Error("non-monotonic time update in register_state");
     }
     this.current_state = { state, time: time_new };
-    for (const cell of this.cells) {
+    for (const cell of this.extractors) {
       cell.update(state, time_new);
     }
     return time_new;
   }
 
   register_extractor(cell: ExtractorCell<any, S>) {
-    this.cells.push(cell);
+    this.extractors.push(cell);
   }
 
   reset() {
     this.current_state = null;
-    this.cells = [];
+    this.extractors = [];
   }
 }

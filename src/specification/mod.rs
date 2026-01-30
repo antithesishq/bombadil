@@ -1,16 +1,19 @@
 use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use boa_engine::{
-    builtins::promise::PromiseState, context::ContextBuilder, Context, JsError,
-    JsValue, Module, Source,
+    builtins::promise::PromiseState, context::ContextBuilder, js_string,
+    object::builtins::JsArray, Context, JsError, JsObject, JsValue, Module,
+    Source,
 };
 use result::Result;
 
 use crate::specification::{
+    extractors::Extractors,
     module_loader::{load_bombadil_module, HybridModuleLoader},
     result::SpecificationError,
 };
 
+mod extractors;
 mod module_loader;
 mod result;
 
@@ -22,6 +25,7 @@ struct Evaluator {
     specification_module: Module,
     bombadil_exports: BombadilExports,
     properties: HashMap<String, JsValue>,
+    extractors: Extractors,
 }
 
 #[allow(dead_code)]
@@ -80,11 +84,34 @@ impl Evaluator {
 
         let specification_exports =
             module_exports(&specification_module, &mut context)?;
+
         let mut properties: HashMap<String, JsValue> = HashMap::new();
         for (key, value) in specification_exports.iter() {
             if value.instance_of(&bombadil_exports.always, &mut context)? {
                 properties.insert(key.clone(), value.clone());
             }
+        }
+
+        let mut extractors = Extractors::new();
+        let extractors_array = JsArray::from_object(
+            bombadil_exports
+                .runtime_default
+                .get(js_string!("extractors"), &mut context)?
+                .as_object()
+                .ok_or(SpecificationError::ModuleError(
+                    "extractors is not an object".to_string(),
+                ))?,
+        )?;
+        let length = extractors_array.length(&mut context)?;
+        for i in 0..length {
+            extractors.register(
+                extractors_array
+                    .at(i as i64, &mut context)?
+                    .as_object()
+                    .ok_or(SpecificationError::ModuleError(
+                        "extractors is not an object".to_string(),
+                    ))?,
+            );
         }
 
         Ok(Evaluator {
@@ -94,11 +121,16 @@ impl Evaluator {
             specification_module,
             properties,
             bombadil_exports,
+            extractors,
         })
     }
 
     pub fn property_names(&self) -> Vec<String> {
         self.properties.keys().cloned().collect()
+    }
+
+    pub fn extractors(&mut self) -> Result<HashMap<u64, String>> {
+        self.extractors.extract_functions(&mut self.context)
     }
 }
 
@@ -106,7 +138,7 @@ impl Evaluator {
 struct BombadilExports {
     formula: JsValue,
     always: JsValue,
-    runtime_default: JsValue,
+    runtime_default: JsObject,
 }
 
 impl BombadilExports {
@@ -124,7 +156,11 @@ impl BombadilExports {
         Ok(Self {
             formula: get_export("Formula")?,
             always: get_export("Always")?,
-            runtime_default: get_export("runtime_default")?,
+            runtime_default: get_export("runtime_default")?.as_object().ok_or(
+                SpecificationError::ModuleError(
+                    "runtime_default is not an object".to_string(),
+                ),
+            )?,
         })
     }
 }
@@ -147,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_property_names() {
-        let evaluator = Evaluator::new(Specification::FromBytes(
+        let mut evaluator = Evaluator::new(Specification::FromBytes(
             r#"
             import { always, condition, eventually, extract, time } from "bombadil";
 
@@ -163,5 +199,43 @@ mod tests {
             "#.as_bytes(),
         )).unwrap();
         assert_eq!(evaluator.property_names(), vec!["max_notifications_shown"]);
+    }
+
+    #[test]
+    fn test_extractors() {
+        let mut evaluator = Evaluator::new(Specification::FromBytes(
+            r#"
+            import { extract } from "bombadil";
+
+            const notification_count = extract(
+              (state) => state.foo
+            );
+
+            function test() {
+                let local = extract(s => s.bar);
+                let other = extract(function foo(state) { return state.baz; });
+            }
+
+            test();
+            "#
+            .as_bytes(),
+        ))
+        .unwrap();
+
+        let extractors: Vec<String> = evaluator
+            .extractors()
+            .unwrap()
+            .iter()
+            .map(|(_, value)| value.clone())
+            .collect();
+
+        assert_eq!(
+            extractors,
+            vec![
+                "(state) => state.foo",
+                "(s) => s.bar",
+                "function foo(state) { return state.baz; }"
+            ]
+        );
     }
 }
