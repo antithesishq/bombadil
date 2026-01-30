@@ -40,10 +40,10 @@ fn build_specification_module() {
     println!("cargo:rerun-if-changed=src/specification/**/*.ts");
 
     let status = Command::new("esbuild")
-        .arg("src/specification/bombadil/index.ts")
+        .arg("src/specification/index.ts")
         .arg("--bundle")
         .arg("--format=esm")
-        .arg("--outdir=target/specification/bombadil")
+        .arg("--outdir=target/specification")
         .status()
         .expect("Failed to execute esbuild");
 
@@ -53,7 +53,7 @@ fn build_specification_module() {
 }
 
 fn build_specification_module_types() {
-    println!("cargo:rerun-if-changed=src/specification/bombadil/**/*.ts");
+    println!("cargo:rerun-if-changed=src/specification/**/*.ts");
 
     let status = Command::new("tsc")
         .args(["--lib", "es2021,dom"])
@@ -63,7 +63,7 @@ fn build_specification_module_types() {
         .arg("--stripInternal")
         .args(["--outDir", "./target/specification-types"])
         .arg("--declaration")
-        .arg("src/specification/bombadil/index.ts")
+        .arg("src/specification/index.ts")
         .status()
         .expect("Failed to execute esbuild");
 
