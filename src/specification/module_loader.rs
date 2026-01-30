@@ -61,5 +61,5 @@ pub fn load_bombadil_module(context: &mut Context) -> Result<Module> {
         .expect("index.js not available in build");
     let source = Source::from_bytes(index_js.contents());
     return Module::parse(source, None, context)
-        .map_err(SpecificationError::JsError);
+        .map_err(SpecificationError::JS);
 }

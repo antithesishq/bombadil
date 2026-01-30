@@ -1,14 +1,24 @@
+use std::io;
+
 use boa_engine::JsError;
 
+#[allow(dead_code)] // because fields are only used in Debug
 #[derive(Debug)]
 pub enum SpecificationError {
-    #[allow(dead_code)]
-    JsError(JsError),
+    JS(JsError),
+    IO(io::Error),
+    ModuleError(String),
 }
 
 impl From<JsError> for SpecificationError {
     fn from(value: JsError) -> Self {
-        SpecificationError::JsError(value)
+        SpecificationError::JS(value)
+    }
+}
+
+impl From<io::Error> for SpecificationError {
+    fn from(value: io::Error) -> Self {
+        SpecificationError::IO(value)
     }
 }
 
