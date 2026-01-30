@@ -71,9 +71,9 @@ impl ModuleLoader for HybridModuleLoader {
     }
 }
 
-fn load_bombadil_module(context: &mut Context) -> Result<Module> {
+fn load_bombadil_module(name: &str, context: &mut Context) -> Result<Module> {
     let index_js = JS_DIR
-        .get_file("index.js")
+        .get_file(format!("bombadil/{}", name))
         .expect("index.js not available in build");
     let source = Source::from_bytes(index_js.contents());
     return Module::parse(source, None, context)
@@ -110,8 +110,22 @@ fn test() -> Result<()> {
         .build()
         .unwrap();
 
-    let bombadil_module = load_bombadil_module(&mut context)?;
+    let bombadil_module = load_bombadil_module("index.js", &mut context)?;
     loader.insert_mapped_module("bombadil", bombadil_module.clone());
+
+    let bombadil_time_module =
+        load_bombadil_module("internal/time.js", &mut context)?;
+    loader.insert_mapped_module(
+        "./internal/time.js",
+        bombadil_time_module.clone(),
+    );
+
+    let bombadil_runtime_module =
+        load_bombadil_module("internal/runtime.js", &mut context)?;
+    loader.insert_mapped_module(
+        "./internal/runtime.js",
+        bombadil_runtime_module.clone(),
+    );
 
     let spec_module = spec_module(&mut context)?;
     loader.insert_file_module(PathBuf::from("test.js"), spec_module.clone());
