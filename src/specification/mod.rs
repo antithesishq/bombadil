@@ -24,14 +24,8 @@ struct Evaluator {
     bombadil_module: Module,
     specification_module: Module,
     bombadil_exports: BombadilExports,
-    properties: HashMap<String, JsValue>,
+    properties: HashMap<String, Property>,
     extractors: Extractors,
-}
-
-#[allow(dead_code)]
-enum Specification<'a> {
-    FromBytes(&'a [u8]),
-    FromFile(PathBuf),
 }
 
 #[allow(dead_code)]
@@ -85,10 +79,20 @@ impl Evaluator {
         let specification_exports =
             module_exports(&specification_module, &mut context)?;
 
-        let mut properties: HashMap<String, JsValue> = HashMap::new();
+        let mut properties: HashMap<String, Property> = HashMap::new();
         for (key, value) in specification_exports.iter() {
             if value.instance_of(&bombadil_exports.always, &mut context)? {
-                properties.insert(key.clone(), value.clone());
+                properties.insert(
+                    key.clone(),
+                    Property {
+                        name: key.clone(),
+                        formula: Formula::from_value(
+                            value,
+                            &bombadil_exports,
+                            &mut context,
+                        )?,
+                    },
+                );
             }
         }
 
@@ -125,8 +129,8 @@ impl Evaluator {
         })
     }
 
-    pub fn property_names(&self) -> Vec<String> {
-        self.properties.keys().cloned().collect()
+    pub fn properties(&self) -> Vec<Property> {
+        self.properties.values().cloned().collect()
     }
 
     pub fn extractors(&mut self) -> Result<HashMap<u64, String>> {
@@ -135,9 +139,23 @@ impl Evaluator {
 }
 
 #[allow(dead_code)]
+enum Specification<'a> {
+    FromBytes(&'a [u8]),
+    FromFile(PathBuf),
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct Property {
+    name: String,
+    formula: Formula,
+}
+
+#[allow(dead_code)]
 struct BombadilExports {
     formula: JsValue,
     always: JsValue,
+    contextful: JsValue,
     runtime_default: JsObject,
 }
 
@@ -156,12 +174,57 @@ impl BombadilExports {
         Ok(Self {
             formula: get_export("Formula")?,
             always: get_export("Always")?,
+            contextful: get_export("Contextful")?,
             runtime_default: get_export("runtime_default")?.as_object().ok_or(
                 SpecificationError::ModuleError(
                     "runtime_default is not an object".to_string(),
                 ),
             )?,
         })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+enum Formula {
+    True,
+    False,
+    Always(Box<Formula>),
+    Contextful(JsObject),
+}
+
+#[allow(dead_code)]
+impl Formula {
+    fn from_value(
+        value: &JsValue,
+        bombadil: &BombadilExports,
+        context: &mut Context,
+    ) -> Result<Self> {
+        if let Some(value) = value.as_boolean() {
+            return Ok(if value { Self::True } else { Self::False });
+        }
+
+        let object =
+            value.as_object().ok_or(SpecificationError::ModuleError(
+                "extractors is not an object".to_string(),
+            ))?;
+
+        if value.instance_of(&bombadil.always, context)? {
+            let subformula_value =
+                object.get(js_string!("subformula"), context)?;
+            let subformula =
+                Formula::from_value(&subformula_value, bombadil, context)?;
+            return Ok(Formula::Always(Box::new(subformula)));
+        }
+
+        if value.instance_of(&bombadil.contextful, context)? {
+            return Ok(Self::Contextful(object));
+        }
+
+        Err(SpecificationError::ModuleError(format!(
+            "can't convert to formula: {}",
+            value.display()
+        )))
     }
 }
 
@@ -183,9 +246,9 @@ mod tests {
 
     #[test]
     fn test_property_names() {
-        let mut evaluator = Evaluator::new(Specification::FromBytes(
+        let evaluator = Evaluator::new(Specification::FromBytes(
             r#"
-            import { always, condition, eventually, extract, time } from "bombadil";
+            import { always, extract } from "bombadil";
 
             // Invariant
 
@@ -198,7 +261,40 @@ mod tests {
             );
             "#.as_bytes(),
         )).unwrap();
-        assert_eq!(evaluator.property_names(), vec!["max_notifications_shown"]);
+        assert_eq!(
+            evaluator
+                .properties()
+                .iter()
+                .map(|p| p.name.clone())
+                .collect::<Vec<_>>(),
+            vec!["max_notifications_shown"]
+        );
+    }
+
+    #[test]
+    fn test_property_formula_conversion() {
+        let evaluator = Evaluator::new(Specification::FromBytes(
+            r#"
+            import { always } from "bombadil";
+
+            export const max_notifications_shown = always(() => true);
+            "#
+            .as_bytes(),
+        ))
+        .unwrap();
+
+        let properties = evaluator.properties();
+        let property = properties.first().unwrap();
+
+        match &property.formula {
+            Formula::Always(subformula) => match subformula.as_ref() {
+                Formula::Contextful(_) => return,
+                _ => {}
+            },
+            _ => {}
+        };
+
+        panic!("unexpected formula: {:?}", property.formula)
     }
 
     #[test]
