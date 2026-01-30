@@ -108,5 +108,3 @@ export class Runtime<S> {
     this.cells = [];
   }
 }
-
-export const runtime_default = new Runtime<any>();

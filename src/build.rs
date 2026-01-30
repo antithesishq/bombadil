@@ -39,18 +39,9 @@ fn build_browser_action_scripts() {
 fn build_specification_module() {
     println!("cargo:rerun-if-changed=src/specification/**/*.ts");
 
-    let entry_points: Vec<_> = glob("src/specification/**/*.ts")
-        .expect("Failed to read glob pattern")
-        .filter_map(Result::ok)
-        .collect();
-
-    if entry_points.is_empty() {
-        return;
-    }
-
     let status = Command::new("esbuild")
-        .args(&entry_points)
-        // .arg("--bundle")
+        .arg("src/specification/bombadil/index.ts")
+        .arg("--bundle")
         .arg("--format=esm")
         .arg("--outdir=target/specification/bombadil")
         .status()
@@ -69,6 +60,7 @@ fn build_specification_module_types() {
         .args(["--target", "es6"])
         .arg("--declaration")
         .arg("--emitDeclarationOnly")
+        .arg("--stripInternal")
         .args(["--outDir", "./target/specification-types"])
         .arg("--declaration")
         .arg("src/specification/bombadil/index.ts")

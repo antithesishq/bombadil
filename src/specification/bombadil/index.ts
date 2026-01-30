@@ -3,9 +3,12 @@ import {
   ExtractorCell,
   type Cell,
   TimeCell,
-  runtime_default,
+  Runtime,
 } from "./internal/runtime";
 import { Duration, type Time, type TimeUnit } from "./internal/time";
+
+/** @internal */
+export const runtime_default = new Runtime<State>();
 
 export class Formula {
   and(that: IntoCondition): Formula {
