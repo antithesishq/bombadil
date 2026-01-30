@@ -1,84 +1,18 @@
-use std::{io, path::PathBuf, rc::Rc};
+use std::{path::PathBuf, rc::Rc};
 
 use boa_engine::{
-    builtins::promise::PromiseState,
-    context::ContextBuilder,
-    js_string,
-    module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
-    Context, JsError, JsResult, JsString, JsValue, Module, Source,
+    builtins::promise::PromiseState, context::ContextBuilder, js_string,
+    Context, JsError, JsValue, Module, Source,
 };
-use include_dir::{include_dir, Dir};
+use result::Result;
 
-#[derive(Debug)]
-pub enum SpecificationError {
-    IoError(io::Error),
-    JsError(JsError),
-}
+use crate::specification::{
+    module_loader::{load_bombadil_module, HybridModuleLoader},
+    result::SpecificationError,
+};
 
-impl From<JsError> for SpecificationError {
-    fn from(value: JsError) -> Self {
-        SpecificationError::JsError(value)
-    }
-}
-
-type Result<T> = std::result::Result<T, SpecificationError>;
-
-static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
-
-struct HybridModuleLoader {
-    map_loader: Rc<MapModuleLoader>,
-    file_loader: Rc<SimpleModuleLoader>,
-}
-
-impl HybridModuleLoader {
-    fn new() -> Result<Self> {
-        Ok(HybridModuleLoader {
-            map_loader: Rc::new(MapModuleLoader::new()),
-            file_loader: Rc::new(SimpleModuleLoader::new(".")?),
-        })
-    }
-
-    fn insert_mapped_module(&self, path: impl AsRef<str>, module: Module) {
-        self.map_loader.insert(path, module);
-    }
-
-    fn insert_file_module(&self, path: PathBuf, module: Module) {
-        self.file_loader.insert(path, module);
-    }
-}
-
-impl ModuleLoader for HybridModuleLoader {
-    async fn load_imported_module(
-        self: Rc<Self>,
-        referrer: Referrer,
-        specifier: JsString,
-        context: &std::cell::RefCell<&mut Context>,
-    ) -> JsResult<Module> {
-        match self
-            .map_loader
-            .clone()
-            .load_imported_module(referrer.clone(), specifier.clone(), context)
-            .await
-        {
-            Ok(module) => Ok(module),
-            Err(_) => {
-                self.file_loader
-                    .clone()
-                    .load_imported_module(referrer, specifier, context)
-                    .await
-            }
-        }
-    }
-}
-
-fn load_bombadil_module(context: &mut Context) -> Result<Module> {
-    let index_js = JS_DIR
-        .get_file("index.js")
-        .expect("index.js not available in build");
-    let source = Source::from_bytes(index_js.contents());
-    return Module::parse(source, None, context)
-        .map_err(SpecificationError::JsError);
-}
+mod module_loader;
+mod result;
 
 fn spec_module(context: &mut Context) -> Result<Module> {
     let source = Source::from_bytes(
