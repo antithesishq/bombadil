@@ -2,18 +2,21 @@ use std::{collections::HashMap, path::PathBuf, rc::Rc};
 
 use boa_engine::{
     builtins::promise::PromiseState, context::ContextBuilder, js_string,
-    object::builtins::JsArray, Context, JsError, JsObject, JsValue, Module,
-    Source,
+    object::builtins::JsArray, Context, JsError, JsValue, Module, Source,
 };
 use result::Result;
 
 use crate::specification::{
+    bombadil_exports::{module_exports, BombadilExports},
     extractors::Extractors,
+    ltl::Formula,
     module_loader::{load_bombadil_module, HybridModuleLoader},
     result::SpecificationError,
 };
 
+mod bombadil_exports;
 mod extractors;
+mod ltl;
 mod module_loader;
 mod result;
 
@@ -149,95 +152,6 @@ enum Specification<'a> {
 struct Property {
     name: String,
     formula: Formula,
-}
-
-#[allow(dead_code)]
-struct BombadilExports {
-    formula: JsValue,
-    always: JsValue,
-    contextful: JsValue,
-    runtime_default: JsObject,
-}
-
-impl BombadilExports {
-    fn from_module(module: &Module, context: &mut Context) -> Result<Self> {
-        let exports = module_exports(module, context)?;
-
-        let get_export = |name: &str| -> Result<JsValue> {
-            exports
-                .get(name)
-                .cloned()
-                .ok_or(SpecificationError::ModuleError(format!(
-                    "{name} is missing in exports"
-                )))
-        };
-        Ok(Self {
-            formula: get_export("Formula")?,
-            always: get_export("Always")?,
-            contextful: get_export("Contextful")?,
-            runtime_default: get_export("runtime_default")?.as_object().ok_or(
-                SpecificationError::ModuleError(
-                    "runtime_default is not an object".to_string(),
-                ),
-            )?,
-        })
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-enum Formula {
-    True,
-    False,
-    Always(Box<Formula>),
-    Contextful(JsObject),
-}
-
-#[allow(dead_code)]
-impl Formula {
-    fn from_value(
-        value: &JsValue,
-        bombadil: &BombadilExports,
-        context: &mut Context,
-    ) -> Result<Self> {
-        if let Some(value) = value.as_boolean() {
-            return Ok(if value { Self::True } else { Self::False });
-        }
-
-        let object =
-            value.as_object().ok_or(SpecificationError::ModuleError(
-                "extractors is not an object".to_string(),
-            ))?;
-
-        if value.instance_of(&bombadil.always, context)? {
-            let subformula_value =
-                object.get(js_string!("subformula"), context)?;
-            let subformula =
-                Formula::from_value(&subformula_value, bombadil, context)?;
-            return Ok(Formula::Always(Box::new(subformula)));
-        }
-
-        if value.instance_of(&bombadil.contextful, context)? {
-            return Ok(Self::Contextful(object));
-        }
-
-        Err(SpecificationError::ModuleError(format!(
-            "can't convert to formula: {}",
-            value.display()
-        )))
-    }
-}
-
-fn module_exports(
-    module: &Module,
-    context: &mut Context,
-) -> Result<HashMap<String, JsValue>> {
-    let mut exports = HashMap::new();
-    for key in module.namespace(context).own_property_keys(context)? {
-        let value = module.namespace(context).get(key.clone(), context)?;
-        exports.insert(key.to_string(), value);
-    }
-    Ok(exports)
 }
 
 #[cfg(test)]
