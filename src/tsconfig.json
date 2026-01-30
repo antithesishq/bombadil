@@ -4,6 +4,10 @@
     // File Layout
     "rootDir": "./.",
 
+    "paths": {
+      "bombadil": ["./src/specification/bombadil"]
+    },
+
     // Environment Settings
     "module": "nodenext",
     "target": "esnext",
