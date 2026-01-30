@@ -1,4 +1,4 @@
-use std::{path::PathBuf, rc::Rc};
+use std::{io, path::PathBuf, rc::Rc};
 
 use boa_engine::{
     builtins::promise::PromiseState,
@@ -7,6 +7,23 @@ use boa_engine::{
     module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
     Context, JsError, JsResult, JsString, JsValue, Module, Source,
 };
+use include_dir::{include_dir, Dir};
+
+#[derive(Debug)]
+pub enum SpecificationError {
+    IoError(io::Error),
+    JsError(JsError),
+}
+
+impl From<JsError> for SpecificationError {
+    fn from(value: JsError) -> Self {
+        SpecificationError::JsError(value)
+    }
+}
+
+type Result<T> = std::result::Result<T, SpecificationError>;
+
+static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
 struct HybridModuleLoader {
     map_loader: Rc<MapModuleLoader>,
@@ -14,7 +31,7 @@ struct HybridModuleLoader {
 }
 
 impl HybridModuleLoader {
-    fn new() -> JsResult<Self> {
+    fn new() -> Result<Self> {
         Ok(HybridModuleLoader {
             map_loader: Rc::new(MapModuleLoader::new()),
             file_loader: Rc::new(SimpleModuleLoader::new(".")?),
@@ -54,28 +71,38 @@ impl ModuleLoader for HybridModuleLoader {
     }
 }
 
-fn bombadil_module(context: &mut Context) -> Module {
-    let source = Source::from_bytes(
-        r#"
-        export const value = 3;
-        "#,
-    );
-    return Module::parse(source, None, context).unwrap();
+fn load_bombadil_module(context: &mut Context) -> Result<Module> {
+    let index_js = JS_DIR
+        .get_file("index.js")
+        .expect("index.js not available in build");
+    let source = Source::from_bytes(index_js.contents());
+    return Module::parse(source, None, context)
+        .map_err(SpecificationError::JsError);
 }
 
-fn spec_module(context: &mut Context) -> Module {
+fn spec_module(context: &mut Context) -> Result<Module> {
     let source = Source::from_bytes(
         r#"
-        import { value } from "bombadil";
-        export default new Array(value).fill(1);
+        import { always, condition, eventually, extract, time } from "bombadil";
+
+        // Invariant
+
+        const notification_count = extract(
+          (state) => state.document.body.querySelectorAll(".notification").length,
+        );
+
+        export const max_notifications_shown = always(
+          () => notification_count.current <= 5,
+        );
         "#,
     );
-    return Module::parse(source, None, context).unwrap();
+    return Module::parse(source, None, context)
+        .map_err(SpecificationError::JsError);
 }
 
 #[allow(dead_code)]
-fn test() {
-    let loader = Rc::new(HybridModuleLoader::new().unwrap());
+fn test() -> Result<()> {
+    let loader = Rc::new(HybridModuleLoader::new()?);
 
     // Instantiate the execution context
     let mut context = ContextBuilder::default()
@@ -83,9 +110,10 @@ fn test() {
         .build()
         .unwrap();
 
-    loader.insert_mapped_module("bombadil", bombadil_module(&mut context));
+    let bombadil_module = load_bombadil_module(&mut context)?;
+    loader.insert_mapped_module("bombadil", bombadil_module.clone());
 
-    let spec_module = spec_module(&mut context);
+    let spec_module = spec_module(&mut context)?;
     loader.insert_file_module(PathBuf::from("test.js"), spec_module.clone());
 
     let promise = spec_module.load_link_evaluate(&mut context);
@@ -105,12 +133,38 @@ fn test() {
         }
     };
 
-    let default = spec_module
+    let formula_type = bombadil_module
         .namespace(&mut context)
-        .get(js_string!("default"), &mut context)
-        .unwrap();
+        .get(js_string!("Formula"), &mut context)
+        .map_err(SpecificationError::JsError)?;
 
-    assert_eq!(default.display().to_string(), "[ 1, 1, 1 ]")
+    let mut properties = vec![];
+    for key in spec_module
+        .namespace(&mut context)
+        .own_property_keys(&mut context)
+        .map_err(SpecificationError::JsError)?
+    {
+        let value = spec_module
+            .namespace(&mut context)
+            .get(key.clone(), &mut context)
+            .map_err(SpecificationError::JsError)?;
+
+        if value.instance_of(&formula_type, &mut context)? {
+            properties.push((key, value));
+        } else {
+            log::debug!("ignoring exported member {key:?}");
+        }
+    }
+
+    assert_eq!(
+        properties
+            .iter()
+            .map(|(key, _)| key.to_string())
+            .collect::<Vec<_>>(),
+        vec!["max_notifications_shown"]
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -119,6 +173,6 @@ mod tests {
 
     #[test]
     fn test_js() {
-        test();
+        test().unwrap();
     }
 }
