@@ -5,18 +5,18 @@ use std::hash::{Hash, Hasher};
 use const_format::{formatcp, str_replace};
 use oxc::allocator;
 use oxc::ast::ast::{
-    AssignmentOperator, AssignmentTarget, BindingRestElement, Expression,
+    AssignmentOperator, AssignmentTarget, Expression, FormalParameterRest,
     Statement, TSTypeAnnotation, TSTypeParameterDeclaration,
     TSTypeParameterInstantiation,
 };
+use oxc::codegen::Codegen;
+use oxc::semantic::SemanticBuilder;
 use oxc::{
     allocator::{Allocator, Box, CloneIn, TakeIn},
     ast::ast::{self},
     parser::Parser,
     span::{SourceType, SPAN},
 };
-use oxc_codegen::Codegen;
-use oxc_semantic::SemanticBuilder;
 use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
 
 use crate::instrumentation::source_id::SourceId;
@@ -270,7 +270,7 @@ impl<'a> Instrumenter {
                     false,
                     None::<TSTypeParameterDeclaration<'b>>,
                     ctx.ast
-                    .formal_parameters::<Option<Box<'b, BindingRestElement<'b>>>>(
+                    .formal_parameters::<Option<Box<'b, FormalParameterRest<'b>>>>(
                         SPAN,
                         ast::FormalParameterKind::ArrowFormalParameters,
                         ctx.ast.vec(),

@@ -1,12 +1,14 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
+use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
 use crate::specification::{ltl, module_loader::load_modules};
 use boa_engine::{
     context::ContextBuilder, js_string, object::builtins::JsArray,
     property::PropertyKey, Context, JsString, Module, Source,
 };
+use oxc::span::SourceType;
 use serde_json as json;
 
 use crate::specification::{
@@ -19,8 +21,43 @@ use crate::specification::{
 
 #[derive(Clone, Debug)]
 pub struct Specification {
-    pub contents: Vec<u8>,
-    pub path: PathBuf,
+    contents: Vec<u8>,
+    path: PathBuf,
+}
+
+impl Specification {
+    pub async fn from_path(path: impl Into<&Path>) -> Result<Self> {
+        let path: &Path = path.into();
+        let contents = tokio::fs::read_to_string(path)
+            .await
+            .map_err(SpecificationError::IO)?;
+        Self::from_string(&contents, path)
+    }
+    pub fn from_string<'a>(
+        contents: &str,
+        path: impl Into<&'a Path>,
+    ) -> Result<Self> {
+        let path: &Path = path.into();
+        let source_type = SourceType::from_path(path).map_err(|error| {
+            SpecificationError::OtherError(error.to_string())
+        })?;
+        let contents =
+            if [SourceType::cjs(), SourceType::mjs()].contains(&source_type) {
+                contents.to_string()
+            } else {
+                log::debug!(
+                    "transpiling {} ({:?}) to javascript",
+                    path.display(),
+                    &source_type,
+                );
+                transpile(contents, path, &source_type)?
+            };
+        log::debug!("source: {}", &contents);
+        Ok(Specification {
+            contents: contents.into_bytes(),
+            path: path.to_path_buf(),
+        })
+    }
 }
 
 pub struct Verifier {

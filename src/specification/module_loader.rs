@@ -10,7 +10,12 @@ use boa_engine::{
     Context, JsError, JsResult, JsString, Module, Source,
 };
 use include_dir::{include_dir, Dir};
-use oxc::{allocator::Allocator, span::SourceType};
+use oxc::{
+    allocator::Allocator,
+    span::SourceType,
+    transformer::{TransformOptions, Transformer},
+};
+use oxc::{codegen::Codegen, semantic::SemanticBuilder};
 
 static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
@@ -52,25 +57,6 @@ impl HybridModuleLoader {
             .expect("referrer path has no parent directory")
             .join(specifier.to_std_string_lossy()))
     }
-
-    fn transpile(
-        &self,
-        source_code: &str,
-        source_type: &SourceType,
-        _path: &Path,
-    ) -> JsResult<String> {
-        let allocator = Allocator::default();
-        let parser =
-            oxc::parser::Parser::new(&allocator, source_code, *source_type);
-        let result = parser.parse();
-        if result.panicked {
-            return Err(JsError::from_rust(
-                SpecificationError::TranspilationError(result.errors.to_vec()),
-            ));
-        }
-
-        Ok(source_code.to_string()) // TODO: use oxc
-    }
 }
 
 impl ModuleLoader for HybridModuleLoader {
@@ -106,7 +92,8 @@ impl ModuleLoader for HybridModuleLoader {
                     fs::read_to_string(&path).map_err(JsError::from_rust)?;
 
                 let js_source =
-                    self.transpile(&ts_source, &source_type, &path)?;
+                    transpile(&ts_source, path.as_path(), &source_type)
+                        .map_err(JsError::from_rust)?;
 
                 let context = &mut context.borrow_mut();
                 let source =
@@ -155,4 +142,47 @@ pub fn load_modules(context: &mut Context, modules: &[Module]) -> Result<()> {
     }
 
     Ok(())
+}
+
+pub fn transpile(
+    source_code: &str,
+    path: &Path,
+    source_type: &SourceType,
+) -> Result<String> {
+    let allocator = Allocator::default();
+    let parser =
+        oxc::parser::Parser::new(&allocator, source_code, *source_type);
+    let result = parser.parse();
+    if result.panicked {
+        return Err(SpecificationError::TranspilationError(
+            result.errors.to_vec(),
+        ));
+    }
+    let mut program = result.program;
+
+    let semantic = SemanticBuilder::new()
+        .with_check_syntax_error(true)
+        .build(&program);
+    if !semantic.errors.is_empty() {
+        let errors = semantic.errors.to_vec();
+        return Err(SpecificationError::TranspilationError(errors));
+    }
+
+    let scopes = semantic.semantic.into_scoping();
+    let transform_options = TransformOptions {
+        typescript: oxc::transformer::TypeScriptOptions {
+            only_remove_type_imports: true,
+            allow_namespaces: true,
+            remove_class_fields_without_initializer: false,
+            rewrite_import_extensions: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let transformer = Transformer::new(&allocator, path, &transform_options);
+    transformer.build_with_scoping(scopes, &mut program);
+
+    let codegen = Codegen::new().build(&program);
+    Ok(codegen.code)
 }

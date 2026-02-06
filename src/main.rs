@@ -1,5 +1,5 @@
 use ::url::Url;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::{Args, Parser};
 use std::{path::PathBuf, str::FromStr};
 use tempfile::TempDir;
@@ -141,28 +141,16 @@ async fn test(
 ) -> Result<()> {
     // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification = if let Some(path) = &shared_options.specification_file {
-        Specification {
-            contents: tokio::fs::read_to_string(path)
-                .await
-                .map_err(|error| {
-                    anyhow!(
-                        "could not read specification file at {}: {}",
-                        &path.display(),
-                        error
-                    )
-                })?
-                .into_bytes(),
-            path: path.clone(),
-        }
+        log::info!("loading specification from file: {}", path.display());
+        Specification::from_path(path.as_path()).await?
     } else {
-        Specification {
-            contents: r#"
+        log::info!("using default specification");
+        Specification::from_string(
+            r#"
                 export * from "bombadil/defaults";
-            "#
-            .to_string()
-            .into_bytes(),
-            path: PathBuf::from("default_spec.ts"),
-        }
+            "#,
+            PathBuf::from("default_spec.js").as_path(),
+        )?
     };
 
     let output_path = match shared_options.output_path {

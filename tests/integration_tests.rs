@@ -95,18 +95,15 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let empty_specification = Specification {
-        contents: r#"
-        export * from "bombadil/defaults";
-    "#
-        .to_string()
-        .into_bytes(),
-        path: PathBuf::from("fake.ts"),
-    };
+    let default_specification = Specification::from_string(
+        r#"export * from "bombadil/defaults";"#,
+        PathBuf::from("fake.ts").as_path(),
+    )
+    .unwrap();
 
     let runner = Runner::new(
         origin,
-        empty_specification,
+        default_specification,
         RunnerOptions {
             stop_on_violation: true,
         },
