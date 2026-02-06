@@ -50,18 +50,27 @@ pub struct VerifierWorker {
 impl VerifierWorker {
     /// Starts the worker on its own OS thread and returns a handle.
     ///
-    /// Call this once at startup and share the `Arc<WorkerHandle>` as needed.
-    pub fn start(
+    /// Call this once at startup and share the handle as needed.
+    pub async fn start(
         specification: Specification,
     ) -> Result<Arc<Self>, SpecificationError> {
+        let (ready_tx, ready_rx) =
+            oneshot::channel::<Result<(), SpecificationError>>();
+
         let (tx, mut rx) = mpsc::channel::<Command>(32);
         let handle = Arc::new(VerifierWorker { tx });
 
         let _worker_thread = std::thread::spawn(move || {
             let mut verifier = match Verifier::new(specification) {
-                Ok(verifier) => verifier,
+                Ok(verifier) => {
+                    let _ = ready_tx.send(Ok(()));
+                    verifier
+                }
                 // TODO: send this error back instead, somehow
-                Err(error) => panic!("specification error: {}", error),
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
             };
             while let Some(command) = rx.blocking_recv() {
                 match command {
@@ -94,8 +103,15 @@ impl VerifierWorker {
             }
         });
 
+        ready_rx.await.map_err(|error| {
+            SpecificationError::OtherError(format!(
+                "worker failed to receive ready signal: {}",
+                error
+            ))
+        })??;
         Ok(handle)
     }
+
     pub async fn properties(&self) -> Result<Vec<String>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx

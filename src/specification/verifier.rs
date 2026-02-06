@@ -26,18 +26,15 @@ pub struct Specification {
 }
 
 impl Specification {
-    pub async fn from_path(path: impl Into<&Path>) -> Result<Self> {
-        let path: &Path = path.into();
+    pub async fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
         let contents = tokio::fs::read_to_string(path)
             .await
             .map_err(SpecificationError::IO)?;
         Self::from_string(&contents, path)
     }
-    pub fn from_string<'a>(
-        contents: &str,
-        path: impl Into<&'a Path>,
-    ) -> Result<Self> {
-        let path: &Path = path.into();
+    pub fn from_string(contents: &str, path: impl AsRef<Path>) -> Result<Self> {
+        let path: &Path = path.as_ref();
         let source_type = SourceType::from_path(path).map_err(|error| {
             SpecificationError::OtherError(error.to_string())
         })?;
@@ -52,7 +49,6 @@ impl Specification {
                 );
                 transpile(contents, path, &source_type)?
             };
-        log::debug!("source: {}", &contents);
         Ok(Specification {
             contents: contents.into_bytes(),
             path: path.to_path_buf(),
@@ -76,7 +72,7 @@ impl Verifier {
         let mut context = ContextBuilder::default()
             .module_loader(loader.clone())
             .build()
-            .unwrap();
+            .map_err(|error| SpecificationError::JS(error.to_string()))?;
 
         // Internal module
         {

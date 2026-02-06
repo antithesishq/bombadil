@@ -10,8 +10,13 @@ fn main() {
 }
 
 fn build_browser_action_scripts() {
-    println!("cargo:rerun-if-changed=src/browser/*.ts");
-    println!("cargo:rerun-if-changed=src/browser/actions/*.ts");
+    for typescript_file in glob("src/browser/**/*.ts")
+        .expect("failed to read glob pattern")
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>()
+    {
+        println!("cargo:rerun-if-changed={}", typescript_file.display());
+    }
 
     let entry_points: Vec<_> = glob("src/browser/actions/*.ts")
         .expect("Failed to read glob pattern")
@@ -64,7 +69,6 @@ fn build_specification_module_types() {
         .arg("--emitDeclarationOnly")
         .arg("--stripInternal")
         .args(["--outDir", "./target/specification-types"])
-        .arg("--declaration")
         .status()
         .expect("Failed to execute tsc");
 

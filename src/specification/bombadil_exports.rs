@@ -40,7 +40,7 @@ impl BombadilExports {
             )?,
             time: get_export("time")?.as_object().ok_or(
                 SpecificationError::OtherError(
-                    "runtime_default is not an object".to_string(),
+                    "time is not an object".to_string(),
                 ),
             )?,
         })

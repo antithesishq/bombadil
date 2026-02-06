@@ -52,11 +52,11 @@ impl Runner {
         let (done_sender, done_receiver) = oneshot::channel();
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
 
+        let verifier = VerifierWorker::start(specification).await?;
+
         let browser =
             Browser::new(origin.clone(), browser_options, debugger_options)
                 .await?;
-
-        let verifier = VerifierWorker::start(specification)?;
 
         Ok(Runner {
             origin,

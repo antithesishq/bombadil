@@ -134,11 +134,11 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
                 Ok(Some(RunEvent::NewState { violations, .. })) => {
                     if !violations.is_empty() {
                         break Err(anyhow!(
-                            "violations: {:?}",
+                            "violations:\n\n{}",
                             violations
                                 .iter()
                                 .map(|violation| format!(
-                                    "{}:\n{}\n",
+                                    "{}:\n{}\n\n",
                                     violation.name,
                                     render_violation(&violation.violation)
                                 ))

@@ -159,14 +159,25 @@ fn duration_from_js(value: JsValue, context: &mut Context) -> Result<Duration> {
                 value.display()
             )))?;
     let milliseconds_value = object.get(js_string!("milliseconds"), context)?;
-    let milliseconds =
-        milliseconds_value
-            .as_number()
-            .ok_or(SpecificationError::OtherError(format!(
-                "milliseconds is not a number: {}",
-                milliseconds_value.display()
-            )))? as u64;
-    Ok(Duration::from_millis(milliseconds))
+    let milliseconds = milliseconds_value.as_number().ok_or(
+        SpecificationError::OtherError(format!(
+            "milliseconds is not a number: {}",
+            milliseconds_value.display()
+        )),
+    )?;
+    if milliseconds < 0.0 {
+        return Err(SpecificationError::OtherError(format!(
+            "milliseconds is negative: {}",
+            milliseconds_value.display()
+        )));
+    }
+    if milliseconds.is_infinite() {
+        return Err(SpecificationError::OtherError(format!(
+            "milliseconds is {}",
+            milliseconds_value.display()
+        )));
+    }
+    Ok(Duration::from_millis(milliseconds as u64))
 }
 
 pub type Time = SystemTime;
