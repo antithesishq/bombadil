@@ -62,14 +62,14 @@ export class Or extends Formula {
 
 export class Implies extends Formula {
   constructor(
-    public antecedent: Formula,
-    public consequent: Formula,
+    public left: Formula,
+    public right: Formula,
   ) {
     super();
   }
 
   override toString() {
-    return `${this.antecedent}.implies(${this.consequent}`;
+    return `${this.left}.implies(${this.right}`;
   }
 }
 
