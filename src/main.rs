@@ -21,7 +21,7 @@ struct CLI {
 #[derive(Args)]
 struct TestSharedOptions {
     origin: Origin,
-    specification_file: PathBuf,
+    specification_file: Option<PathBuf>,
     #[arg(long)]
     output_path: Option<PathBuf>,
     #[arg(long)]
@@ -139,17 +139,26 @@ async fn test(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
+    // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification_source =
-        tokio::fs::read_to_string(&shared_options.specification_file)
-            .await
-            .map_err(|error| {
-                anyhow!(
-                    "could not read specification file at {}: {}",
-                    &shared_options.specification_file.display(),
-                    error
-                )
-            })?
-            .into_bytes();
+        if let Some(path) = &shared_options.specification_file {
+            tokio::fs::read_to_string(path)
+                .await
+                .map_err(|error| {
+                    anyhow!(
+                        "could not read specification file at {}: {}",
+                        &path.display(),
+                        error
+                    )
+                })?
+                .into_bytes()
+        } else {
+            r#"
+                export * from "bombadil/defaults";
+            "#
+            .to_string()
+            .into_bytes()
+        };
 
     let output_path = match shared_options.output_path {
         Some(path) => path,
