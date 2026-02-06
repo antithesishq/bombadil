@@ -21,12 +21,12 @@ As a user, you:
     actions (e.g. "triple-click this div"). The bulk of actions should be
     provided by Bombadil itself.
 
+    *NOTE: the support for actions is not ready yet!*
+
     Properties are linear temporal logic formulas, describing what the system under
     test should and shouldn't do. Like the actions, the `bombadil` framework provides
     a set of reasonable properties for web applications. You may also specify your
     own domain-specific requirements.
-
-    *NOTE: this part is not ready yet!*
 
 * **Run tests:**
 
@@ -38,9 +38,8 @@ cases. Instead, you define actions and properties, and Bombadil explores and
 tests your web application for you. This is *property-based testing* or
 *fuzzing* for web applications.
 
-Again, the description above is aspirational. Right now there are only a few
-hardcoded properties in lieu of a specification language and related machinery.
-We're building in the open, so stay tuned!
+Again, the description above is partly aspirational. We're building in the
+open, so stay tuned!
 
 ## Usage
 
@@ -56,11 +55,17 @@ Or headless (useful in CI):
 bombadil test https://example.com --headless
 ```
 
+Check custom properties defined in a specification file:
+
+```bash
+bombadil test https://example.com my-spec.ts
+```
+
 These will log any property violations they find. If you want to immediately
 exit, for instance when running in CI, run with `--exit-on-violation`:
 
 ```bash
-bombadil test --exit-on-violation https://example.com
+bombadil test --exit-on-violation https://example.com my-spec.ts
 ```
 
 ## Install
