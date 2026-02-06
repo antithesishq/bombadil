@@ -41,26 +41,25 @@ impl Verifier {
             .build()
             .unwrap();
 
-        let mut modules = vec![];
-        let mut bombadil_module_index = None;
-        for (specifier, path) in [
-            ("bombadil/internal", "internal.js"),
-            ("bombadil", "index.js"),
-        ] {
-            let module = load_bombadil_module(path, &mut context)?;
-            loader.insert_mapped_module(specifier, module.clone());
-            if specifier == "bombadil" {
-                bombadil_module_index = Some(module.clone());
-            }
-            modules.push(module);
+        // Internal module
+        {
+            let module = load_bombadil_module("internal.js", &mut context)?;
+            loader.insert_mapped_module("bombadil/internal", module.clone());
         }
 
-        let bombadil_module_defaults =
-            load_bombadil_module("defaults.js", &mut context)?;
-        loader.insert_mapped_module(
-            "bombadil/defaults",
-            bombadil_module_defaults.clone(),
-        );
+        // Main module
+        let bombadil_module_index = {
+            let module = load_bombadil_module("index.js", &mut context)?;
+            loader.insert_mapped_module("bombadil", module.clone());
+            module
+        };
+
+        // Defaults module
+        {
+            let module = load_bombadil_module("defaults.js", &mut context)?;
+            loader.insert_mapped_module("bombadil/defaults", module.clone());
+            module
+        };
 
         let specification_module = {
             let specification_bytes: &[u8] = &specification.contents;
@@ -73,17 +72,15 @@ impl Verifier {
                 &mut context,
             )?
         };
-        modules.push(specification_module.clone());
-        load_modules(&mut context, &modules)?;
+        load_modules(
+            &mut context,
+            std::slice::from_ref(&specification_module),
+        )?;
 
         let specification_exports =
             module_exports(&specification_module, &mut context)?;
-        let bombadil_exports = BombadilExports::from_module(
-            &bombadil_module_index.ok_or(SpecificationError::OtherError(
-                "bombadil index module not loaded".to_string(),
-            ))?,
-            &mut context,
-        )?;
+        let bombadil_exports =
+            BombadilExports::from_module(&bombadil_module_index, &mut context)?;
 
         let mut properties: HashMap<String, Property> = HashMap::new();
         for (key, value) in specification_exports.iter() {

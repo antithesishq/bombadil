@@ -81,6 +81,7 @@ impl ModuleLoader for HybridModuleLoader {
         specifier: JsString,
         context: &std::cell::RefCell<&mut Context>,
     ) -> JsResult<Module> {
+        log::debug!("loading module: {}", specifier.display_escaped());
         match self
             .map_loader
             .clone()
@@ -111,10 +112,7 @@ impl ModuleLoader for HybridModuleLoader {
                 let context = &mut context.borrow_mut();
                 let source =
                     Source::from_reader(js_source.as_bytes(), Some(&path));
-                let module = Module::parse(source, None, context)?;
-                load_modules(context, std::slice::from_ref(&module))
-                    .map_err(JsError::from_rust)?;
-                Ok(module)
+                Module::parse(source, None, context)
             }
         }
     }
