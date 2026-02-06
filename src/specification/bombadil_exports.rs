@@ -12,6 +12,7 @@ pub struct BombadilExports {
     pub and: JsValue,
     pub or: JsValue,
     pub implies: JsValue,
+    pub next: JsValue,
     pub always: JsValue,
     pub eventually: JsValue,
     pub runtime_default: JsObject,
@@ -37,6 +38,7 @@ impl BombadilExports {
             and: get_export("And")?,
             or: get_export("Or")?,
             implies: get_export("Implies")?,
+            next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
             runtime_default: get_export("runtime_default")?.as_object().ok_or(

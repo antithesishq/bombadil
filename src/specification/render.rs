@@ -103,6 +103,9 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
                     RenderedFormula(right)
                 )
             }
+            Formula::Next(formula) => {
+                write!(f, "next({})", RenderedFormula(formula))
+            }
             Formula::Always(formula) => {
                 write!(f, "always({})", RenderedFormula(formula))
             }

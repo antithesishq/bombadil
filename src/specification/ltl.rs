@@ -30,6 +30,7 @@ pub enum Formula<Function = RuntimeFunction> {
     And(Box<Formula<Function>>, Box<Formula<Function>>),
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
     Implies(Box<Formula<Function>>, Box<Formula<Function>>),
+    Next(Box<Formula<Function>>),
     Always(Box<Formula<Function>>),
     Eventually(Box<Formula<Function>>, Duration),
 }
@@ -72,6 +73,9 @@ impl<Function: Clone> Formula<Function> {
                 Box::new(left.clone().map_function_ref(f)),
                 Box::new(right.clone().map_function_ref(f)),
             ),
+            Formula::Next(formula) => {
+                Formula::Next(Box::new(formula.clone().map_function_ref(f)))
+            }
             Formula::Always(formula) => {
                 Formula::Always(Box::new(formula.clone().map_function_ref(f)))
             }
@@ -158,6 +162,14 @@ impl Formula {
             let left = Formula::from_value(&left_value, bombadil, context)?;
             let right = Formula::from_value(&right_value, bombadil, context)?;
             return Ok(Formula::Implies(Box::new(left), Box::new(right)));
+        }
+
+        if value.instance_of(&bombadil.next, context)? {
+            let subformula_value =
+                object.get(js_string!("subformula"), context)?;
+            let subformula =
+                Formula::from_value(&subformula_value, bombadil, context)?;
+            return Ok(Formula::Next(Box::new(subformula)));
         }
 
         if value.instance_of(&bombadil.always, context)? {
@@ -361,6 +373,10 @@ pub enum Residual<Function = RuntimeFunction> {
 
 #[derive(Clone, Debug)]
 pub enum Derived<Function = RuntimeFunction> {
+    Once {
+        start: Time,
+        subformula: Box<Formula<Function>>,
+    },
     Always {
         start: Time,
         subformula: Box<Formula<Function>>,
@@ -423,6 +439,13 @@ impl<'a> Evaluator<'a> {
                 let right = self.evaluate(right.as_ref(), time)?;
                 self.evaluate_implies(left_formula, &left, &right)
             }
+            Formula::Next(formula) => Ok(Value::Residual(Residual::Derived(
+                Derived::Once {
+                    start: time,
+                    subformula: formula.clone(),
+                },
+                Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
+            ))),
             Formula::Always(formula) => {
                 self.evaluate_always(formula.clone(), time, time)
             }
@@ -708,6 +731,9 @@ impl<'a> Evaluator<'a> {
                 self.evaluate_implies(left_formula, &left, &right)?
             }
             Residual::Derived(derived, _) => match derived {
+                Derived::Once { start, subformula } => {
+                    self.evaluate(subformula, *start)?
+                }
                 Derived::Always { start, subformula } => {
                     self.evaluate_always(subformula.clone(), *start, time)?
                 }
@@ -793,7 +819,7 @@ pub fn stop_default<Function: Clone>(
             right,
         } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time)
-                .map(|s2| stop_implies_default(&left_formula, &s1, &s2))
+                .map(|s2| stop_implies_default(left_formula, &s1, &s2))
         }),
         AndAlways {
             subformula,
