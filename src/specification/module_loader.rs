@@ -47,7 +47,6 @@ impl HybridModuleLoader {
                 specifier, referrer
             )),
         ))?;
-        // TODO: Do we need .parent() ?
         Ok(referrer_path
             .parent()
             .expect("referrer path has no parent directory")
