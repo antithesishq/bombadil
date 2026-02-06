@@ -1,7 +1,6 @@
 import {
   type JSON,
   ExtractorCell,
-  type Cell,
   Runtime,
   Duration,
   type TimeUnit,
@@ -164,7 +163,9 @@ export function eventually(x: IntoFormula) {
   };
 }
 
-export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
+export function extract<T extends JSON>(
+  query: (state: State) => T,
+): ExtractorCell<T, State> {
   return new ExtractorCell<T, State>(runtime_default, query);
 }
 

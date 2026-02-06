@@ -427,17 +427,17 @@ impl<'a> Evaluator<'a> {
             Formula::And(left, right) => {
                 let left = self.evaluate(left.as_ref(), time)?;
                 let right = self.evaluate(right.as_ref(), time)?;
-                self.evaluate_and(&left, &right)
+                Ok(self.evaluate_and(&left, &right))
             }
             Formula::Or(left, right) => {
                 let left = self.evaluate(left.as_ref(), time)?;
                 let right = self.evaluate(right.as_ref(), time)?;
-                self.evaluate_or(&left, &right)
+                Ok(self.evaluate_or(&left, &right))
             }
             Formula::Implies(left_formula, right) => {
                 let left = self.evaluate(left_formula.as_ref(), time)?;
                 let right = self.evaluate(right.as_ref(), time)?;
-                self.evaluate_implies(left_formula, &left, &right)
+                Ok(self.evaluate_implies(left_formula, &left, &right))
             }
             Formula::Next(formula) => Ok(Value::Residual(Residual::Derived(
                 Derived::Once {
@@ -462,8 +462,8 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn evaluate_and(&mut self, left: &Value, right: &Value) -> Result<Value> {
-        Ok(match (left, right) {
+    fn evaluate_and(&mut self, left: &Value, right: &Value) -> Value {
+        match (left, right) {
             (Value::True, right) => right.clone(),
             (left, Value::True) => left.clone(),
             (Value::False(left), Value::False(right)) => {
@@ -480,11 +480,11 @@ impl<'a> Evaluator<'a> {
                     right: Box::new(right.clone()),
                 })
             }
-        })
+        }
     }
 
-    fn evaluate_or(&mut self, left: &Value, right: &Value) -> Result<Value> {
-        Ok(match (left, right) {
+    fn evaluate_or(&mut self, left: &Value, right: &Value) -> Value {
+        match (left, right) {
             (Value::False(left), Value::False(right)) => {
                 Value::False(Violation::Or {
                     left: Box::new(left.clone()),
@@ -501,7 +501,7 @@ impl<'a> Evaluator<'a> {
                     right: Box::new(right.clone()),
                 })
             }
-        })
+        }
     }
 
     fn evaluate_implies(
@@ -509,8 +509,8 @@ impl<'a> Evaluator<'a> {
         left_formula: &Formula,
         left: &Value,
         right: &Value,
-    ) -> Result<Value> {
-        Ok(match (left, right) {
+    ) -> Value {
+        match (left, right) {
             (Value::False(_), _) => Value::True,
             (Value::True, Value::False(violation)) => {
                 Value::False(Violation::Implies {
@@ -541,7 +541,7 @@ impl<'a> Evaluator<'a> {
                     right: Box::new(right.clone()),
                 })
             }
-        })
+        }
     }
 
     fn evaluate_always(
@@ -714,12 +714,12 @@ impl<'a> Evaluator<'a> {
             Residual::And { left, right } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-                self.evaluate_and(&left, &right)?
+                self.evaluate_and(&left, &right)
             }
             Residual::Or { left, right } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-                self.evaluate_or(&left, &right)?
+                self.evaluate_or(&left, &right)
             }
             Residual::Implies {
                 left_formula,
@@ -728,7 +728,7 @@ impl<'a> Evaluator<'a> {
             } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-                self.evaluate_implies(left_formula, &left, &right)?
+                self.evaluate_implies(left_formula, &left, &right)
             }
             Residual::Derived(derived, _) => match derived {
                 Derived::Once { start, subformula } => {
