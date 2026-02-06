@@ -100,11 +100,11 @@ impl ModuleLoader for HybridModuleLoader {
                         .await;
                 }
 
+                // Otherwise we transpile to JS and load that in-memory.
                 let path = self.resolve_path(&referrer, &specifier)?;
                 let ts_source =
                     fs::read_to_string(&path).map_err(JsError::from_rust)?;
 
-                // 3. Transpile to JS source (sync is ideal so we don't .await with Context borrowed).
                 let js_source =
                     self.transpile(&ts_source, &source_type, &path)?;
 
