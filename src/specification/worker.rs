@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::specification::ltl::{self, PrettyFunction};
 use crate::specification::result::SpecificationError;
-use crate::specification::verifier::Verifier;
+use crate::specification::verifier::{Specification, Verifier};
 
 enum Command {
     GetProperties {
@@ -52,13 +52,13 @@ impl VerifierWorker {
     ///
     /// Call this once at startup and share the `Arc<WorkerHandle>` as needed.
     pub fn start(
-        specification_source: Vec<u8>,
+        specification: Specification,
     ) -> Result<Arc<Self>, SpecificationError> {
         let (tx, mut rx) = mpsc::channel::<Command>(32);
         let handle = Arc::new(VerifierWorker { tx });
 
         let _worker_thread = std::thread::spawn(move || {
-            let mut verifier = match Verifier::new(specification_source) {
+            let mut verifier = match Verifier::new(specification) {
                 Ok(verifier) => verifier,
                 // TODO: send this error back instead, somehow
                 Err(error) => panic!("specification error: {}", error),

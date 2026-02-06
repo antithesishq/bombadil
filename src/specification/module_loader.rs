@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -47,7 +48,10 @@ impl HybridModuleLoader {
             )),
         ))?;
         // TODO: Do we need .parent() ?
-        Ok(referrer_path.join(specifier.to_std_string_lossy()))
+        Ok(referrer_path
+            .parent()
+            .expect("referrer path has no parent directory")
+            .join(specifier.to_std_string_lossy()))
     }
 
     fn transpile(
@@ -77,27 +81,6 @@ impl ModuleLoader for HybridModuleLoader {
         specifier: JsString,
         context: &std::cell::RefCell<&mut Context>,
     ) -> JsResult<Module> {
-        // let specifier_string = specifier.to_std_string_lossy();
-        // if let Some((_, subpath)) = specifier_string.split_once("bombadil") {
-        //     let path = subpath.strip_prefix("/").unwrap_or(subpath);
-        //     let path = path.strip_suffix("js").unwrap_or(path);
-        //
-        //     let file_path = if path.is_empty() {
-        //         "index.js".to_string()
-        //     } else {
-        //         format!("{}.js", path)
-        //     };
-        //
-        //     log::warn!(
-        //         "specifier: {} -> path: {}",
-        //         specifier_string,
-        //         &file_path
-        //     );
-        //
-        //     return load_bombadil_module(file_path, &mut context.borrow_mut())
-        //         .map_err(JsError::from_rust);
-        // }
-
         match self
             .map_loader
             .clone()
@@ -105,12 +88,7 @@ impl ModuleLoader for HybridModuleLoader {
             .await
         {
             Ok(module) => Ok(module),
-            Err(error) => {
-                log::warn!(
-                    "mapped module loader failed for {}: {}",
-                    &specifier.display_lossy(),
-                    error
-                );
+            Err(_) => {
                 let source_type = self.specifier_source_type(&specifier)?;
                 // If it looks like JS, use the regular file loader.
                 if [SourceType::cjs(), SourceType::mjs()].contains(&source_type)
@@ -123,9 +101,8 @@ impl ModuleLoader for HybridModuleLoader {
                 }
 
                 let path = self.resolve_path(&referrer, &specifier)?;
-                let ts_source = tokio::fs::read_to_string(&path)
-                    .await
-                    .map_err(JsError::from_rust)?;
+                let ts_source =
+                    fs::read_to_string(&path).map_err(JsError::from_rust)?;
 
                 // 3. Transpile to JS source (sync is ideal so we don't .await with Context borrowed).
                 let js_source =

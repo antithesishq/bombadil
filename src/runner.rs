@@ -1,6 +1,7 @@
 use crate::browser::actions::{available_actions, BrowserAction, Timeout};
 use crate::browser::{random, BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
+use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
@@ -42,7 +43,7 @@ pub struct Runner {
 impl Runner {
     pub async fn new(
         origin: Url,
-        specification_source: Vec<u8>,
+        specification: Specification,
         options: RunnerOptions,
         browser_options: BrowserOptions,
         debugger_options: DebuggerOptions,
@@ -55,7 +56,7 @@ impl Runner {
             Browser::new(origin.clone(), browser_options, debugger_options)
                 .await?;
 
-        let verifier = VerifierWorker::start(specification_source)?;
+        let verifier = VerifierWorker::start(specification)?;
 
         Ok(Runner {
             origin,

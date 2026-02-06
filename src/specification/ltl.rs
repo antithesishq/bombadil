@@ -74,10 +74,6 @@ impl Formula {
         bombadil: &BombadilExports,
         context: &mut Context,
     ) -> Result<Self> {
-        // if let Some(value) = value.as_boolean() {
-        //     return Ok(if value { Self::True } else { Self::False });
-        // }
-
         let object =
             value.as_object().ok_or(SpecificationError::OtherError(
                 format!("formula is not an object: {}", value.display()),

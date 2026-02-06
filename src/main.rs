@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use bombadil::{
     browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
     runner::{Runner, RunnerOptions},
-    specification::render::render_violation,
+    specification::{render::render_violation, verifier::Specification},
     trace::writer::TraceWriter,
 };
 
@@ -140,9 +140,9 @@ async fn test(
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
     // Load a user-provided specification, or use the defaults provided by Bombadil.
-    let specification_source =
-        if let Some(path) = &shared_options.specification_file {
-            tokio::fs::read_to_string(path)
+    let specification = if let Some(path) = &shared_options.specification_file {
+        Specification {
+            contents: tokio::fs::read_to_string(path)
                 .await
                 .map_err(|error| {
                     anyhow!(
@@ -151,14 +151,19 @@ async fn test(
                         error
                     )
                 })?
-                .into_bytes()
-        } else {
-            r#"
+                .into_bytes(),
+            path: path.clone(),
+        }
+    } else {
+        Specification {
+            contents: r#"
                 export * from "bombadil/defaults";
             "#
             .to_string()
-            .into_bytes()
-        };
+            .into_bytes(),
+            path: PathBuf::from("default_spec.ts"),
+        }
+    };
 
     let output_path = match shared_options.output_path {
         Some(path) => path,
@@ -167,7 +172,7 @@ async fn test(
 
     let runner = Runner::new(
         shared_options.origin.url,
-        specification_source,
+        specification,
         RunnerOptions {
             stop_on_violation: shared_options.exit_on_violation,
         },

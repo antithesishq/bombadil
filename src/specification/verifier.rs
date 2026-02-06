@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::{collections::HashMap, rc::Rc};
 
 use crate::specification::result::Result;
@@ -16,6 +17,12 @@ use crate::specification::{
     result::SpecificationError,
 };
 
+#[derive(Clone, Debug)]
+pub struct Specification {
+    pub contents: Vec<u8>,
+    pub path: PathBuf,
+}
+
 pub struct Verifier {
     context: Context,
     bombadil_exports: BombadilExports,
@@ -25,7 +32,7 @@ pub struct Verifier {
 }
 
 impl Verifier {
-    pub fn new(specification_source: Vec<u8>) -> Result<Self> {
+    pub fn new(specification: Specification) -> Result<Self> {
         let loader = Rc::new(HybridModuleLoader::new()?);
 
         // Instantiate the execution context
@@ -55,11 +62,17 @@ impl Verifier {
             bombadil_module_defaults.clone(),
         );
 
-        let specification_module = Module::parse(
-            Source::from_bytes(&specification_source),
-            None,
-            &mut context,
-        )?;
+        let specification_module = {
+            let specification_bytes: &[u8] = &specification.contents;
+            Module::parse(
+                Source::from_reader(
+                    specification_bytes,
+                    Some(&specification.path),
+                ),
+                None,
+                &mut context,
+            )?
+        };
         modules.push(specification_module.clone());
         load_modules(&mut context, &modules)?;
 
@@ -216,13 +229,24 @@ enum PropertyState {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::{
+        io::Write,
+        time::{Duration, SystemTime},
+    };
 
     use super::*;
 
+    fn verifier(specification: &str) -> Verifier {
+        Verifier::new(Specification {
+            path: PathBuf::from("fake.ts"),
+            contents: specification.to_string().into_bytes(),
+        })
+        .unwrap()
+    }
+
     #[test]
     fn test_property_names() {
-        let verifier = Verifier::new(
+        let verifier = verifier(
             r#"
             import { always, extract } from "bombadil";
 
@@ -235,14 +259,14 @@ mod tests {
             export const max_notifications_shown = always(
               () => notification_count.current <= 5,
             );
-            "#.to_string().into_bytes(),
-        ).unwrap();
+            "#,
+        );
         assert_eq!(verifier.properties(), vec!["max_notifications_shown"]);
     }
 
     #[test]
     fn test_extractors() {
-        let evaluator = Verifier::new(
+        let evaluator = verifier(
             r#"
             import { extract } from "bombadil";
 
@@ -256,11 +280,8 @@ mod tests {
             }
 
             test();
-            "#
-            .to_string()
-            .into_bytes(),
-        )
-        .unwrap();
+            "#,
+        );
 
         let mut extractors: Vec<String> = evaluator
             .extractors()
@@ -283,18 +304,15 @@ mod tests {
 
     #[test]
     fn test_property_evaluation_always() {
-        let mut verifier = Verifier::new(
+        let mut verifier = verifier(
             r#"
             import { extract, always } from "bombadil";
             
             const foo = extract((state) => state.foo);
 
             export const my_prop = always(() => foo.current < 100);
-            "#
-            .to_string()
-            .into_bytes(),
-        )
-        .unwrap();
+            "#,
+        );
 
         let extractor_id =
             verifier.extractors().unwrap().iter().next().unwrap().0;
@@ -339,18 +357,15 @@ mod tests {
 
     #[test]
     fn test_property_evaluation_eventually() {
-        let mut verifier = Verifier::new(
+        let mut verifier = verifier(
             r#"
             import { extract, eventually } from "bombadil";
             
             const foo = extract((state) => state.foo);
 
             export const my_prop = eventually(() => foo.current === 9).within(5, "seconds");
-            "#
-            .to_string()
-            .into_bytes(),
-        )
-        .unwrap();
+            "#,
+        );
 
         let extractor_id =
             verifier.extractors().unwrap().iter().next().unwrap().0;
@@ -384,5 +399,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_load_ts_file() {
+        let mut imported_file =
+            tempfile::NamedTempFile::with_suffix(".ts").unwrap();
+        imported_file
+            .write_all(
+                r#"
+                import { extract } from "bombadil";
+                const example = extract((state) => state.example);
+                "#
+                .as_bytes(),
+            )
+            .unwrap();
+
+        let verifier = verifier(&format!(
+            r#"
+            export * from "{}";
+            "#,
+            imported_file.path().display(),
+        ));
+
+        let extractors = verifier.extractors().unwrap();
+        let (_, name) = extractors.first().unwrap();
+        assert_eq!(name, "(state) => state.example");
     }
 }

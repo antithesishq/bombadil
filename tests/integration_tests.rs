@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use axum::Router;
-use std::{fmt::Display, sync::Once, time::Duration};
+use std::{fmt::Display, path::PathBuf, sync::Once, time::Duration};
 use tempfile::TempDir;
 use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
@@ -12,7 +12,7 @@ use bombadil::{
         Emulation, LaunchOptions,
     },
     runner::{RunEvent, Runner, RunnerOptions},
-    specification::render::render_violation,
+    specification::{render::render_violation, verifier::Specification},
 };
 
 enum Expect {
@@ -95,11 +95,14 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let empty_specification: Vec<u8> = r#"
+    let empty_specification = Specification {
+        contents: r#"
         export * from "bombadil/defaults";
     "#
-    .to_string()
-    .into_bytes();
+        .to_string()
+        .into_bytes(),
+        path: PathBuf::from("fake.ts"),
+    };
 
     let runner = Runner::new(
         origin,
