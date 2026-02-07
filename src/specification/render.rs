@@ -27,6 +27,30 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                 }
                 write!(f, "{}", RenderedFormula((*subformula).as_ref()))?;
             }
+            Violation::And { left, right } => {
+                write!(
+                    f,
+                    "{}\n\nand\n\n{}",
+                    RenderedViolation(left),
+                    RenderedViolation(right),
+                )?;
+            }
+            Violation::Or { left, right } => {
+                write!(
+                    f,
+                    "{} or {}",
+                    RenderedViolation(left),
+                    RenderedViolation(right),
+                )?;
+            }
+            Violation::Implies { left, right } => {
+                write!(
+                    f,
+                    "{} since {}",
+                    RenderedViolation(right),
+                    RenderedFormula(left),
+                )?;
+            }
             Violation::Always {
                 violation,
                 subformula,
@@ -42,14 +66,6 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     RenderedViolation(violation),
                 )?;
             }
-            Violation::And { left, right } => {
-                write!(
-                    f,
-                    "{} and {}",
-                    RenderedViolation(left),
-                    RenderedViolation(right),
-                )?;
-            }
         };
         Ok(())
     }
@@ -63,6 +79,33 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
             Formula::True { pretty } => write!(f, "{}", pretty),
             Formula::False { pretty } => write!(f, "{}", pretty),
             Formula::Contextful(function) => write!(f, "{}", function),
+            Formula::And(left, right) => {
+                write!(
+                    f,
+                    "{}.and({})",
+                    RenderedFormula(left),
+                    RenderedFormula(right)
+                )
+            }
+            Formula::Or(left, right) => {
+                write!(
+                    f,
+                    "{}.or({})",
+                    RenderedFormula(left),
+                    RenderedFormula(right)
+                )
+            }
+            Formula::Implies(left, right) => {
+                write!(
+                    f,
+                    "{}.implies({})",
+                    RenderedFormula(left),
+                    RenderedFormula(right)
+                )
+            }
+            Formula::Next(formula) => {
+                write!(f, "next({})", RenderedFormula(formula))
+            }
             Formula::Always(formula) => {
                 write!(f, "always({})", RenderedFormula(formula))
             }

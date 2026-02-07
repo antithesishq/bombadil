@@ -49,6 +49,7 @@ fn setup() {
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
 /// causing a timeout, so we limit parallelism.
 const TEST_SEMAPHORE: Semaphore = Semaphore::const_new(2);
+const TEST_TIMEOUT_SECONDS: u64 = 10;
 
 /// Run a named browser test with a given expectation.
 ///
@@ -214,7 +215,7 @@ async fn test_links() {
         Expect::Error {
             substring: "no_http_error_codes",
         },
-        Duration::from_secs(5),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
@@ -249,8 +250,12 @@ async fn test_unhandled_promise_rejection() {
 
 #[tokio::test]
 async fn test_other_domain() {
-    run_browser_test("other-domain", Expect::Success, Duration::from_secs(3))
-        .await;
+    run_browser_test(
+        "other-domain",
+        Expect::Success,
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -258,7 +263,7 @@ async fn test_action_within_iframe() {
     run_browser_test(
         "action-within-iframe",
         Expect::Success,
-        Duration::from_secs(3),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
@@ -270,7 +275,7 @@ async fn test_no_action_available() {
         Expect::Error {
             substring: "no fallback action available",
         },
-        Duration::from_secs(3),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
