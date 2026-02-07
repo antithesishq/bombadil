@@ -96,27 +96,45 @@ export const finishes_loading =
 Start a test:
 
 ```bash
-bombadil test https://example.com
+$ bombadil test https://example.com
 ```
 
 Or headless (useful in CI):
 
 ```bash
-bombadil test https://example.com --headless
+$ bombadil test https://example.com --headless
 ```
 
 Check custom properties defined in a specification file:
 
 ```bash
-bombadil test https://example.com my-spec.ts
+$ bombadil test https://example.com my-spec.ts
 ```
 
 These will log any property violations they find. If you want to immediately
 exit, for instance when running in CI, run with `--exit-on-violation`:
 
 ```bash
-bombadil test --exit-on-violation https://example.com my-spec.ts
+$ bombadil test --exit-on-violation https://example.com my-spec.ts
 ```
+
+You can also store the trace (a JSONL log file) by providing `--output-path`:
+
+```bash
+$ bombadil test --exit-on-violation --output-path=/tmp/my-test https://example.com my-spec.ts
+$ head -n1 /tmp/my-test/trace.jsonl | jq .
+{
+  "url": "https://example.com",
+  "hash_previous": null,
+  "hash_current": 15313187356000757162,
+  "action": null,
+  "screenshot": "/tmp/my-test/screenshots/1770487569266229.webp",
+  "violations": [],
+  ...
+}
+```
+
+**NOTE:** The format of JSONL traces is currently under development and might change.
 
 ## Install
 
