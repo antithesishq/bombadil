@@ -24,8 +24,7 @@ impl std::fmt::Display for PrettyFunction {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Formula<Function = RuntimeFunction> {
-    True { pretty: String },
-    False { pretty: String },
+    Pure { value: bool, pretty: String },
     Contextful(Function),
     And(Box<Formula<Function>>, Box<Formula<Function>>),
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
@@ -54,10 +53,8 @@ impl<Function: Clone> Formula<Function> {
         f: &impl Fn(&Function) -> Result,
     ) -> Formula<Result> {
         match self {
-            Formula::True { pretty } => Formula::True {
-                pretty: pretty.clone(),
-            },
-            Formula::False { pretty } => Formula::False {
+            Formula::Pure { value, pretty } => Formula::Pure {
+                value: *value,
                 pretty: pretty.clone(),
             },
             Formula::Contextful(function) => Formula::Contextful(f(function)),
@@ -112,11 +109,7 @@ impl Formula {
                     "Pure.pretty is not a string".to_string(),
                 ))?
                 .to_std_string_escaped();
-            return Ok(if value {
-                Self::True { pretty }
-            } else {
-                Self::False { pretty }
-            });
+            return Ok(Self::Pure { value, pretty });
         }
 
         if value.instance_of(&bombadil.thunk, context)? {
@@ -406,11 +399,14 @@ impl<'a> Evaluator<'a> {
 
     pub fn evaluate(&mut self, formula: &Formula, time: Time) -> Result<Value> {
         match formula {
-            Formula::True { .. } => Ok(Value::True),
-            Formula::False { pretty } => Ok(Value::False(Violation::False {
-                time,
-                condition: pretty.clone(),
-            })),
+            Formula::Pure { value, pretty } => Ok(if *value {
+                Value::True
+            } else {
+                Value::False(Violation::False {
+                    time,
+                    condition: pretty.clone(),
+                })
+            }),
             Formula::Contextful(function) => {
                 let value = function.object.call(
                     &JsValue::undefined(),
