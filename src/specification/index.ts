@@ -69,7 +69,7 @@ export class Implies extends Formula {
   }
 
   override toString() {
-    return `${this.left}.implies(${this.right}`;
+    return `${this.left}.implies(${this.right})`;
   }
 }
 
