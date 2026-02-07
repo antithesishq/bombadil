@@ -92,7 +92,7 @@ impl Extractors {
         for (id, json_result) in results {
             if let Some(obj) = self.get(id) {
                 let js_value = JsValue::from_json(&json_result, context)?;
-                update(&obj, js_value, time.clone(), context)?;
+                update(obj, js_value, time.clone(), context)?;
             }
         }
         Ok(())

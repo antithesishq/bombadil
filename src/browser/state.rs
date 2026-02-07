@@ -94,9 +94,9 @@ impl ScreenshotFormat {
     }
 }
 
-impl Into<CaptureScreenshotFormat> for ScreenshotFormat {
-    fn into(self) -> CaptureScreenshotFormat {
-        match self {
+impl From<ScreenshotFormat> for CaptureScreenshotFormat {
+    fn from(val: ScreenshotFormat) -> Self {
+        match val {
             ScreenshotFormat::Webp => CaptureScreenshotFormat::Webp,
             ScreenshotFormat::Png => CaptureScreenshotFormat::Png,
             ScreenshotFormat::Jpeg => CaptureScreenshotFormat::Jpeg,

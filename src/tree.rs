@@ -30,7 +30,7 @@ impl<T> Tree<T> {
                     }
                 }
 
-                return trees.len();
+                trees.len()
             }
         }
     }

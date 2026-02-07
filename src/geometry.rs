@@ -7,20 +7,20 @@ pub struct Point {
     pub y: f64,
 }
 
-impl Into<Point> for layout::Point {
-    fn into(self) -> Point {
+impl From<layout::Point> for Point {
+    fn from(val: layout::Point) -> Self {
         Point {
-            x: self.x,
-            y: self.y,
+            x: val.x,
+            y: val.y,
         }
     }
 }
 
-impl Into<layout::Point> for Point {
-    fn into(self) -> layout::Point {
+impl From<Point> for layout::Point {
+    fn from(val: Point) -> Self {
         layout::Point {
-            x: self.x,
-            y: self.y,
+            x: val.x,
+            y: val.y,
         }
     }
 }

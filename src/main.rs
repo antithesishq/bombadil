@@ -127,7 +127,7 @@ async fn main() -> Result<()> {
                 },
             };
             let debugger_options = DebuggerOptions::External {
-                remote_debugger: remote_debugger,
+                remote_debugger,
             };
             test(shared, browser_options, debugger_options).await
         }

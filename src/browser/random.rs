@@ -21,7 +21,7 @@ pub fn generate_action<R: rand::Rng>(
         } => BrowserAction::Click {
             name: name.clone(),
             content: content.clone(),
-            point: point.clone(),
+            point: *point,
         },
         BrowserActionCandidate::TypeText { .. } => {
             let length = rng.random_range(1..16);
@@ -33,20 +33,20 @@ pub fn generate_action<R: rand::Rng>(
         }
         BrowserActionCandidate::PressKey => {
             let code: u8 =
-                *(vec![13, 27]).choose(rng).expect("there should be a code");
+                *([13, 27]).choose(rng).expect("there should be a code");
             BrowserAction::PressKey { code }
         }
         BrowserActionCandidate::ScrollUp { origin, distance } => {
             let distance = rng.random_range((*distance / 2.0)..=(*distance));
             BrowserAction::ScrollUp {
-                origin: origin.clone(),
+                origin: *origin,
                 distance,
             }
         }
         BrowserActionCandidate::ScrollDown { origin, distance } => {
             let distance = rng.random_range((*distance / 2.0)..=(*distance));
             BrowserAction::ScrollDown {
-                origin: origin.clone(),
+                origin: *origin,
                 distance,
             }
         }

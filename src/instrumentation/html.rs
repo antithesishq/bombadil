@@ -46,8 +46,8 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
     stack.push(dom.document.clone());
 
     while let Some(node) = stack.pop() {
-        if let NodeData::Element { name, attrs, .. } = &node.data {
-            if name.local.as_ref() == "script" {
+        if let NodeData::Element { name, attrs, .. } = &node.data
+            && name.local.as_ref() == "script" {
                 let attrs = attrs.borrow();
                 let script_src = attrs
                     .iter()
@@ -60,8 +60,8 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
                     .map(|attr| attr.value.to_string())
                     .unwrap_or("".to_string());
 
-                let is_inline_javascript = script_src == None
-                    && (script_type == "" || script_type == "text/javascript");
+                let is_inline_javascript = script_src.is_none()
+                    && (script_type.is_empty() || script_type == "text/javascript");
 
                 let source_type = if script_type == "module" {
                     SourceType::mjs()
@@ -100,7 +100,6 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
                     }
                 }
             }
-        }
 
         for child in node.children.borrow().iter() {
             stack.push(child.clone());

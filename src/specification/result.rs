@@ -23,7 +23,7 @@ impl Display for SpecificationError {
             SpecificationError::OtherError(message) => message.fmt(f),
             SpecificationError::TranspilationError(diagnostics) => {
                 for diagnostic in diagnostics {
-                    write!(f, "{}\n", diagnostic)?;
+                    writeln!(f, "{}", diagnostic)?;
                 }
                 Ok(())
             }

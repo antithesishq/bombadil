@@ -48,15 +48,15 @@ impl fmt::Display for InstrumentationError {
 
 pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 
-pub const NAMESPACE: &'static str = "__bombadil__";
+pub const NAMESPACE: &str = "__bombadil__";
 
-pub const EDGES_PREVIOUS: &'static str = "edges_previous";
-pub const EDGES_CURRENT: &'static str = "edges_current";
+pub const EDGES_PREVIOUS: &str = "edges_previous";
+pub const EDGES_CURRENT: &str = "edges_current";
 pub const EDGE_MAP_SIZE: usize = 64 * 1024;
 
-const LOCATION_PREVIOUS: &'static str = "previous";
+const LOCATION_PREVIOUS: &str = "previous";
 
-const PRELUDE: &'static str = str_replace!(
+const PRELUDE: &str = str_replace!(
     formatcp!(
         "window.{NAMESPACE} = window.{NAMESPACE} || {{
             {EDGES_PREVIOUS}: new Uint8Array({EDGE_MAP_SIZE}),
@@ -80,7 +80,7 @@ pub fn instrument_source_code(
     let program_codegen = Codegen::new().build(&program);
 
     let code = format!("{PRELUDE}\n{}", program_codegen.code);
-    return Ok(code);
+    Ok(code)
 }
 
 fn parse<'a>(
@@ -88,13 +88,13 @@ fn parse<'a>(
     source_text: &'a str,
     source_type: SourceType,
 ) -> InstrumentationResult<ast::Program<'a>> {
-    let parser = Parser::new(&allocator, source_text, source_type);
+    let parser = Parser::new(allocator, source_text, source_type);
     let result = parser.parse();
     if result.panicked {
         return Err(InstrumentationError::ParseErrors(result.errors.to_vec()));
     }
 
-    return Ok(result.program);
+    Ok(result.program)
 }
 
 fn instrument_program<'a>(
@@ -104,7 +104,7 @@ fn instrument_program<'a>(
 ) -> InstrumentationResult<()> {
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
-        .build(&program);
+        .build(program);
 
     if !semantic.errors.is_empty() {
         let errors = semantic.errors.to_vec();
@@ -115,7 +115,7 @@ fn instrument_program<'a>(
         source_id,
         next_block_id: 0,
     };
-    traverse_mut(&mut instrumenter, &allocator, program, scopes, ());
+    traverse_mut(&mut instrumenter, allocator, program, scopes, ());
 
     Ok(())
 }
@@ -134,7 +134,7 @@ impl<'a> Instrumenter {
             ctx.ast
                 .member_expression_static(
                     SPAN,
-                    ctx.ast.expression_identifier(SPAN, NAMESPACE).into(),
+                    ctx.ast.expression_identifier(SPAN, NAMESPACE),
                     ctx.ast.identifier_name(SPAN, name),
                     false,
                 )
@@ -159,7 +159,7 @@ impl<'a> Instrumenter {
                 SPAN,
                 branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
                 ast::BinaryOperator::BitwiseXOR,
-                antithesis_member(LOCATION_PREVIOUS).into(),
+                antithesis_member(LOCATION_PREVIOUS),
             ),
             ast::BinaryOperator::Remainder,
             ctx.ast.expression_numeric_literal(
@@ -178,7 +178,7 @@ impl<'a> Instrumenter {
                 AssignmentTarget::ComputedMemberExpression(
                     ctx.ast.alloc_computed_member_expression(
                         SPAN,
-                        antithesis_member(EDGES_CURRENT).into(),
+                        antithesis_member(EDGES_CURRENT),
                         edge_index,
                         false,
                     ),
@@ -219,9 +219,9 @@ impl<'a> Instrumenter {
             ),
         );
 
-        return ctx
+        ctx
             .ast
-            .vec_from_array([edge_addition, location_previous_update]);
+            .vec_from_array([edge_addition, location_previous_update])
     }
 
     /// Adds the following two statements to the start of block, or wraps a single statement

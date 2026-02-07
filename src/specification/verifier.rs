@@ -180,7 +180,7 @@ impl Verifier {
     }
 
     pub fn properties(&self) -> Vec<String> {
-        self.properties.keys().map(|key| key.clone()).collect()
+        self.properties.keys().cloned().collect()
     }
 
     pub fn extractors(&self) -> Result<Vec<(u64, String)>> {

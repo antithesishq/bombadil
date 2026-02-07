@@ -479,7 +479,7 @@ async fn inner_events(
 
     let events_action_applied = Box::pin(
         receiver_to_stream(context.actions_sender.subscribe())
-            .map(|action| InnerEvent::ActionApplied(action)),
+            .map(InnerEvent::ActionApplied),
     );
 
     Ok(Box::pin(stream::select_all(vec![
@@ -504,7 +504,7 @@ fn run_state_machine(
     done_sender: oneshot::Sender<()>,
 ) {
     spawn(async move {
-        let result = (async || {
+        let result = async {
             let mut state_current = InnerState::Running(vec![]);
             log::info!("processing events");
             loop {
@@ -526,7 +526,7 @@ fn run_state_machine(
             }
             let _ = done_sender.send(());
             Ok::<(), anyhow::Error>(())
-        })().await;
+        }.await;
         if let Err(error) = result {
             context
                 .sender
@@ -553,7 +553,7 @@ async fn process_event(
             InnerState::Running(console_entries),
             InnerEvent::NodeTreeModified(modification),
         ) => {
-            handle_node_modification(&context, &modification).await?;
+            handle_node_modification(context, &modification).await?;
             let _ = spawn(pause(context.page.clone()));
             InnerState::Pausing(console_entries)
         }
@@ -565,7 +565,7 @@ async fn process_event(
             state
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
-            handle_node_modification(&context, &modification).await?;
+            handle_node_modification(context, &modification).await?;
             state
         }
         (
@@ -588,8 +588,7 @@ async fn process_event(
                 debugger::PausedReason::Exception => {
                     if let Some(json::Value::Object(object)) = exception {
                         object
-                            .get("description")
-                            .map(|value| value.clone())
+                            .get("description").cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UncaughtException)
                     } else {
@@ -600,8 +599,7 @@ async fn process_event(
                     if let Some(json::Value::Object(object)) = exception {
                         object
                             .get("value")
-                            .or(object.get("description"))
-                            .map(|value| value.clone())
+                            .or(object.get("description")).cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UnhandledPromiseRejection)
                     } else {
@@ -775,13 +773,13 @@ async fn handle_node_modification(
         NodeModification::ChildNodeInserted { parent, .. } => {
             context
                 .page
-                .execute(dom::RequestChildNodesParams::new(parent.clone()))
+                .execute(dom::RequestChildNodesParams::new(*parent))
                 .await?;
         }
         NodeModification::ChildNodeCountUpdated { parent, .. } => {
             context
                 .page
-                .execute(dom::RequestChildNodesParams::new(parent.clone()))
+                .execute(dom::RequestChildNodesParams::new(*parent))
                 .await?;
         }
         NodeModification::ChildNodeRemoved { .. } => {}
@@ -794,11 +792,7 @@ fn receiver_to_stream<T: Clone + Send + 'static>(
     receiver: Receiver<T>,
 ) -> Pin<Box<dyn stream::Stream<Item = T> + Send>> {
     Box::pin(BroadcastStream::new(receiver).filter_map(async |r| {
-        if let Ok(x) = r {
-            Some(x)
-        } else {
-            None
-        }
+        r.ok()
     }))
 }
 
