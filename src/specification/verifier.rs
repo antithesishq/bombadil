@@ -333,6 +333,114 @@ mod tests {
     }
 
     #[test]
+    fn test_property_evaluation_and() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, now } from "bombadil";
+            
+            const foo = extract((state) => state.foo);
+            const bar = extract((state) => state.bar);
+
+            export const my_prop = now(() => foo.current).and(() => bar.current);
+            "#,
+        );
+
+        let extractors = verifier.extractors().unwrap();
+        let extractor_foo_id = extractors.first().unwrap().0;
+        let extractor_bar_id = extractors.get(1).unwrap().0;
+
+        let time = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_millis(0))
+            .unwrap();
+
+        let results = verifier
+            .step(
+                vec![
+                    (extractor_foo_id, json::json!(true)),
+                    (extractor_bar_id, json::json!(true)),
+                ],
+                time,
+            )
+            .unwrap();
+
+        let (name, value) = results.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(matches!(value, ltl::Value::True));
+    }
+
+    #[test]
+    fn test_property_evaluation_or() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, now } from "bombadil";
+            
+            const foo = extract((state) => state.foo);
+            const bar = extract((state) => state.bar);
+
+            export const my_prop = now(() => foo.current).or(() => bar.current);
+            "#,
+        );
+
+        let extractors = verifier.extractors().unwrap();
+        let extractor_foo_id = extractors.first().unwrap().0;
+        let extractor_bar_id = extractors.get(1).unwrap().0;
+
+        let time = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_millis(0))
+            .unwrap();
+
+        let results = verifier
+            .step(
+                vec![
+                    (extractor_foo_id, json::json!(false)),
+                    (extractor_bar_id, json::json!(true)),
+                ],
+                time,
+            )
+            .unwrap();
+
+        let (name, value) = results.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(matches!(value, ltl::Value::True));
+    }
+
+    #[test]
+    fn test_property_evaluation_implies() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, now } from "bombadil";
+            
+            const foo = extract((state) => state.foo);
+            const bar = extract((state) => state.bar);
+
+            export const my_prop = now(() => foo.current).implies(() => bar.current);
+            "#,
+        );
+
+        let extractors = verifier.extractors().unwrap();
+        let extractor_foo_id = extractors.first().unwrap().0;
+        let extractor_bar_id = extractors.get(1).unwrap().0;
+
+        let time = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_millis(0))
+            .unwrap();
+
+        let results = verifier
+            .step(
+                vec![
+                    (extractor_foo_id, json::json!(false)),
+                    (extractor_bar_id, json::json!(false)),
+                ],
+                time,
+            )
+            .unwrap();
+
+        let (name, value) = results.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(matches!(value, ltl::Value::True));
+    }
+
+    #[test]
     fn test_property_evaluation_next() {
         let mut verifier = verifier(
             r#"
