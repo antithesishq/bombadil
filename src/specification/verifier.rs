@@ -340,7 +340,7 @@ mod tests {
             
             const foo = extract((state) => state.foo);
 
-            export const my_prop = next(() => foo.current == 1);
+            export const my_prop = next(() => foo.current === 1);
             "#,
         );
 
