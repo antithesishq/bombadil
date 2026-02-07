@@ -4,6 +4,7 @@ import {
   Runtime,
   Duration,
   type TimeUnit,
+  type Cell,
 } from "bombadil/internal";
 
 /** @internal */
@@ -163,9 +164,7 @@ export function eventually(x: IntoFormula) {
   };
 }
 
-export function extract<T extends JSON>(
-  query: (state: State) => T,
-): ExtractorCell<T, State> {
+export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
   return new ExtractorCell<T, State>(runtime_default, query);
 }
 
