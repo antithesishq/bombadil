@@ -731,8 +731,12 @@ impl<'a> Evaluator<'a> {
                 self.evaluate_implies(left_formula, &left, &right)
             }
             Residual::Derived(derived, _) => match derived {
-                Derived::Once { start, subformula } => {
-                    self.evaluate(subformula, *start)?
+                Derived::Once {
+                    start: _,
+                    subformula,
+                } => {
+                    // TODO: wrap potential violation in Next wrapper with start time
+                    self.evaluate(subformula, time)?
                 }
                 Derived::Always { start, subformula } => {
                     self.evaluate_always(subformula.clone(), *start, time)?
