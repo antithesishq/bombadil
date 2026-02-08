@@ -93,25 +93,46 @@ export class Next extends Formula {
 }
 
 export class Always extends Formula {
-  constructor(public subformula: Formula) {
-    super();
-  }
-
-  override toString() {
-    return `always(${this.subformula})`;
-  }
-}
-
-export class Eventually extends Formula {
   constructor(
-    public timeout: Duration,
+    public bound: Duration | null,
     public subformula: Formula,
   ) {
     super();
   }
 
+  within(n: number, unit: TimeUnit): Formula {
+    if (this.bound !== null) {
+      throw new Error("time bound is already set for `always`");
+    }
+    return new Always(new Duration(n, unit), this.subformula);
+  }
+
   override toString() {
-    return `eventually(${this.subformula}).within(${this.timeout.milliseconds}, "milliseconds")`;
+    return this.bound === null
+      ? `always(${this.subformula})`
+      : `always(${this.subformula}).within(${this.bound.milliseconds}, "milliseconds")`;
+  }
+}
+
+export class Eventually extends Formula {
+  constructor(
+    public bound: Duration | null,
+    public subformula: Formula,
+  ) {
+    super();
+  }
+
+  within(n: number, unit: TimeUnit): Formula {
+    if (this.bound !== null) {
+      throw new Error("time bound is already set for `eventually`");
+    }
+    return new Eventually(new Duration(n, unit), this.subformula);
+  }
+
+  override toString() {
+    return this.bound === null
+      ? `eventually(${this.subformula})`
+      : `eventually(${this.subformula}).within(${this.bound.milliseconds}, "milliseconds")`;
   }
 }
 
@@ -156,15 +177,11 @@ export function next(x: IntoFormula): Formula {
 }
 
 export function always(x: IntoFormula): Formula {
-  return new Always(now(x));
+  return new Always(null, now(x));
 }
 
 export function eventually(x: IntoFormula) {
-  return {
-    within(n: number, unit: TimeUnit): Formula {
-      return new Eventually(new Duration(n, unit), now(x));
-    },
-  };
+  return new Eventually(null, now(x));
 }
 
 export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {

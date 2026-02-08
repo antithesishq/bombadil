@@ -32,8 +32,8 @@ pub enum Syntax {
     Or(Box<Syntax>, Box<Syntax>),
     Implies(Box<Syntax>, Box<Syntax>),
     Next(Box<Syntax>),
-    Always(Box<Syntax>),
-    Eventually(Box<Syntax>, Duration),
+    Always(Box<Syntax>, Option<Duration>),
+    Eventually(Box<Syntax>, Option<Duration>),
 }
 
 impl Syntax {
@@ -130,7 +130,11 @@ impl Syntax {
                 object.get(js_string!("subformula"), context)?;
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
-            return Ok(Always(Box::new(subformula)));
+            let bound = optional_duration_from_js(
+                object.get(js_string!("bound"), context)?,
+                context,
+            )?;
+            return Ok(Always(Box::new(subformula), bound));
         }
 
         if value.instance_of(&bombadil.eventually, context)? {
@@ -138,13 +142,11 @@ impl Syntax {
                 object.get(js_string!("subformula"), context)?;
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
-
-            let timeout = duration_from_js(
-                object.get(js_string!("timeout"), context)?,
+            let bound = optional_duration_from_js(
+                object.get(js_string!("bound"), context)?,
                 context,
             )?;
-
-            return Ok(Eventually(Box::new(subformula), timeout));
+            return Ok(Eventually(Box::new(subformula), bound));
         }
 
         Err(SpecificationError::OtherError(format!(
@@ -212,27 +214,18 @@ impl Syntax {
                     }
                 }
                 Syntax::Next(sub) => Formula::Next(Box::new(go(sub, negated))),
-                Syntax::Always(sub) => {
+                Syntax::Always(sub, bound) => {
                     if negated {
-                        Formula::Eventually(
-                            Box::new(go(sub, negated)),
-                            Duration::MAX, // TODO: make F and G duals
-                        )
+                        Formula::Eventually(Box::new(go(sub, negated)), *bound)
                     } else {
-                        Formula::Always(Box::new(go(sub, negated)))
+                        Formula::Always(Box::new(go(sub, negated)), *bound)
                     }
                 }
-                Syntax::Eventually(sub, duration) => {
+                Syntax::Eventually(sub, bound) => {
                     if negated {
-                        Formula::Always(
-                            Box::new(go(sub, negated)),
-                            // TODO: make F and G duals
-                        )
+                        Formula::Always(Box::new(go(sub, negated)), *bound)
                     } else {
-                        Formula::Eventually(
-                            Box::new(go(sub, negated)),
-                            *duration,
-                        )
+                        Formula::Eventually(Box::new(go(sub, negated)), *bound)
                     }
                 }
             }
@@ -250,8 +243,8 @@ pub enum Formula<Function = RuntimeFunction> {
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
     Implies(Box<Formula<Function>>, Box<Formula<Function>>),
     Next(Box<Formula<Function>>),
-    Always(Box<Formula<Function>>),
-    Eventually(Box<Formula<Function>>, Duration),
+    Always(Box<Formula<Function>>, Option<Duration>),
+    Eventually(Box<Formula<Function>>, Option<Duration>),
 }
 
 impl Formula {
@@ -296,18 +289,26 @@ impl<Function: Clone> Formula<Function> {
             Formula::Next(formula) => {
                 Formula::Next(Box::new(formula.clone().map_function_ref(f)))
             }
-            Formula::Always(formula) => {
-                Formula::Always(Box::new(formula.clone().map_function_ref(f)))
-            }
-            Formula::Eventually(formula, timeout) => Formula::Eventually(
+            Formula::Always(formula, bound) => Formula::Always(
                 Box::new(formula.clone().map_function_ref(f)),
-                *timeout,
+                *bound,
+            ),
+            Formula::Eventually(formula, bound) => Formula::Eventually(
+                Box::new(formula.clone().map_function_ref(f)),
+                *bound,
             ),
         }
     }
 }
 
-fn duration_from_js(value: JsValue, context: &mut Context) -> Result<Duration> {
+fn optional_duration_from_js(
+    value: JsValue,
+    context: &mut Context,
+) -> Result<Option<Duration>> {
+    if value.is_null_or_undefined() {
+        return Ok(None);
+    }
+
     let object =
         value
             .as_object()
@@ -316,6 +317,7 @@ fn duration_from_js(value: JsValue, context: &mut Context) -> Result<Duration> {
                 value.display()
             )))?;
     let milliseconds_value = object.get(js_string!("milliseconds"), context)?;
+
     let milliseconds = milliseconds_value.as_number().ok_or(
         SpecificationError::OtherError(format!(
             "milliseconds is not a number: {}",
@@ -334,7 +336,7 @@ fn duration_from_js(value: JsValue, context: &mut Context) -> Result<Duration> {
             milliseconds_value.display()
         )));
     }
-    Ok(Duration::from_millis(milliseconds as u64))
+    Ok(Some(Duration::from_millis(milliseconds as u64)))
 }
 
 pub type Time = SystemTime;
@@ -360,6 +362,7 @@ pub enum Violation<Function = RuntimeFunction> {
         violation: Box<Violation<Function>>,
         subformula: Box<Formula<Function>>,
         start: Time,
+        end: Option<Time>,
         time: Time,
     },
     And {
@@ -415,11 +418,13 @@ impl<Function: Clone> Violation<Function> {
                 violation,
                 subformula,
                 start,
+                end,
                 time,
             } => Violation::Always {
                 violation: Box::new(violation.map_function_ref(f)),
                 subformula: Box::new(subformula.map_function_ref(f)),
                 start: *start,
+                end: *end,
                 time: *time,
             },
             Violation::And { left, right } => Violation::And {
@@ -464,14 +469,15 @@ pub enum Residual<Function = RuntimeFunction> {
     },
     OrEventually {
         subformula: Box<Formula<Function>>,
-        deadline: Time,
         start: Time,
+        end: Option<Time>,
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
     },
     AndAlways {
         subformula: Box<Formula<Function>>,
         start: Time,
+        end: Option<Time>,
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
     },
@@ -485,11 +491,12 @@ pub enum Derived<Function = RuntimeFunction> {
     },
     Always {
         start: Time,
+        end: Option<Time>,
         subformula: Box<Formula<Function>>,
     },
     Eventually {
         start: Time,
-        deadline: Time,
+        end: Option<Time>,
         subformula: Box<Formula<Function>>,
     },
 }
@@ -561,19 +568,30 @@ impl<'a> Evaluator<'a> {
                 },
                 Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
             ))),
-            Formula::Always(formula) => {
-                self.evaluate_always(formula.clone(), time, time)
+            Formula::Always(formula, bound) => {
+                let end = if let Some(duration) = bound {
+                    Some(time.checked_add(*duration).ok_or(
+                        SpecificationError::OtherError(
+                            "failed to add bound to time".to_string(),
+                        ),
+                    )?)
+                } else {
+                    None
+                };
+                self.evaluate_always(formula.clone(), time, end, time)
             }
-            Formula::Eventually(formula, timeout) => self.evaluate_eventually(
-                formula.clone(),
-                time,
-                time.checked_add(*timeout).ok_or(
-                    SpecificationError::OtherError(
-                        "failed to add timeout to time".to_string(),
-                    ),
-                )?,
-                time,
-            ),
+            Formula::Eventually(formula, bound) => {
+                let end = if let Some(duration) = bound {
+                    Some(time.checked_add(*duration).ok_or(
+                        SpecificationError::OtherError(
+                            "failed to add bound to time".to_string(),
+                        ),
+                    )?)
+                } else {
+                    None
+                };
+                self.evaluate_eventually(formula.clone(), time, end, time)
+            }
         }
     }
 
@@ -663,12 +681,20 @@ impl<'a> Evaluator<'a> {
         &mut self,
         subformula: Box<Formula>,
         start: Time,
+        end: Option<Time>,
         time: Time,
     ) -> Result<Value> {
+        if let Some(end) = end
+            && end < time
+        {
+            return Ok(Value::True);
+        }
+
         let residual = Residual::Derived(
             Derived::Always {
                 subformula: subformula.clone(),
                 start,
+                end,
             },
             Leaning::AssumeTrue,
         );
@@ -679,11 +705,13 @@ impl<'a> Evaluator<'a> {
                 violation: Box::new(violation),
                 subformula: subformula.clone(),
                 start,
+                end,
                 time,
             }),
             Value::Residual(left) => Value::Residual(Residual::AndAlways {
                 subformula: subformula.clone(),
                 start,
+                end,
                 left: Box::new(left),
                 right: Box::new(residual),
             }),
@@ -694,28 +722,38 @@ impl<'a> Evaluator<'a> {
         &mut self,
         subformula: Box<Formula>,
         start: Time,
+        end: Option<Time>,
         time: Time,
         left: Value,
         right: Value,
     ) -> Result<Value> {
+        if let Some(end) = end
+            && end < time
+        {
+            return Ok(Value::True);
+        }
+
         Ok(match (left, right) {
             (Value::True, Value::True) => Value::True,
             (Value::False(violation), _) => Value::False(Violation::Always {
                 violation: Box::new(violation.clone()),
                 subformula,
                 start,
+                end,
                 time,
             }),
             (_, Value::False(violation)) => Value::False(Violation::Always {
                 violation: Box::new(violation.clone()),
                 subformula,
                 start,
+                end,
                 time,
             }),
             (Value::Residual(left), Value::True) => {
                 Value::Residual(Residual::AndAlways {
                     subformula,
                     start,
+                    end,
                     left: Box::new(left),
                     right: Box::new(Residual::True),
                 })
@@ -724,6 +762,7 @@ impl<'a> Evaluator<'a> {
                 Value::Residual(Residual::AndAlways {
                     subformula,
                     start,
+                    end,
                     left: Box::new(Residual::True),
                     right: Box::new(right),
                 })
@@ -732,6 +771,7 @@ impl<'a> Evaluator<'a> {
                 Value::Residual(Residual::AndAlways {
                     subformula,
                     start,
+                    end,
                     left: Box::new(left),
                     right: Box::new(right),
                 })
@@ -743,10 +783,12 @@ impl<'a> Evaluator<'a> {
         &mut self,
         subformula: Box<Formula>,
         start: Time,
-        deadline: Time,
+        end: Option<Time>,
         time: Time,
     ) -> Result<Value> {
-        if deadline < time {
+        if let Some(end) = end
+            && end < time
+        {
             return Ok(Value::False(Violation::Eventually {
                 subformula: subformula.clone(),
                 reason: EventuallyViolation::TimedOut(time),
@@ -757,7 +799,7 @@ impl<'a> Evaluator<'a> {
             Derived::Eventually {
                 subformula: subformula.clone(),
                 start,
-                deadline,
+                end,
             },
             Leaning::AssumeFalse(Violation::Eventually {
                 subformula: subformula.clone(),
@@ -770,7 +812,7 @@ impl<'a> Evaluator<'a> {
             Value::False(_violation) => Value::Residual(residual),
             Value::Residual(left) => Value::Residual(Residual::OrEventually {
                 subformula,
-                deadline,
+                end,
                 start,
                 left: Box::new(left),
                 right: Box::new(residual),
@@ -782,12 +824,14 @@ impl<'a> Evaluator<'a> {
         &mut self,
         subformula: Box<Formula>,
         start: Time,
-        deadline: Time,
+        end: Option<Time>,
         time: Time,
         left: Value,
         right: Value,
     ) -> Result<Value> {
-        if deadline < time {
+        if let Some(end) = end
+            && end < time
+        {
             return Ok(Value::False(Violation::Eventually {
                 subformula,
                 reason: EventuallyViolation::TimedOut(time),
@@ -814,7 +858,7 @@ impl<'a> Evaluator<'a> {
                 Value::Residual(Residual::OrEventually {
                     subformula,
                     start,
-                    deadline,
+                    end,
                     left: Box::new(left.clone()),
                     right: Box::new(right.clone()),
                 })
@@ -853,12 +897,19 @@ impl<'a> Evaluator<'a> {
                     // TODO: wrap potential violation in Next wrapper with start time
                     self.evaluate(subformula, time)?
                 }
-                Derived::Always { start, subformula } => {
-                    self.evaluate_always(subformula.clone(), *start, time)?
-                }
+                Derived::Always {
+                    start,
+                    end,
+                    subformula,
+                } => self.evaluate_always(
+                    subformula.clone(),
+                    *start,
+                    *end,
+                    time,
+                )?,
                 Derived::Eventually {
                     start,
-                    deadline,
+                    end: deadline,
                     subformula,
                 } => self.evaluate_eventually(
                     subformula.clone(),
@@ -869,8 +920,8 @@ impl<'a> Evaluator<'a> {
             },
             Residual::OrEventually {
                 subformula,
-                deadline,
                 start,
+                end,
                 left,
                 right,
             } => {
@@ -880,7 +931,7 @@ impl<'a> Evaluator<'a> {
                 self.evaluate_or_eventually(
                     subformula.clone(),
                     *start,
-                    *deadline,
+                    *end,
                     time,
                     left,
                     right,
@@ -889,6 +940,7 @@ impl<'a> Evaluator<'a> {
             Residual::AndAlways {
                 subformula,
                 start,
+                end,
                 left,
                 right,
             } => {
@@ -897,6 +949,7 @@ impl<'a> Evaluator<'a> {
                 self.evaluate_and_always(
                     subformula.clone(),
                     *start,
+                    *end,
                     time,
                     left,
                     right,
@@ -943,11 +996,14 @@ pub fn stop_default<Function: Clone>(
         AndAlways {
             subformula,
             start,
+            end,
             left,
             right,
         } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| {
-                stop_and_always_default(subformula, *start, time, &s1, &s2)
+                stop_and_always_default(
+                    subformula, *start, *end, time, &s1, &s2,
+                )
             })
         }),
         OrEventually { left, right, .. } => {
@@ -1008,6 +1064,7 @@ fn stop_implies_default<Function: Clone>(
 fn stop_and_always_default<Function: Clone>(
     subformula: &Formula<Function>,
     start: Time,
+    end: Option<Time>,
     time: Time,
     left: &StopDefault<Function>,
     right: &StopDefault<Function>,
@@ -1019,6 +1076,7 @@ fn stop_and_always_default<Function: Clone>(
             violation: Box::new(violation.clone()),
             subformula: Box::new(subformula.clone()),
             start,
+            end,
             time,
         }),
     }
