@@ -234,7 +234,8 @@ impl Syntax {
     }
 }
 
-/// A formula in negation normal form (NNF), up to thunks.
+/// A formula in negation normal form (NNF), up to thunks. Note that `Implies` is preserved for
+/// better error messages.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Formula<Function = RuntimeFunction> {
     Pure { value: bool, pretty: String },

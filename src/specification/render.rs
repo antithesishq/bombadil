@@ -76,7 +76,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms and until {}ms, it should be the case that\n\n{}\n\nbut at {}ms\n\n{}",
+                    "as of {}ms and until {}ms, it should alwaays be the case that\n\n{}\n\nbut at {}ms\n\n{}",
                     time_to_ms(start),
                     time_to_ms(end),
                     RenderedFormula((*subformula).as_ref()),
@@ -95,7 +95,13 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Formula::Pure { value: _, pretty } => write!(f, "{}", pretty),
-            Formula::Thunk { function, .. } => write!(f, "{}", function),
+            Formula::Thunk { function, negated } => {
+                if *negated {
+                    write!(f, "not({})", function)
+                } else {
+                    write!(f, "{}", function)
+                }
+            }
             Formula::And(left, right) => {
                 write!(
                     f,

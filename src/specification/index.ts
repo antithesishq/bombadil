@@ -80,6 +80,9 @@ export class Not extends Formula {
   constructor(public subformula: Formula) {
     super();
   }
+  override toString() {
+    return `!(${this.subformula.toString()})`;
+  }
 }
 
 export class Next extends Formula {
@@ -176,11 +179,11 @@ export function next(x: IntoFormula): Formula {
   return new Next(now(x));
 }
 
-export function always(x: IntoFormula): Formula {
+export function always(x: IntoFormula): Always {
   return new Always(null, now(x));
 }
 
-export function eventually(x: IntoFormula) {
+export function eventually(x: IntoFormula): Eventually {
   return new Eventually(null, now(x));
 }
 
