@@ -2,7 +2,9 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::specification::ltl::{self, PrettyFunction, RuntimeFunction};
+use crate::specification::js::RuntimeFunction;
+use crate::specification::ltl::{self};
+use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
 

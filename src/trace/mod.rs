@@ -3,7 +3,10 @@ use std::{path::PathBuf, time::SystemTime};
 use serde::Serialize;
 use url::Url;
 
-use crate::{browser::actions::BrowserAction, specification::ltl};
+use crate::{
+    browser::actions::BrowserAction,
+    specification::{ltl, render},
+};
 
 pub mod writer;
 
@@ -21,5 +24,5 @@ pub struct TraceEntry {
 #[derive(Debug, Clone, Serialize)]
 pub struct PropertyViolation {
     pub name: String,
-    pub violation: ltl::Violation<ltl::PrettyFunction>,
+    pub violation: ltl::Violation<render::PrettyFunction>,
 }

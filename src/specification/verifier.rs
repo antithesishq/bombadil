@@ -2,7 +2,9 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
-use crate::specification::ltl::{RuntimeFunction, Syntax};
+use crate::specification::js::{
+    module_exports, BombadilExports, Extractors, RuntimeFunction, Syntax,
+};
 use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
 use crate::specification::{ltl, module_loader::load_modules};
@@ -15,8 +17,6 @@ use oxc::span::SourceType;
 use serde_json as json;
 
 use crate::specification::{
-    bombadil_exports::{module_exports, BombadilExports},
-    extractors::Extractors,
     ltl::{Evaluator, Formula, Residual, Violation},
     module_loader::{load_bombadil_module, HybridModuleLoader},
     result::SpecificationError,

@@ -2,8 +2,9 @@ use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 
-use crate::specification::ltl::{
-    EventuallyViolation, Formula, RuntimeFunction, Time, Violation,
+use crate::specification::{
+    js::RuntimeFunction,
+    ltl::{EventuallyViolation, Formula, Time, Violation},
 };
 
 pub fn render_violation(violation: &Violation<PrettyFunction>) -> String {
