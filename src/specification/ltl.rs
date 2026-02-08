@@ -343,10 +343,10 @@ fn optional_duration_from_js(
 pub type Time = SystemTime;
 
 #[derive(Clone, Debug)]
-pub enum Value {
+pub enum Value<Function = RuntimeFunction> {
     True,
-    False(Violation),
-    Residual(Residual),
+    False(Violation<Function>),
+    Residual(Residual<Function>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -502,23 +502,32 @@ pub enum Derived<Function = RuntimeFunction> {
     },
 }
 
-pub struct Evaluator<'a> {
-    bombadil_exports: &'a BombadilExports,
-    context: &'a mut Context,
+pub type EvaluateThunk<'a, Function> =
+    &'a mut dyn FnMut(&'_ Function, bool) -> Result<Formula<Function>>;
+
+pub struct Evaluator<'a, Function> {
+    evaluate_thunk: EvaluateThunk<'a, Function>,
+    // bombadil_exports: &'a BombadilExports,
+    // context: &'a mut Context,
 }
 
-impl<'a> Evaluator<'a> {
+impl<'a, Function: Clone> Evaluator<'a, Function> {
     pub fn new(
-        bombadil_exports: &'a BombadilExports,
-        context: &'a mut Context,
+        // bombadil_exports: &'a BombadilExports,
+        // context: &'a mut Context,
+        evaluate_thunk: EvaluateThunk<'a, Function>,
     ) -> Self {
         Evaluator {
-            bombadil_exports,
-            context,
+            evaluate_thunk, // bombadil_exports,
+                            // context,
         }
     }
 
-    pub fn evaluate(&mut self, formula: &Formula, time: Time) -> Result<Value> {
+    pub fn evaluate(
+        &mut self,
+        formula: &Formula<Function>,
+        time: Time,
+    ) -> Result<Value<Function>> {
         match formula {
             Formula::Pure { value, pretty } => Ok(if *value {
                 Value::True
@@ -529,22 +538,7 @@ impl<'a> Evaluator<'a> {
                 })
             }),
             Formula::Thunk { function, negated } => {
-                let value = function.object.call(
-                    &JsValue::undefined(),
-                    &[],
-                    self.context,
-                )?;
-                let syntax = Syntax::from_value(
-                    &value,
-                    self.bombadil_exports,
-                    self.context,
-                )?;
-                let formula = (if *negated {
-                    Syntax::Not(Box::new(syntax))
-                } else {
-                    syntax
-                })
-                .nnf();
+                let formula = (self.evaluate_thunk)(function, *negated)?;
                 Ok(self.evaluate(&formula, time)?)
             }
             Formula::And(left, right) => {
@@ -596,7 +590,11 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn evaluate_and(&mut self, left: &Value, right: &Value) -> Value {
+    fn evaluate_and(
+        &mut self,
+        left: &Value<Function>,
+        right: &Value<Function>,
+    ) -> Value<Function> {
         match (left, right) {
             (Value::True, right) => right.clone(),
             (left, Value::True) => left.clone(),
@@ -617,7 +615,11 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn evaluate_or(&mut self, left: &Value, right: &Value) -> Value {
+    fn evaluate_or(
+        &mut self,
+        left: &Value<Function>,
+        right: &Value<Function>,
+    ) -> Value<Function> {
         match (left, right) {
             (Value::False(left), Value::False(right)) => {
                 Value::False(Violation::Or {
@@ -640,10 +642,10 @@ impl<'a> Evaluator<'a> {
 
     fn evaluate_implies(
         &mut self,
-        left_formula: &Formula,
-        left: &Value,
-        right: &Value,
-    ) -> Value {
+        left_formula: &Formula<Function>,
+        left: &Value<Function>,
+        right: &Value<Function>,
+    ) -> Value<Function> {
         match (left, right) {
             (Value::False(_), _) => Value::True,
             (Value::True, Value::False(violation)) => {
@@ -680,11 +682,11 @@ impl<'a> Evaluator<'a> {
 
     fn evaluate_always(
         &mut self,
-        subformula: Box<Formula>,
+        subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
         time: Time,
-    ) -> Result<Value> {
+    ) -> Result<Value<Function>> {
         if let Some(end) = end
             && end < time
         {
@@ -721,13 +723,13 @@ impl<'a> Evaluator<'a> {
 
     fn evaluate_and_always(
         &mut self,
-        subformula: Box<Formula>,
+        subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
         time: Time,
-        left: Value,
-        right: Value,
-    ) -> Result<Value> {
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Result<Value<Function>> {
         if let Some(end) = end
             && end < time
         {
@@ -782,11 +784,11 @@ impl<'a> Evaluator<'a> {
 
     fn evaluate_eventually(
         &mut self,
-        subformula: Box<Formula>,
+        subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
         time: Time,
-    ) -> Result<Value> {
+    ) -> Result<Value<Function>> {
         if let Some(end) = end
             && end < time
         {
@@ -823,13 +825,13 @@ impl<'a> Evaluator<'a> {
 
     fn evaluate_or_eventually(
         &mut self,
-        subformula: Box<Formula>,
+        subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
         time: Time,
-        left: Value,
-        right: Value,
-    ) -> Result<Value> {
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Result<Value<Function>> {
         if let Some(end) = end
             && end < time
         {
@@ -867,7 +869,11 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    pub fn step(&mut self, residual: &Residual, time: Time) -> Result<Value> {
+    pub fn step(
+        &mut self,
+        residual: &Residual<Function>,
+        time: Time,
+    ) -> Result<Value<Function>> {
         Ok(match residual {
             Residual::True => Value::True,
             Residual::False(violation) => Value::False(violation.clone()),
@@ -957,140 +963,5 @@ impl<'a> Evaluator<'a> {
                 )?
             }
         })
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum StopDefault<Function = RuntimeFunction> {
-    True,
-    False(Violation<Function>),
-}
-
-pub fn stop_default<Function: Clone>(
-    residual: &Residual<Function>,
-    time: Time,
-) -> Option<StopDefault<Function>> {
-    use self::Residual::*;
-    match residual {
-        True => Some(StopDefault::True),
-        False(violation) => Some(StopDefault::False(violation.clone())),
-        Derived(_, leaning) => match leaning {
-            Leaning::AssumeFalse(violation) => {
-                Some(StopDefault::False(violation.clone()))
-            }
-            Leaning::AssumeTrue => Some(StopDefault::True),
-        },
-        And { left, right } => stop_default(left, time).and_then(|s1| {
-            stop_default(right, time).map(|s2| stop_and_default(&s1, &s2))
-        }),
-        Or { left, right } => stop_default(left, time).and_then(|s1| {
-            stop_default(right, time).map(|s2| stop_or_default(&s1, &s2))
-        }),
-        Implies {
-            left_formula,
-            left,
-            right,
-        } => stop_default(left, time).and_then(|s1| {
-            stop_default(right, time)
-                .map(|s2| stop_implies_default(left_formula, &s1, &s2))
-        }),
-        AndAlways {
-            subformula,
-            start,
-            end,
-            left,
-            right,
-        } => stop_default(left, time).and_then(|s1| {
-            stop_default(right, time).map(|s2| {
-                stop_and_always_default(
-                    subformula, *start, *end, time, &s1, &s2,
-                )
-            })
-        }),
-        OrEventually { left, right, .. } => {
-            stop_default(left, time).and_then(|s1| {
-                stop_default(right, time)
-                    .map(|s2| stop_or_eventually_default(&s1, &s2))
-            })
-        }
-    }
-}
-
-fn stop_and_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
-    use StopDefault::*;
-    match (left, right) {
-        (True, right) => right.clone(),
-        (left, True) => left.clone(),
-        (False(left), False(right)) => False(Violation::And {
-            left: Box::new(left.clone()),
-            right: Box::new(right.clone()),
-        }),
-    }
-}
-
-fn stop_or_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
-    use StopDefault::*;
-    match (left, right) {
-        (True, _) => True,
-        (_, True) => True,
-        (False(left), False(right)) => False(Violation::Or {
-            left: Box::new(left.clone()),
-            right: Box::new(right.clone()),
-        }),
-    }
-}
-
-fn stop_implies_default<Function: Clone>(
-    left_formula: &Formula<Function>,
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
-    use StopDefault::*;
-    match (left, right) {
-        (False(_), _) => True,
-        (True, False(violation)) => False(Violation::Implies {
-            left: left_formula.clone(),
-            right: Box::new(violation.clone()),
-        }),
-        (True, True) => True,
-    }
-}
-
-fn stop_and_always_default<Function: Clone>(
-    subformula: &Formula<Function>,
-    start: Time,
-    end: Option<Time>,
-    time: Time,
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
-    use StopDefault::*;
-    match (left, right) {
-        (True, right) => right.clone(),
-        (False(violation), _) => StopDefault::False(Violation::Always {
-            violation: Box::new(violation.clone()),
-            subformula: Box::new(subformula.clone()),
-            start,
-            end,
-            time,
-        }),
-    }
-}
-
-fn stop_or_eventually_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
-    use StopDefault::*;
-    match (left, right) {
-        (True, _) => True,
-        (_, True) => True,
-        (_, False(right)) => False(right.clone()),
     }
 }
