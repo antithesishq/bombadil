@@ -197,7 +197,7 @@ impl Verifier {
         &mut self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<Vec<(String, ltl::Value)>> {
+    ) -> Result<Vec<(String, ltl::Value<RuntimeFunction>)>> {
         self.extractors.update_from_snapshots(
             snapshots,
             time,
@@ -208,7 +208,7 @@ impl Verifier {
         let context = &RefCell::new(&mut self.context);
         let mut evaluate_thunk = |function: &RuntimeFunction,
                                   negated: bool|
-         -> Result<Formula> {
+         -> Result<Formula<RuntimeFunction>> {
             let context = &mut context.borrow_mut();
             let value =
                 function.object.call(&JsValue::undefined(), &[], context)?;
@@ -270,10 +270,10 @@ pub struct Property {
 
 #[derive(Debug, Clone)]
 enum PropertyState {
-    Initial(Formula),
-    Residual(Residual),
+    Initial(Formula<RuntimeFunction>),
+    Residual(Residual<RuntimeFunction>),
     DefinitelyTrue,
-    DefinitelyFalse(Violation),
+    DefinitelyFalse(Violation<RuntimeFunction>),
 }
 
 #[cfg(test)]

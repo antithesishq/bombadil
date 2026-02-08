@@ -2,7 +2,7 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::specification::ltl::{self, PrettyFunction};
+use crate::specification::ltl::{self, PrettyFunction, RuntimeFunction};
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
 
@@ -30,8 +30,8 @@ pub enum PropertyValue {
     Residual,
 }
 
-impl From<&ltl::Value> for PropertyValue {
-    fn from(value: &ltl::Value) -> Self {
+impl From<&ltl::Value<RuntimeFunction>> for PropertyValue {
+    fn from(value: &ltl::Value<RuntimeFunction>) -> Self {
         match value {
             ltl::Value::True => PropertyValue::True,
             ltl::Value::False(violation) => {

@@ -155,8 +155,8 @@ impl Syntax {
         )))
     }
 
-    pub fn nnf(&self) -> Formula {
-        fn go(node: &Syntax, negated: bool) -> Formula {
+    pub fn nnf(&self) -> Formula<RuntimeFunction> {
+        fn go(node: &Syntax, negated: bool) -> Formula<RuntimeFunction> {
             match node {
                 Syntax::Pure { value, pretty } => Formula::Pure {
                     value: if negated { !*value } else { *value },
@@ -237,7 +237,7 @@ impl Syntax {
 /// A formula in negation normal form (NNF), up to thunks. Note that `Implies` is preserved for
 /// better error messages.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub enum Formula<Function = RuntimeFunction> {
+pub enum Formula<Function> {
     Pure { value: bool, pretty: String },
     Thunk { function: Function, negated: bool },
     And(Box<Formula<Function>>, Box<Formula<Function>>),
@@ -248,7 +248,7 @@ pub enum Formula<Function = RuntimeFunction> {
     Eventually(Box<Formula<Function>>, Option<Duration>),
 }
 
-impl Formula {
+impl Formula<RuntimeFunction> {
     pub fn with_pretty_functions(&self) -> Formula<PrettyFunction> {
         self.map_function(|f| PrettyFunction(f.pretty.clone()))
     }
@@ -343,14 +343,14 @@ fn optional_duration_from_js(
 pub type Time = SystemTime;
 
 #[derive(Clone, Debug)]
-pub enum Value<Function = RuntimeFunction> {
+pub enum Value<Function> {
     True,
     False(Violation<Function>),
     Residual(Residual<Function>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum Violation<Function = RuntimeFunction> {
+pub enum Violation<Function> {
     False {
         time: Time,
         condition: String,
@@ -386,7 +386,7 @@ pub enum EventuallyViolation {
     TestEnded,
 }
 
-impl Violation {
+impl Violation<RuntimeFunction> {
     pub fn with_pretty_functions(&self) -> Violation<PrettyFunction> {
         self.map_function(|f| PrettyFunction(f.pretty.clone()))
     }
@@ -445,13 +445,13 @@ impl<Function: Clone> Violation<Function> {
 }
 
 #[derive(Clone, Debug)]
-pub enum Leaning<Function = RuntimeFunction> {
+pub enum Leaning<Function> {
     AssumeTrue,
     AssumeFalse(Violation<Function>),
 }
 
 #[derive(Clone, Debug)]
-pub enum Residual<Function = RuntimeFunction> {
+pub enum Residual<Function> {
     True,
     False(Violation<Function>),
     Derived(Derived<Function>, Leaning<Function>),
@@ -485,7 +485,7 @@ pub enum Residual<Function = RuntimeFunction> {
 }
 
 #[derive(Clone, Debug)]
-pub enum Derived<Function = RuntimeFunction> {
+pub enum Derived<Function> {
     Once {
         start: Time,
         subformula: Box<Formula<Function>>,
