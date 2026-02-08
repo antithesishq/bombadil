@@ -13,15 +13,6 @@ pub struct RuntimeFunction {
     pub pretty: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct PrettyFunction(String);
-
-impl std::fmt::Display for PrettyFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Syntax {
@@ -248,14 +239,8 @@ pub enum Formula<Function> {
     Eventually(Box<Formula<Function>>, Option<Duration>),
 }
 
-impl Formula<RuntimeFunction> {
-    pub fn with_pretty_functions(&self) -> Formula<PrettyFunction> {
-        self.map_function(|f| PrettyFunction(f.pretty.clone()))
-    }
-}
-
 impl<Function: Clone> Formula<Function> {
-    fn map_function<Result>(
+    pub fn map_function<Result>(
         &self,
         f: impl Fn(&Function) -> Result,
     ) -> Formula<Result> {
@@ -386,14 +371,8 @@ pub enum EventuallyViolation {
     TestEnded,
 }
 
-impl Violation<RuntimeFunction> {
-    pub fn with_pretty_functions(&self) -> Violation<PrettyFunction> {
-        self.map_function(|f| PrettyFunction(f.pretty.clone()))
-    }
-}
-
 impl<Function: Clone> Violation<Function> {
-    fn map_function<Result>(
+    pub fn map_function<Result>(
         &self,
         f: impl Fn(&Function) -> Result,
     ) -> Violation<Result> {

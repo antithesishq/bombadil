@@ -1,7 +1,9 @@
 use std::time::UNIX_EPOCH;
 
+use serde::Serialize;
+
 use crate::specification::ltl::{
-    EventuallyViolation, Formula, PrettyFunction, Time, Violation,
+    EventuallyViolation, Formula, RuntimeFunction, Time, Violation,
 };
 
 pub fn render_violation(violation: &Violation<PrettyFunction>) -> String {
@@ -159,4 +161,25 @@ fn time_to_ms(time: &Time) -> u128 {
     time.duration_since(UNIX_EPOCH)
         .expect("timestamp millisecond conversion failed")
         .as_millis()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct PrettyFunction(String);
+
+impl std::fmt::Display for PrettyFunction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Formula<RuntimeFunction> {
+    pub fn with_pretty_functions(&self) -> Formula<PrettyFunction> {
+        self.map_function(|f| PrettyFunction(f.pretty.clone()))
+    }
+}
+
+impl Violation<RuntimeFunction> {
+    pub fn with_pretty_functions(&self) -> Violation<PrettyFunction> {
+        self.map_function(|f| PrettyFunction(f.pretty.clone()))
+    }
 }
