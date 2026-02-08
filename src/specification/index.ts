@@ -14,6 +14,9 @@ export const runtime_default = new Runtime<State>();
 export { time, type Cell } from "bombadil/internal";
 
 export class Formula {
+  not(): Formula {
+    return new Not(this);
+  }
   and(that: IntoFormula): Formula {
     return new And(this, now(that));
   }

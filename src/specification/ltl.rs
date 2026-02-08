@@ -22,10 +22,230 @@ impl std::fmt::Display for PrettyFunction {
     }
 }
 
+/// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Syntax {
+    Pure { value: bool, pretty: String },
+    Thunk(RuntimeFunction),
+    Not(Box<Syntax>),
+    And(Box<Syntax>, Box<Syntax>),
+    Or(Box<Syntax>, Box<Syntax>),
+    Implies(Box<Syntax>, Box<Syntax>),
+    Next(Box<Syntax>),
+    Always(Box<Syntax>),
+    Eventually(Box<Syntax>, Duration),
+}
+
+impl Syntax {
+    pub fn from_value(
+        value: &JsValue,
+        bombadil: &BombadilExports,
+        context: &mut Context,
+    ) -> Result<Self> {
+        use Syntax::*;
+
+        let object =
+            value.as_object().ok_or(SpecificationError::OtherError(
+                format!("formula is not an object: {}", value.display()),
+            ))?;
+
+        if value.instance_of(&bombadil.pure, context)? {
+            let value = object
+                .get(js_string!("value"), context)?
+                .as_boolean()
+                .ok_or(SpecificationError::OtherError(
+                    "Pure.value is not a boolean".to_string(),
+                ))?;
+            let pretty = object
+                .get(js_string!("pretty"), context)?
+                .as_string()
+                .ok_or(SpecificationError::OtherError(
+                    "Pure.pretty is not a string".to_string(),
+                ))?
+                .to_std_string_escaped();
+            return Ok(Self::Pure { value, pretty });
+        }
+
+        if value.instance_of(&bombadil.thunk, context)? {
+            let apply_object = object
+                .get(js_string!("apply"), context)?
+                .as_callable()
+                .ok_or(SpecificationError::OtherError(
+                    "Thunk.apply is not callable".to_string(),
+                ))?;
+            let pretty_value = object.get(js_string!("pretty"), context)?;
+            let pretty = pretty_value
+                .as_string()
+                .ok_or(SpecificationError::OtherError(format!(
+                    "Thunk.pretty is not a string: {}",
+                    pretty_value.display()
+                )))?
+                .to_std_string_escaped();
+            return Ok(Self::Thunk(RuntimeFunction {
+                object: apply_object,
+                pretty,
+            }));
+        }
+
+        if value.instance_of(&bombadil.not, context)? {
+            let value = object.get(js_string!("subformula"), context)?;
+            let subformula = Self::from_value(&value, bombadil, context)?;
+            return Ok(Not(Box::new(subformula)));
+        }
+
+        if value.instance_of(&bombadil.and, context)? {
+            let left_value = object.get(js_string!("left"), context)?;
+            let right_value = object.get(js_string!("right"), context)?;
+            let left = Self::from_value(&left_value, bombadil, context)?;
+            let right = Self::from_value(&right_value, bombadil, context)?;
+            return Ok(And(Box::new(left), Box::new(right)));
+        }
+
+        if value.instance_of(&bombadil.or, context)? {
+            let left_value = object.get(js_string!("left"), context)?;
+            let right_value = object.get(js_string!("right"), context)?;
+            let left = Self::from_value(&left_value, bombadil, context)?;
+            let right = Self::from_value(&right_value, bombadil, context)?;
+            return Ok(Or(Box::new(left), Box::new(right)));
+        }
+
+        if value.instance_of(&bombadil.implies, context)? {
+            let left_value = object.get(js_string!("left"), context)?;
+            let right_value = object.get(js_string!("right"), context)?;
+            let left = Self::from_value(&left_value, bombadil, context)?;
+            let right = Self::from_value(&right_value, bombadil, context)?;
+            return Ok(Implies(Box::new(left), Box::new(right)));
+        }
+
+        if value.instance_of(&bombadil.next, context)? {
+            let subformula_value =
+                object.get(js_string!("subformula"), context)?;
+            let subformula =
+                Self::from_value(&subformula_value, bombadil, context)?;
+            return Ok(Next(Box::new(subformula)));
+        }
+
+        if value.instance_of(&bombadil.always, context)? {
+            let subformula_value =
+                object.get(js_string!("subformula"), context)?;
+            let subformula =
+                Self::from_value(&subformula_value, bombadil, context)?;
+            return Ok(Always(Box::new(subformula)));
+        }
+
+        if value.instance_of(&bombadil.eventually, context)? {
+            let subformula_value =
+                object.get(js_string!("subformula"), context)?;
+            let subformula =
+                Self::from_value(&subformula_value, bombadil, context)?;
+
+            let timeout = duration_from_js(
+                object.get(js_string!("timeout"), context)?,
+                context,
+            )?;
+
+            return Ok(Eventually(Box::new(subformula), timeout));
+        }
+
+        Err(SpecificationError::OtherError(format!(
+            "can't convert to formula: {}",
+            value.display()
+        )))
+    }
+
+    pub fn nnf(&self) -> Formula {
+        fn go(node: &Syntax, negated: bool) -> Formula {
+            match node {
+                Syntax::Pure { value, pretty } => Formula::Pure {
+                    value: if negated { !*value } else { *value },
+                    pretty: pretty.clone(),
+                },
+                Syntax::Thunk(function) => Formula::Thunk {
+                    function: function.clone(),
+                    negated,
+                },
+                Syntax::Not(syntax) => go(syntax, !negated),
+                Syntax::And(left, right) => {
+                    if negated {
+                        //   ¬(l ∧ r)
+                        // ⇔ (¬l ∨ ¬r)
+                        Formula::Or(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                        )
+                    } else {
+                        Formula::And(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                        )
+                    }
+                }
+                Syntax::Or(left, right) => {
+                    if negated {
+                        //   ¬(l ∨ r)
+                        // ⇔ (¬l ∧ ¬r)
+                        Formula::And(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                        )
+                    } else {
+                        Formula::Or(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                        )
+                    }
+                }
+                Syntax::Implies(left, right) => {
+                    if negated {
+                        //   ¬(l ⇒ r)
+                        // ⇔ ¬(¬l ∨ r)
+                        // ⇔ l ∧ ¬r
+                        Formula::And(
+                            Box::new(go(left, false)),
+                            Box::new(go(right, true)),
+                        )
+                    } else {
+                        Formula::Implies(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                        )
+                    }
+                }
+                Syntax::Next(sub) => Formula::Next(Box::new(go(sub, negated))),
+                Syntax::Always(sub) => {
+                    if negated {
+                        Formula::Eventually(
+                            Box::new(go(sub, negated)),
+                            Duration::MAX, // TODO: make F and G duals
+                        )
+                    } else {
+                        Formula::Always(Box::new(go(sub, negated)))
+                    }
+                }
+                Syntax::Eventually(sub, duration) => {
+                    if negated {
+                        Formula::Always(
+                            Box::new(go(sub, negated)),
+                            // TODO: make F and G duals
+                        )
+                    } else {
+                        Formula::Eventually(
+                            Box::new(go(sub, negated)),
+                            *duration,
+                        )
+                    }
+                }
+            }
+        }
+        go(self, false)
+    }
+}
+
+/// A formula in negation normal form (NNF), up to thunks.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Formula<Function = RuntimeFunction> {
     Pure { value: bool, pretty: String },
-    Contextful(Function),
+    Thunk { function: Function, negated: bool },
     And(Box<Formula<Function>>, Box<Formula<Function>>),
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
     Implies(Box<Formula<Function>>, Box<Formula<Function>>),
@@ -57,7 +277,10 @@ impl<Function: Clone> Formula<Function> {
                 value: *value,
                 pretty: pretty.clone(),
             },
-            Formula::Contextful(function) => Formula::Contextful(f(function)),
+            Formula::Thunk { function, negated } => Formula::Thunk {
+                function: f(function),
+                negated: *negated,
+            },
             Formula::And(left, right) => Formula::And(
                 Box::new(left.clone().map_function_ref(f)),
                 Box::new(right.clone().map_function_ref(f)),
@@ -81,116 +304,6 @@ impl<Function: Clone> Formula<Function> {
                 *timeout,
             ),
         }
-    }
-}
-
-impl Formula {
-    pub fn from_value(
-        value: &JsValue,
-        bombadil: &BombadilExports,
-        context: &mut Context,
-    ) -> Result<Self> {
-        let object =
-            value.as_object().ok_or(SpecificationError::OtherError(
-                format!("formula is not an object: {}", value.display()),
-            ))?;
-
-        if value.instance_of(&bombadil.pure, context)? {
-            let value = object
-                .get(js_string!("value"), context)?
-                .as_boolean()
-                .ok_or(SpecificationError::OtherError(
-                    "Pure.value is not a boolean".to_string(),
-                ))?;
-            let pretty = object
-                .get(js_string!("pretty"), context)?
-                .as_string()
-                .ok_or(SpecificationError::OtherError(
-                    "Pure.pretty is not a string".to_string(),
-                ))?
-                .to_std_string_escaped();
-            return Ok(Self::Pure { value, pretty });
-        }
-
-        if value.instance_of(&bombadil.thunk, context)? {
-            let apply_object = object
-                .get(js_string!("apply"), context)?
-                .as_callable()
-                .ok_or(SpecificationError::OtherError(
-                    "Contextful.apply is not callable".to_string(),
-                ))?;
-            let pretty_value = object.get(js_string!("pretty"), context)?;
-            let pretty = pretty_value
-                .as_string()
-                .ok_or(SpecificationError::OtherError(format!(
-                    "Contextful.pretty is not a string: {}",
-                    pretty_value.display()
-                )))?
-                .to_std_string_escaped();
-            return Ok(Self::Contextful(RuntimeFunction {
-                object: apply_object,
-                pretty,
-            }));
-        }
-
-        if value.instance_of(&bombadil.and, context)? {
-            let left_value = object.get(js_string!("left"), context)?;
-            let right_value = object.get(js_string!("right"), context)?;
-            let left = Formula::from_value(&left_value, bombadil, context)?;
-            let right = Formula::from_value(&right_value, bombadil, context)?;
-            return Ok(Formula::And(Box::new(left), Box::new(right)));
-        }
-
-        if value.instance_of(&bombadil.or, context)? {
-            let left_value = object.get(js_string!("left"), context)?;
-            let right_value = object.get(js_string!("right"), context)?;
-            let left = Formula::from_value(&left_value, bombadil, context)?;
-            let right = Formula::from_value(&right_value, bombadil, context)?;
-            return Ok(Formula::Or(Box::new(left), Box::new(right)));
-        }
-
-        if value.instance_of(&bombadil.implies, context)? {
-            let left_value = object.get(js_string!("left"), context)?;
-            let right_value = object.get(js_string!("right"), context)?;
-            let left = Formula::from_value(&left_value, bombadil, context)?;
-            let right = Formula::from_value(&right_value, bombadil, context)?;
-            return Ok(Formula::Implies(Box::new(left), Box::new(right)));
-        }
-
-        if value.instance_of(&bombadil.next, context)? {
-            let subformula_value =
-                object.get(js_string!("subformula"), context)?;
-            let subformula =
-                Formula::from_value(&subformula_value, bombadil, context)?;
-            return Ok(Formula::Next(Box::new(subformula)));
-        }
-
-        if value.instance_of(&bombadil.always, context)? {
-            let subformula_value =
-                object.get(js_string!("subformula"), context)?;
-            let subformula =
-                Formula::from_value(&subformula_value, bombadil, context)?;
-            return Ok(Formula::Always(Box::new(subformula)));
-        }
-
-        if value.instance_of(&bombadil.eventually, context)? {
-            let subformula_value =
-                object.get(js_string!("subformula"), context)?;
-            let subformula =
-                Formula::from_value(&subformula_value, bombadil, context)?;
-
-            let timeout = duration_from_js(
-                object.get(js_string!("timeout"), context)?,
-                context,
-            )?;
-
-            return Ok(Formula::Eventually(Box::new(subformula), timeout));
-        }
-
-        Err(SpecificationError::OtherError(format!(
-            "can't convert to formula: {}",
-            value.display()
-        )))
     }
 }
 
@@ -407,17 +520,23 @@ impl<'a> Evaluator<'a> {
                     condition: pretty.clone(),
                 })
             }),
-            Formula::Contextful(function) => {
+            Formula::Thunk { function, negated } => {
                 let value = function.object.call(
                     &JsValue::undefined(),
                     &[],
                     self.context,
                 )?;
-                let formula = Formula::from_value(
+                let syntax = Syntax::from_value(
                     &value,
                     self.bombadil_exports,
                     self.context,
                 )?;
+                let formula = (if *negated {
+                    Syntax::Not(Box::new(syntax))
+                } else {
+                    syntax
+                })
+                .nnf();
                 Ok(self.evaluate(&formula, time)?)
             }
             Formula::And(left, right) => {

@@ -77,7 +77,7 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Formula::Pure { value: _, pretty } => write!(f, "{}", pretty),
-            Formula::Contextful(function) => write!(f, "{}", function),
+            Formula::Thunk { function, .. } => write!(f, "{}", function),
             Formula::And(left, right) => {
                 write!(
                     f,
