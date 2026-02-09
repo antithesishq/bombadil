@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc 790f63bdc1b2c3af438aed1d5f9175c57c990a3800a8caf48218183723f0a66c # shrinks to syntax = Pure { value: false, pretty: "false" }, trace = [State { x: false, y: false }]
