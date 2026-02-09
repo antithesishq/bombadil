@@ -65,6 +65,9 @@ fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
             inner.clone().prop_map(|subformula| {
                 Syntax::Thunk(Thunk::Subformula(Box::new(subformula)))
             }),
+            inner
+                .clone()
+                .prop_map(|subformula| { Syntax::Not(Box::new(subformula)) }),
             (inner.clone(), inner.clone()).prop_map(|(left, right)| {
                 Syntax::And(Box::new(left), Box::new(right))
             }),
