@@ -242,7 +242,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
     }
 
-    // A(¬φ) ⇔ ¬F(φ)
+    // G(¬φ) ⇔ ¬F(φ)
     #[test]
     fn test_always_eventually_duality(φ in syntax(), trace in trace()) {
         let formula_left =
@@ -252,7 +252,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
     }
 
-    // F(¬φ) ⇔ F(F(φ))
+    // F(φ) ⇔ F(F(φ))
     #[test]
     fn test_eventually_idempotency(φ in syntax(), trace in trace()) {
         let formula_left =
@@ -262,7 +262,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
     }
 
-    // G(¬φ) ⇔ G(G(φ))
+    // G(φ) ⇔ G(G(φ))
     #[test]
     fn test_always_idempotency(φ in syntax(), trace in trace()) {
         let formula_left =

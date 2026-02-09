@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
@@ -206,11 +205,10 @@ impl Verifier {
         )?;
         let mut results = Vec::with_capacity(self.properties.len());
 
-        let context = &RefCell::new(&mut self.context);
+        let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
                                   negated: bool|
          -> Result<Formula<RuntimeFunction>> {
-            let context = &mut context.borrow_mut();
             let value =
                 function.object.call(&JsValue::undefined(), &[], context)?;
             let syntax =
