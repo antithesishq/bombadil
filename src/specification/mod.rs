@@ -7,3 +7,6 @@ pub mod stop;
 pub mod syntax;
 pub mod verifier;
 pub mod worker;
+
+#[cfg(test)]
+mod ltl_equivalences;
