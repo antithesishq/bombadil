@@ -67,7 +67,7 @@ impl<Function: Clone> Formula<Function> {
 
 pub type Time = SystemTime;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
     True,
     False(Violation<Function>),
@@ -163,13 +163,13 @@ impl<Function: Clone> Violation<Function> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Leaning<Function> {
     AssumeTrue,
     AssumeFalse(Violation<Function>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Residual<Function> {
     True,
     False(Violation<Function>),
@@ -203,7 +203,7 @@ pub enum Residual<Function> {
     },
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Derived<Function> {
     Once {
         start: Time,

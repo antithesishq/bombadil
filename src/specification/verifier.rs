@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
 use crate::specification::js::{
-    module_exports, BombadilExports, Extractors, RuntimeFunction, Syntax,
+    module_exports, BombadilExports, Extractors, RuntimeFunction,
 };
 use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
+use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use boa_engine::JsValue;
 use boa_engine::{

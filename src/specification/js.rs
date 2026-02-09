@@ -9,8 +9,8 @@ use serde_json as json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::specification::{
-    ltl::Formula,
     result::{Result, SpecificationError},
+    syntax::Syntax,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,21 +19,7 @@ pub struct RuntimeFunction {
     pub pretty: String,
 }
 
-/// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Syntax {
-    Pure { value: bool, pretty: String },
-    Thunk(RuntimeFunction),
-    Not(Box<Syntax>),
-    And(Box<Syntax>, Box<Syntax>),
-    Or(Box<Syntax>, Box<Syntax>),
-    Implies(Box<Syntax>, Box<Syntax>),
-    Next(Box<Syntax>),
-    Always(Box<Syntax>, Option<Duration>),
-    Eventually(Box<Syntax>, Option<Duration>),
-}
-
-impl Syntax {
+impl Syntax<RuntimeFunction> {
     pub fn from_value(
         value: &JsValue,
         bombadil: &BombadilExports,
@@ -150,84 +136,6 @@ impl Syntax {
             "can't convert to formula: {}",
             value.display()
         )))
-    }
-
-    pub fn nnf(&self) -> Formula<RuntimeFunction> {
-        fn go(node: &Syntax, negated: bool) -> Formula<RuntimeFunction> {
-            match node {
-                Syntax::Pure { value, pretty } => Formula::Pure {
-                    value: if negated { !*value } else { *value },
-                    pretty: pretty.clone(),
-                },
-                Syntax::Thunk(function) => Formula::Thunk {
-                    function: function.clone(),
-                    negated,
-                },
-                Syntax::Not(syntax) => go(syntax, !negated),
-                Syntax::And(left, right) => {
-                    if negated {
-                        //   ¬(l ∧ r)
-                        // ⇔ (¬l ∨ ¬r)
-                        Formula::Or(
-                            Box::new(go(left, negated)),
-                            Box::new(go(right, negated)),
-                        )
-                    } else {
-                        Formula::And(
-                            Box::new(go(left, negated)),
-                            Box::new(go(right, negated)),
-                        )
-                    }
-                }
-                Syntax::Or(left, right) => {
-                    if negated {
-                        //   ¬(l ∨ r)
-                        // ⇔ (¬l ∧ ¬r)
-                        Formula::And(
-                            Box::new(go(left, negated)),
-                            Box::new(go(right, negated)),
-                        )
-                    } else {
-                        Formula::Or(
-                            Box::new(go(left, negated)),
-                            Box::new(go(right, negated)),
-                        )
-                    }
-                }
-                Syntax::Implies(left, right) => {
-                    if negated {
-                        //   ¬(l ⇒ r)
-                        // ⇔ ¬(¬l ∨ r)
-                        // ⇔ l ∧ ¬r
-                        Formula::And(
-                            Box::new(go(left, false)),
-                            Box::new(go(right, true)),
-                        )
-                    } else {
-                        Formula::Implies(
-                            Box::new(go(left, negated)),
-                            Box::new(go(right, negated)),
-                        )
-                    }
-                }
-                Syntax::Next(sub) => Formula::Next(Box::new(go(sub, negated))),
-                Syntax::Always(sub, bound) => {
-                    if negated {
-                        Formula::Eventually(Box::new(go(sub, negated)), *bound)
-                    } else {
-                        Formula::Always(Box::new(go(sub, negated)), *bound)
-                    }
-                }
-                Syntax::Eventually(sub, bound) => {
-                    if negated {
-                        Formula::Always(Box::new(go(sub, negated)), *bound)
-                    } else {
-                        Formula::Eventually(Box::new(go(sub, negated)), *bound)
-                    }
-                }
-            }
-        }
-        go(self, false)
     }
 }
 
