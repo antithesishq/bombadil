@@ -45,7 +45,7 @@ fn bound() -> BoxedStrategy<Option<Duration>> {
 #[derive(Clone, Debug, PartialEq)]
 enum Thunk {
     Atomic(Variable),
-    Continuation(Box<Syntax<Thunk>>),
+    Subformula(Box<Syntax<Thunk>>),
 }
 
 fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
@@ -63,7 +63,7 @@ fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
         // recursive nodes
         prop_oneof![
             inner.clone().prop_map(|subformula| {
-                Syntax::Thunk(Thunk::Continuation(Box::new(subformula)))
+                Syntax::Thunk(Thunk::Subformula(Box::new(subformula)))
             }),
             (inner.clone(), inner.clone()).prop_map(|(left, right)| {
                 Syntax::And(Box::new(left), Box::new(right))
@@ -88,6 +88,7 @@ fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
     .boxed()
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum ValueEqMode {
     Strict,
     UpToViolations,
@@ -101,7 +102,11 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
 ) {
     match (value_left, value_right) {
         (Value::True, Value::True) => {}
-        (Value::False(_), Value::False(_)) => {}
+        (Value::False(left), Value::False(right)) => {
+            if mode == ValueEqMode::Strict {
+                assert_eq!(left, right);
+            }
+        }
         (Value::Residual(left), Value::Residual(right)) => {
             let default_left = stop_default(&left, time);
             let default_right = stop_default(&right, time);
@@ -115,12 +120,14 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
                             Some(StopDefault::False(_)),
                             Some(StopDefault::False(_)),
                         ) => {}
-                        (left, right) => panic!("{:?} != {:?}", left, right),
+                        (left, right) => {
+                            panic!("\n{:?}\n\n!=\n\n{:?}\n", left, right)
+                        }
                     }
                 }
             }
         }
-        (left, right) => panic!("{:?} != {:?}", left, right),
+        (left, right) => panic!("\n{:?}\n\n!=\n\n{:?}\n", left, right),
     }
 }
 
@@ -145,7 +152,7 @@ fn check_equivalence(
                 pretty: format!("{}", value),
             })
         }
-        Thunk::Continuation(syntax) => {
+        Thunk::Subformula(syntax) => {
             let syntax = if negated {
                 Syntax::Not(syntax.clone())
             } else {
@@ -178,10 +185,23 @@ fn check_equivalence(
     assert_values_eq(value_left, value_right, time, mode);
 }
 
+// Properties organically sourced from: https://en.wikipedia.org/wiki/Linear_temporal_logic
+
+// Distributivity
 proptest! {
-    /// X(φ ∨ ψ) ⇔ (X φ) ∨ (X ψ)
+    // X(φ ∨ ψ) ⇔ (X φ) ∨ (X ψ)
     #[test]
     fn test_next_disjunction_distributivity(φ in syntax(), ψ in syntax(), trace in trace()) {
+        let formula_left =
+            Syntax::Next(Box::new(Syntax::Or(Box::new(φ.clone()), Box::new(ψ.clone())))).nnf();
+        let formula_right =
+            Syntax::Or(Box::new(Syntax::Next(Box::new(φ.clone()))), Box::new(Syntax::Next(Box::new(ψ.clone())))).nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // X (φ ∧ ψ) ⇔ (X φ) ∧ (X ψ)
+    #[test]
+    fn test_next_conjunction_distributivity(φ in syntax(), ψ in syntax(), trace in trace()) {
         let formula_left =
             Syntax::Next(Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone())))).nnf();
         let formula_right =
@@ -189,7 +209,30 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
     }
 
-    /// X(¬φ) ⇔ ¬X(φ)
+    // F(φ ∨ ψ) ⇔ (F φ) ∨ (F ψ)
+    #[test]
+    fn test_eventually_disjunction_distributivity(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left =
+            Syntax::Eventually(Box::new(Syntax::Or(Box::new(φ.clone()), Box::new(ψ.clone()))), bound).nnf();
+        let formula_right =
+            Syntax::Or(Box::new(Syntax::Eventually(Box::new(φ.clone()), bound)), Box::new(Syntax::Eventually(Box::new(ψ.clone()), bound))).nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // G(φ ∧ ψ) ⇔ (G φ) ∧ (G ψ)
+    #[test]
+    fn test_always_conjunction_distributivity(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left =
+            Syntax::Always(Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone()))), bound).nnf();
+        let formula_right =
+            Syntax::And(Box::new(Syntax::Always(Box::new(φ.clone()), bound)), Box::new(Syntax::Always(Box::new(ψ.clone()), bound))).nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+}
+
+// Negation propagation
+proptest! {
+    // X(¬φ) ⇔ ¬X(φ)
     #[test]
     fn test_next_self_duality(φ in syntax(), trace in trace()) {
         let formula_left =
@@ -199,7 +242,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
     }
 
-    /// A(¬φ) ⇔ ¬F(φ)
+    // A(¬φ) ⇔ ¬F(φ)
     #[test]
     fn test_always_eventually_duality(φ in syntax(), trace in trace()) {
         let formula_left =
@@ -209,7 +252,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
     }
 
-    /// F(¬φ) ⇔ F(F(φ))
+    // F(¬φ) ⇔ F(F(φ))
     #[test]
     fn test_eventually_idempotency(φ in syntax(), trace in trace()) {
         let formula_left =
@@ -219,7 +262,7 @@ proptest! {
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
     }
 
-    /// G(¬φ) ⇔ G(G(φ))
+    // G(¬φ) ⇔ G(G(φ))
     #[test]
     fn test_always_idempotency(φ in syntax(), trace in trace()) {
         let formula_left =
