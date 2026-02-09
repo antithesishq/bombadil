@@ -1,6 +1,6 @@
 use crate::specification::ltl::{Formula, Leaning, Residual, Time, Violation};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum StopDefault<Function> {
     True,
     False(Violation<Function>),
