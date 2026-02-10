@@ -4,6 +4,7 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    crane.url = "github:ipetkov/crane";
   };
 
   nixConfig = {
@@ -16,6 +17,7 @@
       self,
       nixpkgs,
       flake-utils,
+      crane,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -26,18 +28,25 @@
             overlays = [ ];
           }
         );
+        craneLib = crane.mkLib pkgs;
+        bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib; };
       in
       {
         packages = {
-          default = pkgs.callPackage ./nix/executable.nix { };
-          docker = pkgs.callPackage ./nix/docker.nix { };
+          default = bombadil.bin;
+          docker = pkgs.callPackage ./nix/docker.nix { bombadil = bombadil.bin; };
         };
 
         apps = {
           default = {
             type = "app";
             program = "${self.packages.${system}.default}/bin/bombadil";
+            meta = self.packages.${system}.default.meta;
           };
+        };
+
+        checks = {
+          inherit (bombadil) tests clippy fmt;
         };
 
         devShells = {
