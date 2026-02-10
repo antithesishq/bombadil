@@ -1,6 +1,7 @@
 {
   callPackage,
   lib,
+  stdenv,
   pkg-config,
   esbuild,
   typescript,
@@ -44,6 +45,10 @@ in
           correctness properties, finding harder bugs earlier.
         '';
       };
+    }
+    // lib.optionalAttrs stdenv.isLinux {
+      CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+      CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     }
   );
 
