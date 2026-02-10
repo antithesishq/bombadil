@@ -14,6 +14,7 @@ let
       path: type:
       (lib.hasSuffix ".ts" path)
       || (lib.hasSuffix ".json" path)
+      || (lib.hasSuffix ".snap" path)
       || (craneLib.filterCargoSources path type);
   };
 
@@ -34,7 +35,13 @@ in
       doCheck = false;
       pname = "bombadil";
       version = "0.1.0";
-      meta.mainProgram = "bombadil";
+      meta = {
+        mainProgram = "bombadil";
+        description = ''
+          Property-based testing for web UIs, autonomously exploring and validating
+          correctness properties, finding harder bugs earlier.
+        '';
+      };
     }
   );
 
