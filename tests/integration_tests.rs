@@ -63,7 +63,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 10;
 /// Which means that every named test case directory should have an index.html file.
 async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     setup();
-    let _ = TEST_SEMAPHORE.acquire().await.unwrap();
+    let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     let app = Router::new().fallback_service(ServeDir::new("./tests"));
     let app_other = app.clone();
 
