@@ -11,6 +11,8 @@ permissions:
 jobs:
   check-version:
     runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.changelog.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify tag matches Cargo.toml version
@@ -22,6 +24,20 @@ jobs:
             exit 1
           fi
           echo "Version $cargo_version confirmed"
+      - name: Extract changelog
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk "/^## ${version//./\\.}/{found=1; next} /^## /{found=0} found" CHANGELOG.md)
+          if [ -z "$notes" ]; then
+            echo "::error::No changelog entry found for version $version"
+            exit 1
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
   build:
     strategy:
@@ -99,7 +115,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
-          generate_release_notes: true
+          body: ${{ needs.check-version.outputs.changelog }}
           files: |
             artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin

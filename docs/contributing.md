@@ -56,10 +56,27 @@ crate2nix generate -o nix/Cargo.nix
 
 ## Releasing
 
-1. Bump the version in `Cargo.toml`
-2. Commit: `git commit -am "v0.x.x"`
-3. Tag: `git tag v0.x.x`
-4. Push: `git push origin main --tags`
+1. Make sure you're on branch `main` and in a clean state
+1. Bump the version in `Cargo.toml` (according to Semver)
+1. Run:
 
-The release workflow will build binaries, create a GitHub release, and publish
-the types package to npm.
+   ```
+   export VERSION_PREV=$(git tag --sort=-v:refname -l "v*" | sed -n '2p')
+   export VERSION_NEW=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+   ```
+
+1. Run:
+
+   ```
+   git log v${VERSION_PREV)v${VERSION_NEW} --oneline
+   ```
+
+   Rewrite the commit log into something meaningful, putting it at the top of
+   `CHANGELOG.md`.
+
+1. `git commit -am "v${VERSION_NEW}"`
+1. `git tag "v${VERSION_NEW}"`
+1. `git push origin main --tags`
+
+The release workflow will then build binaries, create a GitHub release, and
+publish the types package to NPM.
