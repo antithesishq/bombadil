@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::{BrowserConfigBuilder, HeadlessMode};
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
@@ -8,7 +8,7 @@ use chromiumoxide::cdp::browser_protocol::{dom, emulation};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
 use chromiumoxide::{BrowserConfig, Page};
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use log;
 use serde_json as json;
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::broadcast::{Receiver, Sender, channel};
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tokio::{select, spawn};
@@ -288,7 +288,9 @@ impl Browser {
         if let Ok(()) = shutdown_sender.send(()) {
             done_receiver.await?;
         } else {
-            log::warn!("couldn't send shutdown signal and receive done signal, killing browser anyway...");
+            log::warn!(
+                "couldn't send shutdown signal and receive done signal, killing browser anyway..."
+            );
         }
         // For some reason browser.close() logs an error about the websocket connection, so we rely
         // on drop (explicit here so that it's clear) cleaning up the Chrome process.
@@ -588,7 +590,8 @@ async fn process_event(
                 debugger::PausedReason::Exception => {
                     if let Some(json::Value::Object(object)) = exception {
                         object
-                            .get("description").cloned()
+                            .get("description")
+                            .cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UncaughtException)
                     } else {
@@ -599,7 +602,8 @@ async fn process_event(
                     if let Some(json::Value::Object(object)) = exception {
                         object
                             .get("value")
-                            .or(object.get("description")).cloned()
+                            .or(object.get("description"))
+                            .cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UnhandledPromiseRejection)
                     } else {
@@ -791,9 +795,7 @@ async fn handle_node_modification(
 fn receiver_to_stream<T: Clone + Send + 'static>(
     receiver: Receiver<T>,
 ) -> Pin<Box<dyn stream::Stream<Item = T> + Send>> {
-    Box::pin(BroadcastStream::new(receiver).filter_map(async |r| {
-        r.ok()
-    }))
+    Box::pin(BroadcastStream::new(receiver).filter_map(async |r| r.ok()))
 }
 
 async fn pause(page: Arc<Page>) -> Result<()> {

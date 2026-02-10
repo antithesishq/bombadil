@@ -1,16 +1,16 @@
 use crate::instrumentation::js::{
-    EDGES_CURRENT, EDGES_PREVIOUS, EDGE_MAP_SIZE, NAMESPACE,
+    EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
 };
 use anyhow::{Context, Result};
 use chromiumoxide::{
+    Page,
     cdp::{
         browser_protocol::page::{self, CaptureScreenshotFormat},
         js_protocol::debugger::CallFrameId,
     },
     page::ScreenshotParams,
-    Page,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
 use std::{sync::Arc, time::SystemTime};
 use url::Url;

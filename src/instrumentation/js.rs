@@ -15,9 +15,9 @@ use oxc::{
     allocator::{Allocator, Box, CloneIn, TakeIn},
     ast::ast::{self},
     parser::Parser,
-    span::{SourceType, SPAN},
+    span::{SPAN, SourceType},
 };
-use oxc_traverse::{traverse_mut, Traverse, TraverseCtx};
+use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
 use crate::instrumentation::source_id::SourceId;
 
@@ -219,8 +219,7 @@ impl<'a> Instrumenter {
             ),
         );
 
-        ctx
-            .ast
+        ctx.ast
             .vec_from_array([edge_addition, location_previous_update])
     }
 

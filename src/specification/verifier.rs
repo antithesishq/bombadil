@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
 use crate::specification::js::{
-    module_exports, BombadilExports, Extractors, RuntimeFunction,
+    BombadilExports, Extractors, RuntimeFunction, module_exports,
 };
 use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
@@ -10,15 +10,15 @@ use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use boa_engine::JsValue;
 use boa_engine::{
-    context::ContextBuilder, js_string, object::builtins::JsArray,
-    property::PropertyKey, Context, JsString, Module, Source,
+    Context, JsString, Module, Source, context::ContextBuilder, js_string,
+    object::builtins::JsArray, property::PropertyKey,
 };
 use oxc::span::SourceType;
 use serde_json as json;
 
 use crate::specification::{
     ltl::{Evaluator, Formula, Residual, Violation},
-    module_loader::{load_bombadil_module, HybridModuleLoader},
+    module_loader::{HybridModuleLoader, load_bombadil_module},
     result::SpecificationError,
 };
 
@@ -282,7 +282,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use crate::specification::stop::{stop_default, StopDefault};
+    use crate::specification::stop::{StopDefault, stop_default};
 
     use super::*;
 

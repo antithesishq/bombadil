@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use html5ever::{
-    parse_document, serialize, tendril::TendrilSink,
-    tree_builder::TreeBuilderOpts, ParseOpts,
+    ParseOpts, parse_document, serialize, tendril::TendrilSink,
+    tree_builder::TreeBuilderOpts,
 };
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 use oxc::span::SourceType;
@@ -47,59 +47,58 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
 
     while let Some(node) = stack.pop() {
         if let NodeData::Element { name, attrs, .. } = &node.data
-            && name.local.as_ref() == "script" {
-                let attrs = attrs.borrow();
-                let script_src = attrs
+            && name.local.as_ref() == "script"
+        {
+            let attrs = attrs.borrow();
+            let script_src = attrs
+                .iter()
+                .find(|attr| attr.name.local.as_ref() == "src")
+                .map(|attr| attr.value.to_string());
+
+            let script_type = attrs
+                .iter()
+                .find(|attr| attr.name.local.as_ref() == "type")
+                .map(|attr| attr.value.to_string())
+                .unwrap_or("".to_string());
+
+            let is_inline_javascript = script_src.is_none()
+                && (script_type.is_empty() || script_type == "text/javascript");
+
+            let source_type = if script_type == "module" {
+                SourceType::mjs()
+            } else {
+                SourceType::cjs()
+            };
+
+            if is_inline_javascript {
+                let text_nodes: Vec<Handle> = node
+                    .children
+                    .borrow()
                     .iter()
-                    .find(|attr| attr.name.local.as_ref() == "src")
-                    .map(|attr| attr.value.to_string());
+                    .filter(|child| matches!(child.data, NodeData::Text { .. }))
+                    .cloned()
+                    .collect();
 
-                let script_type = attrs
-                    .iter()
-                    .find(|attr| attr.name.local.as_ref() == "type")
-                    .map(|attr| attr.value.to_string())
-                    .unwrap_or("".to_string());
+                for child in text_nodes {
+                    if let NodeData::Text { contents } = &child.data {
+                        let original = {
+                            let c = contents.borrow();
+                            c.to_string()
+                        };
 
-                let is_inline_javascript = script_src.is_none()
-                    && (script_type.is_empty() || script_type == "text/javascript");
+                        let transformed = instrument_source_code(
+                            // Every inline scripts needs a unique ID.
+                            source_id.add(scripts_count),
+                            &original,
+                            source_type,
+                        )?;
 
-                let source_type = if script_type == "module" {
-                    SourceType::mjs()
-                } else {
-                    SourceType::cjs()
-                };
-
-                if is_inline_javascript {
-                    let text_nodes: Vec<Handle> = node
-                        .children
-                        .borrow()
-                        .iter()
-                        .filter(|child| {
-                            matches!(child.data, NodeData::Text { .. })
-                        })
-                        .cloned()
-                        .collect();
-
-                    for child in text_nodes {
-                        if let NodeData::Text { contents } = &child.data {
-                            let original = {
-                                let c = contents.borrow();
-                                c.to_string()
-                            };
-
-                            let transformed = instrument_source_code(
-                                // Every inline scripts needs a unique ID.
-                                source_id.add(scripts_count),
-                                &original,
-                                source_type,
-                            )?;
-
-                            *contents.borrow_mut() = transformed.into();
-                        }
-                        scripts_count += 1;
+                        *contents.borrow_mut() = transformed.into();
                     }
+                    scripts_count += 1;
                 }
             }
+        }
 
         for child in node.children.borrow().iter() {
             stack.push(child.clone());

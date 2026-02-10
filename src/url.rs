@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use url::Url;
 
 pub fn is_within_domain(uri: &Url, domain: &Url) -> bool {

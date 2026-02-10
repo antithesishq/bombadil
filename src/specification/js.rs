@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use boa_engine::{
-    js_string, property::PropertyKey, Context, JsObject, JsValue, Module,
+    Context, JsObject, JsValue, Module, js_string, property::PropertyKey,
 };
 
 use serde_json as json;

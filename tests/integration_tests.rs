@@ -8,8 +8,8 @@ use url::Url;
 
 use bombadil::{
     browser::{
-        actions::BrowserAction, Browser, BrowserOptions, DebuggerOptions,
-        Emulation, LaunchOptions,
+        Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
+        actions::BrowserAction,
     },
     runner::{RunEvent, Runner, RunnerOptions},
     specification::{render::render_violation, verifier::Specification},

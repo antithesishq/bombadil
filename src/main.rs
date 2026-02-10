@@ -126,9 +126,8 @@ async fn main() -> Result<()> {
                     device_scale_factor: shared.device_scale_factor,
                 },
             };
-            let debugger_options = DebuggerOptions::External {
-                remote_debugger,
-            };
+            let debugger_options =
+                DebuggerOptions::External { remote_debugger };
             test(shared, browser_options, debugger_options).await
         }
     }
