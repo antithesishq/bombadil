@@ -5,9 +5,9 @@
     "rootDir": "./.",
 
     "paths": {
-      "bombadil": ["./index.ts"],
-      "bombadil/defaults": ["./defaults.ts"],
-      "bombadil/internal": ["./internal.ts"]
+      "@antithesishq/bombadil": ["./index.ts"],
+      "@antithesishq/bombadil/defaults": ["./defaults.ts"],
+      "@antithesishq/bombadil/internal": ["./internal.ts"]
     },
 
     // Environment Settings

@@ -146,7 +146,7 @@ async fn test(
         log::info!("using default specification");
         Specification::from_string(
             r#"
-                export * from "bombadil/defaults";
+                export * from "@antithesishq/bombadil/defaults";
             "#,
             PathBuf::from("default_spec.js").as_path(),
         )?

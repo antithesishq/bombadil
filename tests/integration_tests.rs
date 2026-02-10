@@ -97,7 +97,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     let user_data_directory = TempDir::new().unwrap();
 
     let default_specification = Specification::from_string(
-        r#"export * from "bombadil/defaults";"#,
+        r#"export * from "@antithesishq/bombadil/defaults";"#,
         PathBuf::from("fake.ts").as_path(),
     )
     .unwrap();
