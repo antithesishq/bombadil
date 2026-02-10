@@ -3,14 +3,13 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  pull_request:
 
 permissions:
+  id-token: write  # Required for OIDC
   contents: write
 
 jobs:
   check-version:
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,14 +100,13 @@ jobs:
           echo "Would create release for ${{ github.ref_name }}"
           echo "Assets:"
           ls -lR artifacts/
-        # uses: softprops/action-gh-release@v2
-        # with:
-        #   generate_release_notes: true
-        #   files: |
-        #     artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
-        #     artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
-        #     artifacts/bombadil-x86_64-darwin/bombadil-x86_64-darwin
-        #     artifacts/bombadil-types/bombadil-types.tar.gz
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
+            artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+            artifacts/bombadil-types/bombadil-types.tar.gz
 
   publish-types:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -129,9 +127,9 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Publish to npm (dry run)
+      - name: Publish to npm
         run: |
           cd pkg
-          npm publish --access public --dry-run
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
