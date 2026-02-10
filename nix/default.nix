@@ -59,10 +59,13 @@ in
       inherit cargoArtifacts;
       nativeCheckInputs = [ chromium ];
       preCheck = ''
-        export XDG_CONFIG_HOME=$(mktemp -d)
-        export XDG_CACHE_HOME=$(mktemp -d)
-        export INSTA_WORKSPACE_ROOT=$(pwd)
-        export INSTA_UPDATE=no
+        export HOME=$(mktemp -d)
+          mkdir -p $HOME/.cache $HOME/.config $HOME/.local $HOME/.pki
+          mkdir -p $HOME/.config/google-chrome/Crashpad
+          export XDG_CONFIG_HOME=$HOME/.config
+          export XDG_CACHE_HOME=$HOME/.cache
+          export INSTA_WORKSPACE_ROOT=$(pwd)
+          export INSTA_UPDATE=no
       '';
     }
   );
