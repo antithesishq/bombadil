@@ -31,7 +31,7 @@ let
   cargoArtifactsStatic = craneLibStatic.buildDepsOnly commonArgs;
 in
 {
-  static = craneLib.buildPackage (
+  bin = (if stdenv.isLinux then craneLibStatic else craneLib).buildPackage (
     commonArgs
     // {
       inherit cargoArtifacts;
@@ -46,6 +46,7 @@ in
       };
     }
     // lib.optionalAttrs stdenv.isLinux {
+      cargoArtifacts = cargoArtifactsStatic;
       CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
       CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     }
