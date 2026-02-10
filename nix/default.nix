@@ -15,6 +15,8 @@ let
       (lib.hasSuffix ".ts" path)
       || (lib.hasSuffix ".json" path)
       || (lib.hasSuffix ".snap" path)
+      || (lib.hasSuffix ".html" path)
+      || (lib.hasSuffix ".js" path)
       || (craneLib.filterCargoSources path type);
   };
 

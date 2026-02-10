@@ -19,4 +19,5 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - run: nix config show
-      - run: nix build .
+      - run: nix flake check .
+      - run: nix build ".#docker"
