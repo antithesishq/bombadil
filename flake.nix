@@ -28,7 +28,7 @@
             overlays = [ ];
           }
         );
-        craneLib = crane.mkLib pkgs.pkgsCross.musl64;
+        craneLib = crane.mkLib pkgs;
         craneLibStatic = crane.mkLib pkgs.pkgsCross.musl64;
         bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib craneLibStatic; };
       in
