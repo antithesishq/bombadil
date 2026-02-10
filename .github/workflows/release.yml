@@ -88,7 +88,8 @@ jobs:
           path: bombadil-types.tar.gz
 
   release:
-    needs: [build, build-types]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-types]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -113,7 +114,8 @@ jobs:
         #     artifacts/bombadil-types/bombadil-types.tar.gz
 
   publish-types:
-    needs: [build-types]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-types, release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
