@@ -37,7 +37,7 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
 
     let mut events = page.event_listener::<fetch::EventRequestPaused>().await?;
 
-    let _ = spawn(async move {
+    let _handle = spawn(async move {
         let intercept =
             async |event: &fetch::EventRequestPaused| -> Result<()> {
                 // Any non-200 upstream response is forwarded as-is.

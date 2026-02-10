@@ -13,7 +13,7 @@ use bombadil::{
 
 #[derive(Parser)]
 #[command(version, about)]
-struct CLI {
+struct Cli {
     #[command(subcommand)]
     command: Command,
 }
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
         .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
         .filter_module("html5ever", log::LevelFilter::Info)
         .init();
-    let cli = CLI::parse();
+    let cli = Cli::parse();
     match cli.command {
         Command::Test {
             shared,

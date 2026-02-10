@@ -500,8 +500,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -515,7 +514,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
@@ -546,8 +545,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -561,7 +559,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 100 {
@@ -599,8 +597,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -614,7 +611,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -645,8 +642,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -660,7 +656,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
@@ -691,8 +687,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -706,7 +701,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {

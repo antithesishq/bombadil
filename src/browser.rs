@@ -35,6 +35,7 @@ pub mod random;
 pub mod state;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum BrowserEvent {
     StateChanged(BrowserState),
     Error(Arc<anyhow::Error>),
@@ -51,6 +52,7 @@ enum InnerState {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum InnerEvent {
     StateRequested,
     Loaded,
@@ -69,6 +71,7 @@ pub enum InnerEvent {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum NodeModification {
     ChildNodeInserted {
         parent: dom::NodeId,
@@ -548,7 +551,7 @@ async fn process_event(
 ) -> Result<InnerState> {
     Ok(match (state_current, event) {
         (InnerState::Running(console_entries), InnerEvent::StateRequested) => {
-            let _ = spawn(pause(context.page.clone()));
+            let _handle = spawn(pause(context.page.clone()));
             InnerState::Pausing(console_entries)
         }
         (
@@ -556,7 +559,7 @@ async fn process_event(
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
-            let _ = spawn(pause(context.page.clone()));
+            let _handle = spawn(pause(context.page.clone()));
             InnerState::Pausing(console_entries)
         }
         (state, InnerEvent::StateRequested) => {

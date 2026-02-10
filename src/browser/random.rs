@@ -54,7 +54,7 @@ pub fn generate_action<R: rand::Rng>(
     }
 }
 
-pub fn pick_from_tree<'a, T: Clone, R: rand::Rng>(
+pub fn pick_from_tree<T: Clone, R: rand::Rng>(
     rng: &mut R,
     tree: &Tree<T>,
 ) -> T {

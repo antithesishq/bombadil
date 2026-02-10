@@ -125,7 +125,7 @@ struct Instrumenter {
     next_block_id: u64,
 }
 
-impl<'a> Instrumenter {
+impl Instrumenter {
     fn coverage_hooks<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,

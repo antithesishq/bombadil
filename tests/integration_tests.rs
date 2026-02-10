@@ -48,7 +48,7 @@ fn setup() {
 
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
 /// causing a timeout, so we limit parallelism.
-const TEST_SEMAPHORE: Semaphore = Semaphore::const_new(2);
+static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(2);
 const TEST_TIMEOUT_SECONDS: u64 = 10;
 
 /// Run a named browser test with a given expectation.
