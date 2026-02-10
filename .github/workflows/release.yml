@@ -47,7 +47,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build binary
-        run: nix build .#release
+        run: nix build .
 
       - name: Copy binary
         run: |
