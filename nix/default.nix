@@ -4,9 +4,9 @@
   stdenv,
   pkg-config,
   esbuild,
-  typescript,
   chromium,
   craneLib,
+  craneLibStatic,
 }:
 let
   src = lib.cleanSourceWith {
@@ -25,13 +25,13 @@ let
     inherit src;
     nativeBuildInputs = [
       esbuild
-      typescript
     ];
   };
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+  cargoArtifactsStatic = craneLibStatic.buildDepsOnly commonArgs;
 in
 {
-  bin = craneLib.buildPackage (
+  static = craneLib.buildPackage (
     commonArgs
     // {
       inherit cargoArtifacts;

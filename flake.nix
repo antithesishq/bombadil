@@ -29,13 +29,14 @@
           }
         );
         craneLib = crane.mkLib pkgs.pkgsCross.musl64;
-        bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib; };
+        craneLibStatic = crane.mkLib pkgs.pkgsCross.musl64;
+        bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib craneLibStatic; };
       in
       {
         packages = {
-          default = bombadil.bin;
+          default = bombadil.static;
           types = bombadil.types;
-          docker = pkgs.callPackage ./nix/docker.nix { bombadil = bombadil.bin; };
+          docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
         apps = {
