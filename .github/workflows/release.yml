@@ -34,9 +34,6 @@ jobs:
           - os: macos-latest
             target: aarch64-darwin
             artifact: bombadil-aarch64-darwin
-          - os: macos-13
-            target: x86_64-darwin
-            artifact: bombadil-x86_64-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
