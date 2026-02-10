@@ -53,3 +53,13 @@ After any changes to dependencies in Cargo.toml:
 ```bash
 crate2nix generate -o nix/Cargo.nix
 ```
+
+## Releasing
+
+1. Bump the version in `Cargo.toml`
+2. Commit: `git commit -am "v0.x.x"`
+3. Tag: `git tag v0.x.x`
+4. Push: `git push origin main --tags`
+
+The release workflow will build binaries, create a GitHub release, and publish
+the types package to npm.
