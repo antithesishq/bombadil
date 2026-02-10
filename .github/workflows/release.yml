@@ -95,11 +95,7 @@ jobs:
       - name: Make binaries executable
         run: chmod +x artifacts/bombadil-*/bombadil-*
 
-      - name: Create GitHub Release (dry run)
-        run: |
-          echo "Would create release for ${{ github.ref_name }}"
-          echo "Assets:"
-          ls -lR artifacts/
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
