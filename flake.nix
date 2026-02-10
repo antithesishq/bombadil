@@ -34,6 +34,7 @@
       {
         packages = {
           default = bombadil.bin;
+          types = bombadil.types;
           docker = pkgs.callPackage ./nix/docker.nix { bombadil = bombadil.bin; };
         };
 

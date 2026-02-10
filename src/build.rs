@@ -6,7 +6,6 @@ fn main() {
 
     println!("cargo:rerun-if-changed=src/specification/**/*.ts");
     build_specification_modules();
-    build_specification_module_types();
 }
 
 fn build_browser_action_scripts() {
@@ -58,21 +57,5 @@ fn build_specification_modules() {
 
     if !status.success() {
         panic!("esbuild failed with status: {}", status);
-    }
-}
-
-fn build_specification_module_types() {
-    let status = Command::new("tsc")
-        .args(["-p", "src/specification/tsconfig.json"])
-        .args(["--target", "es6"])
-        .arg("--declaration")
-        .arg("--emitDeclarationOnly")
-        .arg("--stripInternal")
-        .args(["--outDir", "./target/specification-types"])
-        .status()
-        .expect("Failed to execute tsc");
-
-    if !status.success() {
-        panic!("tsc failed with status: {}", status);
     }
 }

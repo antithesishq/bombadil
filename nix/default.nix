@@ -37,7 +37,6 @@ in
       inherit cargoArtifacts;
       doCheck = false;
       pname = "bombadil";
-      version = "0.1.0";
       meta = {
         mainProgram = "bombadil";
         description = ''
@@ -51,6 +50,8 @@ in
       CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     }
   );
+
+  types = callPackage ./types.nix { inherit src; };
 
   tests = craneLib.cargoTest (
     commonArgs

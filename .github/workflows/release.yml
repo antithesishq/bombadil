@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            artifact: bombadil-x86_64-linux
+          - os: macos-latest
+            target: aarch64-darwin
+            artifact: bombadil-aarch64-darwin
+          - os: macos-13
+            target: x86_64-darwin
+            artifact: bombadil-x86_64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build binary
+        run: nix build .#release
+
+      - name: Copy binary
+        run: |
+          mkdir -p dist
+          cp result/bin/bombadil dist/${{ matrix.artifact }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  build-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build types package
+        run: nix build .#types
+
+      - name: Copy types
+        run: |
+          mkdir -p types-dist
+          cp -r result/* types-dist/
+
+      - name: Create types tarball
+        run: tar -czf bombadil-types.tar.gz -C types-dist .
+
+      - name: Upload types artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-types
+          path: bombadil-types.tar.gz
+
+  release:
+    needs: [build, build-types]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Make binaries executable
+        run: chmod +x artifacts/bombadil-*/bombadil-*
+
+      - name: Create GitHub Release (dry run)
+        run: |
+          echo "Would create release for ${{ github.ref_name }}"
+          echo "Assets:"
+          ls -lR artifacts/
+        # uses: softprops/action-gh-release@v2
+        # with:
+        #   generate_release_notes: true
+        #   files: |
+        #     artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
+        #     artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+        #     artifacts/bombadil-x86_64-darwin/bombadil-x86_64-darwin
+        #     artifacts/bombadil-types/bombadil-types.tar.gz
+
+  publish-types:
+    needs: [build-types]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-types
+
+      - name: Extract types
+        run: |
+          mkdir -p pkg
+          tar -xzf bombadil-types.tar.gz -C pkg
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish to npm (dry run)
+        run: |
+          cd pkg
+          npm publish --access public --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
