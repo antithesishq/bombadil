@@ -1,10 +1,10 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use chromiumoxide::{
+    Page,
     cdp::js_protocol::{
         debugger,
         runtime::{self, RemoteObjectType},
     },
-    Page,
 };
 use serde::de::DeserializeOwned;
 use serde_json as json;

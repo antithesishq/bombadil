@@ -1,9 +1,9 @@
-use anyhow::{anyhow, bail, Context, Result};
-use base64::prelude::BASE64_STANDARD;
+use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
+use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::fetch;
 use chromiumoxide::cdp::browser_protocol::network;
-use chromiumoxide::Page;
 use futures::StreamExt;
 use log;
 use oxc::span::SourceType;
@@ -37,7 +37,7 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
 
     let mut events = page.event_listener::<fetch::EventRequestPaused>().await?;
 
-    let _ = spawn(async move {
+    let _handle = spawn(async move {
         let intercept =
             async |event: &fetch::EventRequestPaused| -> Result<()> {
                 // Any non-200 upstream response is forwarded as-is.
@@ -105,7 +105,8 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                     )?
                 } else {
                     bail!(
-                        "should only intercept script and document resources, but got {:?}", event.resource_type
+                        "should only intercept script and document resources, but got {:?}",
+                        event.resource_type
                     );
                 };
 

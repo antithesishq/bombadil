@@ -5,7 +5,7 @@ use std::{
 
 use crate::specification::{
     ltl::*,
-    stop::{stop_default, StopDefault},
+    stop::{StopDefault, stop_default},
 };
 use proptest::prelude::*;
 

@@ -1,11 +1,23 @@
-{ dockerTools, callPackage, buildEnv, coreutils, runtimeShell, bash, chromium,
+{
+  dockerTools,
+  callPackage,
+  buildEnv,
+  coreutils,
+  runtimeShell,
+  bash,
+  chromium,
+  bombadil,
 }:
-let executable = callPackage ./executable.nix { };
-in dockerTools.buildImage {
+dockerTools.buildImage {
   name = "bombadil_docker";
   copyToRoot = buildEnv {
     name = "image_root";
-    paths = [ executable coreutils bash chromium ];
+    paths = [
+      bombadil
+      coreutils
+      bash
+      chromium
+    ];
     pathsToLink = [ "/bin" ];
   };
   runAsRoot = ''
@@ -27,6 +39,10 @@ in dockerTools.buildImage {
   config = {
     User = "browser";
     Cmd = [ ];
-    Entrypoint = [ "${executable}/bin/bombadil" "test" "--headless" ];
+    Entrypoint = [
+      "${bombadil}/bin/bombadil"
+      "test"
+      "--headless"
+    ];
   };
 }

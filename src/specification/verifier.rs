@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
 use crate::specification::js::{
-    module_exports, BombadilExports, Extractors, RuntimeFunction,
+    BombadilExports, Extractors, RuntimeFunction, module_exports,
 };
 use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
@@ -10,15 +10,15 @@ use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use boa_engine::JsValue;
 use boa_engine::{
-    context::ContextBuilder, js_string, object::builtins::JsArray,
-    property::PropertyKey, Context, JsString, Module, Source,
+    Context, JsString, Module, Source, context::ContextBuilder, js_string,
+    object::builtins::JsArray, property::PropertyKey,
 };
 use oxc::span::SourceType;
 use serde_json as json;
 
 use crate::specification::{
     ltl::{Evaluator, Formula, Residual, Violation},
-    module_loader::{load_bombadil_module, HybridModuleLoader},
+    module_loader::{HybridModuleLoader, load_bombadil_module},
     result::SpecificationError,
 };
 
@@ -80,20 +80,27 @@ impl Verifier {
         // Internal module
         {
             let module = load_bombadil_module("internal.js", &mut context)?;
-            loader.insert_mapped_module("bombadil/internal", module.clone());
+            loader.insert_mapped_module(
+                "@antithesishq/bombadil/internal",
+                module.clone(),
+            );
         }
 
         // Main module
         let bombadil_module_index = {
             let module = load_bombadil_module("index.js", &mut context)?;
-            loader.insert_mapped_module("bombadil", module.clone());
+            loader
+                .insert_mapped_module("@antithesishq/bombadil", module.clone());
             module
         };
 
         // Defaults module
         {
             let module = load_bombadil_module("defaults.js", &mut context)?;
-            loader.insert_mapped_module("bombadil/defaults", module.clone());
+            loader.insert_mapped_module(
+                "@antithesishq/bombadil/defaults",
+                module.clone(),
+            );
             module
         };
 
@@ -282,7 +289,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use crate::specification::stop::{stop_default, StopDefault};
+    use crate::specification::stop::{StopDefault, stop_default};
 
     use super::*;
 
@@ -298,7 +305,7 @@ mod tests {
     fn test_property_names() {
         let verifier = verifier(
             r#"
-            import { always, extract } from "bombadil";
+            import { always, extract } from "@antithesishq/bombadil";
 
             // Invariant
 
@@ -318,7 +325,7 @@ mod tests {
     fn test_extractors() {
         let evaluator = verifier(
             r#"
-            import { extract } from "bombadil";
+            import { extract } from "@antithesishq/bombadil";
 
             const notification_count = extract(
               (state) => state.foo
@@ -356,7 +363,7 @@ mod tests {
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "bombadil";
+            import { extract, now } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -384,7 +391,7 @@ mod tests {
     fn test_property_evaluation_and() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "bombadil";
+            import { extract, now } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
@@ -420,7 +427,7 @@ mod tests {
     fn test_property_evaluation_or() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "bombadil";
+            import { extract, now } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
@@ -456,7 +463,7 @@ mod tests {
     fn test_property_evaluation_implies() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "bombadil";
+            import { extract, now } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
@@ -492,7 +499,7 @@ mod tests {
     fn test_property_evaluation_next() {
         let mut verifier = verifier(
             r#"
-            import { extract, next } from "bombadil";
+            import { extract, next } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -500,8 +507,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -515,7 +521,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
@@ -538,7 +544,7 @@ mod tests {
     fn test_property_evaluation_always() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "bombadil";
+            import { extract, always } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -546,8 +552,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -561,7 +566,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 100 {
@@ -591,7 +596,7 @@ mod tests {
     fn test_property_evaluation_always_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "bombadil";
+            import { extract, always } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -599,8 +604,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -614,7 +618,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -637,7 +641,7 @@ mod tests {
     fn test_property_evaluation_eventually() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "bombadil";
+            import { extract, eventually } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -645,8 +649,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -660,7 +663,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
@@ -683,7 +686,7 @@ mod tests {
     fn test_property_evaluation_eventually_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "bombadil";
+            import { extract, eventually } from "@antithesishq/bombadil";
             
             const foo = extract((state) => state.foo);
 
@@ -691,8 +694,7 @@ mod tests {
             "#,
         );
 
-        let extractor_id =
-            verifier.extractors().unwrap().iter().next().unwrap().0;
+        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
 
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
@@ -706,7 +708,7 @@ mod tests {
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.iter().next().unwrap();
+            let (name, value) = results.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -732,7 +734,7 @@ mod tests {
         imported_file
             .write_all(
                 r#"
-                import { extract } from "bombadil";
+                import { extract } from "@antithesishq/bombadil";
                 const example = extract((state) => state.example);
                 "#
                 .as_bytes(),

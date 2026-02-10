@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::{BrowserConfigBuilder, HeadlessMode};
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
@@ -8,7 +8,7 @@ use chromiumoxide::cdp::browser_protocol::{dom, emulation};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
 use chromiumoxide::{BrowserConfig, Page};
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use log;
 use serde_json as json;
 use std::path::PathBuf;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::broadcast::{Receiver, Sender, channel};
 use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tokio::{select, spawn};
@@ -35,6 +35,7 @@ pub mod random;
 pub mod state;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum BrowserEvent {
     StateChanged(BrowserState),
     Error(Arc<anyhow::Error>),
@@ -51,6 +52,7 @@ enum InnerState {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum InnerEvent {
     StateRequested,
     Loaded,
@@ -69,6 +71,7 @@ pub enum InnerEvent {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum NodeModification {
     ChildNodeInserted {
         parent: dom::NodeId,
@@ -288,7 +291,9 @@ impl Browser {
         if let Ok(()) = shutdown_sender.send(()) {
             done_receiver.await?;
         } else {
-            log::warn!("couldn't send shutdown signal and receive done signal, killing browser anyway...");
+            log::warn!(
+                "couldn't send shutdown signal and receive done signal, killing browser anyway..."
+            );
         }
         // For some reason browser.close() logs an error about the websocket connection, so we rely
         // on drop (explicit here so that it's clear) cleaning up the Chrome process.
@@ -546,7 +551,7 @@ async fn process_event(
 ) -> Result<InnerState> {
     Ok(match (state_current, event) {
         (InnerState::Running(console_entries), InnerEvent::StateRequested) => {
-            let _ = spawn(pause(context.page.clone()));
+            let _handle = spawn(pause(context.page.clone()));
             InnerState::Pausing(console_entries)
         }
         (
@@ -554,7 +559,7 @@ async fn process_event(
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
-            let _ = spawn(pause(context.page.clone()));
+            let _handle = spawn(pause(context.page.clone()));
             InnerState::Pausing(console_entries)
         }
         (state, InnerEvent::StateRequested) => {
@@ -588,7 +593,8 @@ async fn process_event(
                 debugger::PausedReason::Exception => {
                     if let Some(json::Value::Object(object)) = exception {
                         object
-                            .get("description").cloned()
+                            .get("description")
+                            .cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UncaughtException)
                     } else {
@@ -599,7 +605,8 @@ async fn process_event(
                     if let Some(json::Value::Object(object)) = exception {
                         object
                             .get("value")
-                            .or(object.get("description")).cloned()
+                            .or(object.get("description"))
+                            .cloned()
                             .or(Some(json::Value::Object(object)))
                             .map(Exception::UnhandledPromiseRejection)
                     } else {
@@ -791,9 +798,7 @@ async fn handle_node_modification(
 fn receiver_to_stream<T: Clone + Send + 'static>(
     receiver: Receiver<T>,
 ) -> Pin<Box<dyn stream::Stream<Item = T> + Send>> {
-    Box::pin(BroadcastStream::new(receiver).filter_map(async |r| {
-        r.ok()
-    }))
+    Box::pin(BroadcastStream::new(receiver).filter_map(async |r| r.ok()))
 }
 
 async fn pause(page: Arc<Page>) -> Result<()> {

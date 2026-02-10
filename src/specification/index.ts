@@ -5,13 +5,13 @@ import {
   Duration,
   type TimeUnit,
   type Cell,
-} from "bombadil/internal";
+} from "@antithesishq/bombadil/internal";
 
 /** @internal */
 export const runtime_default = new Runtime<State>();
 
 // Reexports
-export { time, type Cell } from "bombadil/internal";
+export { time, type Cell } from "@antithesishq/bombadil/internal";
 
 export class Formula {
   not(): Formula {

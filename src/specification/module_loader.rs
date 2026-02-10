@@ -6,10 +6,10 @@ use std::{
 
 use crate::specification::result::{Result, SpecificationError};
 use boa_engine::{
-    module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
     Context, JsError, JsResult, JsString, Module, Source,
+    module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
 };
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 use oxc::{
     allocator::Allocator,
     span::SourceType,
@@ -129,7 +129,7 @@ pub fn load_modules(context: &mut Context, modules: &[Module]) -> Result<()> {
                 return Err(SpecificationError::OtherError(format!(
                     "module did not load: {:?}",
                     module.path()
-                )))
+                )));
             }
             boa_engine::builtins::promise::PromiseState::Fulfilled(..) => {}
             boa_engine::builtins::promise::PromiseState::Rejected(error) => {

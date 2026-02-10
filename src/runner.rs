@@ -1,5 +1,5 @@
-use crate::browser::actions::{available_actions, BrowserAction, Timeout};
-use crate::browser::{random, BrowserEvent, BrowserOptions};
+use crate::browser::actions::{BrowserAction, Timeout, available_actions};
+use crate::browser::{BrowserEvent, BrowserOptions, random};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};

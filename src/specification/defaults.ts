@@ -1,4 +1,4 @@
-import { always, extract } from "bombadil";
+import { always, extract } from "@antithesishq/bombadil";
 
 const response_status = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];

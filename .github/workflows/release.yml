@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  id-token: write  # Required for OIDC
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.changelog.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          cargo_version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$cargo_version" != "$tag_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match Cargo.toml version ($cargo_version)"
+            exit 1
+          fi
+          echo "Version $cargo_version confirmed"
+      - name: Extract changelog
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk "/^## ${version//./\\.}/{found=1; next} /^## /{found=0} found" CHANGELOG.md)
+          if [ -z "$notes" ]; then
+            echo "::error::No changelog entry found for version $version"
+            exit 1
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+            artifact: bombadil-x86_64-linux
+          - os: macos-latest
+            target: aarch64-darwin
+            artifact: bombadil-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build binary
+        run: nix build .
+
+      - name: Copy binary
+        run: |
+          mkdir -p dist
+          cp result/bin/bombadil dist/${{ matrix.artifact }}
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  build-types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build types package
+        run: nix build .#types
+
+      - name: Copy types
+        run: |
+          mkdir -p types-dist
+          cp -r result/* types-dist/
+
+      - name: Create types tarball
+        run: tar -czf bombadil-types.tar.gz -C types-dist .
+
+      - name: Upload types artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-types
+          path: bombadil-types.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-types]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Make binaries executable
+        run: chmod +x artifacts/bombadil-*/bombadil-*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body: ${{ needs.check-version.outputs.changelog }}
+          files: |
+            artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
+            artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+            artifacts/bombadil-types/bombadil-types.tar.gz
+
+  publish-types:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-types, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-types
+
+      - name: Extract types
+        run: |
+          mkdir -p pkg
+          tar -xzf bombadil-types.tar.gz -C pkg
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish to npm
+        run: |
+          cd pkg
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

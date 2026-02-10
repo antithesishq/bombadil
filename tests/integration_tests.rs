@@ -8,8 +8,8 @@ use url::Url;
 
 use bombadil::{
     browser::{
-        actions::BrowserAction, Browser, BrowserOptions, DebuggerOptions,
-        Emulation, LaunchOptions,
+        Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
+        actions::BrowserAction,
     },
     runner::{RunEvent, Runner, RunnerOptions},
     specification::{render::render_violation, verifier::Specification},
@@ -48,7 +48,7 @@ fn setup() {
 
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
 /// causing a timeout, so we limit parallelism.
-const TEST_SEMAPHORE: Semaphore = Semaphore::const_new(2);
+static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(2);
 const TEST_TIMEOUT_SECONDS: u64 = 10;
 
 /// Run a named browser test with a given expectation.
@@ -63,7 +63,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 10;
 /// Which means that every named test case directory should have an index.html file.
 async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     setup();
-    let _ = TEST_SEMAPHORE.acquire().await.unwrap();
+    let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     let app = Router::new().fallback_service(ServeDir::new("./tests"));
     let app_other = app.clone();
 
@@ -97,7 +97,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     let user_data_directory = TempDir::new().unwrap();
 
     let default_specification = Specification::from_string(
-        r#"export * from "bombadil/defaults";"#,
+        r#"export * from "@antithesishq/bombadil/defaults";"#,
         PathBuf::from("fake.ts").as_path(),
     )
     .unwrap();

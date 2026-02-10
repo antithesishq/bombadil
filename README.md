@@ -17,7 +17,7 @@ As a user, you:
     A specification is a TypeScript module that exports *properties*.
 
     Properties are linear temporal logic formulas, describing what the system
-    under test should and shouldn't do. The `"bombadil/defaults"` module
+    under test should and shouldn't do. The `"@antithesishq/bombadil/defaults"` module
     provides a set of reasonable properties for web applications. You may also
     specify your own domain-specific requirements.
 
@@ -40,7 +40,7 @@ This specification doesn't specify any custom properties at all, it just
 reexports the default ones provided by Bombadil:
 
 ```typescript
-export * from "bombadil/defaults";
+export * from "@antithesishq/bombadil/defaults";
 ```
 
 </details>
@@ -54,7 +54,7 @@ text in it:
 
 
 ```typescript
-import { always, extract } from "bombadil";
+import { always, extract } from "@antithesishq/bombadil";
 
 const title = extract((state) => state.document.querySelector("h1")?.textContent ?? "");
 
@@ -72,7 +72,7 @@ it eventually finishes loading and you see a result:
 
 
 ```typescript
-import { now, eventually, extract } from "bombadil";
+import { now, eventually, extract } from "@antithesishq/bombadil";
 
 const is_loading = extract((state) => !!state.document.querySelector("progress"));
 

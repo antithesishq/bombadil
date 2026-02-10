@@ -13,7 +13,7 @@ use bombadil::{
 
 #[derive(Parser)]
 #[command(version, about)]
-struct CLI {
+struct Cli {
     #[command(subcommand)]
     command: Command,
 }
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
         .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
         .filter_module("html5ever", log::LevelFilter::Info)
         .init();
-    let cli = CLI::parse();
+    let cli = Cli::parse();
     match cli.command {
         Command::Test {
             shared,
@@ -126,9 +126,8 @@ async fn main() -> Result<()> {
                     device_scale_factor: shared.device_scale_factor,
                 },
             };
-            let debugger_options = DebuggerOptions::External {
-                remote_debugger,
-            };
+            let debugger_options =
+                DebuggerOptions::External { remote_debugger };
             test(shared, browser_options, debugger_options).await
         }
     }
@@ -147,7 +146,7 @@ async fn test(
         log::info!("using default specification");
         Specification::from_string(
             r#"
-                export * from "bombadil/defaults";
+                export * from "@antithesishq/bombadil/defaults";
             "#,
             PathBuf::from("default_spec.js").as_path(),
         )?

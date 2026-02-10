@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Result};
-use chromiumoxide::cdp::browser_protocol::{input, page};
+use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
-use include_dir::{include_dir, Dir};
+use chromiumoxide::cdp::browser_protocol::{input, page};
+use include_dir::{Dir, include_dir};
 use serde::Serialize;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{Deserialize, de::DeserializeOwned};
 use tokio::time::sleep;
 use url::Url;
 
