@@ -112,7 +112,7 @@ impl Generation {
     }
 }
 
-pub type Timeout = Duration;
+type Timeout = Duration;
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
