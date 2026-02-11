@@ -621,7 +621,7 @@ async fn process_event(
                     &state
                 );
             } else {
-                log::debug!("ignoring state state request",);
+                log::debug!("ignoring state request",);
             }
             state
         }
