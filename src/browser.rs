@@ -100,7 +100,7 @@ enum InnerEvent {
     NodeTreeModified(NodeModification),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Timeout),
-    ActionApplied(Timeout, Generation),
+    ActionApplied(Generation),
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -747,19 +747,13 @@ async fn process_event(
                         )
                     }
                 }
-                if let Err(error) = sender
-                    .send(InnerEvent::ActionApplied(timeout, shared.generation))
+                if let Err(error) =
+                    sender.send(InnerEvent::ActionApplied(shared.generation))
                 {
                     log::error!("failed to send ActionApplied: {}", error);
                 }
             });
 
-            InnerState::Acting(shared, vec![])
-        }
-        (
-            InnerState::Acting(shared, console_entries),
-            InnerEvent::ActionApplied(timeout, generation),
-        ) if shared.generation == generation => {
             let sender = context.inner_events_sender.clone();
             spawn(async move {
                 sleep(timeout).await;
@@ -777,9 +771,15 @@ async fn process_event(
                 }
             });
 
+            InnerState::Acting(shared, vec![])
+        }
+        (
+            InnerState::Acting(shared, console_entries),
+            InnerEvent::ActionApplied(generation),
+        ) if shared.generation == generation => {
             InnerState::Running(shared, console_entries)
         }
-        (state, InnerEvent::ActionApplied(_, _)) => {
+        (state, InnerEvent::ActionApplied(_)) => {
             log::debug!("ignoring stale ActionApplied");
             state
         }
