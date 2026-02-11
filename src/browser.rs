@@ -732,7 +732,9 @@ async fn process_event(
             spawn(async move {
                 log::debug!("applying: {:?}", browser_action);
                 match browser_action.apply(&page).await {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        log::debug!("applied: {:?}", browser_action);
+                    }
                     Err(err) => {
                         log::error!(
                             "failed to apply action {:?}: {:?}",
@@ -924,9 +926,11 @@ fn receiver_to_stream<T: Clone + Send + 'static>(
 }
 
 async fn pause(page: Arc<Page>) -> Result<()> {
+    log::debug!("pausing...");
     page.evaluate_function("function () { debugger; }")
         .await
         .map_err(|err| anyhow!(err).context("evaluate function call failed"))?;
+    log::debug!("pause done, resumed");
     Ok(())
 }
 
@@ -964,6 +968,7 @@ fn launch_options_to_config(
         } else {
             HeadlessMode::False
         })
+        .chrome_executable("/nix/store/b8w6xj2isq4m120sz2gg4hb5gxhjmzca-chromium-143.0.7499.40/bin/chromium")
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
         .args([
@@ -976,6 +981,10 @@ fn launch_options_to_config(
                     .expect("invalid tmp dir path")
             ),
             "--no-crashpad",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
             "--disable-crash-reporter",
         ])
         .build()

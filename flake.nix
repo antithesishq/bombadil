@@ -54,6 +54,7 @@
         devShells = {
           default = pkgs.mkShell {
             CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
+            CHROME = pkgs.lib.getExe pkgs.chromium;
             inputsFrom = [ self.packages.${system}.default ];
             buildInputs = with pkgs; [
               # Rust
