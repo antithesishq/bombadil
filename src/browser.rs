@@ -520,7 +520,10 @@ fn run_state_machine(
                     },
                     event = events.next() => match event {
                         Some(event) => {
-                            state_current = process_event(&context, state_current, event).await?;
+                            let state_and_event_formatted = format!("{:?} + {:?}", &state_current, &event);
+                            let state_new = process_event(&context, state_current, event).await?;
+                            log::debug!("state transition: {} -> {:?}", state_and_event_formatted, &state_new);
+                            state_current = state_new;
                         }
                         None => {
                             log::debug!("no more events, shutting down state machine loop");
