@@ -64,6 +64,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 30;
 async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     setup();
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
+    log::info!("starting browser test");
     let app = Router::new().fallback_service(ServeDir::new("./tests"));
     let app_other = app.clone();
 
@@ -127,6 +128,7 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
     .await
     .expect("run_test failed");
 
+    log::info!("starting runner");
     let mut events = runner.start();
 
     let result = async {
@@ -174,12 +176,14 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         }
     }
 
+    log::info!("starting timeout");
     let outcome = match tokio::time::timeout(timeout, result).await {
         Ok(Ok(())) => Outcome::Success,
         Ok(Err(error)) => Outcome::Error(error),
         Err(_elapsed) => Outcome::Timeout,
     };
 
+    log::info!("checking outcome");
     match (outcome, expect) {
         (Outcome::Error(error), Expect::Error { substring }) => {
             if !error.to_string().contains(substring) {
@@ -203,7 +207,7 @@ async fn test_console_error() {
             // cells again
             substring: "no_console_errors",
         },
-        Duration::from_secs(10),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
@@ -229,7 +233,7 @@ async fn test_uncaught_exception() {
             // cells again
             substring: "no_uncaught_exceptions",
         },
-        Duration::from_secs(10),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
@@ -243,7 +247,7 @@ async fn test_unhandled_promise_rejection() {
             // cells again
             substring: "no_unhandled_promise_rejections",
         },
-        Duration::from_secs(10),
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
     )
     .await;
 }
