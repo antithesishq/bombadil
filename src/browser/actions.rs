@@ -72,7 +72,7 @@ pub enum BrowserAction {
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct Timeout(u64);
+pub struct Timeout(pub u64);
 
 impl Timeout {
     pub fn from_secs(secs: u64) -> Self {

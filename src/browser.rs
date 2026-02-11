@@ -42,19 +42,51 @@ pub enum BrowserEvent {
 }
 
 #[derive(Debug)]
+struct InnerStateShared {
+    generation: Generation,
+}
+
+#[derive(Debug)]
 enum InnerState {
-    Pausing(Vec<ConsoleEntry>),
-    Paused,
-    Resuming(BrowserAction),
-    Navigating,
-    Loading(Vec<ConsoleEntry>),
-    Running(Vec<ConsoleEntry>),
+    Pausing(InnerStateShared, Vec<ConsoleEntry>),
+    Paused(InnerStateShared),
+    Resuming(InnerStateShared, BrowserAction, Timeout),
+    Navigating(InnerStateShared),
+    Loading(InnerStateShared, Vec<ConsoleEntry>),
+    Running(InnerStateShared, Vec<ConsoleEntry>),
+    Acting(InnerStateShared, Vec<ConsoleEntry>),
+}
+
+impl InnerState {
+    fn shared(self) -> InnerStateShared {
+        match self {
+            InnerState::Pausing(shared, _) => shared,
+            InnerState::Paused(shared) => shared,
+            InnerState::Resuming(shared, _, _) => shared,
+            InnerState::Navigating(shared) => shared,
+            InnerState::Loading(shared, _) => shared,
+            InnerState::Running(shared, _) => shared,
+            InnerState::Acting(shared, _) => shared,
+        }
+    }
+
+    fn shared_ref(&self) -> &InnerStateShared {
+        match self {
+            InnerState::Pausing(shared, _) => shared,
+            InnerState::Paused(shared) => shared,
+            InnerState::Resuming(shared, _, _) => shared,
+            InnerState::Navigating(shared) => shared,
+            InnerState::Loading(shared, _) => shared,
+            InnerState::Running(shared, _) => shared,
+            InnerState::Acting(shared, _) => shared,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum InnerEvent {
-    StateRequested,
+enum InnerEvent {
+    StateRequested(Generation),
     Loaded,
     Paused {
         reason: debugger::PausedReason,
@@ -67,8 +99,20 @@ pub enum InnerEvent {
     TargetDestroyed(TargetId),
     NodeTreeModified(NodeModification),
     ConsoleEntry(ConsoleEntry),
-    ActionApplied(BrowserAction),
+    ActionAccepted(BrowserAction, Timeout),
+    ActionApplied(Timeout, Generation),
 }
+
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+struct Generation(u64);
+
+impl Generation {
+    fn next(self) -> Self {
+        Generation(self.0 + 1)
+    }
+}
+
+pub type Timeout = Duration;
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -94,7 +138,7 @@ pub enum NodeModification {
 
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
-    actions_sender: Sender<BrowserAction>,
+    actions_sender: Sender<(BrowserAction, Timeout)>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
@@ -131,8 +175,7 @@ pub enum DebuggerOptions {
 
 pub struct Browser {
     receiver: Receiver<BrowserEvent>,
-    actions_sender: Sender<BrowserAction>,
-    inner_events_sender: Sender<InnerEvent>,
+    actions_sender: Sender<(BrowserAction, Timeout)>,
     shutdown_sender: oneshot::Sender<()>,
     done_receiver: oneshot::Receiver<()>,
     browser: chromiumoxide::Browser,
@@ -171,7 +214,7 @@ impl Browser {
 
         let (sender, receiver) = channel::<BrowserEvent>(1);
 
-        let (actions_sender, _) = channel::<BrowserAction>(1);
+        let (actions_sender, _) = channel::<(BrowserAction, Timeout)>(1);
 
         let page = if browser_options.create_target {
             Arc::new(browser.new_page("about:blank").await.context(
@@ -253,7 +296,6 @@ impl Browser {
             browser,
             receiver,
             actions_sender,
-            inner_events_sender,
             shutdown_sender,
             done_receiver,
             page,
@@ -312,12 +354,12 @@ impl Browser {
         }
     }
 
-    pub async fn request_state(&mut self) {
-        let _ = self.inner_events_sender.send(InnerEvent::StateRequested);
-    }
-
-    pub async fn apply(&mut self, action: BrowserAction) -> Result<()> {
-        self.actions_sender.send(action)?;
+    pub fn apply(
+        &mut self,
+        action: BrowserAction,
+        timeout: Timeout,
+    ) -> Result<()> {
+        self.actions_sender.send((action, timeout))?;
         Ok(())
     }
 }
@@ -482,10 +524,10 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let events_action_applied = Box::pin(
-        receiver_to_stream(context.actions_sender.subscribe())
-            .map(InnerEvent::ActionApplied),
-    );
+    let events_action_accepted =
+        Box::pin(receiver_to_stream(context.actions_sender.subscribe()).map(
+            |(action, timeout)| InnerEvent::ActionAccepted(action, timeout),
+        ));
 
     Ok(Box::pin(stream::select_all(vec![
         events_loaded,
@@ -499,7 +541,7 @@ async fn inner_events(
         events_node_removed,
         events_attribute_modified,
         events_console,
-        events_action_applied,
+        events_action_accepted,
     ])))
 }
 
@@ -510,7 +552,7 @@ fn run_state_machine(
 ) {
     spawn(async move {
         let result = async {
-            let mut state_current = InnerState::Running(vec![]);
+            let mut state_current = InnerState::Running(InnerStateShared{generation: Generation::default()}, vec![]);
             log::info!("processing events");
             loop {
                 select! {
@@ -553,23 +595,30 @@ async fn process_event(
     event: InnerEvent,
 ) -> Result<InnerState> {
     Ok(match (state_current, event) {
-        (InnerState::Running(console_entries), InnerEvent::StateRequested) => {
+        (
+            InnerState::Running(shared, console_entries),
+            InnerEvent::StateRequested(generation),
+        ) if shared.generation == generation => {
             let _handle = spawn(pause(context.page.clone()));
-            InnerState::Pausing(console_entries)
+            InnerState::Pausing(shared, console_entries)
         }
         (
-            InnerState::Running(console_entries),
+            InnerState::Running(shared, console_entries),
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
             let _handle = spawn(pause(context.page.clone()));
-            InnerState::Pausing(console_entries)
+            InnerState::Pausing(shared, console_entries)
         }
-        (state, InnerEvent::StateRequested) => {
-            log::debug!(
-                "cannot request new browser state when in state {:?}, ignoring",
-                &state
-            );
+        (state, InnerEvent::StateRequested(generation)) => {
+            if state.shared_ref().generation == generation {
+                log::debug!(
+                    "cannot request new browser state when in state {:?}, ignoring",
+                    &state
+                );
+            } else {
+                log::debug!("ignoring state state request",);
+            }
             state
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
@@ -585,12 +634,21 @@ async fn process_event(
             },
         ) => {
             let console_entries = match &state {
-                InnerState::Pausing(console_entries) => console_entries.clone(),
-                InnerState::Paused => vec![],
-                InnerState::Resuming(_) => vec![],
-                InnerState::Navigating => vec![],
-                InnerState::Loading(console_entries) => console_entries.clone(),
-                InnerState::Running(console_entries) => console_entries.clone(),
+                InnerState::Pausing(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Paused(_) => vec![],
+                InnerState::Resuming(_, _, _) => vec![],
+                InnerState::Navigating(_) => vec![],
+                InnerState::Loading(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Running(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Acting(_, console_entries) => {
+                    console_entries.clone()
+                }
             };
             let exception = match reason {
                 debugger::PausedReason::Exception => {
@@ -643,57 +701,108 @@ async fn process_event(
                 .sender
                 .send(BrowserEvent::StateChanged(browser_state))?;
 
-            InnerState::Paused
+            let mut shared = state.shared();
+            shared.generation = shared.generation.next();
+            InnerState::Paused(shared)
         }
-        (InnerState::Paused, InnerEvent::ActionApplied(browser_action)) => {
+        (
+            InnerState::Paused(shared),
+            InnerEvent::ActionAccepted(browser_action, timeout),
+        ) => {
             context
                 .page
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
-            InnerState::Resuming(browser_action)
+            InnerState::Resuming(shared, browser_action, timeout)
         }
-        (InnerState::Running(_), InnerEvent::Resumed) => {
+        (InnerState::Running(shared, _), InnerEvent::Resumed) => {
             log::warn!("running + resumed");
-            InnerState::Running(vec![])
+            InnerState::Running(shared, vec![])
         }
-        (InnerState::Resuming(browser_action), InnerEvent::Resumed) => {
-            let action = browser_action.clone();
+        (
+            InnerState::Resuming(shared, browser_action, timeout),
+            InnerEvent::Resumed,
+        ) => {
             let page = context.page.clone();
+            let sender = context.inner_events_sender.clone();
             // We can't block on running the action, in case it synchronously
             // throws an uncaught exception blocking the evaluation indefinitely.
             // This gives us a chance to receive the "Debugger.paused" event and
             // resume (extracting the uncaught exception information).
             spawn(async move {
                 log::debug!("applying: {:?}", browser_action);
-                match action.apply(&page).await {
+                match browser_action.apply(&page).await {
                     Ok(_) => {}
                     Err(err) => {
                         log::error!(
                             "failed to apply action {:?}: {:?}",
-                            action,
+                            browser_action,
                             err
                         )
                     }
                 }
+                if let Err(error) = sender
+                    .send(InnerEvent::ActionApplied(timeout, shared.generation))
+                {
+                    log::error!("failed to send ActionApplied: {}", error);
+                }
             });
-            InnerState::Running(vec![])
+
+            InnerState::Acting(shared, vec![])
+        }
+        (
+            InnerState::Acting(shared, console_entries),
+            InnerEvent::ActionApplied(timeout, generation),
+        ) if shared.generation == generation => {
+            let sender = context.inner_events_sender.clone();
+            spawn(async move {
+                sleep(timeout).await;
+                log::debug!(
+                    "timeout after {}ms, requesting new state",
+                    timeout.as_millis()
+                );
+                if let Err(error) =
+                    sender.send(InnerEvent::StateRequested(shared.generation))
+                {
+                    log::error!(
+                        "failed to send StateRequested after timeout: {}",
+                        error
+                    );
+                }
+            });
+
+            InnerState::Running(shared, console_entries)
+        }
+        (state, InnerEvent::ActionApplied(_, _)) => {
+            log::debug!("ignoring stale ActionApplied");
+            state
         }
         (state, InnerEvent::Loaded) => {
             // We *should* only get the `Loaded` event when we're in `Loading`, but for some reason,
             // maybe something Chrome-related, we sometimes see it in `Initial` and `Navigating`
             // too. Maybe some race or that events are dropped.
             let console_entries = match &state {
-                InnerState::Pausing(console_entries) => console_entries.clone(),
-                InnerState::Paused => vec![],
-                InnerState::Resuming(_) => vec![],
-                InnerState::Navigating => vec![],
-                InnerState::Loading(console_entries) => console_entries.clone(),
-                InnerState::Running(console_entries) => console_entries.clone(),
+                InnerState::Pausing(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Paused(_) => vec![],
+                InnerState::Resuming(_, _, _) => vec![],
+                InnerState::Navigating(_) => vec![],
+                InnerState::Loading(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Running(_, console_entries) => {
+                    console_entries.clone()
+                }
+                InnerState::Acting(_, console_entries) => {
+                    console_entries.clone()
+                }
             };
+            let shared = state.shared();
             context
                 .inner_events_sender
-                .send(InnerEvent::StateRequested)?;
-            InnerState::Running(console_entries)
+                .send(InnerEvent::StateRequested(shared.generation))?;
+            InnerState::Running(shared, console_entries)
         }
         (
             state,
@@ -706,34 +815,41 @@ async fn process_event(
                     reason,
                     state
                 );
-                InnerState::Navigating
+                InnerState::Navigating(state.shared())
             } else {
                 state
             }
         }
         (
-            InnerState::Loading(mut console_entries),
+            InnerState::Loading(shared, mut console_entries),
             InnerEvent::ConsoleEntry(entry),
         ) => {
             console_entries.push(entry);
-            InnerState::Loading(console_entries)
+            InnerState::Loading(shared, console_entries)
         }
         (
-            InnerState::Running(mut console_entries),
+            InnerState::Running(shared, mut console_entries),
             InnerEvent::ConsoleEntry(entry),
         ) => {
             console_entries.push(entry);
-            InnerState::Running(console_entries)
+            InnerState::Running(shared, console_entries)
         }
         (
-            InnerState::Pausing(mut console_entries),
+            InnerState::Pausing(shared, mut console_entries),
             InnerEvent::ConsoleEntry(entry),
         ) => {
             console_entries.push(entry);
-            InnerState::Pausing(console_entries)
+            InnerState::Pausing(shared, console_entries)
         }
-        (InnerState::Navigating, InnerEvent::ConsoleEntry(_)) => {
-            InnerState::Navigating
+        (
+            InnerState::Acting(shared, mut console_entries),
+            InnerEvent::ConsoleEntry(entry),
+        ) => {
+            console_entries.push(entry);
+            InnerState::Acting(shared, console_entries)
+        }
+        (InnerState::Navigating(shared), InnerEvent::ConsoleEntry(_)) => {
+            InnerState::Navigating(shared)
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             // Track all nodes.
@@ -747,15 +863,18 @@ async fn process_event(
                 )
                 .await?;
             if frame_id == context.frame_id {
+                let shared = state.shared();
                 match navigation_type {
-                    NavigationType::Navigation => InnerState::Loading(vec![]),
+                    NavigationType::Navigation => {
+                        InnerState::Loading(shared, vec![])
+                    }
                     // Navigating history with bfcache doesn't yield a "loaded"
                     // event so we jump straight into `Running`.
                     NavigationType::BackForwardCacheRestore => {
-                        context
-                            .inner_events_sender
-                            .send(InnerEvent::StateRequested)?;
-                        InnerState::Running(vec![])
+                        context.inner_events_sender.send(
+                            InnerEvent::StateRequested(shared.generation),
+                        )?;
+                        InnerState::Running(shared, vec![])
                     }
                 }
             } else {
