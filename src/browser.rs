@@ -968,7 +968,6 @@ fn launch_options_to_config(
         } else {
             HeadlessMode::False
         })
-        .chrome_executable("/nix/store/b8w6xj2isq4m120sz2gg4hb5gxhjmzca-chromium-143.0.7499.40/bin/chromium")
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
         .args([
