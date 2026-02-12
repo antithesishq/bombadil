@@ -86,7 +86,7 @@ impl InnerState {
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 enum InnerEvent {
-    StateRequested(Generation),
+    StateRequested(StateRequestReason, Generation),
     Loaded,
     Paused {
         reason: debugger::PausedReason,
@@ -101,6 +101,13 @@ enum InnerEvent {
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Timeout),
     ActionApplied(Generation),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum StateRequestReason {
+    Timeout,
+    Loaded,
+    BackForwardCacheRestore,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -582,6 +589,7 @@ fn run_state_machine(
             Ok::<(), anyhow::Error>(())
         }.await;
         if let Err(error) = result {
+            tokio::signal::ctrl_c().await.ok();
             context
                 .sender
                 .send(BrowserEvent::Error(Arc::new(anyhow!(
@@ -601,9 +609,10 @@ async fn process_event(
     Ok(match (state_current, event) {
         (
             InnerState::Running(shared, console_entries),
-            InnerEvent::StateRequested(generation),
+            InnerEvent::StateRequested(reason, generation),
         ) if shared.generation == generation => {
-            let _handle = spawn(pause(context.page.clone()));
+            log::debug!("pausing because of {:?}", reason);
+            pause(context.page.clone()).await?;
             InnerState::Pausing(shared, console_entries)
         }
         (
@@ -611,13 +620,23 @@ async fn process_event(
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
-            let _handle = spawn(pause(context.page.clone()));
+            pause(context.page.clone()).await?;
             InnerState::Pausing(shared, console_entries)
         }
-        (state, InnerEvent::StateRequested(generation)) => {
+        (
+            InnerState::Acting(mut shared, console_entries),
+            InnerEvent::StateRequested(reason, generation),
+        ) if shared.generation == generation => {
+            log::debug!("pausing from acting state because of {:?}", reason);
+            shared.generation = shared.generation.next();
+            pause(context.page.clone()).await?;
+            InnerState::Pausing(shared, console_entries)
+        }
+        (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared_ref().generation == generation {
                 log::debug!(
-                    "cannot request new browser state when in state {:?}, ignoring",
+                    "cannot request new browser state becase of {:?} when in state {:?}, ignoring",
+                    reason,
                     &state
                 );
             } else {
@@ -637,6 +656,7 @@ async fn process_event(
                 call_frame_id,
             },
         ) => {
+            log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
             let console_entries = match &state {
                 InnerState::Pausing(_, console_entries) => {
                     console_entries.clone()
@@ -761,9 +781,10 @@ async fn process_event(
                     "timeout after {}ms, requesting new state",
                     timeout.as_millis()
                 );
-                if let Err(error) =
-                    sender.send(InnerEvent::StateRequested(shared.generation))
-                {
+                if let Err(error) = sender.send(InnerEvent::StateRequested(
+                    StateRequestReason::Timeout,
+                    shared.generation,
+                )) {
                     log::error!(
                         "failed to send StateRequested after timeout: {}",
                         error
@@ -785,8 +806,8 @@ async fn process_event(
         }
         (state, InnerEvent::Loaded) => {
             // We *should* only get the `Loaded` event when we're in `Loading`, but for some reason,
-            // maybe something Chrome-related, we sometimes see it in `Initial` and `Navigating`
-            // too. Maybe some race or that events are dropped.
+            // maybe something Chrome-related, we sometimes see it in `Running` and `Navigating`
+            // too.
             let console_entries = match &state {
                 InnerState::Pausing(_, console_entries) => {
                     console_entries.clone()
@@ -807,7 +828,10 @@ async fn process_event(
             let shared = state.shared();
             context
                 .inner_events_sender
-                .send(InnerEvent::StateRequested(shared.generation))?;
+                .send(InnerEvent::StateRequested(
+                    StateRequestReason::Loaded,
+                    shared.generation,
+                ))?;
             InnerState::Running(shared, console_entries)
         }
         (
@@ -878,7 +902,10 @@ async fn process_event(
                     // event so we jump straight into `Running`.
                     NavigationType::BackForwardCacheRestore => {
                         context.inner_events_sender.send(
-                            InnerEvent::StateRequested(shared.generation),
+                            InnerEvent::StateRequested(
+                                StateRequestReason::BackForwardCacheRestore,
+                                shared.generation,
+                            ),
                         )?;
                         InnerState::Running(shared, vec![])
                     }
@@ -931,10 +958,11 @@ fn receiver_to_stream<T: Clone + Send + 'static>(
 
 async fn pause(page: Arc<Page>) -> Result<()> {
     log::debug!("pausing...");
-    page.evaluate_function("function () { debugger; }")
-        .await
-        .map_err(|err| anyhow!(err).context("evaluate function call failed"))?;
-    log::debug!("pause done, resumed");
+    page.execute(debugger::PauseParams::default()).await?;
+    let page = page.clone();
+    spawn(async move {
+        let _ = page.evaluate_expression("void 0").await;
+    });
     Ok(())
 }
 
