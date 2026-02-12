@@ -25,7 +25,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
-use crate::browser::state::{BrowserState, ConsoleEntry, Exception};
+use crate::browser::state::{BrowserState, CallFrame, ConsoleEntry, Exception};
 
 pub mod actions;
 pub mod evaluation;
@@ -45,6 +45,7 @@ pub enum BrowserEvent {
 struct InnerStateShared {
     generation: Generation,
     console_entries: Vec<ConsoleEntry>,
+    exceptions: Vec<Exception>,
 }
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ enum InnerEvent {
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Timeout),
     ActionApplied(Generation),
+    ExceptionThrown(Exception),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -241,17 +243,6 @@ impl Browser {
         )
         .await?;
 
-        page.execute(
-            debugger::SetPauseOnExceptionsParams::builder()
-                .state(debugger::SetPauseOnExceptionsState::Uncaught)
-                .build()
-                .map_err(|err| {
-                    anyhow!(err)
-                        .context("build SetPauseOnExceptionsState failed")
-                })?,
-        )
-        .await?;
-
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
 
@@ -396,6 +387,35 @@ async fn inner_events(
             .map(|_| InnerEvent::Resumed),
     ) as InnerEventStream;
 
+    let events_exception_thrown = Box::pin(
+        context
+            .page
+            .event_listener::<runtime::EventExceptionThrown>()
+            .await?
+            .map(|e| {
+                InnerEvent::ExceptionThrown(Exception {
+                    text: e.exception_details.text.clone(),
+                    line: e.exception_details.line_number as u32,
+                    column: e.exception_details.column_number as u32,
+                    url: e.exception_details.url.clone(),
+                    stacktrace: e.exception_details.stack_trace.as_ref().map(
+                        |stack_trace| {
+                            stack_trace
+                                .call_frames
+                                .iter()
+                                .map(|frame| CallFrame {
+                                    name: frame.function_name.clone(),
+                                    line: frame.line_number as u32,
+                                    column: frame.column_number as u32,
+                                    url: frame.url.clone(),
+                                })
+                                .collect()
+                        },
+                    ),
+                })
+            }),
+    ) as InnerEventStream;
+
     let events_frame_requested_navigation = Box::pin(
         context
             .page
@@ -528,6 +548,7 @@ async fn inner_events(
         events_loaded,
         events_paused,
         events_resumed,
+        events_exception_thrown,
         events_frame_requested_navigation,
         events_frame_navigated,
         events_target_destroyed,
@@ -601,7 +622,7 @@ async fn process_event(
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
-            request_new_state(state, context).await?
+            capture_browser_state(state, context).await?
         }
         (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared.generation != generation {
@@ -613,7 +634,7 @@ async fn process_event(
                     &state,
                     reason
                 );
-                request_new_state(state, context).await?
+                capture_browser_state(state, context).await?
             }
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
@@ -621,7 +642,7 @@ async fn process_event(
             state
         }
         (
-            mut state,
+            state,
             InnerEvent::Paused {
                 reason,
                 exception,
@@ -629,50 +650,29 @@ async fn process_event(
             },
         ) => {
             log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
-            let exception = match reason {
-                debugger::PausedReason::Exception => {
-                    if let Some(json::Value::Object(object)) = exception {
-                        object
-                            .get("description")
-                            .cloned()
-                            .or(Some(json::Value::Object(object)))
-                            .map(Exception::UncaughtException)
-                    } else {
-                        bail!("unexpected exception data: {:?}", &exception)
-                    }
-                }
-                debugger::PausedReason::PromiseRejection => {
-                    if let Some(json::Value::Object(object)) = exception {
-                        object
-                            .get("value")
-                            .or(object.get("description"))
-                            .cloned()
-                            .or(Some(json::Value::Object(object)))
-                            .map(Exception::UnhandledPromiseRejection)
-                    } else {
-                        bail!(
-                            "unexpected promise rejection data: {:?}",
-                            &exception
-                        )
-                    }
-                }
-                debugger::PausedReason::Other => None,
-                other => {
-                    bail!(
-                        "unexpected pause reason {:?} when in state: {:?}",
-                        other,
-                        &state
-                    )
-                }
-            };
+
+            if reason != debugger::PausedReason::Other {
+                bail!(
+                    "unexpected pause reason {:?} when in state: {:?}",
+                    reason,
+                    &state
+                );
+            }
 
             let call_frame_id = call_frame_id
                 .ok_or(anyhow!("no call frame id at breakpoint"))?;
+
+            let InnerStateShared {
+                console_entries,
+                exceptions,
+                generation,
+            } = state.shared;
+
             let browser_state = BrowserState::current(
                 context.page.clone(),
                 &call_frame_id,
-                state.shared.console_entries.clone(),
-                exception,
+                console_entries,
+                exceptions,
             )
             .await?;
 
@@ -680,11 +680,10 @@ async fn process_event(
                 .sender
                 .send(BrowserEvent::StateChanged(browser_state))?;
 
-            state.shared.generation = state.shared.generation.next();
+            let generation = generation.next();
 
             // Watchdog: if nothing happens for 30s, force a new state capture.
             let sender = context.inner_events_sender.clone();
-            let generation = state.shared.generation;
             spawn(async move {
                 sleep(Duration::from_secs(30)).await;
                 let _ = sender.send(InnerEvent::StateRequested(
@@ -695,7 +694,11 @@ async fn process_event(
 
             InnerState {
                 kind: Paused,
-                shared: state.shared,
+                shared: InnerStateShared {
+                    generation,
+                    console_entries: vec![],
+                    exceptions: vec![],
+                },
             }
         }
         (
@@ -850,6 +853,10 @@ async fn process_event(
             state.shared.console_entries.push(entry);
             state
         }
+        (mut state, InnerEvent::ExceptionThrown(exception)) => {
+            state.shared.exceptions.push(exception);
+            capture_browser_state(state, context).await?
+        }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             // Track all nodes.
             context
@@ -895,7 +902,7 @@ async fn process_event(
     })
 }
 
-async fn request_new_state(
+async fn capture_browser_state(
     mut state: InnerState,
     context: &BrowserContext,
 ) -> Result<InnerState> {

@@ -11,18 +11,16 @@ export const no_http_error_codes = always(
   () => (response_status.current ?? 0) < 400,
 );
 
-const uncaught_exception = extract((state) => state.errors.uncaught_exception);
-
-export const no_uncaught_exceptions = always(
-  () => uncaught_exception.current === null,
+const uncaught_exceptions = extract(
+  (state) => state.errors.uncaught_exceptions,
 );
 
-const unhandled_promise_rejection = extract(
-  (state) => state.errors.unhandled_promise_rejection,
+export const no_uncaught_exceptions = always(() =>
+  uncaught_exceptions.current.every((e) => e.text !== "Uncaught"),
 );
 
-export const no_unhandled_promise_rejections = always(
-  () => unhandled_promise_rejection.current === null,
+export const no_unhandled_promise_rejections = always(() =>
+  uncaught_exceptions.current.every((e) => e.text !== "Uncaught (in promise)"),
 );
 
 const console_errors = extract((state) =>

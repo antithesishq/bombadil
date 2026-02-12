@@ -30,7 +30,7 @@ pub struct BrowserState {
     pub content_type: String,
     pub console_entries: Vec<ConsoleEntry>,
     pub navigation_history: NavigationHistory,
-    pub exception: Option<Exception>,
+    pub exceptions: Vec<Exception>,
     pub transition_hash: Option<u64>,
     pub coverage: Coverage,
     pub screenshot: Screenshot,
@@ -59,9 +59,20 @@ pub struct NavigationEntry {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Exception {
-    UncaughtException(json::Value),
-    UnhandledPromiseRejection(json::Value),
+pub struct Exception {
+    pub text: String,
+    pub line: u32,
+    pub column: u32,
+    pub url: Option<String>,
+    pub stacktrace: Option<Vec<CallFrame>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CallFrame {
+    pub name: String,
+    pub line: u32,
+    pub column: u32,
+    pub url: String,
 }
 
 #[derive(Clone, Debug)]
@@ -115,7 +126,7 @@ impl BrowserState {
         page: Arc<Page>,
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
-        exception: Option<Exception>,
+        exceptions: Vec<Exception>,
     ) -> Result<Self> {
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
@@ -280,7 +291,7 @@ impl BrowserState {
             content_type,
             console_entries,
             navigation_history,
-            exception,
+            exceptions,
             coverage: Coverage { edges_new },
             transition_hash,
             screenshot,

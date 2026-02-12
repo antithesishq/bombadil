@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use tokio::{select, spawn};
 
-use crate::browser::state::{BrowserState, Coverage, Exception};
+use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
 
 pub struct RunnerOptions {
@@ -226,21 +226,6 @@ async fn run_extractors(
 ) -> anyhow::Result<Vec<(u64, json::Value)>> {
     let mut results = Vec::with_capacity(extractors.len());
 
-    let uncaught_exception =
-        if let Some(Exception::UncaughtException(e)) = &state.exception {
-            Some(e)
-        } else {
-            None
-        };
-
-    let unhandled_promise_rejection =
-        if let Some(Exception::UnhandledPromiseRejection(e)) = &state.exception
-        {
-            Some(e)
-        } else {
-            None
-        };
-
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
@@ -255,8 +240,7 @@ async fn run_extractors(
 
     let state_partial = json::json!({
         "errors": {
-            "uncaught_exception": uncaught_exception,
-            "unhandled_promise_rejection": unhandled_promise_rejection,
+            "uncaught_exceptions": &state.exceptions,
         },
         "console": console_entries
 
