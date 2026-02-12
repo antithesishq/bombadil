@@ -597,18 +597,11 @@ async fn process_event(
     use InnerStateKind::*;
     Ok(match (state_current, event) {
         (
-            InnerState {
-                kind: Running,
-                shared,
-            },
+            state @ InnerState { kind: Running, .. },
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
-            pause(context.page.clone()).await?;
-            InnerState {
-                kind: Pausing,
-                shared,
-            }
+            request_new_state(state, context).await?
         }
         (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared.generation != generation {
@@ -620,19 +613,7 @@ async fn process_event(
                     &state,
                     reason
                 );
-                let is_acting =
-                    matches!(state, InnerState { kind: Acting, .. });
-                let mut shared = state.shared;
-                // Bump generation when leaving Acting so the
-                // pending ActionApplied becomes stale.
-                if is_acting {
-                    shared.generation = shared.generation.next();
-                }
-                pause(context.page.clone()).await?;
-                InnerState {
-                    kind: Pausing,
-                    shared,
-                }
+                request_new_state(state, context).await?
             }
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
@@ -914,6 +895,28 @@ async fn process_event(
     })
 }
 
+async fn request_new_state(
+    mut state: InnerState,
+    context: &BrowserContext,
+) -> Result<InnerState> {
+    log::debug!("pausing, going into next generation...");
+
+    context
+        .page
+        .execute(debugger::PauseParams::default())
+        .await?;
+    let page = context.page.clone();
+    spawn(async move {
+        let _ = page.evaluate_expression("void 0").await;
+    });
+
+    state.shared.generation = state.shared.generation.next();
+    Ok(InnerState {
+        kind: InnerStateKind::Pausing,
+        shared: state.shared,
+    })
+}
+
 async fn handle_node_modification(
     context: &BrowserContext,
     modification: &NodeModification,
@@ -941,16 +944,6 @@ fn receiver_to_stream<T: Clone + Send + 'static>(
     receiver: Receiver<T>,
 ) -> Pin<Box<dyn stream::Stream<Item = T> + Send>> {
     Box::pin(BroadcastStream::new(receiver).filter_map(async |r| r.ok()))
-}
-
-async fn pause(page: Arc<Page>) -> Result<()> {
-    log::debug!("pausing...");
-    page.execute(debugger::PauseParams::default()).await?;
-    let page = page.clone();
-    spawn(async move {
-        let _ = page.evaluate_expression("void 0").await;
-    });
-    Ok(())
 }
 
 fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
