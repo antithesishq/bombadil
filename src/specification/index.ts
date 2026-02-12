@@ -197,10 +197,12 @@ export interface State {
   errors: {
     uncaught_exceptions: {
       text: string;
-      line_number: number;
+      line: number;
       column: number;
       url: string | null;
-      stacktrace: { name: string; line: number; column: number; url: string }[];
+      stacktrace:
+        | { name: string; line: number; column: number; url: string }[]
+        | null;
     }[];
   };
   console: ConsoleEntry[];
