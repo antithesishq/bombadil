@@ -632,6 +632,14 @@ async fn process_event(
             pause(context.page.clone()).await?;
             InnerState::Pausing(shared, console_entries)
         }
+        (
+            InnerState::Loading(shared, console_entries),
+            InnerEvent::StateRequested(reason, generation),
+        ) if shared.generation == generation => {
+            log::debug!("pausing from loading state because of {:?}", reason);
+            pause(context.page.clone()).await?;
+            InnerState::Pausing(shared, console_entries)
+        }
         (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared_ref().generation == generation {
                 log::debug!(
