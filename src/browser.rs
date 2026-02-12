@@ -108,6 +108,7 @@ enum StateRequestReason {
     Timeout,
     Loaded,
     BackForwardCacheRestore,
+    Watchdog,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -609,48 +610,39 @@ async fn process_event(
     Ok(match (state_current, event) {
         (
             InnerState::Running(shared, console_entries),
-            InnerEvent::StateRequested(reason, generation),
-        ) if shared.generation == generation => {
-            log::debug!("pausing because of {:?}", reason);
-            pause(context.page.clone()).await?;
-            InnerState::Pausing(shared, console_entries)
-        }
-        (
-            InnerState::Running(shared, console_entries),
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
             pause(context.page.clone()).await?;
             InnerState::Pausing(shared, console_entries)
         }
-        (
-            InnerState::Acting(mut shared, console_entries),
-            InnerEvent::StateRequested(reason, generation),
-        ) if shared.generation == generation => {
-            log::debug!("pausing from acting state because of {:?}", reason);
-            shared.generation = shared.generation.next();
-            pause(context.page.clone()).await?;
-            InnerState::Pausing(shared, console_entries)
-        }
-        (
-            InnerState::Loading(shared, console_entries),
-            InnerEvent::StateRequested(reason, generation),
-        ) if shared.generation == generation => {
-            log::debug!("pausing from loading state because of {:?}", reason);
-            pause(context.page.clone()).await?;
-            InnerState::Pausing(shared, console_entries)
-        }
         (state, InnerEvent::StateRequested(reason, generation)) => {
-            if state.shared_ref().generation == generation {
-                log::debug!(
-                    "cannot request new browser state becase of {:?} when in state {:?}, ignoring",
-                    reason,
-                    &state
-                );
+            if state.shared_ref().generation != generation {
+                log::debug!("ignoring stale state request");
+                state
             } else {
-                log::debug!("ignoring state request",);
+                log::debug!(
+                    "forcing pause from {:?} because of {:?}",
+                    &state,
+                    reason
+                );
+                let console_entries = match &state {
+                    InnerState::Running(_, c)
+                    | InnerState::Acting(_, c)
+                    | InnerState::Loading(_, c)
+                    | InnerState::Pausing(_, c) => c.clone(),
+                    _ => vec![],
+                };
+                let is_acting = matches!(&state, InnerState::Acting(..));
+                let mut shared = state.shared();
+                // Bump generation when leaving Acting so the
+                // pending ActionApplied becomes stale.
+                if is_acting {
+                    shared.generation = shared.generation.next();
+                }
+                pause(context.page.clone()).await?;
+                InnerState::Pausing(shared, console_entries)
             }
-            state
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
             handle_node_modification(context, &modification).await?;
@@ -735,6 +727,18 @@ async fn process_event(
 
             let mut shared = state.shared();
             shared.generation = shared.generation.next();
+
+            // Watchdog: if nothing happens for 30s, force a new state capture.
+            let sender = context.inner_events_sender.clone();
+            let generation = shared.generation;
+            spawn(async move {
+                sleep(Duration::from_secs(30)).await;
+                let _ = sender.send(InnerEvent::StateRequested(
+                    StateRequestReason::Watchdog,
+                    generation,
+                ));
+            });
+
             InnerState::Paused(shared)
         }
         (
