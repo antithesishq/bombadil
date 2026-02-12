@@ -41,46 +41,27 @@ pub enum BrowserEvent {
     Error(Arc<anyhow::Error>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct InnerStateShared {
     generation: Generation,
+    console_entries: Vec<ConsoleEntry>,
 }
 
 #[derive(Debug)]
-enum InnerState {
-    Pausing(InnerStateShared, Vec<ConsoleEntry>),
-    Paused(InnerStateShared),
-    Resuming(InnerStateShared, BrowserAction, Timeout),
-    Navigating(InnerStateShared),
-    Loading(InnerStateShared, Vec<ConsoleEntry>),
-    Running(InnerStateShared, Vec<ConsoleEntry>),
-    Acting(InnerStateShared, Vec<ConsoleEntry>),
+struct InnerState {
+    kind: InnerStateKind,
+    shared: InnerStateShared,
 }
 
-impl InnerState {
-    fn shared(self) -> InnerStateShared {
-        match self {
-            InnerState::Pausing(shared, _) => shared,
-            InnerState::Paused(shared) => shared,
-            InnerState::Resuming(shared, _, _) => shared,
-            InnerState::Navigating(shared) => shared,
-            InnerState::Loading(shared, _) => shared,
-            InnerState::Running(shared, _) => shared,
-            InnerState::Acting(shared, _) => shared,
-        }
-    }
-
-    fn shared_ref(&self) -> &InnerStateShared {
-        match self {
-            InnerState::Pausing(shared, _) => shared,
-            InnerState::Paused(shared) => shared,
-            InnerState::Resuming(shared, _, _) => shared,
-            InnerState::Navigating(shared) => shared,
-            InnerState::Loading(shared, _) => shared,
-            InnerState::Running(shared, _) => shared,
-            InnerState::Acting(shared, _) => shared,
-        }
-    }
+#[derive(Debug)]
+enum InnerStateKind {
+    Pausing,
+    Paused,
+    Resuming(BrowserAction, Timeout),
+    Navigating,
+    Loading,
+    Running,
+    Acting,
 }
 
 #[derive(Clone, Debug)]
@@ -117,6 +98,12 @@ struct Generation(u64);
 impl Generation {
     fn next(self) -> Self {
         Generation(self.0 + 1)
+    }
+}
+
+impl std::fmt::Display for Generation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -560,7 +547,7 @@ fn run_state_machine(
 ) {
     spawn(async move {
         let result = async {
-            let mut state_current = InnerState::Running(InnerStateShared{generation: Generation::default()}, vec![]);
+            let mut state_current = InnerState { kind: InnerStateKind::Running, shared: InnerStateShared::default()};
             log::info!("processing events");
             loop {
                 select! {
@@ -607,17 +594,24 @@ async fn process_event(
     state_current: InnerState,
     event: InnerEvent,
 ) -> Result<InnerState> {
+    use InnerStateKind::*;
     Ok(match (state_current, event) {
         (
-            InnerState::Running(shared, console_entries),
+            InnerState {
+                kind: Running,
+                shared,
+            },
             InnerEvent::NodeTreeModified(modification),
         ) => {
             handle_node_modification(context, &modification).await?;
             pause(context.page.clone()).await?;
-            InnerState::Pausing(shared, console_entries)
+            InnerState {
+                kind: Pausing,
+                shared,
+            }
         }
         (state, InnerEvent::StateRequested(reason, generation)) => {
-            if state.shared_ref().generation != generation {
+            if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
                 state
             } else {
@@ -626,22 +620,19 @@ async fn process_event(
                     &state,
                     reason
                 );
-                let console_entries = match &state {
-                    InnerState::Running(_, c)
-                    | InnerState::Acting(_, c)
-                    | InnerState::Loading(_, c)
-                    | InnerState::Pausing(_, c) => c.clone(),
-                    _ => vec![],
-                };
-                let is_acting = matches!(&state, InnerState::Acting(..));
-                let mut shared = state.shared();
+                let is_acting =
+                    matches!(state, InnerState { kind: Acting, .. });
+                let mut shared = state.shared;
                 // Bump generation when leaving Acting so the
                 // pending ActionApplied becomes stale.
                 if is_acting {
                     shared.generation = shared.generation.next();
                 }
                 pause(context.page.clone()).await?;
-                InnerState::Pausing(shared, console_entries)
+                InnerState {
+                    kind: Pausing,
+                    shared,
+                }
             }
         }
         (state, InnerEvent::NodeTreeModified(modification)) => {
@@ -649,7 +640,7 @@ async fn process_event(
             state
         }
         (
-            state,
+            mut state,
             InnerEvent::Paused {
                 reason,
                 exception,
@@ -657,23 +648,6 @@ async fn process_event(
             },
         ) => {
             log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
-            let console_entries = match &state {
-                InnerState::Pausing(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Paused(_) => vec![],
-                InnerState::Resuming(_, _, _) => vec![],
-                InnerState::Navigating(_) => vec![],
-                InnerState::Loading(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Running(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Acting(_, console_entries) => {
-                    console_entries.clone()
-                }
-            };
             let exception = match reason {
                 debugger::PausedReason::Exception => {
                     if let Some(json::Value::Object(object)) = exception {
@@ -716,7 +690,7 @@ async fn process_event(
             let browser_state = BrowserState::current(
                 context.page.clone(),
                 &call_frame_id,
-                console_entries,
+                state.shared.console_entries.clone(),
                 exception,
             )
             .await?;
@@ -725,12 +699,11 @@ async fn process_event(
                 .sender
                 .send(BrowserEvent::StateChanged(browser_state))?;
 
-            let mut shared = state.shared();
-            shared.generation = shared.generation.next();
+            state.shared.generation = state.shared.generation.next();
 
             // Watchdog: if nothing happens for 30s, force a new state capture.
             let sender = context.inner_events_sender.clone();
-            let generation = shared.generation;
+            let generation = state.shared.generation;
             spawn(async move {
                 sleep(Duration::from_secs(30)).await;
                 let _ = sender.send(InnerEvent::StateRequested(
@@ -739,24 +712,46 @@ async fn process_event(
                 ));
             });
 
-            InnerState::Paused(shared)
+            InnerState {
+                kind: Paused,
+                shared: state.shared,
+            }
         }
         (
-            InnerState::Paused(shared),
+            InnerState {
+                kind: Paused,
+                shared,
+            },
             InnerEvent::ActionAccepted(browser_action, timeout),
         ) => {
             context
                 .page
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
-            InnerState::Resuming(shared, browser_action, timeout)
-        }
-        (InnerState::Running(shared, _), InnerEvent::Resumed) => {
-            log::warn!("running + resumed");
-            InnerState::Running(shared, vec![])
+            InnerState {
+                kind: Resuming(browser_action, timeout),
+                shared,
+            }
         }
         (
-            InnerState::Resuming(shared, browser_action, timeout),
+            InnerState {
+                kind: Running,
+                mut shared,
+            },
+            InnerEvent::Resumed,
+        ) => {
+            log::warn!("running + resumed");
+            shared.console_entries.clear();
+            InnerState {
+                kind: Running,
+                shared,
+            }
+        }
+        (
+            InnerState {
+                kind: Resuming(browser_action, timeout),
+                mut shared,
+            },
             InnerEvent::Resumed,
         ) => {
             let page = context.page.clone();
@@ -804,94 +799,75 @@ async fn process_event(
                 }
             });
 
-            InnerState::Acting(shared, vec![])
+            shared.console_entries.clear();
+            InnerState {
+                kind: Acting,
+                shared,
+            }
         }
         (
-            InnerState::Acting(shared, console_entries),
+            InnerState {
+                kind: Acting,
+                shared,
+            },
             InnerEvent::ActionApplied(generation),
-        ) if shared.generation == generation => {
-            InnerState::Running(shared, console_entries)
-        }
+        ) if shared.generation == generation => InnerState {
+            kind: Running,
+            shared,
+        },
         (state, InnerEvent::ActionApplied(_)) => {
             log::debug!("ignoring stale ActionApplied");
             state
         }
-        (state, InnerEvent::Loaded) => {
-            // We *should* only get the `Loaded` event when we're in `Loading`, but for some reason,
-            // maybe something Chrome-related, we sometimes see it in `Running` and `Navigating`
-            // too.
-            let console_entries = match &state {
-                InnerState::Pausing(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Paused(_) => vec![],
-                InnerState::Resuming(_, _, _) => vec![],
-                InnerState::Navigating(_) => vec![],
-                InnerState::Loading(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Running(_, console_entries) => {
-                    console_entries.clone()
-                }
-                InnerState::Acting(_, console_entries) => {
-                    console_entries.clone()
-                }
-            };
-            let shared = state.shared();
+        (InnerState { shared, .. }, InnerEvent::Loaded) => {
             context
                 .inner_events_sender
                 .send(InnerEvent::StateRequested(
                     StateRequestReason::Loaded,
                     shared.generation,
                 ))?;
-            InnerState::Running(shared, console_entries)
+            InnerState {
+                kind: Running,
+                shared,
+            }
         }
         (
-            state,
+            InnerState { shared, kind },
             InnerEvent::FrameRequestedNavigation(frame_id, reason, url),
         ) => {
             if frame_id == context.frame_id {
                 log::debug!(
-                    "navigating to {} due to {:?} (current state is {:?})",
+                    "navigating to {} due to {:?} (current state is {:?}, {})",
                     url,
                     reason,
-                    state
+                    kind,
+                    shared.generation,
                 );
-                InnerState::Navigating(state.shared())
+                InnerState {
+                    kind: Navigating,
+                    shared,
+                }
             } else {
-                state
+                InnerState { shared, kind }
             }
         }
         (
-            InnerState::Loading(shared, mut console_entries),
-            InnerEvent::ConsoleEntry(entry),
+            InnerState {
+                kind: Navigating,
+                mut shared,
+            },
+            InnerEvent::ConsoleEntry(_),
         ) => {
-            console_entries.push(entry);
-            InnerState::Loading(shared, console_entries)
+            // NOTE: clearing between page navigations, but we could retain logs
+            shared.console_entries.clear();
+            InnerState {
+                kind: Navigating,
+                shared,
+            }
         }
-        (
-            InnerState::Running(shared, mut console_entries),
-            InnerEvent::ConsoleEntry(entry),
-        ) => {
-            console_entries.push(entry);
-            InnerState::Running(shared, console_entries)
-        }
-        (
-            InnerState::Pausing(shared, mut console_entries),
-            InnerEvent::ConsoleEntry(entry),
-        ) => {
-            console_entries.push(entry);
-            InnerState::Pausing(shared, console_entries)
-        }
-        (
-            InnerState::Acting(shared, mut console_entries),
-            InnerEvent::ConsoleEntry(entry),
-        ) => {
-            console_entries.push(entry);
-            InnerState::Acting(shared, console_entries)
-        }
-        (InnerState::Navigating(shared), InnerEvent::ConsoleEntry(_)) => {
-            InnerState::Navigating(shared)
+        (mut state, InnerEvent::ConsoleEntry(entry)) => {
+            state.shared.console_entries.push(entry);
+            state
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             // Track all nodes.
@@ -905,11 +881,9 @@ async fn process_event(
                 )
                 .await?;
             if frame_id == context.frame_id {
-                let shared = state.shared();
-                match navigation_type {
-                    NavigationType::Navigation => {
-                        InnerState::Loading(shared, vec![])
-                    }
+                let shared = state.shared;
+                let kind = match navigation_type {
+                    NavigationType::Navigation => Loading,
                     // Navigating history with bfcache doesn't yield a "loaded"
                     // event so we jump straight into `Running`.
                     NavigationType::BackForwardCacheRestore => {
@@ -919,9 +893,10 @@ async fn process_event(
                                 shared.generation,
                             ),
                         )?;
-                        InnerState::Running(shared, vec![])
+                        Running
                     }
-                }
+                };
+                InnerState { kind, shared }
             } else {
                 state
             }
