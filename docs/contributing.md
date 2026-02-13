@@ -59,6 +59,7 @@ crate2nix generate -o nix/Cargo.nix
 1. Make sure you're on branch `main` and in a clean state
 1. Create a new branch `release/x.y.z` (with the actual version)
 1. Bump the version in `Cargo.toml`
+1. `cargo check` (this regenerates the `Cargo.lock` file)
 1. Run:
 
    ```
