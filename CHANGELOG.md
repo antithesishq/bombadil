@@ -1,5 +1,11 @@
 # The Bombadil Changelog
 
+## 0.2.1
+
+* Fix macOS linking (#27)
+* Update install instructions in README (#25)
+* Optimize build for version bumps (faster release flow) (#24)
+
 ## 0.2.0
 
 * Introduced a new specification language built on TypeScript/JavaScript, with
