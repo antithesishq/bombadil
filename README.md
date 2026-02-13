@@ -163,6 +163,19 @@ Not yet available, but coming soon:
 
 If you want to compile from source, see [Contributing](docs/contributing.md).
 
+### TypeScript Support
+
+When writing specifications in TypeScript, you'll want the types available.
+Get them from [NPM](https://www.npmjs.com/package/@antithesishq/bombadil)
+with your package manager of choice:
+
+```bash
+$ npm install @antithesishq/bombadil
+```
+
+Or use the files provided in the [the 
+release package](https://github.com/antithesishq/bombadil/releases/latest).
+
 ## More Resources
 
 * [Contributing](docs/contributing.md): if you want to hack on it
