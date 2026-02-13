@@ -77,7 +77,7 @@ cargo test --test integration_tests
 
    Then merge the PR and continue:
 1. `git fetch`
-1. `git tag -am "v${VERSION_NEW}" <SQUASH COMMIT FROM PULL REQUEST>`
+1. `git tag -a "v${VERSION_NEW}" -m "v${VERSION_NEW}" <SQUASH COMMIT FROM PULL REQUEST>`
 1. `git push origin "v${VERSION_NEW}"`
 
 The release workflow will then build binaries, publish the types package to
