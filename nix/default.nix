@@ -1,6 +1,7 @@
 {
   callPackage,
   lib,
+  runCommand,
   stdenv,
   pkg-config,
   esbuild,
@@ -21,14 +22,30 @@ let
       || (craneLib.filterCargoSources path type);
   };
 
+  # Source with a normalized version so that Bombadil version bumps don't
+  # invalidate the deps derivation hash. This is especially useful when
+  # doing releases so that GitHub Actions doesn't have to rebuild deps that
+  # haven't changed.
+  depsSrc = runCommand "bombadil-deps-src" { } ''
+    cp -r ${src} $out
+    chmod -R +w $out
+    sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
+    sed -i '/^name = "bombadil"/{n;s/^version = .*/version = "0.0.0"/}' $out/Cargo.lock
+  '';
+
   commonArgs = {
     inherit src;
     nativeBuildInputs = [
       esbuild
     ];
   };
-  cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-  cargoArtifactsStatic = craneLibStatic.buildDepsOnly commonArgs;
+  depsArgs = commonArgs // {
+    src = depsSrc;
+    pname = "bombadil";
+    version = "stable";
+  };
+  cargoArtifacts = craneLib.buildDepsOnly depsArgs;
+  cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
 in
 {
   bin = (if stdenv.isLinux then craneLibStatic else craneLib).buildPackage (
