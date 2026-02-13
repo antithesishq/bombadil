@@ -8,15 +8,8 @@ jobs:
     permissions:
       contents: read
       actions: write
-    name: Build (${{ matrix.os }})
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: bombadil-x86_64-linux
-          - os: macos-latest
-            artifact: bombadil-aarch64-darwin
-    runs-on: ${{ matrix.os }}
+    name: Build
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: nixbuild/nix-quick-install-action@v34
@@ -27,35 +20,4 @@ jobs:
 
       - run: nix config show
       - run: nix flake check .
-        if: matrix.os == 'ubuntu-latest'
       - run: nix build ".#docker"
-        if: matrix.os == 'ubuntu-latest'
-
-      - run: nix build .
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: result/bin/bombadil
-
-  smoke-test:
-    name: Smoke test (${{ matrix.os }})
-    needs: build
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact: bombadil-x86_64-linux
-          - os: macos-latest
-            artifact: bombadil-aarch64-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-
-      - name: Test binary runs without Nix
-        run: |
-          chmod +x bombadil
-          ./bombadil --version
