@@ -139,26 +139,42 @@ $ head -n1 /tmp/my-test/trace.jsonl | jq .
 
 ## Install
 
-So far there's not a lot options for installing Bombadil other than using Nix.
-That's going to change though! We want to supply:
+The most straightforward way for you to get start is downloading [the latest
+executable](https://github.com/antithesishq/bombadil/releases/latest) for your
+platform:
 
-* statically linked executables, which you can just download 
+```bash
+$ wget https://github.com/antithesishq/bombadil/releases/latest/download/bombadil-x86_64-linux
+$ chmod +x bombadil-x86_64-linux
+$ ./bombadil-x86_64-linux --version
+bombadil 0.2.0
+```
+
+If you're a Nix and flakes user, you can run it with:
+
+```
+$ nix run github:antithesishq/bombadil
+```
+
+Not yet available, but coming soon:
+
 * Docker images
 * a GitHub Action, ready to be used in your CI configuration
 
-But for now, your best bet is either running it through Nix, like:
+If you want to compile from source, see [Contributing](docs/contributing.md).
 
-```
-nix run github:antithesishq/bombadil
+### TypeScript Support
+
+When writing specifications in TypeScript, you'll want the types available.
+Get them from [NPM](https://www.npmjs.com/package/@antithesishq/bombadil)
+with your package manager of choice:
+
+```bash
+$ npm install @antithesishq/bombadil
 ```
 
-Or setting up the [developer environment](docs/contributing.md) and compiling
-it with Cargo:
-
-```
-nix develop
-cargo build --release
-```
+Or use the files provided in the [the 
+release package](https://github.com/antithesishq/bombadil/releases/latest).
 
 ## More Resources
 
