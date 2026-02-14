@@ -8,7 +8,7 @@
   chromium,
   craneLib,
   craneLibStatic,
-  darwin,
+  darwin ? null,
 }:
 let
   src = lib.cleanSourceWith {
