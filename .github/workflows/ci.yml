@@ -8,8 +8,15 @@ jobs:
     permissions:
       contents: read
       actions: write
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }})
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-linux
+          - os: macos-latest
+            target: aarch64-darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: nixbuild/nix-quick-install-action@v34
@@ -20,4 +27,7 @@ jobs:
 
       - run: nix config show
       - run: nix flake check .
-      - run: nix build ".#docker"
+      - run: nix build .
+      - name: Build Docker image
+        if: matrix.target == 'x86_64-linux'
+        run: nix build ".#docker"
