@@ -55,7 +55,7 @@ cargo test --test integration_tests
 1. Run:
 
    ```
-   export VERSION_PREV=$(git tag --sort=-v:refname -l "v*" | sed -n '1p')
+   export VERSION_PREV=$(git tag --sort=-v:refname -l "v*" | sed -n '1p' | sed 's/v//')
    export VERSION_NEW=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
    ```
 
@@ -63,19 +63,18 @@ cargo test --test integration_tests
 
    ```
    tail -n +2 CHANGELOG.md > tmp.md
+   rm -f CHANGELOG.md
    (echo "# The Bombadil Changelog" && echo "" && echo "## ${VERSION_NEW}" && echo "" && git log v${VERSION_PREV}..HEAD --oneline | sed 's/^[a-z0-9]* /* /' && echo "") \
-       | cat - tmp.md > CHANGELOG.md && rm tmp.md
+       | cat - tmp.md > CHANGELOG.md && rm -f tmp.md
    ```
 
    Open up `CHANGELOG.md` and rewrite the commit log into something meaningful.
 
+1. `git add .`
 1. `git commit -m "release v${VERSION_NEW}"`
 1. Push to GitHub and create a pull request.
-    
-   Review the changes and let the checks pass. This can take some time due to
-   an unfortunate rebuild of the Cargo deps in Nix.
 
-   Then merge the PR and continue:
+   Review the changes and let the checks pass. Then merge the PR and continue:
 1. `git fetch`
 1. `git tag -a "v${VERSION_NEW}" -m "v${VERSION_NEW}" <SQUASH COMMIT FROM PULL REQUEST>`
 1. `git push origin "v${VERSION_NEW}"`
