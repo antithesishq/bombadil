@@ -11,8 +11,9 @@ use bombadil::{
     trace::writer::TraceWriter,
 };
 
+/// Property-based testing for web UIs
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, long_about=None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -20,35 +21,53 @@ struct Cli {
 
 #[derive(Args)]
 struct TestSharedOptions {
+    /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
+    /// other websites)
     origin: Origin,
+    /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
+    /// package on NPM
     specification_file: Option<PathBuf>,
+    /// Where to store output data (trace, screenshots, etc)
     #[arg(long)]
     output_path: Option<PathBuf>,
+    /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     exit_on_violation: bool,
+    /// Browser viewport width in pixels
     #[arg(long, default_value_t = 1024)]
     width: u16,
+    /// Browser viewport height in pixels
     #[arg(long, default_value_t = 768)]
     height: u16,
+    /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
+    /// mode
     #[arg(long, default_value_t = 2.0)]
     device_scale_factor: f64,
 }
 
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Run a test with a browser managed by Bombadil
     Test {
         #[clap(flatten)]
         shared: TestSharedOptions,
+        /// Whether the browser should run in a visible window or not
         #[arg(long, default_value_t = false)]
         headless: bool,
+        /// Disable Chromium sandboxing
         #[arg(long, default_value_t = false)]
         no_sandbox: bool,
     },
+    /// Run a test with an externally managed browser or Electron app (e.g. `chromium
+    /// --remote-debugging-port=9992`)
     TestExternal {
         #[clap(flatten)]
         shared: TestSharedOptions,
+        /// Address to the remote debugger's server, e.g. http://localhost:9222
         #[arg(long)]
         remote_debugger: Url,
+        /// Whether Bombadil should create a new tab and navigate to the origin URL in it, as part
+        /// of starting the test (this should probably be false if you test an Electron app)
         #[arg(long)]
         create_target: bool,
     },
