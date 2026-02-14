@@ -36,6 +36,7 @@
         packages = {
           default = bombadil.bin;
           types = bombadil.types;
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
