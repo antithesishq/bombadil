@@ -55,10 +55,8 @@
         };
 
         devShells = {
-          default = pkgs.mkShell {
+          default = pkgs.mkShell ({
             CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
-            # override how chromiumoxide finds the chromium executable
-            CHROME = pkgs.lib.getExe pkgs.chromium;
             inputsFrom = [ self.packages.${system}.default ];
             buildInputs = with pkgs; [
               # Rust
@@ -79,11 +77,14 @@
               esbuild
               bun
               biome
-
+            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               # Runtime
-              chromium
+              pkgs.chromium
             ];
-          };
+          } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+            # override how chromiumoxide finds the chromium executable
+            CHROME = pkgs.lib.getExe pkgs.chromium;
+          });
         };
       }
     );
