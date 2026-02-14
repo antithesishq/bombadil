@@ -28,6 +28,11 @@ jobs:
       - run: nix config show
       - run: nix flake check .
       - run: nix build .
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-${{ matrix.target }}
+          path: result/bin/bombadil
       - name: Build Docker image
         if: matrix.target == 'x86_64-linux'
         run: nix build ".#docker"
