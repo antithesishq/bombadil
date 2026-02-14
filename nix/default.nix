@@ -8,6 +8,7 @@
   chromium,
   craneLib,
   craneLibStatic,
+  darwin,
 }:
 let
   src = lib.cleanSourceWith {
@@ -76,6 +77,7 @@ in
           install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil
         done
       '';
+      nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
     }
   );
 
