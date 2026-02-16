@@ -61,7 +61,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 120;
 ///     http://localhost:{P}/tests/{name}.
 ///
 /// Which means that every named test case directory should have an index.html file.
-async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
+async fn run_browser_test(name: &str, expect: Expect, timeout: Duration, spec: Option<&str>) {
     setup();
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     log::info!("starting browser test");
@@ -97,8 +97,9 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration) {
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
+    let spec_source = spec.unwrap_or(r#"export * from "@antithesishq/bombadil/defaults";"#);
     let default_specification = Specification::from_string(
-        r#"export * from "@antithesishq/bombadil/defaults";"#,
+        spec_source,
         PathBuf::from("fake.ts").as_path(),
     )
     .unwrap();
@@ -208,6 +209,7 @@ async fn test_console_error() {
             substring: "no_console_errors",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
     )
     .await;
 }
@@ -220,6 +222,7 @@ async fn test_links() {
             substring: "no_http_error_codes",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
     )
     .await;
 }
@@ -234,6 +237,7 @@ async fn test_uncaught_exception() {
             substring: "no_uncaught_exceptions",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
     )
     .await;
 }
@@ -248,13 +252,14 @@ async fn test_unhandled_promise_rejection() {
             substring: "no_unhandled_promise_rejections",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
     )
     .await;
 }
 
 #[tokio::test]
 async fn test_other_domain() {
-    run_browser_test("other-domain", Expect::Success, Duration::from_secs(5))
+    run_browser_test("other-domain", Expect::Success, Duration::from_secs(5), None)
         .await;
 }
 
@@ -264,6 +269,7 @@ async fn test_action_within_iframe() {
         "action-within-iframe",
         Expect::Success,
         Duration::from_secs(5),
+        None,
     )
     .await;
 }
@@ -276,6 +282,34 @@ async fn test_no_action_available() {
             substring: "no fallback action available",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_back_from_non_html() {
+    run_browser_test(
+        "back-from-non-html",
+        Expect::Success,
+        Duration::from_secs(30),
+        Some(
+            r#"
+import { extract, now, next, eventually } from "@antithesishq/bombadil";
+
+const contentType = extract((state) => state.document.contentType);
+
+export const navigates_back_from_non_html = eventually(
+  now(() => contentType.current === "text/html")
+    .and(next(
+      now(() => contentType.current !== "text/html")
+        .and(next(
+          now(() => contentType.current === "text/html")
+        ))
+    ))
+).within(20, "seconds");
+"#,
+        ),
     )
     .await;
 }
