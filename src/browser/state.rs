@@ -128,6 +128,7 @@ impl BrowserState {
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
     ) -> Result<Self> {
+        log::debug!("BrowserState::current: evaluating url");
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
                 &page,
@@ -137,6 +138,7 @@ impl BrowserState {
             .await?,
         )?;
 
+        log::debug!("BrowserState::current: evaluating title");
         let title: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -144,6 +146,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::debug!("BrowserState::current: evaluating content_type");
         let content_type: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -151,6 +154,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::debug!("BrowserState::current: getting navigation history");
         let navigation_history_result = page
             .execute(page::GetNavigationHistoryParams {})
             .await?
@@ -172,6 +176,7 @@ impl BrowserState {
             current: navigation_entries[index].clone(),
             forward: navigation_entries[index..].to_vec(),
         };
+        log::debug!("BrowserState::current: taking screenshot");
         let format = ScreenshotFormat::Webp;
         let screenshot = Screenshot {
             data: page
@@ -186,6 +191,7 @@ impl BrowserState {
             format,
         };
 
+        log::debug!("BrowserState::current: evaluating coverage");
         let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -227,6 +233,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::debug!("BrowserState::current: evaluating transition hash");
         let transition_hash_bigint: Option<String> =
             evaluate_expression_in_debugger(
                 &page,
@@ -282,6 +289,7 @@ impl BrowserState {
             None => None,
         };
 
+        log::debug!("BrowserState::current: done");
         Ok(BrowserState {
             timestamp: SystemTime::now(),
             page: page.clone(),
