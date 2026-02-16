@@ -115,10 +115,19 @@ impl From<ScreenshotFormat> for CaptureScreenshotFormat {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Screenshot {
     pub format: ScreenshotFormat,
     pub data: Vec<u8>,
+}
+
+impl std::fmt::Debug for Screenshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Screenshot")
+            .field("format", &self.format)
+            .field("data", &format_args!("[{} bytes]", self.data.len()))
+            .finish()
+    }
 }
 
 impl BrowserState {
@@ -127,6 +136,7 @@ impl BrowserState {
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
+        screenshot: Option<Screenshot>,
     ) -> Result<Self> {
         log::debug!("BrowserState::current: evaluating url");
         let url = Url::parse(
@@ -176,19 +186,31 @@ impl BrowserState {
             current: navigation_entries[index].clone(),
             forward: navigation_entries[index..].to_vec(),
         };
-        log::debug!("BrowserState::current: taking screenshot");
-        let format = ScreenshotFormat::Webp;
-        let screenshot = Screenshot {
-            data: page
-                .screenshot(
-                    ScreenshotParams::builder()
-                        .omit_background(true)
-                        .format(format)
-                        .build(),
-                )
-                .await
-                .context("take screenshot")?,
-            format,
+        let screenshot = match screenshot {
+            Some(s) => {
+                log::debug!(
+                    "BrowserState::current: using pre-captured screenshot"
+                );
+                s
+            }
+            None => {
+                log::debug!(
+                    "BrowserState::current: taking screenshot (no pre-captured available)"
+                );
+                let format = ScreenshotFormat::Webp;
+                Screenshot {
+                    data: page
+                        .screenshot(
+                            ScreenshotParams::builder()
+                                .omit_background(true)
+                                .format(format)
+                                .build(),
+                        )
+                        .await
+                        .context("take screenshot")?,
+                    format,
+                }
+            }
         };
 
         log::debug!("BrowserState::current: evaluating coverage");
