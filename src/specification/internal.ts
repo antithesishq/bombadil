@@ -3,18 +3,14 @@ export type Time = number;
 export type TimeUnit = "milliseconds" | "seconds";
 
 export class Duration {
-  constructor(
-    private n: number,
-    private unit: TimeUnit,
-  ) {}
+  constructor(public milliseconds: number) {}
 
-  get milliseconds(): number {
-    switch (this.unit) {
-      case "milliseconds":
-        return this.n;
-      case "seconds":
-        return this.n * 1000;
-    }
+  static seconds(seconds: number): Duration {
+    return new Duration(seconds * 1000);
+  }
+
+  static milliseconds(milliseconds: number): Duration {
+    return new Duration(milliseconds);
   }
 }
 

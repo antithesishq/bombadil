@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use std::{collections::HashMap, rc::Rc};
 
 use crate::geometry::Point;
@@ -68,7 +67,13 @@ pub struct StepResult {
     pub actions: Vec<Action>,
 }
 
-// TODO: make the generic
+// TODO: make the action generic
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Duration {
+    pub milliseconds: u64,
+}
+
+// TODO: make the action generic
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Action {
     Back,

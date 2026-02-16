@@ -1,4 +1,14 @@
-import { always, extract, actions, type Action } from "@antithesishq/bombadil";
+import {
+  always,
+  extract,
+  actions,
+  strings,
+  emails,
+  integers,
+  keycodes,
+  type Action,
+} from "@antithesishq/bombadil";
+import { Duration } from "@antithesishq/bombadil/internal";
 
 // Properties
 
@@ -59,8 +69,7 @@ export const scroll = actions(() => {
 
   if (!body.current) return scrolls;
 
-  const scroll_y_max =
-    body.current.scrollHeight - window.current.inner.height;
+  const scroll_y_max = body.current.scrollHeight - window.current.inner.height;
   const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
 
   if (scroll_y_max_diff >= 1) {
@@ -70,10 +79,7 @@ export const scroll = actions(() => {
           x: window.current.inner.width / 2,
           y: window.current.inner.height / 2,
         },
-        distance: Math.min(
-          window.current.inner.height / 2,
-          scroll_y_max_diff,
-        ),
+        distance: Math.min(window.current.inner.height / 2, scroll_y_max_diff),
       },
     });
   } else if (window.current.scroll.y > 0) {
@@ -231,4 +237,52 @@ export const clicks = actions(() => {
   return clickable_points.current.map(({ name, content, point }) => ({
     Click: { name, content, point },
   }));
+});
+
+// Inputs
+
+const active_input = extract((state) => {
+  const element = state.document.activeElement;
+  if (!element || element === state.document.body) return null;
+
+  if (element instanceof HTMLTextAreaElement) {
+    return "textarea";
+  }
+
+  if (element instanceof HTMLInputElement) {
+    return element.type;
+  }
+
+  return null;
+});
+
+export const inputs = actions(() => {
+  const type = active_input.current;
+  if (!type) return [];
+
+  const delay = Duration.milliseconds(50);
+
+  if (type === "textarea") {
+    return [{ TypeText: { text: strings().generate(), delay } }];
+  }
+
+  switch (type) {
+    case "text":
+      return [
+        { PressKey: { code: keycodes().generate() } },
+        { TypeText: { text: strings().generate(), delay } },
+      ];
+    case "email":
+      return [
+        { PressKey: { code: keycodes().generate() } },
+        { TypeText: { text: emails().generate(), delay } },
+      ];
+    case "number":
+      return [
+        { PressKey: { code: keycodes().generate() } },
+        { TypeText: { text: integers().generate(), delay } },
+      ];
+    default:
+      return [];
+  }
 });

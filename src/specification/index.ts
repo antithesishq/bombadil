@@ -15,9 +15,14 @@ export { time, type Cell } from "@antithesishq/bombadil/internal";
 export {
   actions,
   type Action,
+  type Generator,
   type Point,
   ActionGenerator,
   from,
+  strings,
+  emails,
+  integers,
+  keycodes,
 } from "@antithesishq/bombadil/actions";
 
 export class Formula {
@@ -136,7 +141,16 @@ export class Eventually extends Formula {
     if (this.bound !== null) {
       throw new Error("time bound is already set for `eventually`");
     }
-    return new Eventually(new Duration(n, unit), this.subformula);
+    let duration: Duration;
+    switch (unit) {
+      case "milliseconds":
+        duration = Duration.seconds(n);
+        break;
+      case "seconds":
+        duration = Duration.seconds(n);
+        break;
+    }
+    return new Eventually(duration, this.subformula);
   }
 
   override toString() {
