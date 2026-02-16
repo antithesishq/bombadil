@@ -6,6 +6,8 @@
   pkg-config,
   esbuild,
   chromium,
+  freefont_ttf,
+  makeFontsConf,
   craneLib,
   craneLibStatic,
   darwin ? null,
@@ -19,6 +21,7 @@ let
       || (lib.hasSuffix ".json" path)
       || (lib.hasSuffix ".snap" path)
       || (lib.hasSuffix ".html" path)
+      || (lib.hasSuffix ".xml" path)
       || (lib.hasSuffix ".js" path)
       || (craneLib.filterCargoSources path type);
   };
@@ -89,6 +92,7 @@ in
       inherit cargoArtifacts;
       nativeCheckInputs = [ chromium ];
       preCheck = ''
+        export FONTCONFIG_FILE=${makeFontsConf { fontDirectories = [ freefont_ttf ]; }}
         export HOME=$(mktemp -d)
           mkdir -p $HOME/.cache $HOME/.config $HOME/.local $HOME/.pki
           mkdir -p $HOME/.config/google-chrome/Crashpad

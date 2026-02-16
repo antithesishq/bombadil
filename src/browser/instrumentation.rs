@@ -61,41 +61,6 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                         .context("failed continuing request");
                 }
 
-                // Non-HTML documents (XML, PDF, etc.) should not be
-                // instrumented as HTML, so forward them as-is.
-                if event.resource_type == network::ResourceType::Document {
-                    let is_html = event
-                        .response_headers
-                        .as_ref()
-                        .and_then(|headers| {
-                            headers.iter().find(|h| {
-                                h.name.eq_ignore_ascii_case("content-type")
-                            })
-                        })
-                        .map(|h| h.value.starts_with("text/html"))
-                        .unwrap_or(true);
-
-                    if !is_html {
-                        return page
-                            .execute(
-                                fetch::ContinueRequestParams::builder()
-                                    .request_id(event.request_id.clone())
-                                    .build()
-                                    .map_err(|error| {
-                                        anyhow!(
-                                        "failed building ContinueRequestParams: {}",
-                                        error
-                                    )
-                                    })?,
-                            )
-                            .await
-                            .map(|_| ())
-                            .context(
-                                "failed continuing non-HTML document request",
-                            );
-                    }
-                }
-
                 let headers: HashMap<String, String> =
                     json::from_value(event.request.headers.inner().clone())?;
 
@@ -123,6 +88,21 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
 
                 let source_id = source_id(headers, &body);
 
+                let is_html_document = event.resource_type
+                    == network::ResourceType::Document
+                    && event
+                        .response_headers
+                        .as_ref()
+                        .and_then(|headers| {
+                            headers.iter().find(|h| {
+                                h.name.eq_ignore_ascii_case("content-type")
+                            })
+                        })
+                        .map(|h| h.value.starts_with("text/html"))
+                        .unwrap_or_else(|| {
+                            !body.trim_start().starts_with("<?xml")
+                        });
+
                 let body_instrumented = if event.resource_type
                     == network::ResourceType::Script
                 {
@@ -133,11 +113,15 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                         // we use this source type to let the parser decide.
                         SourceType::unambiguous(),
                     )?
-                } else if event.resource_type == network::ResourceType::Document
-                {
+                } else if is_html_document {
                     instrumentation::html::instrument_inline_scripts(
                         source_id, &body,
                     )?
+                } else if event.resource_type == network::ResourceType::Document
+                {
+                    // Non-HTML documents (XML, PDF, etc.) are passed
+                    // through without instrumentation.
+                    body.clone()
                 } else {
                     bail!(
                         "should only intercept script and document resources, but got {:?}",
