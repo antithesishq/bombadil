@@ -57,39 +57,35 @@ const window = extract((state) => {
 export const scroll = actions(() => {
   const scrolls: Action[] = [];
 
-  if (window.current.scroll.y > 0) {
+  if (!body.current) return scrolls;
+
+  const scroll_y_max =
+    body.current.scrollHeight - window.current.inner.height;
+  const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
+
+  if (scroll_y_max_diff >= 1) {
     scrolls.push({
-      ScrollUp: {
+      ScrollDown: {
         origin: {
           x: window.current.inner.width / 2,
           y: window.current.inner.height / 2,
         },
         distance: Math.min(
           window.current.inner.height / 2,
-          window.current.scroll.y,
+          scroll_y_max_diff,
         ),
       },
     });
-  }
-
-  if (body.current) {
-    const scroll_y_max =
-      body.current.scrollHeight - window.current.inner.height;
-    const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
-    if (scroll_y_max_diff >= 1) {
-      scrolls.push({
-        ScrollDown: {
-          origin: {
-            x: window.current.inner.width / 2,
-            y: window.current.inner.height / 2,
-          },
-          distance: Math.min(
-            window.current.inner.height / 2,
-            scroll_y_max_diff,
-          ),
+  } else if (window.current.scroll.y > 0) {
+    scrolls.push({
+      ScrollUp: {
+        origin: {
+          x: window.current.inner.width / 2,
+          y: window.current.inner.height / 2,
         },
-      });
-    }
+        distance: window.current.scroll.y,
+      },
+    });
   }
 
   return scrolls;
