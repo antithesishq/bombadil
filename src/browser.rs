@@ -7,6 +7,7 @@ use chromiumoxide::cdp::browser_protocol::target::{self, TargetId};
 use chromiumoxide::cdp::browser_protocol::{dom, emulation};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
+use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{BrowserConfig, Page};
 use futures::{StreamExt, stream};
 use log;
@@ -25,7 +26,10 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
-use crate::browser::state::{BrowserState, CallFrame, ConsoleEntry, Exception};
+use crate::browser::state::{
+    BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
+    ScreenshotFormat,
+};
 
 pub mod actions;
 pub mod evaluation;
@@ -46,6 +50,7 @@ struct InnerStateShared {
     generation: Generation,
     console_entries: Vec<ConsoleEntry>,
     exceptions: Vec<Exception>,
+    screenshot: Option<Screenshot>,
 }
 
 #[derive(Debug)]
@@ -627,6 +632,13 @@ async fn process_event(
             if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
                 state
+            } else if matches!(state.kind, Navigating | Loading) {
+                log::debug!(
+                    "skipping state capture during {:?} (reason: {:?})",
+                    &state.kind,
+                    reason
+                );
+                state
             } else {
                 log::debug!(
                     "forcing pause from {:?} because of {:?}",
@@ -643,9 +655,32 @@ async fn process_event(
         (
             state,
             InnerEvent::Paused {
+                call_frame_id: None,
+                ..
+            },
+        ) => {
+            log::debug!(
+                "paused without call frame, resuming and retrying capture"
+            );
+            context
+                .page
+                .execute(debugger::ResumeParams::builder().build())
+                .await?;
+            capture_browser_state(
+                InnerState {
+                    kind: InnerStateKind::Running,
+                    shared: state.shared,
+                },
+                context,
+            )
+            .await?
+        }
+        (
+            state,
+            InnerEvent::Paused {
                 reason,
                 exception,
-                call_frame_id,
+                call_frame_id: Some(call_frame_id),
             },
         ) => {
             log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
@@ -658,20 +693,22 @@ async fn process_event(
                 );
             }
 
-            let call_frame_id = call_frame_id
-                .ok_or(anyhow!("no call frame id at breakpoint"))?;
-
             let InnerStateShared {
                 console_entries,
                 exceptions,
                 generation,
+                screenshot,
             } = state.shared;
+
+            let screenshot = screenshot
+                .ok_or(anyhow!("no screenshot available for state capture"))?;
 
             let browser_state = BrowserState::current(
                 context.page.clone(),
                 &call_frame_id,
                 console_entries,
                 exceptions,
+                screenshot,
             )
             .await?;
 
@@ -697,6 +734,7 @@ async fn process_event(
                     generation,
                     console_entries: vec![],
                     exceptions: vec![],
+                    screenshot: None,
                 },
             }
         }
@@ -713,6 +751,19 @@ async fn process_event(
                 .await?;
             InnerState {
                 kind: Resuming(browser_action, timeout),
+                shared,
+            }
+        }
+        (
+            InnerState {
+                kind: Pausing,
+                shared,
+            },
+            InnerEvent::Resumed,
+        ) => {
+            log::debug!("resumed while pausing, ignoring");
+            InnerState {
+                kind: Pausing,
                 shared,
             }
         }
@@ -907,6 +958,23 @@ async fn capture_browser_state(
     context: &BrowserContext,
 ) -> Result<InnerState> {
     log::debug!("pausing, going into next generation...");
+
+    log::debug!("taking screenshot before pause");
+    let format = ScreenshotFormat::Webp;
+    let screenshot = Screenshot {
+        data: context
+            .page
+            .screenshot(
+                ScreenshotParams::builder()
+                    .omit_background(true)
+                    .format(format)
+                    .build(),
+            )
+            .await
+            .context("take screenshot before pause")?,
+        format,
+    };
+    state.shared.screenshot = Some(screenshot);
 
     context
         .page

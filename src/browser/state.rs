@@ -1,14 +1,13 @@
 use crate::instrumentation::js::{
     EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chromiumoxide::{
     Page,
     cdp::{
         browser_protocol::page::{self, CaptureScreenshotFormat},
         js_protocol::debugger::CallFrameId,
     },
-    page::ScreenshotParams,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
@@ -115,10 +114,19 @@ impl From<ScreenshotFormat> for CaptureScreenshotFormat {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Screenshot {
     pub format: ScreenshotFormat,
     pub data: Vec<u8>,
+}
+
+impl std::fmt::Debug for Screenshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Screenshot")
+            .field("format", &self.format)
+            .field("data", &format_args!("[{} bytes]", self.data.len()))
+            .finish()
+    }
 }
 
 impl BrowserState {
@@ -127,7 +135,9 @@ impl BrowserState {
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
+        screenshot: Screenshot,
     ) -> Result<Self> {
+        log::trace!("BrowserState::current: evaluating url");
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
                 &page,
@@ -137,6 +147,7 @@ impl BrowserState {
             .await?,
         )?;
 
+        log::trace!("BrowserState::current: evaluating title");
         let title: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -144,6 +155,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::trace!("BrowserState::current: evaluating content_type");
         let content_type: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -151,6 +163,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::trace!("BrowserState::current: getting navigation history");
         let navigation_history_result = page
             .execute(page::GetNavigationHistoryParams {})
             .await?
@@ -172,20 +185,8 @@ impl BrowserState {
             current: navigation_entries[index].clone(),
             forward: navigation_entries[index..].to_vec(),
         };
-        let format = ScreenshotFormat::Webp;
-        let screenshot = Screenshot {
-            data: page
-                .screenshot(
-                    ScreenshotParams::builder()
-                        .omit_background(true)
-                        .format(format)
-                        .build(),
-                )
-                .await
-                .context("take screenshot")?,
-            format,
-        };
 
+        log::trace!("BrowserState::current: evaluating coverage");
         let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -227,6 +228,7 @@ impl BrowserState {
         )
         .await?;
 
+        log::trace!("BrowserState::current: evaluating transition hash");
         let transition_hash_bigint: Option<String> =
             evaluate_expression_in_debugger(
                 &page,
@@ -282,6 +284,7 @@ impl BrowserState {
             None => None,
         };
 
+        log::trace!("BrowserState::current: done");
         Ok(BrowserState {
             timestamp: SystemTime::now(),
             page: page.clone(),
