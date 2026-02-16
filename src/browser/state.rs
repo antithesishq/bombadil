@@ -138,7 +138,7 @@ impl BrowserState {
         exceptions: Vec<Exception>,
         screenshot: Option<Screenshot>,
     ) -> Result<Self> {
-        log::debug!("BrowserState::current: evaluating url");
+        log::trace!("BrowserState::current: evaluating url");
         let url = Url::parse(
             &evaluate_expression_in_debugger::<String>(
                 &page,
@@ -148,7 +148,7 @@ impl BrowserState {
             .await?,
         )?;
 
-        log::debug!("BrowserState::current: evaluating title");
+        log::trace!("BrowserState::current: evaluating title");
         let title: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -156,7 +156,7 @@ impl BrowserState {
         )
         .await?;
 
-        log::debug!("BrowserState::current: evaluating content_type");
+        log::trace!("BrowserState::current: evaluating content_type");
         let content_type: String = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -164,7 +164,7 @@ impl BrowserState {
         )
         .await?;
 
-        log::debug!("BrowserState::current: getting navigation history");
+        log::trace!("BrowserState::current: getting navigation history");
         let navigation_history_result = page
             .execute(page::GetNavigationHistoryParams {})
             .await?
@@ -188,13 +188,13 @@ impl BrowserState {
         };
         let screenshot = match screenshot {
             Some(s) => {
-                log::debug!(
+                log::trace!(
                     "BrowserState::current: using pre-captured screenshot"
                 );
                 s
             }
             None => {
-                log::debug!(
+                log::trace!(
                     "BrowserState::current: taking screenshot (no pre-captured available)"
                 );
                 let format = ScreenshotFormat::Webp;
@@ -213,7 +213,7 @@ impl BrowserState {
             }
         };
 
-        log::debug!("BrowserState::current: evaluating coverage");
+        log::trace!("BrowserState::current: evaluating coverage");
         let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
             &page,
             call_frame_id,
@@ -255,7 +255,7 @@ impl BrowserState {
         )
         .await?;
 
-        log::debug!("BrowserState::current: evaluating transition hash");
+        log::trace!("BrowserState::current: evaluating transition hash");
         let transition_hash_bigint: Option<String> =
             evaluate_expression_in_debugger(
                 &page,
@@ -311,7 +311,7 @@ impl BrowserState {
             None => None,
         };
 
-        log::debug!("BrowserState::current: done");
+        log::trace!("BrowserState::current: done");
         Ok(BrowserState {
             timestamp: SystemTime::now(),
             page: page.clone(),
