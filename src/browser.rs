@@ -693,14 +693,15 @@ async fn process_event(
                 );
             }
 
-            let call_frame_id = call_frame_id;
-
             let InnerStateShared {
                 console_entries,
                 exceptions,
                 generation,
                 screenshot,
             } = state.shared;
+
+            let screenshot = screenshot
+                .ok_or(anyhow!("no screenshot available for state capture"))?;
 
             let browser_state = BrowserState::current(
                 context.page.clone(),

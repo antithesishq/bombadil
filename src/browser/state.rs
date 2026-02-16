@@ -1,14 +1,13 @@
 use crate::instrumentation::js::{
     EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chromiumoxide::{
     Page,
     cdp::{
         browser_protocol::page::{self, CaptureScreenshotFormat},
         js_protocol::debugger::CallFrameId,
     },
-    page::ScreenshotParams,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
@@ -136,7 +135,7 @@ impl BrowserState {
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
-        screenshot: Option<Screenshot>,
+        screenshot: Screenshot,
     ) -> Result<Self> {
         log::trace!("BrowserState::current: evaluating url");
         let url = Url::parse(
@@ -185,32 +184,6 @@ impl BrowserState {
             back: navigation_entries[0..index].to_vec(),
             current: navigation_entries[index].clone(),
             forward: navigation_entries[index..].to_vec(),
-        };
-        let screenshot = match screenshot {
-            Some(s) => {
-                log::trace!(
-                    "BrowserState::current: using pre-captured screenshot"
-                );
-                s
-            }
-            None => {
-                log::trace!(
-                    "BrowserState::current: taking screenshot (no pre-captured available)"
-                );
-                let format = ScreenshotFormat::Webp;
-                Screenshot {
-                    data: page
-                        .screenshot(
-                            ScreenshotParams::builder()
-                                .omit_background(true)
-                                .format(format)
-                                .build(),
-                        )
-                        .await
-                        .context("take screenshot")?,
-                    format,
-                }
-            }
         };
 
         log::trace!("BrowserState::current: evaluating coverage");
