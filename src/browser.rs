@@ -598,7 +598,6 @@ fn run_state_machine(
             Ok::<(), anyhow::Error>(())
         }.await;
         if let Err(error) = result {
-            tokio::signal::ctrl_c().await.ok();
             context
                 .sender
                 .send(BrowserEvent::Error(Arc::new(anyhow!(
@@ -744,7 +743,7 @@ async fn process_event(
             // throws an uncaught exception blocking the evaluation indefinitely.
             // This gives us a chance to receive the "Debugger.paused" event and
             // resume (extracting the uncaught exception information).
-            spawn(async move {
+            let action_handle = spawn(async move {
                 log::debug!("applying: {:?}", browser_action);
                 match browser_action.apply(&page).await {
                     Ok(_) => {
@@ -768,8 +767,9 @@ async fn process_event(
             let sender = context.inner_events_sender.clone();
             spawn(async move {
                 sleep(timeout).await;
+                action_handle.abort();
                 log::debug!(
-                    "timeout after {}ms, requesting new state",
+                    "timeout after {}ms, aborted action, requesting new state",
                     timeout.as_millis()
                 );
                 if let Err(error) = sender.send(InnerEvent::StateRequested(
