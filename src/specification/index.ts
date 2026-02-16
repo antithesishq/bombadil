@@ -119,7 +119,16 @@ export class Always extends Formula {
     if (this.bound !== null) {
       throw new Error("time bound is already set for `always`");
     }
-    return new Always(new Duration(n, unit), this.subformula);
+    let duration: Duration;
+    switch (unit) {
+      case "milliseconds":
+        duration = Duration.seconds(n);
+        break;
+      case "seconds":
+        duration = Duration.seconds(n);
+        break;
+    }
+    return new Always(duration, this.subformula);
   }
 
   override toString() {
