@@ -61,7 +61,12 @@ const TEST_TIMEOUT_SECONDS: u64 = 120;
 ///     http://localhost:{P}/tests/{name}.
 ///
 /// Which means that every named test case directory should have an index.html file.
-async fn run_browser_test(name: &str, expect: Expect, timeout: Duration, spec: Option<&str>) {
+async fn run_browser_test(
+    name: &str,
+    expect: Expect,
+    timeout: Duration,
+    spec: Option<&str>,
+) {
     setup();
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     log::info!("starting browser test");
@@ -97,7 +102,8 @@ async fn run_browser_test(name: &str, expect: Expect, timeout: Duration, spec: O
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let spec_source = spec.unwrap_or(r#"export * from "@antithesishq/bombadil/defaults";"#);
+    let spec_source =
+        spec.unwrap_or(r#"export * from "@antithesishq/bombadil/defaults";"#);
     let default_specification = Specification::from_string(
         spec_source,
         PathBuf::from("fake.ts").as_path(),
@@ -259,8 +265,13 @@ async fn test_unhandled_promise_rejection() {
 
 #[tokio::test]
 async fn test_other_domain() {
-    run_browser_test("other-domain", Expect::Success, Duration::from_secs(5), None)
-        .await;
+    run_browser_test(
+        "other-domain",
+        Expect::Success,
+        Duration::from_secs(5),
+        None,
+    )
+    .await;
 }
 
 #[tokio::test]
