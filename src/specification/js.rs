@@ -190,6 +190,7 @@ pub struct BombadilExports {
     pub eventually: JsValue,
     pub runtime_default: JsObject,
     pub time: JsObject,
+    pub action_generator: JsValue,
 }
 
 impl BombadilExports {
@@ -225,6 +226,7 @@ impl BombadilExports {
                     "time is not an object".to_string(),
                 ),
             )?,
+            action_generator: get_export("ActionGenerator")?,
         })
     }
 }

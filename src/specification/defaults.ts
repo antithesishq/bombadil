@@ -1,4 +1,6 @@
-import { always, extract } from "@antithesishq/bombadil";
+import { always, extract, actions, type Action } from "@antithesishq/bombadil";
+
+// Properties
 
 const response_status = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];
@@ -30,3 +32,65 @@ const console_errors = extract((state) =>
 export const no_console_errors = always(
   () => console_errors.current?.length === 0,
 );
+
+// Actions
+
+const body = extract((state) => {
+  return state.document.body
+    ? { scrollHeight: state.document.body.scrollHeight }
+    : null;
+});
+
+const window = extract((state) => {
+  return {
+    scroll: {
+      x: state.window.scrollX,
+      y: state.window.scrollY,
+    },
+    inner: {
+      width: state.window.innerWidth,
+      height: state.window.innerHeight,
+    },
+  };
+});
+
+export const scroll = actions(() => {
+  const scrolls: Action[] = [];
+
+  if (window.current.scroll.y > 0) {
+    scrolls.push({
+      ScrollUp: {
+        origin: {
+          x: window.current.inner.width / 2,
+          y: window.current.inner.height / 2,
+        },
+        distance: Math.min(
+          window.current.inner.height / 2,
+          window.current.scroll.y,
+        ),
+      },
+    });
+  }
+
+  if (body.current) {
+    const scroll_y_max =
+      body.current.scrollHeight - window.current.inner.height;
+    const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
+    if (scroll_y_max_diff >= 1) {
+      scrolls.push({
+        ScrollDown: {
+          origin: {
+            x: window.current.inner.width / 2,
+            y: window.current.inner.height / 2,
+          },
+          distance: Math.min(
+            window.current.inner.height / 2,
+            scroll_y_max_diff,
+          ),
+        },
+      });
+    }
+  }
+
+  return scrolls;
+});

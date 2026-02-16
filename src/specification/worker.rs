@@ -6,7 +6,7 @@ use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
-use crate::specification::verifier::{Specification, Verifier};
+use crate::specification::verifier::{Action, Specification, Verifier};
 
 enum Command {
     GetProperties {
@@ -19,10 +19,14 @@ enum Command {
     Step {
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-        reply: oneshot::Sender<
-            Result<Vec<(String, PropertyValue)>, SpecificationError>,
-        >,
+        reply: oneshot::Sender<Result<StepResult, SpecificationError>>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct StepResult {
+    pub properties: Vec<(String, PropertyValue)>,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,16 +92,20 @@ impl VerifierWorker {
                         reply,
                     } => {
                         let _ = reply.send(verifier.step(snapshots, time).map(
-                            |values| {
-                                values
-                                    .iter()
-                                    .map(|(key, value)| {
-                                        (
-                                            key.clone(),
-                                            PropertyValue::from(value),
-                                        )
-                                    })
-                                    .collect()
+                            |result| {
+                                StepResult {
+                                    properties: result
+                                        .properties
+                                        .iter()
+                                        .map(|(key, value)| {
+                                            (
+                                                key.clone(),
+                                                PropertyValue::from(value),
+                                            )
+                                        })
+                                        .collect(),
+                                    actions: result.actions,
+                                }
                             },
                         ));
                     }
@@ -137,7 +145,7 @@ impl VerifierWorker {
         &self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<Vec<(String, PropertyValue)>, WorkerError> {
+    ) -> Result<StepResult, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(Command::Step {

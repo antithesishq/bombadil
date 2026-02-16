@@ -12,6 +12,13 @@ export const runtime_default = new Runtime<State>();
 
 // Reexports
 export { time, type Cell } from "@antithesishq/bombadil/internal";
+export {
+  actions,
+  type Action,
+  type Point,
+  ActionGenerator,
+  from,
+} from "@antithesishq/bombadil/actions";
 
 export class Formula {
   not(): Formula {

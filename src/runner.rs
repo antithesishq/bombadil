@@ -144,14 +144,16 @@ impl Runner {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
                             let snapshots = run_extractors(&state, &extractors).await?;
-                            let property_results = verifier.step(snapshots, state.timestamp).await?;
-                            let mut violations = Vec::with_capacity(property_results.len());
-                            for (name, value) in property_results {
+                            let step_result = verifier.step(snapshots, state.timestamp).await?;
+                            let mut violations = Vec::with_capacity(step_result.properties.len());
+                            for (name, value) in step_result.properties {
                                 if let PropertyValue::False(violation) = value {
                                     violations.push(PropertyViolation{ name, violation });
                                 }
                             }
                             let has_violations = !violations.is_empty();
+
+                            log::info!("found actions: {:?}", step_result.actions);
 
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {

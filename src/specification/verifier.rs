@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::{collections::HashMap, rc::Rc};
 
+use crate::geometry::Point;
 use crate::specification::js::{
     BombadilExports, Extractors, RuntimeFunction, module_exports,
 };
@@ -8,12 +10,13 @@ use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
-use boa_engine::JsValue;
 use boa_engine::{
     Context, JsString, Module, Source, context::ContextBuilder, js_string,
     object::builtins::JsArray, property::PropertyKey,
 };
+use boa_engine::{JsObject, JsValue};
 use oxc::span::SourceType;
+use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use crate::specification::{
@@ -59,10 +62,44 @@ impl Specification {
     }
 }
 
+#[derive(Clone)]
+pub struct StepResult {
+    pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
+    pub actions: Vec<Action>,
+}
+
+// TODO: make the generic
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Action {
+    Back,
+    Click {
+        name: String,
+        content: Option<String>,
+        point: Point,
+    },
+    TypeText {
+        text: String,
+        delay: Duration,
+    },
+    PressKey {
+        code: u8,
+    },
+    ScrollUp {
+        origin: Point,
+        distance: f64,
+    },
+    ScrollDown {
+        origin: Point,
+        distance: f64,
+    },
+    Reload,
+}
+
 pub struct Verifier {
     context: Context,
     bombadil_exports: BombadilExports,
     properties: HashMap<String, Property>,
+    action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
     extractor_functions: HashMap<u64, String>,
 }
@@ -82,6 +119,15 @@ impl Verifier {
             let module = load_bombadil_module("internal.js", &mut context)?;
             loader.insert_mapped_module(
                 "@antithesishq/bombadil/internal",
+                module.clone(),
+            );
+        }
+
+        // Actions module
+        {
+            let module = load_bombadil_module("actions.js", &mut context)?;
+            loader.insert_mapped_module(
+                "@antithesishq/bombadil/actions",
                 module.clone(),
             );
         }
@@ -126,6 +172,8 @@ impl Verifier {
             BombadilExports::from_module(&bombadil_module_index, &mut context)?;
 
         let mut properties: HashMap<String, Property> = HashMap::new();
+        let mut action_generators: HashMap<String, ActionGenerator> =
+            HashMap::new();
         for (key, value) in specification_exports.iter() {
             if value.instance_of(&bombadil_exports.formula, &mut context)? {
                 let syntax =
@@ -136,6 +184,32 @@ impl Verifier {
                     Property {
                         name: key.to_string(),
                         state: PropertyState::Initial(formula),
+                    },
+                );
+            } else if value
+                .instance_of(&bombadil_exports.action_generator, &mut context)?
+            {
+                let object = value.as_object().ok_or(
+                    SpecificationError::OtherError(format!(
+                        "action generator {} is not an object, it is {}",
+                        key,
+                        value.type_of()
+                    )),
+                )?;
+                let function = object
+                    .get(js_string!("generate"), &mut context)
+                    .map_err(|error| SpecificationError::JS(error.to_string()))?
+                    .as_object()
+                    .ok_or(SpecificationError::OtherError(format!(
+                        "action {} is not a function, it is {}",
+                        key,
+                        value.type_of()
+                    )))?;
+                action_generators.insert(
+                    key.to_string(),
+                    ActionGenerator {
+                        name: key.to_string(),
+                        function,
                     },
                 );
             } else if let PropertyKey::Symbol(symbol) = key
@@ -182,6 +256,7 @@ impl Verifier {
         Ok(Verifier {
             context,
             properties,
+            action_generators,
             bombadil_exports,
             extractors,
             extractor_functions,
@@ -204,13 +279,14 @@ impl Verifier {
         &mut self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<Vec<(String, ltl::Value<RuntimeFunction>)>> {
+    ) -> Result<StepResult> {
         self.extractors.update_from_snapshots(
             snapshots,
             time,
             &mut self.context,
         )?;
-        let mut results = Vec::with_capacity(self.properties.len());
+        let mut result_properties = Vec::with_capacity(self.properties.len());
+        let mut result_actions = Vec::new();
 
         let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
@@ -242,7 +318,7 @@ impl Verifier {
                     ltl::Value::False(violation.clone())
                 }
             };
-            results.push((
+            result_properties.push((
                 property.name.clone(),
                 match value {
                     ltl::Value::True => {
@@ -262,7 +338,33 @@ impl Verifier {
                 },
             ));
         }
-        Ok(results)
+
+        for (name, action_generator) in &self.action_generators {
+            let value = action_generator.function.call(
+                &JsValue::undefined(),
+                &[],
+                context,
+            )?;
+            let actions_json = value.to_json(context)?.ok_or(
+                SpecificationError::OtherError(format!(
+                    "action generator {} return undefined",
+                    name
+                )),
+            )?;
+            let actions: Vec<Action> =
+                json::from_value(actions_json).map_err(|error| {
+                    SpecificationError::OtherError(format!(
+                        "failed to convert JSON object to action: {}",
+                        error
+                    ))
+                })?;
+            result_actions.extend(actions);
+        }
+
+        Ok(StepResult {
+            properties: result_properties,
+            actions: result_actions,
+        })
     }
 }
 
@@ -280,6 +382,12 @@ enum PropertyState {
     Residual(Residual<RuntimeFunction>),
     DefinitelyTrue,
     DefinitelyFalse(Violation<RuntimeFunction>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionGenerator {
+    pub name: String,
+    function: JsObject,
 }
 
 #[cfg(test)]
@@ -378,11 +486,11 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result = verifier
             .step(vec![(extractor_foo_id, json::json!(false))], time)
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -408,7 +516,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(true)),
@@ -418,7 +526,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -444,7 +552,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -454,7 +562,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -480,7 +588,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -490,7 +598,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -517,11 +625,11 @@ mod tests {
 
         for i in 0..=1 {
             let time = time_at(i);
-            let results = verifier
+            let result = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
@@ -562,11 +670,11 @@ mod tests {
 
         for i in 0..=100 {
             let time = time_at(0);
-            let results = verifier
+            let result = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 100 {
@@ -614,11 +722,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -659,11 +767,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
@@ -704,11 +812,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
