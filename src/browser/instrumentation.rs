@@ -61,6 +61,41 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                         .context("failed continuing request");
                 }
 
+                // Non-HTML documents (XML, PDF, etc.) should not be
+                // instrumented as HTML, so forward them as-is.
+                if event.resource_type == network::ResourceType::Document {
+                    let is_html = event
+                        .response_headers
+                        .as_ref()
+                        .and_then(|headers| {
+                            headers.iter().find(|h| {
+                                h.name.eq_ignore_ascii_case("content-type")
+                            })
+                        })
+                        .map(|h| h.value.starts_with("text/html"))
+                        .unwrap_or(true);
+
+                    if !is_html {
+                        return page
+                            .execute(
+                                fetch::ContinueRequestParams::builder()
+                                    .request_id(event.request_id.clone())
+                                    .build()
+                                    .map_err(|error| {
+                                        anyhow!(
+                                        "failed building ContinueRequestParams: {}",
+                                        error
+                                    )
+                                    })?,
+                            )
+                            .await
+                            .map(|_| ())
+                            .context(
+                                "failed continuing non-HTML document request",
+                            );
+                    }
+                }
+
                 let headers: HashMap<String, String> =
                     json::from_value(event.request.headers.inner().clone())?;
 
