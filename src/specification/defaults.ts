@@ -94,3 +94,145 @@ export const scroll = actions(() => {
 
   return scrolls;
 });
+
+// Clicks
+
+const clickable_points = extract((state) => {
+  if (!state.document.body) return [];
+
+  const ARIA_ROLES_CLICKABLE = [
+    "button",
+    "link",
+    "checkbox",
+    "radio",
+    "switch",
+    "tab",
+    "menuitem",
+    "option",
+    "treeitem",
+  ];
+
+  type ClickTarget = {
+    name: string;
+    content: string;
+    point: { x: number; y: number };
+  };
+  const targets: ClickTarget[] = [];
+  const added = new Set<Element>();
+
+  function clickable_point(element: Element): { x: number; y: number } | null {
+    const rect = element.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    }
+    return null;
+  }
+
+  function is_visible(element: Element): boolean {
+    const style = state.window.getComputedStyle(element);
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      parseFloat(style.opacity || "1") > 0.0
+    );
+  }
+
+  function in_viewport(point: { x: number; y: number }): boolean {
+    return (
+      point.x >= 0 &&
+      point.x <= state.window.innerWidth &&
+      point.y >= 0 &&
+      point.y <= state.window.innerHeight
+    );
+  }
+
+  // Anchors
+  const url_current = new URL(state.window.location.toString());
+  for (const anchor of Array.from(state.document.body.querySelectorAll("a"))) {
+    if (!(anchor instanceof HTMLAnchorElement)) continue;
+    if (added.has(anchor)) continue;
+
+    let url;
+    try {
+      url = new URL(anchor.href);
+    } catch {
+      continue;
+    }
+
+    if (anchor.target === "_blank") continue;
+    if (!url.protocol.startsWith("http")) continue;
+    if (!url.origin.endsWith(url_current.origin)) continue;
+    if (!is_visible(anchor)) continue;
+
+    const point = clickable_point(anchor);
+    if (!point) continue;
+    if (!in_viewport(point)) continue;
+
+    targets.push({
+      name: anchor.nodeName,
+      content: (anchor.textContent ?? "").trim().replace(/\s+/g, " "),
+      point,
+    });
+    added.add(anchor);
+  }
+
+  // Buttons, inputs, textareas, labels
+  for (const element of Array.from(
+    state.document.body.querySelectorAll("button,input,textarea,label[for]"),
+  )) {
+    if (added.has(element)) continue;
+    // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
+    if (!(element instanceof HTMLInputElement) && !is_visible(element))
+      continue;
+
+    const point = clickable_point(element);
+    if (!point) continue;
+    if (!in_viewport(point)) continue;
+
+    if (
+      element === state.document.activeElement &&
+      (element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement) &&
+      element.value
+    ) {
+      continue;
+    }
+
+    targets.push({
+      name: element.nodeName,
+      content: (element.textContent ?? "").trim().replace(/\s+/g, " "),
+      point,
+    });
+    added.add(element);
+  }
+
+  // ARIA role elements
+  const aria_selector = ARIA_ROLES_CLICKABLE.map(
+    (role) => `[role=${role}]`,
+  ).join(",");
+  for (const element of Array.from(
+    state.document.body.querySelectorAll(aria_selector),
+  )) {
+    if (added.has(element)) continue;
+    if (!is_visible(element)) continue;
+
+    const point = clickable_point(element);
+    if (!point) continue;
+    if (!in_viewport(point)) continue;
+
+    targets.push({
+      name: element.nodeName,
+      content: (element.textContent ?? "").trim().replace(/\s+/g, " "),
+      point,
+    });
+    added.add(element);
+  }
+
+  return targets;
+});
+
+export const clicks = actions(() => {
+  return clickable_points.current.map(({ name, content, point }) => ({
+    Click: { name, content, point },
+  }));
+});

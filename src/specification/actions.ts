@@ -8,7 +8,7 @@ export interface Point {
 export type Action =
   | "Back"
   | "Reload"
-  | { Click: { point: Point } }
+  | { Click: { name: string; content?: string; point: Point } }
   | { TypeText: { text: string; delay: Duration } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }
