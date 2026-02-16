@@ -627,6 +627,13 @@ async fn process_event(
             if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
                 state
+            } else if matches!(state.kind, Navigating | Loading) {
+                log::debug!(
+                    "skipping state capture during {:?} (reason: {:?})",
+                    &state.kind,
+                    reason
+                );
+                state
             } else {
                 log::debug!(
                     "forcing pause from {:?} because of {:?}",
@@ -643,9 +650,30 @@ async fn process_event(
         (
             state,
             InnerEvent::Paused {
+                call_frame_id: None,
+                ..
+            },
+        ) => {
+            log::debug!("paused without call frame, resuming and retrying capture");
+            context
+                .page
+                .execute(debugger::ResumeParams::builder().build())
+                .await?;
+            capture_browser_state(
+                InnerState {
+                    kind: InnerStateKind::Running,
+                    shared: state.shared,
+                },
+                context,
+            )
+            .await?
+        }
+        (
+            state,
+            InnerEvent::Paused {
                 reason,
                 exception,
-                call_frame_id,
+                call_frame_id: Some(call_frame_id),
             },
         ) => {
             log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
@@ -658,8 +686,7 @@ async fn process_event(
                 );
             }
 
-            let call_frame_id = call_frame_id
-                .ok_or(anyhow!("no call frame id at breakpoint"))?;
+            let call_frame_id = call_frame_id;
 
             let InnerStateShared {
                 console_entries,
@@ -713,6 +740,19 @@ async fn process_event(
                 .await?;
             InnerState {
                 kind: Resuming(browser_action, timeout),
+                shared,
+            }
+        }
+        (
+            InnerState {
+                kind: Pausing,
+                shared,
+            },
+            InnerEvent::Resumed,
+        ) => {
+            log::debug!("resumed while pausing, ignoring");
+            InnerState {
+                kind: Pausing,
                 shared,
             }
         }
