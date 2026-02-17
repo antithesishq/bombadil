@@ -197,6 +197,12 @@ impl Verifier {
             }
         }
 
+        if action_generators.is_empty() {
+            return Err(SpecificationError::OtherError(
+                "specification exports no action generators".to_string(),
+            ));
+        }
+
         let mut extractors = Extractors::new(&bombadil_exports);
 
         let extractors_value = bombadil_exports
@@ -383,7 +389,8 @@ mod tests {
     fn test_property_names() {
         let verifier = verifier(
             r#"
-            import { always, extract } from "@antithesishq/bombadil";
+            import { actions, always, extract } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
 
             // Invariant
 
@@ -403,7 +410,8 @@ mod tests {
     fn test_extractors() {
         let evaluator = verifier(
             r#"
-            import { extract } from "@antithesishq/bombadil";
+            import { actions, extract } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
 
             const notification_count = extract(
               (state) => state.foo
@@ -441,8 +449,9 @@ mod tests {
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = now(() => foo.current).not();
@@ -469,8 +478,9 @@ mod tests {
     fn test_property_evaluation_and() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -505,8 +515,9 @@ mod tests {
     fn test_property_evaluation_or() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -541,8 +552,9 @@ mod tests {
     fn test_property_evaluation_implies() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -577,8 +589,9 @@ mod tests {
     fn test_property_evaluation_next() {
         let mut verifier = verifier(
             r#"
-            import { extract, next } from "@antithesishq/bombadil";
-            
+            import { actions, extract, next } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = next(() => foo.current === 1);
@@ -622,8 +635,9 @@ mod tests {
     fn test_property_evaluation_always() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "@antithesishq/bombadil";
-            
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = always(() => foo.current < 100);
@@ -674,8 +688,9 @@ mod tests {
     fn test_property_evaluation_always_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "@antithesishq/bombadil";
-            
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = always(() => foo.current < 4).within(3, "milliseconds");
@@ -719,8 +734,9 @@ mod tests {
     fn test_property_evaluation_eventually() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "@antithesishq/bombadil";
-            
+            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = eventually(() => foo.current === 9);
@@ -764,8 +780,9 @@ mod tests {
     fn test_property_evaluation_eventually_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "@antithesishq/bombadil";
-            
+            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = eventually(() => foo.current === 9).within(3, "milliseconds");
@@ -821,6 +838,8 @@ mod tests {
 
         let verifier = verifier(&format!(
             r#"
+            import {{ actions }} from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
             export * from "{}";
             "#,
             imported_file.path().display(),

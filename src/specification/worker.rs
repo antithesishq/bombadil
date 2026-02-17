@@ -78,7 +78,6 @@ impl VerifierWorker {
                     let _ = ready_tx.send(Ok(()));
                     verifier
                 }
-                // TODO: send this error back instead, somehow
                 Err(error) => {
                     let _ = ready_tx.send(Err(error));
                     return;

@@ -308,6 +308,7 @@ async fn test_back_from_non_html() {
         Some(
             r#"
 import { extract, now, next, eventually } from "@antithesishq/bombadil";
+export { clicks, back } from "@antithesishq/bombadil/defaults";
 
 const contentType = extract((state) => state.document.contentType);
 
