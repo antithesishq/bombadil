@@ -93,6 +93,7 @@ enum InnerEvent {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StateRequestReason {
+    Start,
     Timeout,
     Loaded,
     BackForwardCacheRestore,
@@ -177,6 +178,7 @@ pub enum DebuggerOptions {
 
 pub struct Browser {
     receiver: Receiver<BrowserEvent>,
+    inner_events_sender: Sender<InnerEvent>,
     actions_sender: Sender<(BrowserAction, Timeout)>,
     shutdown_sender: oneshot::Sender<()>,
     done_receiver: oneshot::Receiver<()>,
@@ -286,15 +288,13 @@ impl Browser {
         Ok(Browser {
             browser,
             receiver,
+            inner_events_sender,
             actions_sender,
             shutdown_sender,
             done_receiver,
             page,
             origin,
-            go_to_origin_on_init: matches!(
-                debugger_options,
-                DebuggerOptions::Managed { .. }
-            ),
+            go_to_origin_on_init: browser_options.create_target,
         })
     }
 
@@ -307,6 +307,10 @@ impl Browser {
                 let _ = page.goto(origin).await;
             });
         } else {
+            let _ = self.inner_events_sender.send(InnerEvent::StateRequested(
+                StateRequestReason::Start,
+                Generation::default(),
+            ));
             log::debug!(
                 "using externally managed debugger, not doing anything on init"
             )
