@@ -177,6 +177,7 @@ pub struct BombadilExports {
     pub runtime_default: JsObject,
     pub time: JsObject,
     pub action_generator: JsValue,
+    pub weighted: JsValue,
 }
 
 impl BombadilExports {
@@ -213,6 +214,7 @@ impl BombadilExports {
                 ),
             )?,
             action_generator: get_export("ActionGenerator")?,
+            weighted: get_export("Weighted")?,
         })
     }
 }

@@ -4,4 +4,5 @@ pub mod instrumentation;
 pub mod runner;
 pub mod specification;
 pub mod trace;
+pub mod tree;
 pub mod url;

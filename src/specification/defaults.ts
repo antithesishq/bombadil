@@ -1,7 +1,7 @@
 import {
   always,
   extract,
-  actions,
+  weighted,
   strings,
   emails,
   integers,
@@ -88,18 +88,16 @@ const window = extract((state) => {
   };
 });
 
-export const scroll = actions(() => {
+export const scroll = weighted(15, () => {
   if (content_type.current !== "text/html") return [];
 
-  const scrolls: Action[] = [];
-
-  if (!body.current) return scrolls;
+  if (!body.current) return [];
 
   const scroll_y_max = body.current.scrollHeight - window.current.inner.height;
   const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
 
   if (scroll_y_max_diff >= 1) {
-    scrolls.push({
+    return [{
       ScrollDown: {
         origin: {
           x: window.current.inner.width / 2,
@@ -107,9 +105,9 @@ export const scroll = actions(() => {
         },
         distance: Math.min(window.current.inner.height / 2, scroll_y_max_diff),
       },
-    });
+    } as Action];
   } else if (window.current.scroll.y > 0) {
-    scrolls.push({
+    return [{
       ScrollUp: {
         origin: {
           x: window.current.inner.width / 2,
@@ -117,10 +115,10 @@ export const scroll = actions(() => {
         },
         distance: window.current.scroll.y,
       },
-    });
+    } as Action];
   }
 
-  return scrolls;
+  return [];
 });
 
 // Clicks
@@ -288,11 +286,11 @@ const clickable_points = extract((state) => {
   return targets;
 });
 
-export const clicks = actions(() => {
+export const clicks = weighted(25, () => {
   if (content_type.current !== "text/html") return [];
   return clickable_points.current.map(({ name, content, point }) => ({
     Click: { name, content, point },
-  }));
+  }) as Action);
 });
 
 // Inputs
@@ -312,7 +310,7 @@ const active_input = extract((state) => {
   return null;
 });
 
-export const inputs = actions(() => {
+export const inputs = weighted(15, () => {
   if (content_type.current !== "text/html") return [];
   const type = active_input.current;
   if (!type) return [];
@@ -320,24 +318,27 @@ export const inputs = actions(() => {
   const delay_millis = 50;
 
   if (type === "textarea") {
-    return [{ TypeText: { text: strings().generate(), delay_millis } }];
+    return [
+      weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
+      weighted(3, [{ TypeText: { text: strings().generate(), delay_millis } }]),
+    ];
   }
 
   switch (type) {
     case "text":
       return [
-        { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: strings().generate(), delay_millis } },
+        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
+        weighted(3, [{ TypeText: { text: strings().generate(), delay_millis } }]),
       ];
     case "email":
       return [
-        { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: emails().generate(), delay_millis } },
+        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
+        weighted(3, [{ TypeText: { text: emails().generate(), delay_millis } }]),
       ];
     case "number":
       return [
-        { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: integers().generate(), delay_millis } },
+        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
+        weighted(3, [{ TypeText: { text: integers().generate(), delay_millis } }]),
       ];
     default:
       return [];
@@ -346,23 +347,17 @@ export const inputs = actions(() => {
 
 // Navigation
 
-export const back = actions(() => {
-  if (can_go_back.current) {
-    return ["Back" as Action];
-  }
+export const back = weighted(3, () => {
+  if (can_go_back.current) return ["Back" as Action];
   return [];
 });
 
-export const forward = actions(() => {
-  if (can_go_forward_same_origin.current) {
-    return ["Forward" as Action];
-  }
+export const forward = weighted(1, () => {
+  if (can_go_forward_same_origin.current) return ["Forward" as Action];
   return [];
 });
 
-export const reload = actions(() => {
-  if (last_action.current !== "Reload") {
-    return ["Reload" as Action];
-  }
+export const reload = weighted(1, () => {
+  if (last_action.current !== "Reload") return ["Reload" as Action];
   return [];
 });

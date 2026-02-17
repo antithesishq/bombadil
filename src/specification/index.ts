@@ -13,10 +13,13 @@ export const runtime_default = new Runtime<State>();
 export { time, type Cell } from "@antithesishq/bombadil/internal";
 export {
   actions,
+  weighted,
   type Action,
   type Generator,
   type Point,
+  type WeightedActions,
   ActionGenerator,
+  Weighted,
   from,
   strings,
   emails,

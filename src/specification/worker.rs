@@ -8,6 +8,7 @@ use crate::specification::ltl::{self};
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
+use crate::tree::Tree;
 
 enum Command {
     GetProperties {
@@ -26,13 +27,13 @@ enum Command {
 
 struct RawStepResult {
     properties: Vec<(String, PropertyValue)>,
-    actions: Vec<json::Value>,
+    actions: Tree<json::Value>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StepResult<A> {
     pub properties: Vec<(String, PropertyValue)>,
-    pub actions: Vec<A>,
+    pub actions: Tree<A>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,15 +165,17 @@ impl VerifierWorker {
             .await
             .map_err(|_| WorkerError::WorkerGone)?
             .map_err(WorkerError::SpecificationError)?;
-        let actions: Vec<A> = result
+        let actions = result
             .actions
-            .into_iter()
-            .map(json::from_value)
-            .collect::<Result<_, _>>()
-            .map_err(|e| {
-                WorkerError::SpecificationError(SpecificationError::OtherError(
-                    format!("failed to deserialize action: {}", e),
-                ))
+            .try_map(&mut |v| {
+                json::from_value(v).map_err(|e| {
+                    WorkerError::SpecificationError(
+                        SpecificationError::OtherError(format!(
+                            "failed to deserialize action: {}",
+                            e
+                        )),
+                    )
+                })
             })?;
         Ok(StepResult {
             properties: result.properties,

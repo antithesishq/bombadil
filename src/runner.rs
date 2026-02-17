@@ -5,7 +5,6 @@ use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
-use rand::seq::IndexedRandom;
 use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
@@ -157,10 +156,8 @@ impl Runner {
                             let has_violations = !violations.is_empty();
 
                             // Make sure we stay within origin.
-                            let actions = if !is_within_domain(&state.url, origin) {
-                                step_result.actions.into_iter()
-                                    .filter(|a| matches!(a, BrowserAction::Back))
-                                    .collect::<Vec<_>>()
+                            let action_tree = if !is_within_domain(&state.url, origin) {
+                                step_result.actions.filter(&|a| matches!(a, BrowserAction::Back))
                             } else {
                                 step_result.actions
                             };
@@ -182,14 +179,10 @@ impl Runner {
                                 return Ok(())
                             }
 
-                            if actions.is_empty() {
-                                anyhow::bail!("no actions available");
-                            }
+                            let action_tree = action_tree.prune()
+                                .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
 
-                            let action = {
-                                let mut rng = rand::rng();
-                                actions.choose(&mut rng).unwrap().clone()
-                            };
+                            let action = action_tree.pick(&mut rand::rng()).clone();
                             let timeout = action_timeout(&action);
                             log::info!("picked action: {:?}", action);
                             browser.apply(action.clone(), timeout)?;

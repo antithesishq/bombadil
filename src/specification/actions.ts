@@ -35,12 +35,39 @@ function random_choice<T>(items: T[]): T {
 
 // Generators
 
-export class ActionGenerator implements Generator<Action[]> {
-  constructor(public generate: () => Action[]) {}
+export interface WeightedActions {
+  weight: number;
+  actions: Action[];
 }
 
-export function actions(generate: () => Action[]): ActionGenerator {
+type GenerateResult = (WeightedActions | Action)[];
+
+export class ActionGenerator implements Generator<GenerateResult> {
+  constructor(public generate: () => GenerateResult) {}
+}
+
+export function actions(generate: () => GenerateResult): ActionGenerator {
   return new ActionGenerator(generate);
+}
+
+export class Weighted {
+  constructor(
+    public weight: number,
+    public generator: ActionGenerator,
+  ) {}
+}
+
+export function weighted(
+  weight: number,
+  value: Action[] | ActionGenerator | (() => GenerateResult),
+): Weighted | WeightedActions {
+  if (Array.isArray(value)) {
+    return { weight, actions: value };
+  }
+  if (typeof value === "function") {
+    return new Weighted(weight, new ActionGenerator(value));
+  }
+  return new Weighted(weight, value);
 }
 
 export class From<T> implements Generator<T> {
