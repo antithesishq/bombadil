@@ -43,14 +43,14 @@ pub struct Coverage {
     pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NavigationHistory {
     pub back: Vec<NavigationEntry>,
     pub current: NavigationEntry,
     pub forward: Vec<NavigationEntry>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NavigationEntry {
     pub id: u32,
     pub title: String,

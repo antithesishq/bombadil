@@ -7,6 +7,7 @@ export interface Point {
 
 export type Action =
   | "Back"
+  | "Forward"
   | "Reload"
   | { Click: { name: string; content?: string; point: Point } }
   | { TypeText: { text: string; delay: Duration } }

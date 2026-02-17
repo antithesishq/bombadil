@@ -77,6 +77,7 @@ pub struct Duration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Action {
     Back,
+    Forward,
     Click {
         name: String,
         content: Option<String>,

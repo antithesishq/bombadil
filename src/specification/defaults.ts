@@ -45,6 +45,16 @@ export const no_console_errors = always(
 
 // Actions
 
+const content_type = extract((state) => state.document.contentType);
+
+const can_go_back = extract(
+  (state) => state.navigation_history.back.length > 0,
+);
+
+const can_go_forward = extract(
+  (state) => state.navigation_history.forward.length > 0,
+);
+
 const body = extract((state) => {
   return state.document.body
     ? { scrollHeight: state.document.body.scrollHeight }
@@ -65,6 +75,8 @@ const window = extract((state) => {
 });
 
 export const scroll = actions(() => {
+  if (content_type.current !== "text/html") return [];
+
   const scrolls: Action[] = [];
 
   if (!body.current) return scrolls;
@@ -234,6 +246,7 @@ const clickable_points = extract((state) => {
 });
 
 export const clicks = actions(() => {
+  if (content_type.current !== "text/html") return [];
   return clickable_points.current.map(({ name, content, point }) => ({
     Click: { name, content, point },
   }));
@@ -257,6 +270,7 @@ const active_input = extract((state) => {
 });
 
 export const inputs = actions(() => {
+  if (content_type.current !== "text/html") return [];
   const type = active_input.current;
   if (!type) return [];
 
@@ -285,4 +299,20 @@ export const inputs = actions(() => {
     default:
       return [];
   }
+});
+
+// Navigation
+
+export const back = actions(() => {
+  if (can_go_back.current) {
+    return ["Back"];
+  }
+  return [];
+});
+
+export const forward = actions(() => {
+  if (can_go_forward.current) {
+    return ["Forward"];
+  }
+  return [];
 });

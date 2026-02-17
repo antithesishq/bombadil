@@ -224,6 +224,11 @@ export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
 export interface State {
   document: HTMLDocument;
   window: Window;
+  navigation_history: {
+    back: NavigationEntry[];
+    current: NavigationEntry;
+    forward: NavigationEntry[];
+  };
   errors: {
     uncaught_exceptions: {
       text: string;
@@ -237,6 +242,12 @@ export interface State {
   };
   console: ConsoleEntry[];
 }
+
+export type NavigationEntry = {
+  id: number;
+  title: string;
+  url: string;
+};
 
 export type ConsoleEntry = {
   timestamp: number;

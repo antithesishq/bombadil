@@ -244,8 +244,8 @@ async fn run_extractors(
         "errors": {
             "uncaught_exceptions": &state.exceptions,
         },
-        "console": console_entries
-
+        "console": console_entries,
+        "navigation_history": &state.navigation_history,
     });
 
     for (key, function) in extractors {
