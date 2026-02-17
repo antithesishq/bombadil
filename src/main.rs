@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
         .format_target(true)
-        // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
+        // Until we have a fix for https://github.com/mattsse/chromiumoxide/issues/287
         .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
         .filter_module("html5ever", log::LevelFilter::Info)
         .init();

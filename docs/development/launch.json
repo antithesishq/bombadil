@@ -7,7 +7,7 @@
       "sourceLanguages": ["rust"],
       "preLaunchTask": "cargo build",
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/antithesis_browser",
+      "program": "${workspaceFolder}/target/debug/bombadil",
       "args": ["test", "http://localhost:8000/examples/react/dist"],
       "cwd": "${workspaceFolder}"
     },
@@ -16,7 +16,7 @@
       "type": "codelldb",
       "sourceLanguages": ["rust"],
       "request": "launch",
-      "program": "${workspaceFolder}/target/debug/antithesis_browser",
+      "program": "${workspaceFolder}/target/debug/bombadil",
       "args": ["test", "http://localhost:8000/examples/dojo"],
       "cwd": "${workspaceFolder}"
     }

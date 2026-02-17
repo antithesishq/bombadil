@@ -40,7 +40,7 @@ fn setup() {
             .format_timestamp_millis()
             .format_target(true)
             .is_test(true)
-            // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
+            // Until we have a fix for https://github.com/mattsse/chromiumoxide/issues/287
             .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
             .init();
     });
@@ -54,7 +54,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 120;
 /// Run a named browser test with a given expectation.
 ///
 /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
-/// facitiliate multi-domain tests.
+/// facilitate multi-domain tests.
 ///
 /// The test starts at:
 ///

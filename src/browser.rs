@@ -1112,5 +1112,5 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
             return Ok(page);
         }
     }
-    bail!("coulnd't find an existing page to use");
+    bail!("couldn't find an existing page to use");
 }

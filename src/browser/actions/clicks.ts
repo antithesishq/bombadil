@@ -128,7 +128,7 @@ result = (() => {
     "button,input,textarea,label[for]",
   )) {
     try {
-      // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
+      // We require visibility except for input elements, which are often hidden and overlaid with custom styling.
       if (!(element instanceof HTMLInputElement) && !is_visible(element)) {
         console.debug(element, "is not visible");
         continue;
