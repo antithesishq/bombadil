@@ -48,6 +48,7 @@ pub enum TypeTextFormat {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {
     Back,
+    Forward,
     Click {
         name: String,
         content: Option<String>,
@@ -100,6 +101,23 @@ impl BrowserAction {
                 page.execute(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(last.id)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                )
+                .await?;
+            }
+            BrowserAction::Forward => {
+                let history =
+                    page.execute(page::GetNavigationHistoryParams {}).await?;
+                let next_index = (history.current_index + 1) as usize;
+                if next_index >= history.entries.len() {
+                    bail!("can't go forward from last navigation entry");
+                }
+                let next: page::NavigationEntry =
+                    history.entries[next_index].clone();
+                page.execute(
+                    page::NavigateToHistoryEntryParams::builder()
+                        .entry_id(next.id)
                         .build()
                         .map_err(|err| anyhow!(err))?,
                 )

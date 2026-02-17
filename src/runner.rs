@@ -1,13 +1,15 @@
-use crate::browser::actions::{BrowserAction, available_actions};
-use crate::browser::{BrowserEvent, BrowserOptions, random};
+use crate::browser::actions::BrowserAction;
+use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::specification::verifier::Specification;
+use crate::specification::verifier::{self, Specification};
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
+use rand::seq::IndexedRandom;
 use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 use tokio::{select, spawn};
 
@@ -91,7 +93,6 @@ impl Runner {
                 browser.initiate().await?;
                 log::debug!("browser initiated");
                 Runner::run_test(
-                    origin,
                     options,
                     &mut browser,
                     verifier,
@@ -121,7 +122,6 @@ impl Runner {
     }
 
     async fn run_test(
-        origin: Url,
         options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
@@ -163,14 +163,6 @@ impl Runner {
                             log_coverage_stats_increment(&state.coverage);
                             log_coverage_stats_total(&edges);
 
-                            let actions =
-                                available_actions(&origin, &state).await?;
-
-                            let action = {
-                                let mut rng = rand::rng();
-                                random::pick_action(&mut rng, actions)
-                            };
-
                             events.send(RunEvent::NewState {
                                 state,
                                 last_action,
@@ -180,9 +172,17 @@ impl Runner {
                                 return Ok(())
                             }
 
-                            let (action, timeout) = action;
+                            if step_result.actions.is_empty() {
+                                anyhow::bail!("no actions available");
+                            }
+
+                            let spec_action = {
+                                let mut rng = rand::rng();
+                                step_result.actions.choose(&mut rng).unwrap().clone()
+                            };
+                            let (action, timeout) = to_browser_action(spec_action);
                             log::info!("picked action: {:?}", action);
-                            browser.apply(action.clone(), timeout.to_duration())?;
+                            browser.apply(action.clone(), timeout)?;
                             last_action = Some(action);
                         }
                         BrowserEvent::Error(error) => {
@@ -322,6 +322,50 @@ async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
     Ok(())
 }
 */
+
+fn to_browser_action(action: verifier::Action) -> (BrowserAction, Duration) {
+    match action {
+        verifier::Action::Back => {
+            (BrowserAction::Back, Duration::from_secs(2))
+        }
+        verifier::Action::Forward => {
+            (BrowserAction::Forward, Duration::from_secs(2))
+        }
+        verifier::Action::Reload => {
+            (BrowserAction::Reload, Duration::from_secs(2))
+        }
+        verifier::Action::Click {
+            name,
+            content,
+            point,
+        } => (
+            BrowserAction::Click {
+                name,
+                content,
+                point,
+            },
+            Duration::from_millis(500),
+        ),
+        verifier::Action::TypeText { text, delay } => (
+            BrowserAction::TypeText {
+                text,
+                delay: Duration::from_millis(delay.milliseconds),
+            },
+            Duration::from_millis(300),
+        ),
+        verifier::Action::PressKey { code } => {
+            (BrowserAction::PressKey { code }, Duration::from_millis(50))
+        }
+        verifier::Action::ScrollUp { origin, distance } => (
+            BrowserAction::ScrollUp { origin, distance },
+            Duration::from_millis(100),
+        ),
+        verifier::Action::ScrollDown { origin, distance } => (
+            BrowserAction::ScrollDown { origin, distance },
+            Duration::from_millis(100),
+        ),
+    }
+}
 
 fn log_coverage_stats_increment(coverage: &Coverage) {
     if log::log_enabled!(log::Level::Debug) {
