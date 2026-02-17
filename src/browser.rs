@@ -589,7 +589,7 @@ fn run_state_machine(
                                 log::debug!("state transition: {} -> {:?}", state_and_event_formatted, &state_new);
                                 state_new
                             } else {
-                                process_event(&context, state_current, event).await?
+                                Box::pin(process_event(&context, state_current, event)).await?
                             }
                         }
                         None => {
