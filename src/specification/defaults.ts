@@ -44,17 +44,6 @@ export const no_console_errors = always(
 
 // Actions
 
-const on_test_origin = extract((state) => {
-  const current_url = state.navigation_history.current.url;
-  const first_back = state.navigation_history.back[0];
-  if (!first_back) return true;
-  try {
-    return new URL(current_url).origin === new URL(first_back.url).origin;
-  } catch {
-    return true;
-  }
-});
-
 const content_type = extract((state) => state.document.contentType);
 
 const can_go_back = extract(
@@ -100,7 +89,6 @@ const window = extract((state) => {
 });
 
 export const scroll = actions(() => {
-  if (!on_test_origin.current) return [];
   if (content_type.current !== "text/html") return [];
 
   const scrolls: Action[] = [];
@@ -272,7 +260,6 @@ const clickable_points = extract((state) => {
 });
 
 export const clicks = actions(() => {
-  if (!on_test_origin.current) return [];
   if (content_type.current !== "text/html") return [];
   return clickable_points.current.map(({ name, content, point }) => ({
     Click: { name, content, point },
@@ -297,7 +284,6 @@ const active_input = extract((state) => {
 });
 
 export const inputs = actions(() => {
-  if (!on_test_origin.current) return [];
   if (content_type.current !== "text/html") return [];
   const type = active_input.current;
   if (!type) return [];
@@ -339,7 +325,6 @@ export const back = actions(() => {
 });
 
 export const forward = actions(() => {
-  if (!on_test_origin.current) return [];
   if (can_go_forward_same_origin.current) {
     return ["Forward" as Action];
   }
@@ -347,7 +332,6 @@ export const forward = actions(() => {
 });
 
 export const reload = actions(() => {
-  if (!on_test_origin.current) return [];
   if (last_action.current !== "Reload") {
     return ["Reload" as Action];
   }

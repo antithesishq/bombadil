@@ -15,6 +15,7 @@ use tokio::{select, spawn};
 
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
+use crate::url::is_within_domain;
 
 pub struct RunnerOptions {
     pub stop_on_violation: bool,
@@ -93,6 +94,7 @@ impl Runner {
                 browser.initiate().await?;
                 log::debug!("browser initiated");
                 Runner::run_test(
+                    &origin,
                     options,
                     &mut browser,
                     verifier,
@@ -122,6 +124,7 @@ impl Runner {
     }
 
     async fn run_test(
+        origin: &Url,
         options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
@@ -153,6 +156,15 @@ impl Runner {
                             }
                             let has_violations = !violations.is_empty();
 
+                            // Make sure we stay within origin.
+                            let actions = if !is_within_domain(&state.url, origin) {
+                                step_result.actions.into_iter()
+                                    .filter(|a| matches!(a, BrowserAction::Back))
+                                    .collect::<Vec<_>>()
+                            } else {
+                                step_result.actions
+                            };
+
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {
                                 edges[*index as usize] =
@@ -170,13 +182,13 @@ impl Runner {
                                 return Ok(())
                             }
 
-                            if step_result.actions.is_empty() {
+                            if actions.is_empty() {
                                 anyhow::bail!("no actions available");
                             }
 
                             let action = {
                                 let mut rng = rand::rng();
-                                step_result.actions.choose(&mut rng).unwrap().clone()
+                                actions.choose(&mut rng).unwrap().clone()
                             };
                             let timeout = action_timeout(&action);
                             log::info!("picked action: {:?}", action);
