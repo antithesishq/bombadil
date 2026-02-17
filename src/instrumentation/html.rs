@@ -87,7 +87,7 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
                         };
 
                         let transformed = instrument_source_code(
-                            // Every inline scripts needs a unique ID.
+                            // Every inline script needs a unique ID.
                             source_id.add(scripts_count),
                             &original,
                             source_type,
