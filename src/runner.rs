@@ -212,7 +212,7 @@ impl RunEvents {
     }
 
     /// Shuts down the runner, waiting for it to finish and clean up. Returns an Err when some
-    /// non-recoverable error occured, as opposed to test violations which are sent in trace events.
+    /// non-recoverable error occurred, as opposed to test violations which are sent in trace events.
     pub async fn shutdown(mut self) -> anyhow::Result<()> {
         // If we can't send the signal, it means the receiver has already been dropped.
         let _ = self.shutdown.send(());

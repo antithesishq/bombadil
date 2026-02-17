@@ -139,7 +139,7 @@ $ head -n1 /tmp/my-test/trace.jsonl | jq .
 
 ## Install
 
-The most straightforward way for you to get start is downloading [the latest
+The most straightforward way for you to get started is downloading [the latest
 executable](https://github.com/antithesishq/bombadil/releases/latest) for your
 platform:
 
@@ -147,7 +147,7 @@ platform:
 $ wget https://github.com/antithesishq/bombadil/releases/latest/download/bombadil-x86_64-linux
 $ chmod +x bombadil-x86_64-linux
 $ ./bombadil-x86_64-linux --version
-bombadil 0.2.0
+bombadil 0.2.1
 ```
 
 If you're a Nix and flakes user, you can run it with:

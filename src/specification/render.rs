@@ -79,7 +79,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms and until {}ms, it should alwaays be the case that\n\n{}\n\nbut at {}ms\n\n{}",
+                    "as of {}ms and until {}ms, it should always be the case that\n\n{}\n\nbut at {}ms\n\n{}",
                     time_to_ms(start),
                     time_to_ms(end),
                     RenderedFormula((*subformula).as_ref()),
