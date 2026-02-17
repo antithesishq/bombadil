@@ -25,6 +25,8 @@ export {
   keycodes,
 } from "@antithesishq/bombadil/actions";
 
+import type { Action } from "@antithesishq/bombadil/actions";
+
 export class Formula {
   not(): Formula {
     return new Not(this);
@@ -241,6 +243,7 @@ export interface State {
     }[];
   };
   console: ConsoleEntry[];
+  last_action: Action | null;
 }
 
 export type NavigationEntry = {

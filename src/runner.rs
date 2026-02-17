@@ -143,7 +143,7 @@ impl Runner {
                     Some(event) => match event {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
-                            let snapshots = run_extractors(&state, &extractors).await?;
+                            let snapshots = run_extractors(&state, &extractors, &last_action).await?;
                             let step_result = verifier.step(snapshots, state.timestamp).await?;
                             let mut violations = Vec::with_capacity(step_result.properties.len());
                             for (name, value) in step_result.properties {
@@ -225,6 +225,7 @@ impl RunEvents {
 async fn run_extractors(
     state: &BrowserState,
     extractors: &Vec<(u64, String)>,
+    last_action: &Option<BrowserAction>,
 ) -> anyhow::Result<Vec<(u64, json::Value)>> {
     let mut results = Vec::with_capacity(extractors.len());
 
@@ -240,12 +241,18 @@ async fn run_extractors(
         })
         .collect();
 
+    let last_action_json = match last_action {
+        Some(action) => json::to_value(action).unwrap_or(json::Value::Null),
+        None => json::Value::Null,
+    };
+
     let state_partial = json::json!({
         "errors": {
             "uncaught_exceptions": &state.exceptions,
         },
         "console": console_entries,
         "navigation_history": &state.navigation_history,
+        "last_action": last_action_json,
     });
 
     for (key, function) in extractors {

@@ -55,6 +55,13 @@ const can_go_forward = extract(
   (state) => state.navigation_history.forward.length > 0,
 );
 
+const last_action = extract((state) => {
+  const action = state.last_action;
+  if (action === null) return null;
+  if (typeof action === "string") return action;
+  return Object.keys(action)[0] ?? null;
+});
+
 const body = extract((state) => {
   return state.document.body
     ? { scrollHeight: state.document.body.scrollHeight }
@@ -305,14 +312,21 @@ export const inputs = actions(() => {
 
 export const back = actions(() => {
   if (can_go_back.current) {
-    return ["Back"];
+    return ["Back" as Action];
   }
   return [];
 });
 
 export const forward = actions(() => {
   if (can_go_forward.current) {
-    return ["Forward"];
+    return ["Forward" as Action];
+  }
+  return [];
+});
+
+export const reload = actions(() => {
+  if (last_action.current !== "Reload") {
+    return ["Reload" as Action];
   }
   return [];
 });
