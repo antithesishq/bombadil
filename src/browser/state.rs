@@ -180,10 +180,20 @@ impl BrowserState {
             })
             .collect::<Vec<_>>();
         let index = navigation_history_result.current_index as usize;
+        let is_real_entry =
+            |entry: &&NavigationEntry| entry.url.as_str() != "about:blank";
         let navigation_history = NavigationHistory {
-            back: navigation_entries[0..index].to_vec(),
+            back: navigation_entries[0..index]
+                .iter()
+                .filter(is_real_entry)
+                .cloned()
+                .collect(),
             current: navigation_entries[index].clone(),
-            forward: navigation_entries[index..].to_vec(),
+            forward: navigation_entries[index + 1..]
+                .iter()
+                .filter(is_real_entry)
+                .cloned()
+                .collect(),
         };
 
         log::trace!("BrowserState::current: evaluating coverage");
