@@ -2,7 +2,6 @@ import {
   type JSON,
   ExtractorCell,
   Runtime,
-  Duration,
   type TimeUnit,
   type Cell,
 } from "@antithesishq/bombadil/internal";
@@ -111,63 +110,63 @@ export class Next extends Formula {
 
 export class Always extends Formula {
   constructor(
-    public bound: Duration | null,
+    public bound_millis: number | null,
     public subformula: Formula,
   ) {
     super();
   }
 
   within(n: number, unit: TimeUnit): Formula {
-    if (this.bound !== null) {
+    if (this.bound_millis !== null) {
       throw new Error("time bound is already set for `always`");
     }
-    let duration: Duration;
+    let duration_millis: number;
     switch (unit) {
       case "milliseconds":
-        duration = Duration.seconds(n);
+        duration_millis = n;
         break;
       case "seconds":
-        duration = Duration.seconds(n);
+        duration_millis = n * 1000;
         break;
     }
-    return new Always(duration, this.subformula);
+    return new Always(duration_millis, this.subformula);
   }
 
   override toString() {
-    return this.bound === null
+    return this.bound_millis === null
       ? `always(${this.subformula})`
-      : `always(${this.subformula}).within(${this.bound.milliseconds}, "milliseconds")`;
+      : `always(${this.subformula}).within(${this.bound_millis}, "milliseconds")`;
   }
 }
 
 export class Eventually extends Formula {
   constructor(
-    public bound: Duration | null,
+    public bound_millis: number | null,
     public subformula: Formula,
   ) {
     super();
   }
 
   within(n: number, unit: TimeUnit): Formula {
-    if (this.bound !== null) {
+    if (this.bound_millis !== null) {
       throw new Error("time bound is already set for `eventually`");
     }
-    let duration: Duration;
+    let duration_millis: number;
     switch (unit) {
       case "milliseconds":
-        duration = Duration.seconds(n);
+        duration_millis = n;
         break;
       case "seconds":
-        duration = Duration.seconds(n);
+        duration_millis = n * 1000;
         break;
     }
-    return new Eventually(duration, this.subformula);
+    return new Eventually(duration_millis, this.subformula);
   }
 
   override toString() {
-    return this.bound === null
+    return this.bound_millis === null
       ? `eventually(${this.subformula})`
-      : `eventually(${this.subformula}).within(${this.bound.milliseconds}, "milliseconds")`;
+      : `eventually(${this.subformula}).within(${this.bound_millis}, "milliseconds")`;
   }
 }
 

@@ -2,18 +2,6 @@ export type Time = number;
 
 export type TimeUnit = "milliseconds" | "seconds";
 
-export class Duration {
-  constructor(public milliseconds: number) {}
-
-  static seconds(seconds: number): Duration {
-    return new Duration(seconds * 1000);
-  }
-
-  static milliseconds(milliseconds: number): Duration {
-    return new Duration(milliseconds);
-  }
-}
-
 export interface Cell<T> {
   get current(): T;
   at(time: Time): T;
