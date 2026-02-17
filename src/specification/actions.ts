@@ -17,6 +17,24 @@ export interface Generator<T> {
   generate(): T;
 }
 
+// Random helpers (backed by Rust's rand crate via __bombadil_random_bytes)
+
+declare function __bombadil_random_bytes(n: number): Uint8Array;
+
+function random_u32(): number {
+  return new DataView(__bombadil_random_bytes(4).buffer).getUint32(0);
+}
+
+function random_range(min: number, max: number): number {
+  return min + (random_u32() % (max - min));
+}
+
+function random_choice<T>(items: T[]): T {
+  return items[random_u32() % items.length]!;
+}
+
+// Generators
+
 export class ActionGenerator implements Generator<Action[]> {
   constructor(public generate: () => Action[]) {}
 }
@@ -29,8 +47,7 @@ export class From<T> implements Generator<T> {
   constructor(private elements: T[]) {}
 
   generate() {
-    // TODO: actual random generation
-    return this.elements[0]!;
+    return random_choice(this.elements);
   }
 }
 
@@ -41,10 +58,12 @@ export function from<T>(elements: T[]): From<T> {
   return new From(elements);
 }
 
+const ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyz0123456789";
+
 class StringGenerator implements Generator<string> {
   generate() {
-    // TODO: actual random generation
-    return "hello";
+    const len = random_range(1, 16);
+    return Array.from({ length: len }, () => random_choice([...ALPHANUMERIC])).join("");
   }
 }
 
@@ -54,8 +73,9 @@ export function strings(): Generator<string> {
 
 class EmailGenerator implements Generator<string> {
   generate() {
-    // TODO: actual random generation
-    return "test@example.com";
+    const user = Array.from({ length: random_range(3, 10) }, () => random_choice([...ALPHANUMERIC])).join("");
+    const domain = Array.from({ length: random_range(3, 8) }, () => random_choice([...ALPHANUMERIC])).join("");
+    return `${user}@${domain}.com`;
   }
 }
 
@@ -65,8 +85,7 @@ export function emails(): Generator<string> {
 
 class IntegerGenerator implements Generator<string> {
   generate() {
-    // TODO: actual random generation
-    return (42).toString();
+    return random_range(0, 10000).toString();
   }
 }
 
@@ -75,9 +94,9 @@ export function integers(): Generator<string> {
 }
 
 class KeycodeGenerator implements Generator<number> {
+  static CODES = [8, 9, 13, 27];
   generate() {
-    // TODO: actual random generation
-    return 13;
+    return random_choice(KeycodeGenerator.CODES)!;
   }
 }
 

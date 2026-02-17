@@ -9,8 +9,9 @@ use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use boa_engine::{
-    Context, JsString, Module, Source, context::ContextBuilder, js_string,
-    object::builtins::JsArray, property::PropertyKey,
+    Context, JsString, Module, NativeFunction, Source, context::ContextBuilder, js_string,
+    object::builtins::{JsArray, JsUint8Array},
+    property::PropertyKey,
 };
 use boa_engine::{JsObject, JsValue};
 use oxc::span::SourceType;
@@ -83,6 +84,22 @@ impl Verifier {
             .module_loader(loader.clone())
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
+
+        // Expose random byte generation to JS
+        context.register_global_builtin_callable(
+            js_string!("__bombadil_random_bytes"),
+            1,
+            NativeFunction::from_copy_closure(|_this, args, context| {
+                let n = args
+                    .first()
+                    .map(|v| v.to_u32(context))
+                    .transpose()?
+                    .unwrap_or(0) as usize;
+                let mut buf = vec![0u8; n];
+                rand::fill(&mut buf[..]);
+                Ok(JsUint8Array::from_iter(buf, context)?.into())
+            }),
+        )?;
 
         // Internal module
         {
