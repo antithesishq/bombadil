@@ -584,9 +584,10 @@ fn run_state_machine(
                     event = events.next() => match event {
                         Some(event) => {
                             state_current = if log::log_enabled!(log::Level::Debug) {
-                                let state_and_event_formatted = format!("{:?} + {:?}", &state_current, &event);
-                                let state_new = process_event(&context, state_current, event).await?;
-                                log::debug!("state transition: {} -> {:?}", state_and_event_formatted, &state_new);
+                                let before = format!("{:?} ({})", &state_current.kind, &state_current.shared.generation);
+                                let event_formatted = format!("{:?}", &event);
+                                let state_new = Box::pin(process_event(&context, state_current, event)).await?;
+                                log::debug!("{} + {} -> {:?} ({})", before, event_formatted, &state_new.kind, &state_new.shared.generation);
                                 state_new
                             } else {
                                 Box::pin(process_event(&context, state_current, event)).await?
