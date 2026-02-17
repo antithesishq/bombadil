@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use rand::Rng;
 
 pub type Weight = u16;
@@ -9,7 +10,10 @@ pub enum Tree<T> {
 }
 
 impl<T> Tree<T> {
-    pub fn try_map<U, E>(self, f: &mut impl FnMut(T) -> Result<U, E>) -> Result<Tree<U>, E> {
+    pub fn try_map<U, E>(
+        self,
+        f: &mut impl FnMut(T) -> Result<U, E>,
+    ) -> Result<Tree<U>, E> {
         match self {
             Tree::Leaf(x) => Ok(Tree::Leaf(f(x)?)),
             Tree::Branch(branches) => Ok(Tree::Branch(
@@ -64,11 +68,14 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn pick(&self, rng: &mut impl Rng) -> &T {
+    pub fn pick(&self, rng: &mut impl Rng) -> Result<&T> {
         match self {
-            Tree::Leaf(x) => x,
+            Tree::Leaf(x) => Ok(x),
             Tree::Branch(branches) => {
                 let total: u64 = branches.iter().map(|(w, _)| *w as u64).sum();
+                if total == 0 {
+                    bail!("total of weights is zero")
+                }
                 let mut choice = rng.random_range(0..total);
                 for (weight, subtree) in branches {
                     let w = *weight as u64;
@@ -77,8 +84,7 @@ impl<T> Tree<T> {
                     }
                     choice -= w;
                 }
-                // Fallback (shouldn't happen with a well-formed tree)
-                branches.last().unwrap().1.pick(rng)
+                bail!("BUG: no pick available")
             }
         }
     }
@@ -92,7 +98,10 @@ mod tests {
     fn test_prune_non_empty() {
         let actual = Branch(vec![
             (1, Leaf(1)),
-            (1, Branch(vec![(1, Leaf(2)), (1, Leaf(3)), (1, Branch(vec![]))])),
+            (
+                1,
+                Branch(vec![(1, Leaf(2)), (1, Leaf(3)), (1, Branch(vec![]))]),
+            ),
             (1, Branch(vec![])),
         ])
         .prune()
@@ -112,17 +121,15 @@ mod tests {
 
     #[test]
     fn test_prune_empty_subtrees() {
-        let actual = Branch::<()>(vec![(1, Branch(vec![])), (1, Branch(vec![]))]).prune();
+        let actual =
+            Branch::<()>(vec![(1, Branch(vec![])), (1, Branch(vec![]))])
+                .prune();
         assert_eq!(actual, None);
     }
 
     #[test]
     fn test_filter() {
-        let tree = Branch(vec![
-            (1, Leaf(1)),
-            (1, Leaf(2)),
-            (1, Leaf(3)),
-        ]);
+        let tree = Branch(vec![(1, Leaf(1)), (1, Leaf(2)), (1, Leaf(3))]);
         let filtered = tree.filter(&|x| *x > 1).prune().unwrap();
         let expected = Branch(vec![(1, Leaf(2)), (1, Leaf(3))]);
         assert_eq!(filtered, expected);
@@ -158,21 +165,18 @@ mod tests {
     fn test_pick_single_leaf() {
         let tree = Leaf(42);
         let mut rng = rand::rng();
-        assert_eq!(*tree.pick(&mut rng), 42);
+        assert_eq!(*tree.pick(&mut rng).unwrap(), 42);
     }
 
     #[test]
     fn test_pick_weighted() {
         // With weight 0 for "a" and weight 1 for "b", should always pick "b"
         // Actually weight 0 would cause issues, use weight 1000 vs 1
-        let tree = Branch(vec![
-            (1000, Leaf("heavy")),
-            (1, Leaf("light")),
-        ]);
+        let tree = Branch(vec![(1000, Leaf("heavy")), (1, Leaf("light"))]);
         let mut rng = rand::rng();
         let mut heavy_count = 0;
         for _ in 0..100 {
-            if *tree.pick(&mut rng) == "heavy" {
+            if *tree.pick(&mut rng).unwrap() == "heavy" {
                 heavy_count += 1;
             }
         }
