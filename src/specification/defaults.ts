@@ -8,7 +8,6 @@ import {
   keycodes,
   type Action,
 } from "@antithesishq/bombadil";
-import { Duration } from "@antithesishq/bombadil/internal";
 
 // Properties
 
@@ -281,27 +280,27 @@ export const inputs = actions(() => {
   const type = active_input.current;
   if (!type) return [];
 
-  const delay = Duration.milliseconds(50);
+  const delay_millis = 50;
 
   if (type === "textarea") {
-    return [{ TypeText: { text: strings().generate(), delay } }];
+    return [{ TypeText: { text: strings().generate(), delay_millis } }];
   }
 
   switch (type) {
     case "text":
       return [
         { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: strings().generate(), delay } },
+        { TypeText: { text: strings().generate(), delay_millis } },
       ];
     case "email":
       return [
         { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: emails().generate(), delay } },
+        { TypeText: { text: emails().generate(), delay_millis } },
       ];
     case "number":
       return [
         { PressKey: { code: keycodes().generate() } },
-        { TypeText: { text: integers().generate(), delay } },
+        { TypeText: { text: integers().generate(), delay_millis } },
       ];
     default:
       return [];

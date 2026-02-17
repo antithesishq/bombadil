@@ -1,3 +1,4 @@
+use serde::de::DeserializeOwned;
 use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -6,7 +7,7 @@ use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
-use crate::specification::verifier::{Action, Specification, Verifier};
+use crate::specification::verifier::{Specification, Verifier};
 
 enum Command {
     GetProperties {
@@ -19,14 +20,19 @@ enum Command {
     Step {
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-        reply: oneshot::Sender<Result<StepResult, SpecificationError>>,
+        reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
 }
 
+struct RawStepResult {
+    properties: Vec<(String, PropertyValue)>,
+    actions: Vec<json::Value>,
+}
+
 #[derive(Debug, Clone)]
-pub struct StepResult {
+pub struct StepResult<A> {
     pub properties: Vec<(String, PropertyValue)>,
-    pub actions: Vec<Action>,
+    pub actions: Vec<A>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,9 +97,9 @@ impl VerifierWorker {
                         time,
                         reply,
                     } => {
-                        let _ = reply.send(verifier.step(snapshots, time).map(
-                            |result| {
-                                StepResult {
+                        let _ = reply.send(
+                            verifier.step::<json::Value>(snapshots, time).map(
+                                |result| RawStepResult {
                                     properties: result
                                         .properties
                                         .iter()
@@ -105,9 +111,9 @@ impl VerifierWorker {
                                         })
                                         .collect(),
                                     actions: result.actions,
-                                }
-                            },
-                        ));
+                                },
+                            ),
+                        );
                     }
                 }
             }
@@ -141,11 +147,11 @@ impl VerifierWorker {
             .map_err(|_| WorkerError::WorkerGone)
             .and_then(|result| result.map_err(WorkerError::SpecificationError))
     }
-    pub async fn step(
+    pub async fn step<A: DeserializeOwned>(
         &self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<StepResult, WorkerError> {
+    ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(Command::Step {
@@ -155,10 +161,24 @@ impl VerifierWorker {
             })
             .await
             .map_err(|_| WorkerError::WorkerGone)?;
-        reply_rx
+        let result = reply_rx
             .await
-            .map_err(|_| WorkerError::WorkerGone)
-            .and_then(|result| result.map_err(WorkerError::SpecificationError))
+            .map_err(|_| WorkerError::WorkerGone)?
+            .map_err(WorkerError::SpecificationError)?;
+        let actions: Vec<A> = result
+            .actions
+            .into_iter()
+            .map(json::from_value)
+            .collect::<Result<_, _>>()
+            .map_err(|e| {
+                WorkerError::SpecificationError(SpecificationError::OtherError(
+                    format!("failed to deserialize action: {}", e),
+                ))
+            })?;
+        Ok(StepResult {
+            properties: result.properties,
+            actions,
+        })
     }
 }
 

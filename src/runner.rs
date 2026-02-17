@@ -1,7 +1,7 @@
 use crate::browser::actions::BrowserAction;
 use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::specification::verifier::{self, Specification};
+use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
@@ -144,7 +144,7 @@ impl Runner {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
                             let snapshots = run_extractors(&state, &extractors, &last_action).await?;
-                            let step_result = verifier.step(snapshots, state.timestamp).await?;
+                            let step_result = verifier.step::<BrowserAction>(snapshots, state.timestamp).await?;
                             let mut violations = Vec::with_capacity(step_result.properties.len());
                             for (name, value) in step_result.properties {
                                 if let PropertyValue::False(violation) = value {
@@ -152,8 +152,6 @@ impl Runner {
                                 }
                             }
                             let has_violations = !violations.is_empty();
-
-                            log::info!("found actions: {:?}", step_result.actions);
 
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {
@@ -176,11 +174,11 @@ impl Runner {
                                 anyhow::bail!("no actions available");
                             }
 
-                            let spec_action = {
+                            let action = {
                                 let mut rng = rand::rng();
                                 step_result.actions.choose(&mut rng).unwrap().clone()
                             };
-                            let (action, timeout) = to_browser_action(spec_action);
+                            let timeout = action_timeout(&action);
                             log::info!("picked action: {:?}", action);
                             browser.apply(action.clone(), timeout)?;
                             last_action = Some(action);
@@ -323,47 +321,16 @@ async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
 }
 */
 
-fn to_browser_action(action: verifier::Action) -> (BrowserAction, Duration) {
+fn action_timeout(action: &BrowserAction) -> Duration {
     match action {
-        verifier::Action::Back => {
-            (BrowserAction::Back, Duration::from_secs(2))
-        }
-        verifier::Action::Forward => {
-            (BrowserAction::Forward, Duration::from_secs(2))
-        }
-        verifier::Action::Reload => {
-            (BrowserAction::Reload, Duration::from_secs(2))
-        }
-        verifier::Action::Click {
-            name,
-            content,
-            point,
-        } => (
-            BrowserAction::Click {
-                name,
-                content,
-                point,
-            },
-            Duration::from_millis(500),
-        ),
-        verifier::Action::TypeText { text, delay } => (
-            BrowserAction::TypeText {
-                text,
-                delay: Duration::from_millis(delay.milliseconds),
-            },
-            Duration::from_millis(300),
-        ),
-        verifier::Action::PressKey { code } => {
-            (BrowserAction::PressKey { code }, Duration::from_millis(50))
-        }
-        verifier::Action::ScrollUp { origin, distance } => (
-            BrowserAction::ScrollUp { origin, distance },
-            Duration::from_millis(100),
-        ),
-        verifier::Action::ScrollDown { origin, distance } => (
-            BrowserAction::ScrollDown { origin, distance },
-            Duration::from_millis(100),
-        ),
+        BrowserAction::Back => Duration::from_secs(2),
+        BrowserAction::Forward => Duration::from_secs(2),
+        BrowserAction::Reload => Duration::from_secs(2),
+        BrowserAction::Click { .. } => Duration::from_millis(500),
+        BrowserAction::TypeText { .. } => Duration::from_millis(300),
+        BrowserAction::PressKey { .. } => Duration::from_millis(50),
+        BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
+        BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
     }
 }
 

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::{collections::HashMap, rc::Rc};
 
-use crate::geometry::Point;
 use crate::specification::js::{
     BombadilExports, Extractors, RuntimeFunction, module_exports,
 };
@@ -15,7 +14,6 @@ use boa_engine::{
 };
 use boa_engine::{JsObject, JsValue};
 use oxc::span::SourceType;
-use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use crate::specification::{
@@ -62,43 +60,9 @@ impl Specification {
 }
 
 #[derive(Clone)]
-pub struct StepResult {
+pub struct StepResult<A> {
     pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
-    pub actions: Vec<Action>,
-}
-
-// TODO: make the action generic
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Duration {
-    pub milliseconds: u64,
-}
-
-// TODO: make the action generic
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Action {
-    Back,
-    Forward,
-    Click {
-        name: String,
-        content: Option<String>,
-        point: Point,
-    },
-    TypeText {
-        text: String,
-        delay: Duration,
-    },
-    PressKey {
-        code: u8,
-    },
-    ScrollUp {
-        origin: Point,
-        distance: f64,
-    },
-    ScrollDown {
-        origin: Point,
-        distance: f64,
-    },
-    Reload,
+    pub actions: Vec<A>,
 }
 
 pub struct Verifier {
@@ -281,11 +245,11 @@ impl Verifier {
         Ok(results)
     }
 
-    pub fn step(
+    pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<StepResult> {
+    ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
             snapshots,
             time,
@@ -357,7 +321,7 @@ impl Verifier {
                     name
                 )),
             )?;
-            let actions: Vec<Action> =
+            let actions: Vec<A> =
                 json::from_value(actions_json).map_err(|error| {
                     SpecificationError::OtherError(format!(
                         "failed to convert JSON object to action: {}",

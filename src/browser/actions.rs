@@ -56,7 +56,7 @@ pub enum BrowserAction {
     },
     TypeText {
         text: String,
-        delay: Duration,
+        delay_millis: u64,
     },
     PressKey {
         code: u8,
@@ -153,9 +153,10 @@ impl BrowserAction {
             BrowserAction::Click { point, .. } => {
                 page.click((*point).into()).await?;
             }
-            BrowserAction::TypeText { text, delay } => {
+            BrowserAction::TypeText { text, delay_millis } => {
+                let delay = Duration::from_millis(*delay_millis);
                 for char in text.chars() {
-                    sleep(*delay).await;
+                    sleep(delay).await;
                     page.execute(input::InsertTextParams::new(char)).await?;
                 }
             }

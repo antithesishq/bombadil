@@ -1,5 +1,3 @@
-import { Duration } from "@antithesishq/bombadil/internal";
-
 export interface Point {
   x: number;
   y: number;
@@ -10,7 +8,7 @@ export type Action =
   | "Forward"
   | "Reload"
   | { Click: { name: string; content?: string; point: Point } }
-  | { TypeText: { text: string; delay: Duration } }
+  | { TypeText: { text: string; delay_millis: number } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }
   | { ScrollDown: { origin: Point; distance: number } };
