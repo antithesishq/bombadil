@@ -35,7 +35,6 @@ pub mod actions;
 pub mod evaluation;
 pub mod instrumentation;
 pub mod keys;
-pub mod random;
 pub mod state;
 
 #[derive(Debug, Clone)]

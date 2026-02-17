@@ -3,47 +3,12 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{input, page};
-use include_dir::{Dir, include_dir};
 use serde::Serialize;
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::Deserialize;
 use tokio::time::sleep;
-use url::Url;
 
 use crate::browser::keys::key_name;
-use crate::browser::state::BrowserState;
 use crate::geometry::Point;
-use crate::tree::{Tree, Weight};
-use crate::url::is_within_domain;
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrowserActionCandidate {
-    Back,
-    Click {
-        name: String,
-        content: Option<String>,
-        point: Point,
-    },
-    TypeText {
-        format: TypeTextFormat,
-    },
-    PressKey,
-    ScrollUp {
-        origin: Point,
-        distance: f64,
-    },
-    ScrollDown {
-        origin: Point,
-        distance: f64,
-    },
-    Reload,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum TypeTextFormat {
-    Text,
-    Email,
-    Number,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {
@@ -70,20 +35,6 @@ pub enum BrowserAction {
         distance: f64,
     },
     Reload,
-}
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub struct Timeout(pub u64);
-
-impl Timeout {
-    pub fn from_secs(secs: u64) -> Self {
-        Timeout(secs.saturating_mul(1000))
-    }
-
-    pub fn to_duration(&self) -> Duration {
-        let Timeout(millis) = self;
-        Duration::from_millis(*millis)
-    }
 }
 
 impl BrowserAction {
@@ -188,75 +139,5 @@ impl BrowserAction {
             }
         };
         Ok(())
-    }
-}
-
-static ACTIONS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/actions");
-
-async fn run_script<Output: DeserializeOwned>(
-    state: &BrowserState,
-    name: impl Into<&str>,
-) -> Result<Output> {
-    let script_path = format!("{}.js", name.into());
-    let script_file = ACTIONS_DIR
-        .get_file(&script_path)
-        .ok_or(anyhow!("missing script {}", script_path))?;
-
-    let script_contents = script_file
-        .contents_utf8()
-        .ok_or(anyhow!("failed to get script contents"))?;
-
-    state
-        .evaluate_function_call(script_contents, vec![])
-        .await
-        .map_err(|err| anyhow!("script call ({}) failed: {}", script_path, err))
-}
-
-async fn run_actions_script(
-    state: &BrowserState,
-    name: impl Into<&str>,
-) -> Result<Vec<Tree<(BrowserActionCandidate, Timeout)>>> {
-    let actions: Vec<(Weight, Timeout, BrowserActionCandidate)> =
-        run_script(state, name).await?;
-    Ok(actions
-        .iter()
-        .map(|(_weight, timeout, action)| {
-            Tree::Leaf((action.clone(), *timeout))
-        })
-        .collect::<Vec<_>>())
-}
-
-fn back(state: &BrowserState) -> Tree<(BrowserActionCandidate, Timeout)> {
-    if state.navigation_history.back.is_empty() {
-        Tree::Branch(vec![])
-    } else {
-        Tree::Leaf((BrowserActionCandidate::Back, Timeout::from_secs(2)))
-    }
-}
-
-pub async fn available_actions(
-    origin: &Url,
-    state: &BrowserState,
-) -> Result<Tree<(BrowserActionCandidate, Timeout)>> {
-    if state.content_type != "text/html"
-        || !is_within_domain(&state.url, origin)
-    {
-        return Ok(back(state));
-    }
-
-    let tree = Tree::Branch(vec![
-        (Tree::Branch(run_actions_script(state, "clicks").await?)),
-        (Tree::Branch(run_actions_script(state, "inputs").await?)),
-        (Tree::Branch(run_actions_script(state, "scrolls").await?)),
-    ])
-    .prune();
-    log::debug!("action tree: {:?}", &tree);
-
-    if let Some(tree) = tree {
-        Ok(tree)
-    } else {
-        back(state)
-            .prune()
-            .ok_or(anyhow!("no fallback action available"))
     }
 }
