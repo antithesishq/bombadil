@@ -35,11 +35,12 @@ static INIT: Once = Once::new();
 
 fn setup() {
     INIT.call_once(|| {
-        let env = env_logger::Env::default().default_filter_or("warn");
+        let env = env_logger::Env::default().default_filter_or("debug");
         env_logger::Builder::from_env(env)
             .format_timestamp_millis()
             .format_target(true)
             .is_test(true)
+            .filter_module("html5ever", log::LevelFilter::Warn)
             // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
             .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
             .init();
