@@ -50,9 +50,17 @@ const can_go_back = extract(
   (state) => state.navigation_history.back.length > 0,
 );
 
-const can_go_forward = extract(
-  (state) => state.navigation_history.forward.length > 0,
-);
+const can_go_forward_same_origin = extract((state) => {
+  const entry = state.navigation_history.forward[0];
+  if (!entry) return false;
+  try {
+    const current = new URL(state.navigation_history.current.url);
+    const forward = new URL(entry.url);
+    return forward.origin === current.origin;
+  } catch {
+    return false;
+  }
+});
 
 const last_action = extract((state) => {
   const action = state.last_action;
@@ -317,7 +325,7 @@ export const back = actions(() => {
 });
 
 export const forward = actions(() => {
-  if (can_go_forward.current) {
+  if (can_go_forward_same_origin.current) {
     return ["Forward" as Action];
   }
   return [];
