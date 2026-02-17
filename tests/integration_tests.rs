@@ -290,7 +290,7 @@ async fn test_no_action_available() {
     run_browser_test(
         "no-action-available",
         Expect::Error {
-            substring: "no fallback action available",
+            substring: "no actions available",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
         None,
