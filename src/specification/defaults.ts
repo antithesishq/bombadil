@@ -174,9 +174,39 @@ const clickable_points = extract((state) => {
     );
   }
 
+  // Like querySelectorAll, but searches recursively into shadow roots and iframes.
+  //
+  // TODO: make this a part of the bombadil package so that others can use it (depends
+  // on https://github.com/antithesishq/bombadil/issues/17)
+  function query_all(root: Element, selector: string): Element[] {
+    const queue: Element[] = [root];
+    const results: Element[] = [];
+    while (queue.length > 0) {
+      const element = queue.pop()!;
+      if (element.matches(selector)) {
+        results.push(element);
+      }
+      if (element.shadowRoot) {
+        for (const child of Array.from(element.shadowRoot.children)) {
+          queue.push(child);
+        }
+      } else if (
+        element instanceof HTMLIFrameElement &&
+        element.contentDocument
+      ) {
+        queue.push(element.contentDocument.body);
+      } else {
+        for (const child of Array.from(element.children)) {
+          queue.push(child);
+        }
+      }
+    }
+    return results;
+  }
+
   // Anchors
   const url_current = new URL(state.window.location.toString());
-  for (const anchor of Array.from(state.document.body.querySelectorAll("a"))) {
+  for (const anchor of query_all(state.document.body, "a")) {
     if (!(anchor instanceof HTMLAnchorElement)) continue;
     if (added.has(anchor)) continue;
 
@@ -205,8 +235,9 @@ const clickable_points = extract((state) => {
   }
 
   // Buttons, inputs, textareas, labels
-  for (const element of Array.from(
-    state.document.body.querySelectorAll("button,input,textarea,label[for]"),
+  for (const element of query_all(
+    state.document.body,
+    "button,input,textarea,label[for]",
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
@@ -238,9 +269,7 @@ const clickable_points = extract((state) => {
   const aria_selector = ARIA_ROLES_CLICKABLE.map(
     (role) => `[role=${role}]`,
   ).join(",");
-  for (const element of Array.from(
-    state.document.body.querySelectorAll(aria_selector),
-  )) {
+  for (const element of query_all(state.document.body, aria_selector)) {
     if (added.has(element)) continue;
     if (!is_visible(element)) continue;
 
