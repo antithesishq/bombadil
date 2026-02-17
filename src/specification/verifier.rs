@@ -456,7 +456,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result = verifier
+        let result: StepResult<json::Value> = verifier
             .step(vec![(extractor_foo_id, json::json!(false))], time)
             .unwrap();
 
@@ -486,7 +486,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(true)),
@@ -522,7 +522,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -558,7 +558,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -595,7 +595,7 @@ mod tests {
 
         for i in 0..=1 {
             let time = time_at(i);
-            let result = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
@@ -640,7 +640,7 @@ mod tests {
 
         for i in 0..=100 {
             let time = time_at(0);
-            let result = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
@@ -692,7 +692,7 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
@@ -737,7 +737,7 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
@@ -782,7 +782,7 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
