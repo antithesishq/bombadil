@@ -906,7 +906,11 @@ async fn process_event(
         }
         (mut state, InnerEvent::ExceptionThrown(exception)) => {
             state.shared.exceptions.push(exception);
-            capture_browser_state(state, context).await?
+            if matches!(state.kind, Running) {
+                capture_browser_state(state, context).await?
+            } else {
+                state
+            }
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             // Track all nodes.
