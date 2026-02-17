@@ -173,7 +173,7 @@ with your package manager of choice:
 $ npm install @antithesishq/bombadil
 ```
 
-Or use the files provided in the [the 
+Or use the files provided in [the
 release package](https://github.com/antithesishq/bombadil/releases/latest).
 
 ## More Resources
