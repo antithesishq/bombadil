@@ -218,8 +218,6 @@ mod tests {
 
     #[test]
     fn test_pick_weighted() {
-        // With weight 0 for "a" and weight 1 for "b", should always pick "b"
-        // Actually weight 0 would cause issues, use weight 1000 vs 1
         let tree = Branch {
             branches: vec![
                 (1000, Leaf { value: "heavy" }),
