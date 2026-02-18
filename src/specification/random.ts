@@ -63,6 +63,11 @@ class StringGenerator implements Generator<string> {
     ).join("");
   }
 
+  minSize(value: number): StringGenerator {
+    this.size.min = value;
+    return this;
+  }
+
   maxSize(value: number): StringGenerator {
     this.size.max = value;
     return this;

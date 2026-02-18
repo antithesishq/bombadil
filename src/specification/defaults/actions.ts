@@ -291,12 +291,15 @@ export const inputs = actions(() => {
   const type = active_input.current;
   if (!type) return [];
 
-  const delay_millis = 50;
+  const delay_millis = integers().min(1).max(100).generate();
 
   if (type === "textarea") {
     return weighted([
       [1, { PressKey: { code: keycodes().generate() } }],
-      [3, { TypeText: { text: strings().generate(), delay_millis } }],
+      [
+        3,
+        { TypeText: { text: strings().minSize(1).generate(), delay_millis } },
+      ],
     ]);
   }
 
@@ -304,7 +307,10 @@ export const inputs = actions(() => {
     case "text":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
-        [3, { TypeText: { text: strings().generate(), delay_millis } }],
+        [
+          3,
+          { TypeText: { text: strings().minSize(1).generate(), delay_millis } },
+        ],
       ]);
     case "email":
       return weighted([
