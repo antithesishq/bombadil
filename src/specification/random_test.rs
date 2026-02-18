@@ -5,11 +5,8 @@ use std::rc::Rc;
 use proptest::prelude::*;
 
 use boa_engine::{
-    Context, JsValue, Module, NativeFunction,
-    context::ContextBuilder,
-    js_string,
-    object::builtins::JsUint8Array,
-    property::PropertyKey,
+    Context, JsValue, Module, NativeFunction, context::ContextBuilder,
+    js_string, object::builtins::JsUint8Array, property::PropertyKey,
 };
 
 use crate::specification::js;
@@ -40,8 +37,8 @@ fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
                     .map(|v| v.to_u32(context))
                     .transpose()?
                     .unwrap_or(0) as usize;
-                let bytes: Vec<u8> =
-                    RANDOM_BYTES.with(|buf| buf.borrow_mut().drain(..n).collect());
+                let bytes: Vec<u8> = RANDOM_BYTES
+                    .with(|buf| buf.borrow_mut().drain(..n).collect());
                 Ok(JsUint8Array::from_iter(bytes, context)?.into())
             }),
         )
@@ -52,7 +49,12 @@ fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
     (context, module)
 }
 
-fn call_random_range(context: &mut Context, module: &Module, min: f64, max: f64) -> f64 {
+fn call_random_range(
+    context: &mut Context,
+    module: &Module,
+    min: f64,
+    max: f64,
+) -> f64 {
     let random_range = js::module_exports(module, context)
         .unwrap()
         .get(&PropertyKey::String(js_string!("random_range")))

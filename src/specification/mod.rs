@@ -9,6 +9,6 @@ pub mod verifier;
 pub mod worker;
 
 #[cfg(test)]
-mod random_test;
-#[cfg(test)]
 mod ltl_equivalences;
+#[cfg(test)]
+mod random_test;
