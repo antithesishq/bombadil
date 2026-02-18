@@ -246,11 +246,11 @@ async fn run_extractors(
 
     let state_partial = json::json!({
         "errors": {
-            "uncaught_exceptions": &state.exceptions,
+            "uncaughtExceptions": &state.exceptions,
         },
         "console": console_entries,
-        "navigation_history": &state.navigation_history,
-        "last_action": json::to_value(last_action)?,
+        "navigationHistory": &state.navigation_history,
+        "lastAction": json::to_value(last_action)?,
     });
 
     for (key, function) in extractors {

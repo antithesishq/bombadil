@@ -6,18 +6,18 @@ export interface Generator<T> {
 
 declare function __bombadil_random_bytes(n: number): Uint8Array;
 
-function random_u32(): number {
+function randomU32(): number {
   return new DataView(__bombadil_random_bytes(4).buffer).getUint32(0);
 }
 
 /** @internal */
-export function random_range(min: number, max: number): number {
+export function randomRange(min: number, max: number): number {
   if (min >= max) {
     throw new RangeError(`min (${min}) must be less than max (${max})`);
   }
   const range = max - min;
   if (range <= 0xffffffff) {
-    return min + (random_u32() % range);
+    return min + (randomU32() % range);
   }
   // For ranges exceeding 32 bits, generate a uniform float in [0, 1) with
   // 53 bits of precision (the maximum for a JS number) and scale it.
@@ -28,11 +28,11 @@ export function random_range(min: number, max: number): number {
   return min + Math.floor(uniform * range);
 }
 
-function random_choice<T>(items: T[]): T {
+function randomChoice<T>(items: T[]): T {
   if (items.length === 0) {
     throw new Error("cannot choose from an empty array of items");
   }
-  return items[random_u32() % items.length]!;
+  return items[randomU32() % items.length]!;
 }
 
 // Generators
@@ -41,7 +41,7 @@ export class From<T> implements Generator<T> {
   constructor(private elements: T[]) {}
 
   generate() {
-    return random_choice(this.elements);
+    return randomChoice(this.elements);
   }
 }
 
@@ -57,9 +57,9 @@ const ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyz0123456789";
 class StringGenerator implements Generator<string> {
   private size = { min: 0, max: 16 };
   generate() {
-    const len = random_range(this.size.min, this.size.max);
+    const len = randomRange(this.size.min, this.size.max);
     return Array.from({ length: len }, () =>
-      random_choice([...ALPHANUMERIC]),
+      randomChoice([...ALPHANUMERIC]),
     ).join("");
   }
 
@@ -80,11 +80,11 @@ export function strings(): StringGenerator {
 
 class EmailGenerator implements Generator<string> {
   generate() {
-    const user = Array.from({ length: random_range(3, 10) }, () =>
-      random_choice([...ALPHANUMERIC]),
+    const user = Array.from({ length: randomRange(3, 10) }, () =>
+      randomChoice([...ALPHANUMERIC]),
     ).join("");
-    const domain = Array.from({ length: random_range(3, 8) }, () =>
-      random_choice([...ALPHANUMERIC]),
+    const domain = Array.from({ length: randomRange(3, 8) }, () =>
+      randomChoice([...ALPHANUMERIC]),
     ).join("");
     return `${user}@${domain}.com`;
   }
@@ -101,7 +101,7 @@ class IntegerGenerator implements Generator<number> {
   };
 
   generate() {
-    return random_range(this.range.min, this.range.max);
+    return randomRange(this.range.min, this.range.max);
   }
 
   min(value: number): IntegerGenerator {

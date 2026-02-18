@@ -7,7 +7,7 @@ import {
 } from "@antithesishq/bombadil/internal";
 
 /** @internal */
-export const runtime_default = new Runtime<State>();
+export const runtimeDefault = new Runtime<State>();
 
 // Reexports
 export { time, type Cell } from "@antithesishq/bombadil/internal";
@@ -111,63 +111,63 @@ export class Next extends Formula {
 
 export class Always extends Formula {
   constructor(
-    public bound_millis: number | null,
+    public boundMillis: number | null,
     public subformula: Formula,
   ) {
     super();
   }
 
   within(n: number, unit: TimeUnit): Formula {
-    if (this.bound_millis !== null) {
+    if (this.boundMillis !== null) {
       throw new Error("time bound is already set for `always`");
     }
-    let duration_millis: number;
+    let durationMillis: number;
     switch (unit) {
       case "milliseconds":
-        duration_millis = n;
+        durationMillis = n;
         break;
       case "seconds":
-        duration_millis = n * 1000;
+        durationMillis = n * 1000;
         break;
     }
-    return new Always(duration_millis, this.subformula);
+    return new Always(durationMillis, this.subformula);
   }
 
   override toString() {
-    return this.bound_millis === null
+    return this.boundMillis === null
       ? `always(${this.subformula})`
-      : `always(${this.subformula}).within(${this.bound_millis}, "milliseconds")`;
+      : `always(${this.subformula}).within(${this.boundMillis}, "milliseconds")`;
   }
 }
 
 export class Eventually extends Formula {
   constructor(
-    public bound_millis: number | null,
+    public boundMillis: number | null,
     public subformula: Formula,
   ) {
     super();
   }
 
   within(n: number, unit: TimeUnit): Formula {
-    if (this.bound_millis !== null) {
+    if (this.boundMillis !== null) {
       throw new Error("time bound is already set for `eventually`");
     }
-    let duration_millis: number;
+    let durationMillis: number;
     switch (unit) {
       case "milliseconds":
-        duration_millis = n;
+        durationMillis = n;
         break;
       case "seconds":
-        duration_millis = n * 1000;
+        durationMillis = n * 1000;
         break;
     }
-    return new Eventually(duration_millis, this.subformula);
+    return new Eventually(durationMillis, this.subformula);
   }
 
   override toString() {
-    return this.bound_millis === null
+    return this.boundMillis === null
       ? `eventually(${this.subformula})`
-      : `eventually(${this.subformula}).within(${this.bound_millis}, "milliseconds")`;
+      : `eventually(${this.subformula}).within(${this.boundMillis}, "milliseconds")`;
   }
 }
 
@@ -197,11 +197,11 @@ export function now(x: IntoFormula): Formula {
       .replace(/^\(\)\s*=>\s*/, "")
       .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
 
-    function lift_result(result: Formula | boolean): Formula {
+    function liftResult(result: Formula | boolean): Formula {
       return typeof result === "boolean" ? new Pure(pretty, result) : result;
     }
 
-    return new Thunk(pretty, () => lift_result(x()));
+    return new Thunk(pretty, () => liftResult(x()));
   }
 
   return x;
@@ -220,19 +220,19 @@ export function eventually(x: IntoFormula): Eventually {
 }
 
 export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
-  return new ExtractorCell<T, State>(runtime_default, query);
+  return new ExtractorCell<T, State>(runtimeDefault, query);
 }
 
 export interface State {
   document: HTMLDocument;
   window: Window;
-  navigation_history: {
+  navigationHistory: {
     back: NavigationEntry[];
     current: NavigationEntry;
     forward: NavigationEntry[];
   };
   errors: {
-    uncaught_exceptions: {
+    uncaughtExceptions: {
       text: string;
       line: number;
       column: number;
@@ -243,7 +243,7 @@ export interface State {
     }[];
   };
   console: ConsoleEntry[];
-  last_action: Action | null;
+  lastAction: Action | null;
 }
 
 export type NavigationEntry = {

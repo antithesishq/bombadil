@@ -7,7 +7,7 @@ export {
   emails,
   integers,
   keycodes,
-  random_range,
+  randomRange,
 } from "@antithesishq/bombadil/random";
 
 export interface Point {
@@ -20,7 +20,7 @@ export type Action =
   | "Forward"
   | "Reload"
   | { Click: { name: string; content?: string; point: Point } }
-  | { TypeText: { text: string; delay_millis: number } }
+  | { TypeText: { text: string; delayMillis: number } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }
   | { ScrollDown: { origin: Point; distance: number } };

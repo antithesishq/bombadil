@@ -9,17 +9,17 @@ import {
   type Action,
 } from "@antithesishq/bombadil";
 
-const content_type = extract((state) => state.document.contentType);
+const contentType = extract((state) => state.document.contentType);
 
-const can_go_back = extract(
-  (state) => state.navigation_history.back.length > 0,
+const canGoBack = extract(
+  (state) => state.navigationHistory.back.length > 0,
 );
 
-const can_go_forward_same_origin = extract((state) => {
-  const entry = state.navigation_history.forward[0];
+const canGoForwardSameOrigin = extract((state) => {
+  const entry = state.navigationHistory.forward[0];
   if (!entry) return false;
   try {
-    const current = new URL(state.navigation_history.current.url);
+    const current = new URL(state.navigationHistory.current.url);
     const forward = new URL(entry.url);
     return forward.origin === current.origin;
   } catch {
@@ -27,8 +27,8 @@ const can_go_forward_same_origin = extract((state) => {
   }
 });
 
-const last_action = extract((state) => {
-  const action = state.last_action;
+const lastAction = extract((state) => {
+  const action = state.lastAction;
   if (action === null) return null;
   if (typeof action === "string") return action;
   return Object.keys(action)[0] ?? null;
@@ -54,14 +54,14 @@ const window = extract((state) => {
 });
 
 export const scroll = actions(() => {
-  if (content_type.current !== "text/html") return [];
+  if (contentType.current !== "text/html") return [];
 
   if (!body.current) return [];
 
-  const scroll_y_max = body.current.scrollHeight - window.current.inner.height;
-  const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
+  const scrollYMax = body.current.scrollHeight - window.current.inner.height;
+  const scrollYMaxDiff = scrollYMax - window.current.scroll.y;
 
-  if (scroll_y_max_diff >= 1) {
+  if (scrollYMaxDiff >= 1) {
     return [
       {
         ScrollDown: {
@@ -71,7 +71,7 @@ export const scroll = actions(() => {
           },
           distance: Math.min(
             window.current.inner.height / 2,
-            scroll_y_max_diff,
+            scrollYMaxDiff,
           ),
         },
       } as Action,
@@ -95,7 +95,7 @@ export const scroll = actions(() => {
 
 // Clicks
 
-const clickable_points = extract((state) => {
+const clickablePoints = extract((state) => {
   if (!state.document.body) return [];
 
   const ARIA_ROLES_CLICKABLE = [
@@ -118,7 +118,7 @@ const clickable_points = extract((state) => {
   const targets: ClickTarget[] = [];
   const added = new Set<Element>();
 
-  function clickable_point(element: Element): { x: number; y: number } | null {
+  function clickablePoint(element: Element): { x: number; y: number } | null {
     const rect = element.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -126,7 +126,7 @@ const clickable_points = extract((state) => {
     return null;
   }
 
-  function is_visible(element: Element): boolean {
+  function isVisible(element: Element): boolean {
     const style = state.window.getComputedStyle(element);
     return (
       style.display !== "none" &&
@@ -135,7 +135,7 @@ const clickable_points = extract((state) => {
     );
   }
 
-  function in_viewport(point: { x: number; y: number }): boolean {
+  function inViewport(point: { x: number; y: number }): boolean {
     return (
       point.x >= 0 &&
       point.x <= state.window.innerWidth &&
@@ -148,7 +148,7 @@ const clickable_points = extract((state) => {
   //
   // TODO: make this a part of the bombadil package so that others can use it (depends
   // on https://github.com/antithesishq/bombadil/issues/17)
-  function query_all(root: Element, selector: string): Element[] {
+  function queryAll(root: Element, selector: string): Element[] {
     const queue: Element[] = [root];
     const results: Element[] = [];
     while (queue.length > 0) {
@@ -175,8 +175,8 @@ const clickable_points = extract((state) => {
   }
 
   // Anchors
-  const url_current = new URL(state.window.location.toString());
-  for (const anchor of query_all(state.document.body, "a")) {
+  const urlCurrent = new URL(state.window.location.toString());
+  for (const anchor of queryAll(state.document.body, "a")) {
     if (!(anchor instanceof HTMLAnchorElement)) continue;
     if (added.has(anchor)) continue;
 
@@ -189,13 +189,13 @@ const clickable_points = extract((state) => {
 
     if (anchor.target === "_blank") continue;
     if (!url.protocol.startsWith("http")) continue;
-    if (url.hostname !== url_current.hostname) continue;
-    if (url.port !== "" && url.port !== url_current.port) continue;
-    if (!is_visible(anchor)) continue;
+    if (url.hostname !== urlCurrent.hostname) continue;
+    if (url.port !== "" && url.port !== urlCurrent.port) continue;
+    if (!isVisible(anchor)) continue;
 
-    const point = clickable_point(anchor);
+    const point = clickablePoint(anchor);
     if (!point) continue;
-    if (!in_viewport(point)) continue;
+    if (!inViewport(point)) continue;
 
     targets.push({
       name: anchor.nodeName,
@@ -206,18 +206,18 @@ const clickable_points = extract((state) => {
   }
 
   // Buttons, inputs, textareas, labels
-  for (const element of query_all(
+  for (const element of queryAll(
     state.document.body,
     "button,input,textarea,label[for]",
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
-    if (!(element instanceof HTMLInputElement) && !is_visible(element))
+    if (!(element instanceof HTMLInputElement) && !isVisible(element))
       continue;
 
-    const point = clickable_point(element);
+    const point = clickablePoint(element);
     if (!point) continue;
-    if (!in_viewport(point)) continue;
+    if (!inViewport(point)) continue;
 
     if (
       element === state.document.activeElement &&
@@ -237,16 +237,16 @@ const clickable_points = extract((state) => {
   }
 
   // ARIA role elements
-  const aria_selector = ARIA_ROLES_CLICKABLE.map(
+  const ariaSelector = ARIA_ROLES_CLICKABLE.map(
     (role) => `[role=${role}]`,
   ).join(",");
-  for (const element of query_all(state.document.body, aria_selector)) {
+  for (const element of queryAll(state.document.body, ariaSelector)) {
     if (added.has(element)) continue;
-    if (!is_visible(element)) continue;
+    if (!isVisible(element)) continue;
 
-    const point = clickable_point(element);
+    const point = clickablePoint(element);
     if (!point) continue;
-    if (!in_viewport(point)) continue;
+    if (!inViewport(point)) continue;
 
     targets.push({
       name: element.nodeName,
@@ -260,8 +260,8 @@ const clickable_points = extract((state) => {
 });
 
 export const clicks = actions(() => {
-  if (content_type.current !== "text/html") return [];
-  return clickable_points.current.map(
+  if (contentType.current !== "text/html") return [];
+  return clickablePoints.current.map(
     ({ name, content, point }) =>
       ({
         Click: { name, content, point },
@@ -271,7 +271,7 @@ export const clicks = actions(() => {
 
 // Inputs
 
-const active_input = extract((state) => {
+const activeInput = extract((state) => {
   const element = state.document.activeElement;
   if (!element || element === state.document.body) return null;
 
@@ -287,18 +287,18 @@ const active_input = extract((state) => {
 });
 
 export const inputs = actions(() => {
-  if (content_type.current !== "text/html") return [];
-  const type = active_input.current;
+  if (contentType.current !== "text/html") return [];
+  const type = activeInput.current;
   if (!type) return [];
 
-  const delay_millis = integers().min(1).max(100).generate();
+  const delayMillis = integers().min(1).max(100).generate();
 
   if (type === "textarea") {
     return weighted([
       [1, { PressKey: { code: keycodes().generate() } }],
       [
         3,
-        { TypeText: { text: strings().minSize(1).generate(), delay_millis } },
+        { TypeText: { text: strings().minSize(1).generate(), delayMillis } },
       ],
     ]);
   }
@@ -309,13 +309,13 @@ export const inputs = actions(() => {
         [1, { PressKey: { code: keycodes().generate() } }],
         [
           3,
-          { TypeText: { text: strings().minSize(1).generate(), delay_millis } },
+          { TypeText: { text: strings().minSize(1).generate(), delayMillis } },
         ],
       ]);
     case "email":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
-        [3, { TypeText: { text: emails().generate(), delay_millis } }],
+        [3, { TypeText: { text: emails().generate(), delayMillis } }],
       ]);
     case "number":
       return weighted([
@@ -325,7 +325,7 @@ export const inputs = actions(() => {
           {
             TypeText: {
               text: integers().min(0).max(10000).generate().toString(),
-              delay_millis,
+              delayMillis,
             },
           },
         ],
@@ -338,17 +338,17 @@ export const inputs = actions(() => {
 // Navigation
 
 export const back = actions(() => {
-  if (can_go_back.current) return ["Back" as Action];
+  if (canGoBack.current) return ["Back" as Action];
   return [];
 });
 
 export const forward = actions(() => {
-  if (can_go_forward_same_origin.current) return ["Forward" as Action];
+  if (canGoForwardSameOrigin.current) return ["Forward" as Action];
   return [];
 });
 
 export const reload = actions(() => {
-  if (last_action.current !== "Reload") return ["Reload" as Action];
+  if (lastAction.current !== "Reload") return ["Reload" as Action];
   return [];
 });
 

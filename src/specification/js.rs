@@ -114,7 +114,7 @@ impl Syntax<RuntimeFunction> {
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
             let bound = optional_duration_from_js(
-                object.get(js_string!("bound_millis"), context)?,
+                object.get(js_string!("boundMillis"), context)?,
             )?;
             return Ok(Always(Box::new(subformula), bound));
         }
@@ -125,7 +125,7 @@ impl Syntax<RuntimeFunction> {
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
             let bound = optional_duration_from_js(
-                object.get(js_string!("bound_millis"), context)?,
+                object.get(js_string!("boundMillis"), context)?,
             )?;
             return Ok(Eventually(Box::new(subformula), bound));
         }
@@ -202,9 +202,9 @@ impl BombadilExports {
             next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
-            runtime_default: get_export("runtime_default")?.as_object().ok_or(
+            runtime_default: get_export("runtimeDefault")?.as_object().ok_or(
                 SpecificationError::OtherError(
-                    "runtime_default is not an object".to_string(),
+                    "runtimeDefault is not an object".to_string(),
                 ),
             )?,
             time: get_export("time")?.as_object().ok_or(

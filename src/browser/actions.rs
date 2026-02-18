@@ -21,6 +21,7 @@ pub enum BrowserAction {
     },
     TypeText {
         text: String,
+        #[serde(rename = "delayMillis")]
         delay_millis: u64,
     },
     PressKey {
