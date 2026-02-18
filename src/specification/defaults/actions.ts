@@ -189,7 +189,8 @@ const clickable_points = extract((state) => {
 
     if (anchor.target === "_blank") continue;
     if (!url.protocol.startsWith("http")) continue;
-    if (!url.origin.endsWith(url_current.origin)) continue;
+    if (url.hostname !== url_current.hostname) continue;
+    if (url.port !== "" && url.port !== url_current.port) continue;
     if (!is_visible(anchor)) continue;
 
     const point = clickable_point(anchor);
