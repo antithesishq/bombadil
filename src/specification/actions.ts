@@ -26,10 +26,16 @@ function random_u32(): number {
 }
 
 function random_range(min: number, max: number): number {
+  if (min >= max) {
+    throw new Error(`min (${min}) must be less than max (${max})`);
+  }
   return min + (random_u32() % (max - min));
 }
 
 function random_choice<T>(items: T[]): T {
+  if (items.length === 0) {
+    throw new Error("cannot choose from an empty array of items");
+  }
   return items[random_u32() % items.length]!;
 }
 
