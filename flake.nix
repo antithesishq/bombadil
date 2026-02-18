@@ -77,6 +77,10 @@
               esbuild
               bun
               biome
+
+              # Docs
+              pandoc
+              texliveSmall
             ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               # Runtime
               pkgs.chromium
