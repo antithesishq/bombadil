@@ -8,11 +8,15 @@ use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
-use boa_engine::JsValue;
+use crate::tree::Tree;
 use boa_engine::{
-    Context, JsString, Module, Source, context::ContextBuilder, js_string,
-    object::builtins::JsArray, property::PropertyKey,
+    Context, JsString, Module, NativeFunction, Source,
+    context::ContextBuilder,
+    js_string,
+    object::builtins::{JsArray, JsUint8Array},
+    property::PropertyKey,
 };
+use boa_engine::{JsError, JsObject, JsValue};
 use oxc::span::SourceType;
 use serde_json as json;
 
@@ -59,13 +63,22 @@ impl Specification {
     }
 }
 
+#[derive(Clone)]
+pub struct StepResult<A> {
+    pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
+    pub actions: Tree<A>,
+}
+
 pub struct Verifier {
     context: Context,
     bombadil_exports: BombadilExports,
     properties: HashMap<String, Property>,
+    action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
     extractor_functions: HashMap<u64, String>,
 }
+
+const RANDOM_BYTES_COUNT_MAX: usize = 4096;
 
 impl Verifier {
     pub fn new(specification: Specification) -> Result<Self> {
@@ -77,16 +90,41 @@ impl Verifier {
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
 
-        // Internal module
-        {
-            let module = load_bombadil_module("internal.js", &mut context)?;
-            loader.insert_mapped_module(
-                "@antithesishq/bombadil/internal",
-                module.clone(),
-            );
+        // Expose random byte generation to JS
+        context.register_global_builtin_callable(
+            js_string!("__bombadil_random_bytes"),
+            1,
+            NativeFunction::from_copy_closure(|_this, args, context| {
+                let n = args
+                    .first()
+                    .map(|v| v.to_u32(context))
+                    .transpose()?
+                    .unwrap_or(0) as usize;
+                if n > RANDOM_BYTES_COUNT_MAX {
+                    return Err(JsError::from_rust(SpecificationError::JS(
+                        format!(
+                            "n cannot be larger than {RANDOM_BYTES_COUNT_MAX}"
+                        ),
+                    )));
+                }
+                let mut buf = vec![0u8; n];
+                rand::fill(&mut buf[..]);
+                Ok(JsUint8Array::from_iter(buf, context)?.into())
+            }),
+        )?;
+
+        // Non-special modules loaded in dependency order
+        let modules = [
+            ("internal.js", "@antithesishq/bombadil/internal"),
+            ("random.js", "@antithesishq/bombadil/random"),
+            ("actions.js", "@antithesishq/bombadil/actions"),
+        ];
+        for (file, import_path) in modules {
+            let module = load_bombadil_module(file, &mut context)?;
+            loader.insert_mapped_module(import_path, module);
         }
 
-        // Main module
+        // Index module — special: needed for BombadilExports
         let bombadil_module_index = {
             let module = load_bombadil_module("index.js", &mut context)?;
             loader
@@ -94,15 +132,22 @@ impl Verifier {
             module
         };
 
-        // Defaults module
-        {
-            let module = load_bombadil_module("defaults.js", &mut context)?;
-            loader.insert_mapped_module(
-                "@antithesishq/bombadil/defaults",
-                module.clone(),
-            );
-            module
-        };
+        // Modules that depend on index
+        let modules = [
+            (
+                "defaults/actions.js",
+                "@antithesishq/bombadil/defaults/actions",
+            ),
+            (
+                "defaults/properties.js",
+                "@antithesishq/bombadil/defaults/properties",
+            ),
+            ("defaults.js", "@antithesishq/bombadil/defaults"),
+        ];
+        for (file, import_path) in modules {
+            let module = load_bombadil_module(file, &mut context)?;
+            loader.insert_mapped_module(import_path, module);
+        }
 
         let specification_module = {
             let specification_bytes: &[u8] = &specification.contents;
@@ -126,6 +171,8 @@ impl Verifier {
             BombadilExports::from_module(&bombadil_module_index, &mut context)?;
 
         let mut properties: HashMap<String, Property> = HashMap::new();
+        let mut action_generators: HashMap<String, ActionGenerator> =
+            HashMap::new();
         for (key, value) in specification_exports.iter() {
             if value.instance_of(&bombadil_exports.formula, &mut context)? {
                 let syntax =
@@ -136,6 +183,33 @@ impl Verifier {
                     Property {
                         name: key.to_string(),
                         state: PropertyState::Initial(formula),
+                    },
+                );
+            } else if value
+                .instance_of(&bombadil_exports.action_generator, &mut context)?
+            {
+                let object = value.as_object().ok_or(
+                    SpecificationError::OtherError(format!(
+                        "action generator {} is not an object, it is {}",
+                        key,
+                        value.type_of()
+                    )),
+                )?;
+                let function = object
+                    .get(js_string!("generate"), &mut context)
+                    .map_err(|error| SpecificationError::JS(error.to_string()))?
+                    .as_object()
+                    .ok_or(SpecificationError::OtherError(format!(
+                        "action {} is not a function, it is {}",
+                        key,
+                        value.type_of()
+                    )))?;
+                action_generators.insert(
+                    key.to_string(),
+                    ActionGenerator {
+                        name: key.to_string(),
+                        this: value.clone(),
+                        function,
                     },
                 );
             } else if let PropertyKey::Symbol(symbol) = key
@@ -151,6 +225,12 @@ impl Verifier {
                     value.display()
                 )));
             }
+        }
+
+        if action_generators.is_empty() {
+            return Err(SpecificationError::OtherError(
+                "specification exports no action generators".to_string(),
+            ));
         }
 
         let mut extractors = Extractors::new(&bombadil_exports);
@@ -182,6 +262,7 @@ impl Verifier {
         Ok(Verifier {
             context,
             properties,
+            action_generators,
             bombadil_exports,
             extractors,
             extractor_functions,
@@ -200,17 +281,18 @@ impl Verifier {
         Ok(results)
     }
 
-    pub fn step(
+    pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
         snapshots: Vec<(u64, json::Value)>,
         time: ltl::Time,
-    ) -> Result<Vec<(String, ltl::Value<RuntimeFunction>)>> {
+    ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
             snapshots,
             time,
             &mut self.context,
         )?;
-        let mut results = Vec::with_capacity(self.properties.len());
+        let mut result_properties = Vec::with_capacity(self.properties.len());
+        let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
         let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
@@ -242,7 +324,7 @@ impl Verifier {
                     ltl::Value::False(violation.clone())
                 }
             };
-            results.push((
+            result_properties.push((
                 property.name.clone(),
                 match value {
                     ltl::Value::True => {
@@ -262,7 +344,20 @@ impl Verifier {
                 },
             ));
         }
-        Ok(results)
+
+        for action_generator in self.action_generators.values() {
+            // All exported generators are weighted equally.
+            generator_branches.push((1, action_generator.generate(context)?));
+        }
+
+        let action_tree = Tree::Branch {
+            branches: generator_branches,
+        };
+
+        Ok(StepResult {
+            properties: result_properties,
+            actions: action_tree,
+        })
     }
 }
 
@@ -280,6 +375,37 @@ enum PropertyState {
     Residual(Residual<RuntimeFunction>),
     DefinitelyTrue,
     DefinitelyFalse(Violation<RuntimeFunction>),
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionGenerator {
+    pub name: String,
+    this: JsValue,
+    function: JsObject,
+}
+
+impl ActionGenerator {
+    fn generate<A: serde::de::DeserializeOwned>(
+        &self,
+        context: &mut Context,
+    ) -> Result<Tree<A>> {
+        let value = self.function.call(&self.this, &[], context)?;
+        let actions_json =
+            value
+                .to_json(context)?
+                .ok_or(SpecificationError::OtherError(format!(
+                    "action generator {} returned undefined",
+                    self.name
+                )))?;
+        let tree: Tree<A> =
+            json::from_value(actions_json).map_err(|error| {
+                SpecificationError::OtherError(format!(
+                    "failed to convert JSON object to action: {}",
+                    error
+                ))
+            })?;
+        Ok(tree)
+    }
 }
 
 #[cfg(test)]
@@ -305,7 +431,8 @@ mod tests {
     fn test_property_names() {
         let verifier = verifier(
             r#"
-            import { always, extract } from "@antithesishq/bombadil";
+            import { actions, always, extract } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
 
             // Invariant
 
@@ -325,7 +452,8 @@ mod tests {
     fn test_extractors() {
         let evaluator = verifier(
             r#"
-            import { extract } from "@antithesishq/bombadil";
+            import { actions, extract } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
 
             const notification_count = extract(
               (state) => state.foo
@@ -363,8 +491,9 @@ mod tests {
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = now(() => foo.current).not();
@@ -378,11 +507,11 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result: StepResult<json::Value> = verifier
             .step(vec![(extractor_foo_id, json::json!(false))], time)
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -391,8 +520,9 @@ mod tests {
     fn test_property_evaluation_and() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -408,7 +538,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(true)),
@@ -418,7 +548,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -427,8 +557,9 @@ mod tests {
     fn test_property_evaluation_or() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -444,7 +575,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -454,7 +585,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -463,8 +594,9 @@ mod tests {
     fn test_property_evaluation_implies() {
         let mut verifier = verifier(
             r#"
-            import { extract, now } from "@antithesishq/bombadil";
-            
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
             const bar = extract((state) => state.bar);
 
@@ -480,7 +612,7 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let results = verifier
+        let result: StepResult<json::Value> = verifier
             .step(
                 vec![
                     (extractor_foo_id, json::json!(false)),
@@ -490,7 +622,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = results.first().unwrap();
+        let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, ltl::Value::True));
     }
@@ -499,8 +631,9 @@ mod tests {
     fn test_property_evaluation_next() {
         let mut verifier = verifier(
             r#"
-            import { extract, next } from "@antithesishq/bombadil";
-            
+            import { actions, extract, next } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = next(() => foo.current === 1);
@@ -517,11 +650,11 @@ mod tests {
 
         for i in 0..=1 {
             let time = time_at(i);
-            let results = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
@@ -544,8 +677,9 @@ mod tests {
     fn test_property_evaluation_always() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "@antithesishq/bombadil";
-            
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = always(() => foo.current < 100);
@@ -562,11 +696,11 @@ mod tests {
 
         for i in 0..=100 {
             let time = time_at(0);
-            let results = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 100 {
@@ -596,8 +730,9 @@ mod tests {
     fn test_property_evaluation_always_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, always } from "@antithesishq/bombadil";
-            
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = always(() => foo.current < 4).within(3, "milliseconds");
@@ -614,11 +749,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -641,8 +776,9 @@ mod tests {
     fn test_property_evaluation_eventually() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "@antithesishq/bombadil";
-            
+            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = eventually(() => foo.current === 9);
@@ -659,11 +795,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
@@ -686,8 +822,9 @@ mod tests {
     fn test_property_evaluation_eventually_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, eventually } from "@antithesishq/bombadil";
-            
+            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
             const foo = extract((state) => state.foo);
 
             export const my_prop = eventually(() => foo.current === 9).within(3, "milliseconds");
@@ -704,11 +841,11 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let results = verifier
+            let result: StepResult<json::Value> = verifier
                 .step(vec![(extractor_id, json::json!(i))], time)
                 .unwrap();
 
-            let (name, value) = results.first().unwrap();
+            let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i < 4 {
@@ -743,6 +880,8 @@ mod tests {
 
         let verifier = verifier(&format!(
             r#"
+            import {{ actions }} from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
             export * from "{}";
             "#,
             imported_file.path().display(),

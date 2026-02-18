@@ -55,6 +55,7 @@ text in it:
 
 ```typescript
 import { always, extract } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const title = extract((state) => state.document.querySelector("h1")?.textContent ?? "");
 
@@ -73,6 +74,7 @@ it eventually finishes loading and you see a result:
 
 ```typescript
 import { now, eventually, extract } from "@antithesishq/bombadil";
+export { clicks, inputs } from "@antithesishq/bombadil/defaults/actions";
 
 const is_loading = extract((state) => !!state.document.querySelector("progress"));
 

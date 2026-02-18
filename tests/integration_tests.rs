@@ -35,11 +35,12 @@ static INIT: Once = Once::new();
 
 fn setup() {
     INIT.call_once(|| {
-        let env = env_logger::Env::default().default_filter_or("warn");
+        let env = env_logger::Env::default().default_filter_or("debug");
         env_logger::Builder::from_env(env)
             .format_timestamp_millis()
             .format_target(true)
             .is_test(true)
+            .filter_module("html5ever", log::LevelFilter::Warn)
             // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
             .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
             .init();
@@ -290,7 +291,7 @@ async fn test_no_action_available() {
     run_browser_test(
         "no-action-available",
         Expect::Error {
-            substring: "no fallback action available",
+            substring: "no actions available",
         },
         Duration::from_secs(TEST_TIMEOUT_SECONDS),
         None,
@@ -307,6 +308,8 @@ async fn test_back_from_non_html() {
         Some(
             r#"
 import { extract, now, next, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+export { back } from "@antithesishq/bombadil/defaults/actions";
 
 const contentType = extract((state) => state.document.contentType);
 

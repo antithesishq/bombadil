@@ -157,24 +157,32 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
             };
         while let Some(event) = events.next().await {
             if let Err(error) = intercept(&event).await {
-                log::error!("failed to instrument requested script: {error}");
-                page.execute(
-                    fetch::ContinueRequestParams::builder()
+                let error_debug = format!("{error:?}");
+                if error_debug.contains("Invalid InterceptionId") {
+                    log::debug!(
+                        "interception invalidated (likely due to navigation): {}",
+                        event.request.url
+                    );
+                    continue;
+                }
+
+                log::warn!("failed to instrument requested script: {error}");
+                if let Err(error) = async {
+                    let params = fetch::ContinueRequestParams::builder()
                         .request_id(event.request_id.clone())
                         .build()
-                        .map_err(|error| {
-                            anyhow!(
-                                "failed building ContinueRequestParams: {}",
-                                error
-                            )
-                        })
-                        .expect("failed to build continue request params"),
-                )
+                        .map_err(|error| anyhow!("{error}"))?;
+                    page.execute(params)
+                        .await
+                        .map(|_| ())
+                        .map_err(|error| anyhow!("{error}"))
+                }
                 .await
-                .map(|_| ())
-                .expect(
-                    "failed continuing request after instrumentation failed",
-                );
+                {
+                    log::warn!(
+                        "failed continuing request after instrumentation failed: {error}"
+                    );
+                }
             }
         }
     });

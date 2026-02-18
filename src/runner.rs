@@ -1,5 +1,5 @@
-use crate::browser::actions::{BrowserAction, available_actions};
-use crate::browser::{BrowserEvent, BrowserOptions, random};
+use crate::browser::actions::BrowserAction;
+use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
@@ -8,11 +8,13 @@ use ::url::Url;
 use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, oneshot};
 use tokio::{select, spawn};
 
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
+use crate::url::is_within_domain;
 
 pub struct RunnerOptions {
     pub stop_on_violation: bool,
@@ -91,7 +93,7 @@ impl Runner {
                 browser.initiate().await?;
                 log::debug!("browser initiated");
                 Runner::run_test(
-                    origin,
+                    &origin,
                     options,
                     &mut browser,
                     verifier,
@@ -121,7 +123,7 @@ impl Runner {
     }
 
     async fn run_test(
-        origin: Url,
+        origin: &Url,
         options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
@@ -143,15 +145,22 @@ impl Runner {
                     Some(event) => match event {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
-                            let snapshots = run_extractors(&state, &extractors).await?;
-                            let property_results = verifier.step(snapshots, state.timestamp).await?;
-                            let mut violations = Vec::with_capacity(property_results.len());
-                            for (name, value) in property_results {
+                            let snapshots = run_extractors(&state, &extractors, &last_action).await?;
+                            let step_result = verifier.step::<BrowserAction>(snapshots, state.timestamp).await?;
+                            let mut violations = Vec::with_capacity(step_result.properties.len());
+                            for (name, value) in step_result.properties {
                                 if let PropertyValue::False(violation) = value {
                                     violations.push(PropertyViolation{ name, violation });
                                 }
                             }
                             let has_violations = !violations.is_empty();
+
+                            // Make sure we stay within origin.
+                            let action_tree = if !is_within_domain(&state.url, origin) {
+                                step_result.actions.filter(&|a| matches!(a, BrowserAction::Back))
+                            } else {
+                                step_result.actions
+                            };
 
                             // Update global edges.
                             for (index, bucket) in &state.coverage.edges_new {
@@ -160,14 +169,6 @@ impl Runner {
                             }
                             log_coverage_stats_increment(&state.coverage);
                             log_coverage_stats_total(&edges);
-
-                            let actions =
-                                available_actions(&origin, &state).await?;
-
-                            let action = {
-                                let mut rng = rand::rng();
-                                random::pick_action(&mut rng, actions)
-                            };
 
                             events.send(RunEvent::NewState {
                                 state,
@@ -178,9 +179,13 @@ impl Runner {
                                 return Ok(())
                             }
 
-                            let (action, timeout) = action;
+                            let action_tree = action_tree.prune()
+                                .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
+
+                            let action = action_tree.pick(&mut rand::rng())?.clone();
+                            let timeout = action_timeout(&action);
                             log::info!("picked action: {:?}", action);
-                            browser.apply(action.clone(), timeout.to_duration())?;
+                            browser.apply(action.clone(), timeout)?;
                             last_action = Some(action);
                         }
                         BrowserEvent::Error(error) => {
@@ -223,6 +228,7 @@ impl RunEvents {
 async fn run_extractors(
     state: &BrowserState,
     extractors: &Vec<(u64, String)>,
+    last_action: &Option<BrowserAction>,
 ) -> anyhow::Result<Vec<(u64, json::Value)>> {
     let mut results = Vec::with_capacity(extractors.len());
 
@@ -242,8 +248,9 @@ async fn run_extractors(
         "errors": {
             "uncaught_exceptions": &state.exceptions,
         },
-        "console": console_entries
-
+        "console": console_entries,
+        "navigation_history": &state.navigation_history,
+        "last_action": json::to_value(last_action)?,
     });
 
     for (key, function) in extractors {
@@ -261,58 +268,25 @@ async fn run_extractors(
     Ok(results)
 }
 
-/*
-async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
-    let status: Option<u16> = state.evaluate_function_call(
-                        "() => window.performance.getEntriesByType('navigation')[0]?.responseStatus", vec![]
-                    ).await?;
-    if let Some(status) = status
-        && status >= 400
-    {
-        invariant_violation!(
-            "expected 2xx or 3xx but got {} at {} ({})",
-            status,
-            state.title,
-            state.url
-        );
-    }
-
-    for entry in &state.console_entries {
-        if let ConsoleEntryLevel::Error = entry.level {
-            invariant_violation!(
-                "console.error at {}: {:?}",
-                entry.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
-                entry.args
-            )
+fn action_timeout(action: &BrowserAction) -> Duration {
+    match action {
+        BrowserAction::Back => Duration::from_secs(2),
+        BrowserAction::Forward => Duration::from_secs(2),
+        BrowserAction::Reload => Duration::from_secs(2),
+        BrowserAction::Click { .. } => Duration::from_millis(500),
+        BrowserAction::TypeText {
+            text, delay_millis, ..
+        } => {
+            // We'll wait for the text to be entered, and an extra 100ms.
+            let text_entry_millis =
+                (*delay_millis).saturating_mul(text.len() as u64);
+            Duration::from_millis(text_entry_millis.saturating_add(100u64))
         }
+        BrowserAction::PressKey { .. } => Duration::from_millis(50),
+        BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
+        BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
     }
-
-    if let Some(exception) = &state.exception {
-        fn formatted(value: &json::Value) -> Result<String, Violation> {
-            match value {
-                json::Value::String(s) => Ok(s.clone()),
-                other => json::to_string_pretty(other).map_err(Into::into),
-            }
-        }
-        match exception {
-            Exception::UncaughtException(value) => {
-                invariant_violation!(
-                    "uncaught exception: {}",
-                    formatted(value)?
-                )
-            }
-            Exception::UnhandledPromiseRejection(value) => {
-                invariant_violation!(
-                    "unhandled promise rejection: {}",
-                    formatted(value)?
-                )
-            }
-        }
-    }
-
-    Ok(())
 }
-*/
 
 fn log_coverage_stats_increment(coverage: &Coverage) {
     if log::log_enabled!(log::Level::Debug) {

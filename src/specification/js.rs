@@ -114,8 +114,7 @@ impl Syntax<RuntimeFunction> {
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
             let bound = optional_duration_from_js(
-                object.get(js_string!("bound"), context)?,
-                context,
+                object.get(js_string!("bound_millis"), context)?,
             )?;
             return Ok(Always(Box::new(subformula), bound));
         }
@@ -126,8 +125,7 @@ impl Syntax<RuntimeFunction> {
             let subformula =
                 Self::from_value(&subformula_value, bombadil, context)?;
             let bound = optional_duration_from_js(
-                object.get(js_string!("bound"), context)?,
-                context,
+                object.get(js_string!("bound_millis"), context)?,
             )?;
             return Ok(Eventually(Box::new(subformula), bound));
         }
@@ -139,42 +137,30 @@ impl Syntax<RuntimeFunction> {
     }
 }
 
-fn optional_duration_from_js(
-    value: JsValue,
-    context: &mut Context,
-) -> Result<Option<Duration>> {
+fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
     if value.is_null_or_undefined() {
         return Ok(None);
     }
-
-    let object =
+    let millis =
         value
-            .as_object()
+            .as_number()
             .ok_or(SpecificationError::OtherError(format!(
-                "duration is not an object: {}",
+                "milliseconds is not a number: {}",
                 value.display()
             )))?;
-    let milliseconds_value = object.get(js_string!("milliseconds"), context)?;
-
-    let milliseconds = milliseconds_value.as_number().ok_or(
-        SpecificationError::OtherError(format!(
-            "milliseconds is not a number: {}",
-            milliseconds_value.display()
-        )),
-    )?;
-    if milliseconds < 0.0 {
+    if millis < 0.0 {
         return Err(SpecificationError::OtherError(format!(
             "milliseconds is negative: {}",
-            milliseconds_value.display()
+            value.display()
         )));
     }
-    if milliseconds.is_infinite() {
+    if millis.is_nan() || millis.is_infinite() {
         return Err(SpecificationError::OtherError(format!(
             "milliseconds is {}",
-            milliseconds_value.display()
+            value.display()
         )));
     }
-    Ok(Some(Duration::from_millis(milliseconds as u64)))
+    Ok(Some(Duration::from_millis(millis as u64)))
 }
 
 pub struct BombadilExports {
@@ -190,6 +176,7 @@ pub struct BombadilExports {
     pub eventually: JsValue,
     pub runtime_default: JsObject,
     pub time: JsObject,
+    pub action_generator: JsValue,
 }
 
 impl BombadilExports {
@@ -225,6 +212,7 @@ impl BombadilExports {
                     "time is not an object".to_string(),
                 ),
             )?,
+            action_generator: get_export("ActionGenerator")?,
         })
     }
 }

@@ -2,22 +2,6 @@ export type Time = number;
 
 export type TimeUnit = "milliseconds" | "seconds";
 
-export class Duration {
-  constructor(
-    private n: number,
-    private unit: TimeUnit,
-  ) {}
-
-  get milliseconds(): number {
-    switch (this.unit) {
-      case "milliseconds":
-        return this.n;
-      case "seconds":
-        return this.n * 1000;
-    }
-  }
-}
-
 export interface Cell<T> {
   get current(): T;
   at(time: Time): T;
