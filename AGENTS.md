@@ -24,6 +24,17 @@ The `--extra-experimental-features 'nix-command flakes'` flag is required for al
 
 **Debug logging:** `nix --extra-experimental-features 'nix-command flakes' develop --command bash -c 'RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless'`
 
+## Code Quality
+
+**IMPORTANT:** After making any changes to Rust code, ALWAYS run:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop --command cargo clippy --fix --allow-dirty
+nix --extra-experimental-features 'nix-command flakes' develop --command cargo fmt
+```
+
+This ensures code follows project conventions and passes CI checks.
+
 ## Architecture
 
 Rust backend + TypeScript specification layer, connected via the Boa JavaScript engine at runtime.
