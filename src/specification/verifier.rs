@@ -116,6 +116,7 @@ impl Verifier {
         // Non-special modules loaded in dependency order
         let modules = [
             ("internal.js", "@antithesishq/bombadil/internal"),
+            ("random.js", "@antithesishq/bombadil/random"),
             ("actions.js", "@antithesishq/bombadil/actions"),
         ];
         for (file, import_path) in modules {

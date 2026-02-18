@@ -27,6 +27,9 @@ let
         "./defaults/properties" = {
           types = "./dist/defaults/properties.d.ts";
         };
+        "./random" = {
+          types = "./dist/random.d.ts";
+        };
         "./actions" = {
           types = "./dist/actions.d.ts";
         };
