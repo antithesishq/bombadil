@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Text Input</title>
+</head>
+<body>
+    <h1>Random Text Input Test</h1>
+    <p>Enter some text in the input field below:</p>
+    <input type="text" id="text-input" placeholder="Type something here..." />
+    <p id="char-count">Characters: 0</p>
+
+    <script>
+        const input = document.getElementById('text-input');
+        const charCount = document.getElementById('char-count');
+
+        input.addEventListener('input', () => {
+            charCount.textContent = `Characters: ${input.value.length}`;
+        });
+    </script>
+</body>
+</html>

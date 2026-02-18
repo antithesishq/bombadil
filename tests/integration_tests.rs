@@ -394,3 +394,28 @@ async fn test_browser_lifecycle() {
     log::info!("just changing for CI");
     browser.terminate().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_random_text_input() {
+    run_browser_test(
+        "random-text-input",
+        Expect::Success,
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        Some(
+            r#"
+import { extract, now, eventually } from "@antithesishq/bombadil";
+export { clicks, inputs } from "@antithesishq/bombadil/defaults";
+
+const inputValue = extract((state) => {
+  const input = state.document.querySelector('#text-input');
+  return input ? input.value : "";
+});
+
+export const input_eventually_has_text = eventually(
+  () => inputValue.current.length > 0
+).within(10, "seconds");
+"#,
+        ),
+    )
+    .await;
+}

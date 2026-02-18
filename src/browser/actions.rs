@@ -3,12 +3,46 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{input, page};
-use serde::Deserialize;
 use serde::Serialize;
+use serde::{Deserialize, Deserializer};
 use tokio::time::sleep;
 
 use crate::browser::keys::key_name;
 use crate::geometry::Point;
+
+fn deserialize_u8_from_number<'de, D>(deserializer: D) -> Result<u8, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_u64() {
+                if i <= u8::MAX as u64 {
+                    Ok(i as u8)
+                } else {
+                    Err(Error::custom(format!(
+                        "expected u8, got out-of-range integer: {}",
+                        i
+                    )))
+                }
+            } else if let Some(f) = n.as_f64() {
+                if f.fract() == 0.0 && f >= 0.0 && f <= u8::MAX as f64 {
+                    Ok(f as u8)
+                } else {
+                    Err(Error::custom(format!(
+                        "expected u8, got non-integer or out-of-range float: {}",
+                        f
+                    )))
+                }
+            } else {
+                Err(Error::custom("expected u8, got invalid number"))
+            }
+        }
+        _ => Err(Error::custom("expected a number")),
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {
@@ -22,9 +56,10 @@ pub enum BrowserAction {
     TypeText {
         text: String,
         #[serde(rename = "delayMillis")]
-        delay_millis: u64,
+        delay_millis: f64,
     },
     PressKey {
+        #[serde(deserialize_with = "deserialize_u8_from_number")]
         code: u8,
     },
     ScrollUp {
@@ -106,7 +141,7 @@ impl BrowserAction {
                 page.click((*point).into()).await?;
             }
             BrowserAction::TypeText { text, delay_millis } => {
-                let delay = Duration::from_millis(*delay_millis);
+                let delay = Duration::from_millis(*delay_millis as u64);
                 for char in text.chars() {
                     sleep(delay).await;
                     page.execute(input::InsertTextParams::new(char)).await?;

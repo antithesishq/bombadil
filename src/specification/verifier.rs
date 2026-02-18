@@ -400,8 +400,10 @@ impl ActionGenerator {
         let tree: Tree<A> =
             json::from_value(actions_json).map_err(|error| {
                 SpecificationError::OtherError(format!(
-                    "failed to convert JSON object to action: {}",
-                    error
+                    "failed to convert JSON object from `{}` to action, {}: {}",
+                    self.name,
+                    error,
+                    value.display(),
                 ))
             })?;
         Ok(tree)

@@ -148,9 +148,18 @@ impl Runner {
                             let snapshots = run_extractors(&state, &extractors, &last_action).await?;
                             let step_result = verifier.step::<BrowserAction>(snapshots, state.timestamp).await?;
                             let mut violations = Vec::with_capacity(step_result.properties.len());
+                            let mut all_properties_definite = true;
                             for (name, value) in step_result.properties {
-                                if let PropertyValue::False(violation) = value {
-                                    violations.push(PropertyViolation{ name, violation });
+                                match value {
+                                    PropertyValue::False(violation) => {
+                                        violations.push(PropertyViolation{ name, violation });
+                                    }
+                                    PropertyValue::Residual => {
+                                        all_properties_definite = false;
+                                    }
+                                    PropertyValue::True => {
+                                        // Property is satisfied
+                                    }
                                 }
                             }
                             let has_violations = !violations.is_empty();
@@ -176,6 +185,10 @@ impl Runner {
                                 violations,
                             })?;
                             if has_violations && options.stop_on_violation {
+                                return Ok(())
+                            }
+                            if all_properties_definite {
+                                log::info!("all properties are definite, stopping");
                                 return Ok(())
                             }
 
@@ -279,7 +292,7 @@ fn action_timeout(action: &BrowserAction) -> Duration {
         } => {
             // We'll wait for the text to be entered, and an extra 100ms.
             let text_entry_millis =
-                (*delay_millis).saturating_mul(text.len() as u64);
+                (*delay_millis as u64).saturating_mul(text.len() as u64);
             Duration::from_millis(text_entry_millis.saturating_add(100u64))
         }
         BrowserAction::PressKey { .. } => Duration::from_millis(50),

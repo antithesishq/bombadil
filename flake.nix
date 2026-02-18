@@ -49,7 +49,7 @@
         };
 
         checks = {
-          inherit (bombadil) clippy fmt;
+          inherit (bombadil) clippy fmt types;
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           inherit (bombadil) tests;
         };

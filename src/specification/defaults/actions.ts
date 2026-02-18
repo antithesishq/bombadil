@@ -11,9 +11,7 @@ import {
 
 const contentType = extract((state) => state.document.contentType);
 
-const canGoBack = extract(
-  (state) => state.navigationHistory.back.length > 0,
-);
+const canGoBack = extract((state) => state.navigationHistory.back.length > 0);
 
 const canGoForwardSameOrigin = extract((state) => {
   const entry = state.navigationHistory.forward[0];
@@ -69,10 +67,7 @@ export const scroll = actions(() => {
             x: window.current.inner.width / 2,
             y: window.current.inner.height / 2,
           },
-          distance: Math.min(
-            window.current.inner.height / 2,
-            scrollYMaxDiff,
-          ),
+          distance: Math.min(window.current.inner.height / 2, scrollYMaxDiff),
         },
       } as Action,
     ];
@@ -212,8 +207,7 @@ const clickablePoints = extract((state) => {
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
-    if (!(element instanceof HTMLInputElement) && !isVisible(element))
-      continue;
+    if (!(element instanceof HTMLInputElement) && !isVisible(element)) continue;
 
     const point = clickablePoint(element);
     if (!point) continue;
@@ -296,11 +290,8 @@ export const inputs = actions(() => {
   if (type === "textarea") {
     return weighted([
       [1, { PressKey: { code: keycodes().generate() } }],
-      [
-        3,
-        { TypeText: { text: strings().minSize(1).generate(), delayMillis } },
-      ],
-    ]);
+      [3, { TypeText: { text: strings().minSize(1).generate(), delayMillis } }],
+    ]).generate();
   }
 
   switch (type) {
@@ -311,12 +302,12 @@ export const inputs = actions(() => {
           3,
           { TypeText: { text: strings().minSize(1).generate(), delayMillis } },
         ],
-      ]);
+      ]).generate();
     case "email":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
         [3, { TypeText: { text: emails().generate(), delayMillis } }],
-      ]);
+      ]).generate();
     case "number":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
@@ -329,7 +320,7 @@ export const inputs = actions(() => {
             },
           },
         ],
-      ]);
+      ]).generate();
     default:
       return [];
   }
