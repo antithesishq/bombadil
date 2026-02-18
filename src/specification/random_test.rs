@@ -57,7 +57,7 @@ fn call_random_range(
 ) -> f64 {
     let random_range = js::module_exports(module, context)
         .unwrap()
-        .get(&PropertyKey::String(js_string!("random_range")))
+        .get(&PropertyKey::String(js_string!("randomRange")))
         .unwrap()
         .clone();
     let result = random_range

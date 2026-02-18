@@ -23,7 +23,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
     runtime: Runtime<S>,
     private extract: (state: S) => T,
   ) {
-    runtime.register_extractor(this);
+    runtime.registerExtractor(this);
   }
 
   update(snapshot: T, time: Time): void {
@@ -55,7 +55,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
     }
   }
 
-  as_js_function(): string {
+  asJsFunction(): string {
     return this.extract.toString();
   }
 }
@@ -85,7 +85,7 @@ export const time: Cell<Time> = new TimeCell();
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
 
-  register_extractor(cell: ExtractorCell<any, S>) {
+  registerExtractor(cell: ExtractorCell<any, S>) {
     this.extractors.push(cell);
   }
 }

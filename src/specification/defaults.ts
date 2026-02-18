@@ -1,8 +1,8 @@
 export {
-  no_http_error_codes,
-  no_uncaught_exceptions,
-  no_unhandled_promise_rejections,
-  no_console_errors,
+  noHttpErrorCodes,
+  noUncaughtExceptions,
+  noUnhandledPromiseRejections,
+  noConsoleErrors,
 } from "@antithesishq/bombadil/defaults/properties";
 
 export {
