@@ -314,7 +314,15 @@ export const inputs = actions(() => {
     case "number":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
-        [3, { TypeText: { text: integers().generate(), delay_millis } }],
+        [
+          3,
+          {
+            TypeText: {
+              text: integers().min(0).max(10000).generate().toString(),
+              delay_millis,
+            },
+          },
+        ],
       ]);
     default:
       return [];

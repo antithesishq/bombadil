@@ -35,9 +35,7 @@ function random_choice<T>(items: T[]): T {
 
 // Tree
 
-export type Tree<T> =
-  | { value: T }
-  | { branches: [number, Tree<T>][] };
+export type Tree<T> = { value: T } | { branches: [number, Tree<T>][] };
 
 function leaf<T>(value: T): Tree<T> {
   return { value };
@@ -98,15 +96,21 @@ export function from<T>(elements: T[]): From<T> {
 const ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyz0123456789";
 
 class StringGenerator implements Generator<string> {
+  private size = { min: 0, max: 16 };
   generate() {
-    const len = random_range(1, 16);
+    const len = random_range(this.size.min, this.size.max);
     return Array.from({ length: len }, () =>
       random_choice([...ALPHANUMERIC]),
     ).join("");
   }
+
+  maxSize(value: number): StringGenerator {
+    this.size.max = value;
+    return this;
+  }
 }
 
-export function strings(): Generator<string> {
+export function strings(): StringGenerator {
   return new StringGenerator();
 }
 
@@ -126,23 +130,28 @@ export function emails(): Generator<string> {
   return new EmailGenerator();
 }
 
-class IntegerGenerator implements Generator<string> {
+class IntegerGenerator implements Generator<number> {
+  private range = { min: Number.MIN_VALUE, max: Number.MAX_VALUE };
+
   generate() {
-    return random_range(0, 10000).toString();
+    return random_range(this.range.min, this.range.max);
+  }
+
+  min(value: number): IntegerGenerator {
+    this.range.min = value;
+    return this;
+  }
+
+  max(value: number): IntegerGenerator {
+    this.range.max = value;
+    return this;
   }
 }
 
-export function integers(): Generator<string> {
+export function integers(): IntegerGenerator {
   return new IntegerGenerator();
 }
 
-class KeycodeGenerator implements Generator<number> {
-  static CODES = [8, 9, 13, 27];
-  generate() {
-    return random_choice(KeycodeGenerator.CODES)!;
-  }
-}
-
 export function keycodes(): Generator<number> {
-  return new KeycodeGenerator();
+  return from([8, 9, 13, 27]);
 }
