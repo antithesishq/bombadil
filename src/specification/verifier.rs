@@ -207,6 +207,7 @@ impl Verifier {
                     key.to_string(),
                     ActionGenerator {
                         name: key.to_string(),
+                        this: value.clone(),
                         function,
                     },
                 );
@@ -343,27 +344,9 @@ impl Verifier {
             ));
         }
 
-        for (name, action_generator) in &self.action_generators {
-            let value = action_generator.function.call(
-                &JsValue::undefined(),
-                &[],
-                context,
-            )?;
-            let actions_json = value.to_json(context)?.ok_or(
-                SpecificationError::OtherError(format!(
-                    "action generator {} returned undefined",
-                    name
-                )),
-            )?;
-            let generator_tree: Tree<A> = json::from_value(actions_json)
-                .map_err(|error| {
-                    SpecificationError::OtherError(format!(
-                        "failed to convert JSON object to action: {}",
-                        error
-                    ))
-                })?;
+        for action_generator in self.action_generators.values() {
             // All exported generators are weighted equally.
-            generator_branches.push((1, generator_tree));
+            generator_branches.push((1, action_generator.generate(context)?));
         }
 
         let action_tree = Tree::Branch {
@@ -396,7 +379,32 @@ enum PropertyState {
 #[derive(Debug, Clone)]
 pub struct ActionGenerator {
     pub name: String,
+    this: JsValue,
     function: JsObject,
+}
+
+impl ActionGenerator {
+    fn generate<A: serde::de::DeserializeOwned>(
+        &self,
+        context: &mut Context,
+    ) -> Result<Tree<A>> {
+        let value = self.function.call(&self.this, &[], context)?;
+        let actions_json =
+            value
+                .to_json(context)?
+                .ok_or(SpecificationError::OtherError(format!(
+                    "action generator {} returned undefined",
+                    self.name
+                )))?;
+        let tree: Tree<A> =
+            json::from_value(actions_json).map_err(|error| {
+                SpecificationError::OtherError(format!(
+                    "failed to convert JSON object to action: {}",
+                    error
+                ))
+            })?;
+        Ok(tree)
+    }
 }
 
 #[cfg(test)]
