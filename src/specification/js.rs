@@ -154,7 +154,7 @@ fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
             value.display()
         )));
     }
-    if millis.is_infinite() {
+    if millis.is_nan() || millis.is_infinite() {
         return Err(SpecificationError::OtherError(format!(
             "milliseconds is {}",
             value.display()
