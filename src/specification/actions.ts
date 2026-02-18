@@ -131,7 +131,10 @@ export function emails(): Generator<string> {
 }
 
 class IntegerGenerator implements Generator<number> {
-  private range = { min: Number.MIN_VALUE, max: Number.MAX_VALUE };
+  private range = {
+    min: Number.MIN_SAFE_INTEGER,
+    max: Number.MAX_SAFE_INTEGER,
+  };
 
   generate() {
     return random_range(this.range.min, this.range.max);
