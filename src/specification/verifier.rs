@@ -342,7 +342,7 @@ impl Verifier {
             )?;
             let actions_json = value.to_json(context)?.ok_or(
                 SpecificationError::OtherError(format!(
-                    "action generator {} return undefined",
+                    "action generator {} returned undefined",
                     name
                 )),
             )?;
