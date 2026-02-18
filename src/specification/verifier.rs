@@ -16,7 +16,7 @@ use boa_engine::{
     object::builtins::{JsArray, JsUint8Array},
     property::PropertyKey,
 };
-use boa_engine::{JsObject, JsValue};
+use boa_engine::{JsError, JsObject, JsValue};
 use oxc::span::SourceType;
 use serde_json as json;
 
@@ -78,6 +78,8 @@ pub struct Verifier {
     extractor_functions: HashMap<u64, String>,
 }
 
+const RANDOM_BYTES_COUNT_MAX: usize = 4096;
+
 impl Verifier {
     pub fn new(specification: Specification) -> Result<Self> {
         let loader = Rc::new(HybridModuleLoader::new()?);
@@ -98,6 +100,13 @@ impl Verifier {
                     .map(|v| v.to_u32(context))
                     .transpose()?
                     .unwrap_or(0) as usize;
+                if n > RANDOM_BYTES_COUNT_MAX {
+                    return Err(JsError::from_rust(SpecificationError::JS(
+                        format!(
+                            "n cannot be larger than {RANDOM_BYTES_COUNT_MAX}"
+                        ),
+                    )));
+                }
                 let mut buf = vec![0u8; n];
                 rand::fill(&mut buf[..]);
                 Ok(JsUint8Array::from_iter(buf, context)?.into())
