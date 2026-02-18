@@ -274,7 +274,14 @@ fn action_timeout(action: &BrowserAction) -> Duration {
         BrowserAction::Forward => Duration::from_secs(2),
         BrowserAction::Reload => Duration::from_secs(2),
         BrowserAction::Click { .. } => Duration::from_millis(500),
-        BrowserAction::TypeText { .. } => Duration::from_millis(300),
+        BrowserAction::TypeText {
+            text, delay_millis, ..
+        } => {
+            // We'll wait for the text to be entered, and an extra 100ms.
+            let text_entry_millis =
+                (*delay_millis).saturating_mul(text.len() as u64);
+            Duration::from_millis(text_entry_millis.saturating_add(100u64))
+        }
         BrowserAction::PressKey { .. } => Duration::from_millis(50),
         BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
         BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
