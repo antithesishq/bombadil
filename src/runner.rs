@@ -244,18 +244,13 @@ async fn run_extractors(
         })
         .collect();
 
-    let last_action_json = match last_action {
-        Some(action) => json::to_value(action).unwrap_or(json::Value::Null),
-        None => json::Value::Null,
-    };
-
     let state_partial = json::json!({
         "errors": {
             "uncaught_exceptions": &state.exceptions,
         },
         "console": console_entries,
         "navigation_history": &state.navigation_history,
-        "last_action": last_action_json,
+        "last_action": json::to_value(last_action)?,
     });
 
     for (key, function) in extractors {
