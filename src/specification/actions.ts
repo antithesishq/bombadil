@@ -27,7 +27,7 @@ function random_u32(): number {
 
 function random_range(min: number, max: number): number {
   if (min >= max) {
-    throw new Error(`min (${min}) must be less than max (${max})`);
+    throw new RangeError(`min (${min}) must be less than max (${max})`);
   }
   return min + (random_u32() % (max - min));
 }
@@ -48,6 +48,13 @@ function leaf<T>(value: T): Tree<T> {
 }
 
 function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
+  for (const [weight] of branches) {
+    if (!Number.isInteger(weight) || weight < 0 || weight > 0xffff) {
+      throw new RangeError(
+        `invalid weight ${weight}, expected integer between 0 and 65535 inclusive`,
+      );
+    }
+  }
   return { branches };
 }
 
