@@ -268,59 +268,6 @@ async fn run_extractors(
     Ok(results)
 }
 
-/*
-async fn check_page_ok(state: &BrowserState) -> Result<(), Violation> {
-    let status: Option<u16> = state.evaluate_function_call(
-                        "() => window.performance.getEntriesByType('navigation')[0]?.responseStatus", vec![]
-                    ).await?;
-    if let Some(status) = status
-        && status >= 400
-    {
-        invariant_violation!(
-            "expected 2xx or 3xx but got {} at {} ({})",
-            status,
-            state.title,
-            state.url
-        );
-    }
-
-    for entry in &state.console_entries {
-        if let ConsoleEntryLevel::Error = entry.level {
-            invariant_violation!(
-                "console.error at {}: {:?}",
-                entry.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
-                entry.args
-            )
-        }
-    }
-
-    if let Some(exception) = &state.exception {
-        fn formatted(value: &json::Value) -> Result<String, Violation> {
-            match value {
-                json::Value::String(s) => Ok(s.clone()),
-                other => json::to_string_pretty(other).map_err(Into::into),
-            }
-        }
-        match exception {
-            Exception::UncaughtException(value) => {
-                invariant_violation!(
-                    "uncaught exception: {}",
-                    formatted(value)?
-                )
-            }
-            Exception::UnhandledPromiseRejection(value) => {
-                invariant_violation!(
-                    "unhandled promise rejection: {}",
-                    formatted(value)?
-                )
-            }
-        }
-    }
-
-    Ok(())
-}
-*/
-
 fn action_timeout(action: &BrowserAction) -> Duration {
     match action {
         BrowserAction::Back => Duration::from_secs(2),
