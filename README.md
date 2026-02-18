@@ -14,12 +14,18 @@ As a user, you:
 
 * **Write a specification:**
 
-    A specification is a TypeScript module that exports *properties*.
+    A specification is a TypeScript module that exports *properties* and *action generators*.
 
     Properties are linear temporal logic formulas, describing what the system
-    under test should and shouldn't do. The `"@antithesishq/bombadil/defaults"` module
-    provides a set of reasonable properties for web applications. You may also
+    under test should and shouldn't do. The `"@antithesishq/bombadil/defaults/properties"` 
+    module provides a set of reasonable properties for web applications. You may also
     specify your own domain-specific requirements.
+
+    Action generators produce actions in every state, which contribute to a set of actions
+    that Bombadil picks the *next* action from. The `"@antithesishq/bombadil/defaults/actions"` 
+    module provides a set of reasonable generators for most web applications. In addition to
+    reexporting those, you can constructor your own actions. For instance, you might have a 
+    clickable `<div>` that Bombadil doesn't know can be clicked.
 
 * **Run tests:**
 
@@ -34,10 +40,10 @@ tests your web application for you. This is *property-based testing* or
 ## Examples
 
 <details>
-<summary>Starter (only using default properties)</summary>
+<summary>Starter (only using default properties and actions)</summary>
 
-This specification doesn't specify any custom properties at all, it just
-reexports the default ones provided by Bombadil:
+This specification doesn't specify any custom properties or actions at all, it
+just reexports the default ones provided by Bombadil:
 
 ```typescript
 export * from "@antithesishq/bombadil/defaults";
@@ -107,7 +113,7 @@ Or headless (useful in CI):
 $ bombadil test https://example.com --headless
 ```
 
-Check custom properties defined in a specification file:
+Check with a custom specification file:
 
 ```bash
 $ bombadil test https://example.com my-spec.ts
