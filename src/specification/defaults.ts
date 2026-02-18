@@ -7,6 +7,7 @@ import {
   integers,
   keycodes,
   type Action,
+  actions,
 } from "@antithesishq/bombadil";
 
 // Properties
@@ -88,7 +89,7 @@ const window = extract((state) => {
   };
 });
 
-export const scroll = weighted(15, () => {
+export const scroll = actions(() => {
   if (content_type.current !== "text/html") return [];
 
   if (!body.current) return [];
@@ -97,25 +98,32 @@ export const scroll = weighted(15, () => {
   const scroll_y_max_diff = scroll_y_max - window.current.scroll.y;
 
   if (scroll_y_max_diff >= 1) {
-    return [{
-      ScrollDown: {
-        origin: {
-          x: window.current.inner.width / 2,
-          y: window.current.inner.height / 2,
+    return [
+      {
+        ScrollDown: {
+          origin: {
+            x: window.current.inner.width / 2,
+            y: window.current.inner.height / 2,
+          },
+          distance: Math.min(
+            window.current.inner.height / 2,
+            scroll_y_max_diff,
+          ),
         },
-        distance: Math.min(window.current.inner.height / 2, scroll_y_max_diff),
-      },
-    } as Action];
+      } as Action,
+    ];
   } else if (window.current.scroll.y > 0) {
-    return [{
-      ScrollUp: {
-        origin: {
-          x: window.current.inner.width / 2,
-          y: window.current.inner.height / 2,
+    return [
+      {
+        ScrollUp: {
+          origin: {
+            x: window.current.inner.width / 2,
+            y: window.current.inner.height / 2,
+          },
+          distance: window.current.scroll.y,
         },
-        distance: window.current.scroll.y,
-      },
-    } as Action];
+      } as Action,
+    ];
   }
 
   return [];
@@ -286,11 +294,14 @@ const clickable_points = extract((state) => {
   return targets;
 });
 
-export const clicks = weighted(25, () => {
+export const clicks = actions(() => {
   if (content_type.current !== "text/html") return [];
-  return clickable_points.current.map(({ name, content, point }) => ({
-    Click: { name, content, point },
-  }) as Action);
+  return clickable_points.current.map(
+    ({ name, content, point }) =>
+      ({
+        Click: { name, content, point },
+      }) as Action,
+  );
 });
 
 // Inputs
@@ -310,7 +321,7 @@ const active_input = extract((state) => {
   return null;
 });
 
-export const inputs = weighted(15, () => {
+export const inputs = actions(() => {
   if (content_type.current !== "text/html") return [];
   const type = active_input.current;
   if (!type) return [];
@@ -318,27 +329,27 @@ export const inputs = weighted(15, () => {
   const delay_millis = 50;
 
   if (type === "textarea") {
-    return [
-      weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
-      weighted(3, [{ TypeText: { text: strings().generate(), delay_millis } }]),
-    ];
+    return weighted([
+      [1, { PressKey: { code: keycodes().generate() } }],
+      [3, { TypeText: { text: strings().generate(), delay_millis } }],
+    ]);
   }
 
   switch (type) {
     case "text":
-      return [
-        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
-        weighted(3, [{ TypeText: { text: strings().generate(), delay_millis } }]),
-      ];
+      return weighted([
+        [1, { PressKey: { code: keycodes().generate() } }],
+        [3, { TypeText: { text: strings().generate(), delay_millis } }],
+      ]);
     case "email":
       return [
-        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
-        weighted(3, [{ TypeText: { text: emails().generate(), delay_millis } }]),
+        [1, { PressKey: { code: keycodes().generate() } }],
+        [3, { TypeText: { text: emails().generate(), delay_millis } }],
       ];
     case "number":
       return [
-        weighted(1, [{ PressKey: { code: keycodes().generate() } }]),
-        weighted(3, [{ TypeText: { text: integers().generate(), delay_millis } }]),
+        [1, { PressKey: { code: keycodes().generate() } }],
+        [3, { TypeText: { text: integers().generate(), delay_millis } }],
       ];
     default:
       return [];
@@ -347,17 +358,23 @@ export const inputs = weighted(15, () => {
 
 // Navigation
 
-export const back = weighted(3, () => {
+export const back = actions(() => {
   if (can_go_back.current) return ["Back" as Action];
   return [];
 });
 
-export const forward = weighted(1, () => {
+export const forward = actions(() => {
   if (can_go_forward_same_origin.current) return ["Forward" as Action];
   return [];
 });
 
-export const reload = weighted(1, () => {
+export const reload = actions(() => {
   if (last_action.current !== "Reload") return ["Reload" as Action];
   return [];
 });
+
+export const navigation = weighted([
+  [10, back],
+  [1, forward],
+  [1, reload],
+]);

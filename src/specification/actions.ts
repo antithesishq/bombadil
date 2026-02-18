@@ -33,41 +33,51 @@ function random_choice<T>(items: T[]): T {
   return items[random_u32() % items.length]!;
 }
 
-// Generators
+// Tree
 
-export interface WeightedActions {
-  weight: number;
-  actions: Action[];
+export type Tree<T> =
+  | { value: T }
+  | { branches: [number, Tree<T>][] };
+
+function leaf<T>(value: T): Tree<T> {
+  return { value };
 }
 
-type GenerateResult = (WeightedActions | Action)[];
-
-export class ActionGenerator implements Generator<GenerateResult> {
-  constructor(public generate: () => GenerateResult) {}
+function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
+  return { branches };
 }
 
-export function actions(generate: () => GenerateResult): ActionGenerator {
-  return new ActionGenerator(generate);
+// Action generators
+
+export class ActionGenerator implements Generator<Tree<Action>> {
+  constructor(public generate: () => Tree<Action>) {}
 }
 
-export class Weighted {
-  constructor(
-    public weight: number,
-    public generator: ActionGenerator,
-  ) {}
+export function actions(
+  generate: () => Tree<Action> | Action[],
+): ActionGenerator {
+  return new ActionGenerator(() => {
+    const result = generate();
+    if (Array.isArray(result)) {
+      return branch(result.map((a) => [1, leaf(a)]));
+    }
+    return result;
+  });
 }
 
 export function weighted(
-  weight: number,
-  value: Action[] | ActionGenerator | (() => GenerateResult),
-): Weighted | WeightedActions {
-  if (Array.isArray(value)) {
-    return { weight, actions: value };
-  }
-  if (typeof value === "function") {
-    return new Weighted(weight, new ActionGenerator(value));
-  }
-  return new Weighted(weight, value);
+  value: [number, Action | ActionGenerator][],
+): ActionGenerator {
+  return new ActionGenerator(() => {
+    return branch(
+      value.map(([w, x]) => {
+        if (x instanceof ActionGenerator) {
+          return [w, x.generate()] as [number, Tree<Action>];
+        }
+        return [w, leaf(x)] as [number, Tree<Action>];
+      }),
+    );
+  });
 }
 
 export class From<T> implements Generator<T> {
@@ -90,7 +100,9 @@ const ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyz0123456789";
 class StringGenerator implements Generator<string> {
   generate() {
     const len = random_range(1, 16);
-    return Array.from({ length: len }, () => random_choice([...ALPHANUMERIC])).join("");
+    return Array.from({ length: len }, () =>
+      random_choice([...ALPHANUMERIC]),
+    ).join("");
   }
 }
 
@@ -100,8 +112,12 @@ export function strings(): Generator<string> {
 
 class EmailGenerator implements Generator<string> {
   generate() {
-    const user = Array.from({ length: random_range(3, 10) }, () => random_choice([...ALPHANUMERIC])).join("");
-    const domain = Array.from({ length: random_range(3, 8) }, () => random_choice([...ALPHANUMERIC])).join("");
+    const user = Array.from({ length: random_range(3, 10) }, () =>
+      random_choice([...ALPHANUMERIC]),
+    ).join("");
+    const domain = Array.from({ length: random_range(3, 8) }, () =>
+      random_choice([...ALPHANUMERIC]),
+    ).join("");
     return `${user}@${domain}.com`;
   }
 }

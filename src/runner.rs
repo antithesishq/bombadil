@@ -182,7 +182,7 @@ impl Runner {
                             let action_tree = action_tree.prune()
                                 .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
 
-                            let action = action_tree.pick(&mut rand::rng()).clone();
+                            let action = action_tree.pick(&mut rand::rng())?.clone();
                             let timeout = action_timeout(&action);
                             log::info!("picked action: {:?}", action);
                             browser.apply(action.clone(), timeout)?;

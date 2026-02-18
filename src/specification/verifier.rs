@@ -10,7 +10,9 @@ use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use crate::tree::Tree;
 use boa_engine::{
-    Context, JsString, Module, NativeFunction, Source, context::ContextBuilder, js_string,
+    Context, JsString, Module, NativeFunction, Source,
+    context::ContextBuilder,
+    js_string,
     object::builtins::{JsArray, JsUint8Array},
     property::PropertyKey,
 };
@@ -65,47 +67,6 @@ impl Specification {
 pub struct StepResult<A> {
     pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
     pub actions: Tree<A>,
-}
-
-/// Parses a generator's JSON output into a tree.
-///
-/// The generator returns a mixed array where each element is either:
-/// - A `Weighted` instance: `{ weight: N, actions: [...] }` — becomes a weighted branch
-/// - A bare `Action`: any other JSON value — becomes a weight-1 leaf
-fn parse_generator_output<A: serde::de::DeserializeOwned>(
-    value: json::Value,
-) -> std::result::Result<Tree<A>, json::Error> {
-    let items = value
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-
-    let mut branches: Vec<(u16, Tree<A>)> = Vec::new();
-
-    for item in items {
-        if let Some(obj) = item.as_object() {
-            if let (Some(weight), Some(actions)) =
-                (obj.get("weight"), obj.get("actions"))
-            {
-                if let Some(w) = weight.as_u64() {
-                    if let Some(arr) = actions.as_array() {
-                        // This is a Weighted { weight, actions: Action[] }
-                        let leaves: Vec<(u16, Tree<A>)> = arr
-                            .iter()
-                            .map(|a| Ok((1u16, Tree::Leaf(json::from_value::<A>(a.clone())?))))
-                            .collect::<std::result::Result<_, json::Error>>()?;
-                        branches.push((w as u16, Tree::Branch(leaves)));
-                        continue;
-                    }
-                }
-            }
-        }
-        // Bare action
-        let action: A = json::from_value(item)?;
-        branches.push((1, Tree::Leaf(action)));
-    }
-
-    Ok(Tree::Branch(branches))
 }
 
 pub struct Verifier {
@@ -216,55 +177,6 @@ impl Verifier {
                     },
                 );
             } else if value
-                .instance_of(&bombadil_exports.weighted, &mut context)?
-            {
-                let object = value.as_object().ok_or(
-                    SpecificationError::OtherError(format!(
-                        "weighted export {} is not an object, it is {}",
-                        key,
-                        value.type_of()
-                    )),
-                )?;
-                let weight = object
-                    .get(js_string!("weight"), &mut context)
-                    .map_err(|error| SpecificationError::JS(error.to_string()))?
-                    .as_number()
-                    .ok_or(SpecificationError::OtherError(format!(
-                        "weighted export {} has non-numeric weight",
-                        key,
-                    )))? as u16;
-                let inner = object
-                    .get(js_string!("generator"), &mut context)
-                    .map_err(|error| SpecificationError::JS(error.to_string()))?;
-                if !inner.instance_of(&bombadil_exports.action_generator, &mut context)? {
-                    return Err(SpecificationError::OtherError(format!(
-                        "weighted export {} does not wrap an ActionGenerator",
-                        key,
-                    )));
-                }
-                let inner_object = inner.as_object().ok_or(
-                    SpecificationError::OtherError(format!(
-                        "weighted export {} inner is not an object",
-                        key,
-                    )),
-                )?;
-                let function = inner_object
-                    .get(js_string!("generate"), &mut context)
-                    .map_err(|error| SpecificationError::JS(error.to_string()))?
-                    .as_object()
-                    .ok_or(SpecificationError::OtherError(format!(
-                        "weighted export {} generate is not a function",
-                        key,
-                    )))?;
-                action_generators.insert(
-                    key.to_string(),
-                    ActionGenerator {
-                        name: key.to_string(),
-                        weight,
-                        function,
-                    },
-                );
-            } else if value
                 .instance_of(&bombadil_exports.action_generator, &mut context)?
             {
                 let object = value.as_object().ok_or(
@@ -287,7 +199,6 @@ impl Verifier {
                     key.to_string(),
                     ActionGenerator {
                         name: key.to_string(),
-                        weight: 1,
                         function,
                     },
                 );
@@ -436,17 +347,20 @@ impl Verifier {
                     name
                 )),
             )?;
-            let generator_tree: Tree<A> =
-                parse_generator_output(actions_json).map_err(|error| {
+            let generator_tree: Tree<A> = json::from_value(actions_json)
+                .map_err(|error| {
                     SpecificationError::OtherError(format!(
                         "failed to convert JSON object to action: {}",
                         error
                     ))
                 })?;
-            generator_branches.push((action_generator.weight, generator_tree));
+            // All exported generators are weighted equally.
+            generator_branches.push((1, generator_tree));
         }
 
-        let action_tree = Tree::Branch(generator_branches);
+        let action_tree = Tree::Branch {
+            branches: generator_branches,
+        };
 
         Ok(StepResult {
             properties: result_properties,
@@ -474,7 +388,6 @@ enum PropertyState {
 #[derive(Debug, Clone)]
 pub struct ActionGenerator {
     pub name: String,
-    pub weight: u16,
     function: JsObject,
 }
 
