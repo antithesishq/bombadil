@@ -104,25 +104,17 @@ impl Verifier {
             }),
         )?;
 
-        // Internal module
-        {
-            let module = load_bombadil_module("internal.js", &mut context)?;
-            loader.insert_mapped_module(
-                "@antithesishq/bombadil/internal",
-                module.clone(),
-            );
+        // Non-special modules loaded in dependency order
+        let modules = [
+            ("internal.js", "@antithesishq/bombadil/internal"),
+            ("actions.js", "@antithesishq/bombadil/actions"),
+        ];
+        for (file, import_path) in modules {
+            let module = load_bombadil_module(file, &mut context)?;
+            loader.insert_mapped_module(import_path, module);
         }
 
-        // Actions module
-        {
-            let module = load_bombadil_module("actions.js", &mut context)?;
-            loader.insert_mapped_module(
-                "@antithesishq/bombadil/actions",
-                module.clone(),
-            );
-        }
-
-        // Main module
+        // Index module — special: needed for BombadilExports
         let bombadil_module_index = {
             let module = load_bombadil_module("index.js", &mut context)?;
             loader
@@ -130,15 +122,22 @@ impl Verifier {
             module
         };
 
-        // Defaults module
-        {
-            let module = load_bombadil_module("defaults.js", &mut context)?;
-            loader.insert_mapped_module(
-                "@antithesishq/bombadil/defaults",
-                module.clone(),
-            );
-            module
-        };
+        // Modules that depend on index
+        let modules = [
+            (
+                "defaults/actions.js",
+                "@antithesishq/bombadil/defaults/actions",
+            ),
+            (
+                "defaults/properties.js",
+                "@antithesishq/bombadil/defaults/properties",
+            ),
+            ("defaults.js", "@antithesishq/bombadil/defaults"),
+        ];
+        for (file, import_path) in modules {
+            let module = load_bombadil_module(file, &mut context)?;
+            loader.insert_mapped_module(import_path, module);
+        }
 
         let specification_module = {
             let specification_bytes: &[u8] = &specification.contents;

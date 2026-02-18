@@ -122,7 +122,10 @@ mod tests {
                 (
                     1,
                     Branch {
-                        branches: vec![(1, Leaf { value: 2 }), (1, Leaf { value: 3 })],
+                        branches: vec![
+                            (1, Leaf { value: 2 }),
+                            (1, Leaf { value: 3 }),
+                        ],
                     },
                 ),
             ],
@@ -174,8 +177,18 @@ mod tests {
             .unwrap();
         let expected = Branch {
             branches: vec![
-                (1, Leaf { value: "1".to_string() }),
-                (2, Leaf { value: "2".to_string() }),
+                (
+                    1,
+                    Leaf {
+                        value: "1".to_string(),
+                    },
+                ),
+                (
+                    2,
+                    Leaf {
+                        value: "2".to_string(),
+                    },
+                ),
             ],
         };
         assert_eq!(mapped, expected);

@@ -3,8 +3,8 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{input, page};
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 use tokio::time::sleep;
 
 use crate::browser::keys::key_name;

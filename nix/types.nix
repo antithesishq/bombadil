@@ -21,6 +21,12 @@ let
         "./defaults" = {
           types = "./dist/defaults.d.ts";
         };
+        "./defaults/actions" = {
+          types = "./dist/defaults/actions.d.ts";
+        };
+        "./defaults/properties" = {
+          types = "./dist/defaults/properties.d.ts";
+        };
         "./actions" = {
           types = "./dist/actions.d.ts";
         };

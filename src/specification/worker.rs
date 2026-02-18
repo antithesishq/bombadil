@@ -165,18 +165,13 @@ impl VerifierWorker {
             .await
             .map_err(|_| WorkerError::WorkerGone)?
             .map_err(WorkerError::SpecificationError)?;
-        let actions = result
-            .actions
-            .try_map(&mut |v| {
-                json::from_value(v).map_err(|e| {
-                    WorkerError::SpecificationError(
-                        SpecificationError::OtherError(format!(
-                            "failed to deserialize action: {}",
-                            e
-                        )),
-                    )
-                })
-            })?;
+        let actions = result.actions.try_map(&mut |v| {
+            json::from_value(v).map_err(|e| {
+                WorkerError::SpecificationError(SpecificationError::OtherError(
+                    format!("failed to deserialize action: {}", e),
+                ))
+            })
+        })?;
         Ok(StepResult {
             properties: result.properties,
             actions,
