@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="$lang$" xml:lang="$lang$"$if(dir)$ dir="$dir$"$endif$>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="generator" content="pandoc" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+    $for(author-meta)$
+    <meta name="author" content="$author-meta$" />
+    $endfor$
+    $if(date-meta)$
+    <meta name="dcterms.date" content="$date-meta$" />
+    $endif$
+    $if(keywords)$
+    <meta name="keywords" content="$for(keywords)$$keywords$$sep$, $endfor$" />
+    $endif$
+    $if(description-meta)$
+    <meta name="description" content="$description-meta$" />
+    $endif$
+    <title>$if(title-prefix)$$title-prefix$ – $endif$$pagetitle$</title>
+    $for(css)$
+    <link rel="stylesheet" href="$css$" />
+    $endfor$
+    $for(header-includes)$
+    $header-includes$
+    $endfor$
+    $if(math)$
+    $math$
+    $endif$
+  </head>
+  <body class="$if(top)$page$else$index$endif$">
+    $for(include-before)$
+    $include-before$
+    $endfor$
+    $if(top)$
+    $-- only print title block if this is NOT the top page
+    $else$
+    $endif$
+
+    $if(top)$
+    <nav id="$idprefix$TOC" role="doc-toc">
+      $if(toc-title)$
+      <h2 id="$idprefix$toc-title"><a href="index.html">$toc-title$</a></h2>
+      $endif$
+      $table-of-contents$
+    </nav>
+    $endif$
+
+    <main>
+
+      <div class="content">
+
+        $if(top)$
+        $else$
+        $if(title)$
+        <header id="title-block-header">
+          <h1 class="title">$title$</h1>
+          $if(subtitle)$
+          <p class="subtitle">$subtitle$</p>
+          $endif$
+          $for(author)$
+          <p class="author">$author$</p>
+          $endfor$
+          $if(date)$
+          <p class="date">$date$</p>
+          $endif$
+          $if(version)$
+          <p class="version">$version$</p>
+          $endif$
+          $if(abstract)$
+          <div class="abstract">
+            <div class="abstract-title">$abstract-title$</div>
+            $abstract$
+          </div>
+          $endif$
+          $endif$
+        </header>
+        <nav class="index-cta">
+          <a href="2-getting-started.html#installation" class="btn btn-primary">Install Bombadil</a>
+          $if(next.url)$
+          <a href="$next.url$" class="btn">$next.title$</a>
+          $endif$
+        </nav>
+        $endif$
+
+        $body$
+      </div>
+
+      $if(top)$
+      <nav id="page-nav">
+        <div class="page-nav">
+
+          $if(previous.url)$
+          <a href="$previous.url$" accesskey="p" rel="previous" class="navlink btn prev">
+            <span class="navlink-label">Previous</span> 
+            <span class="navlink-title">$previous.title$</span> 
+          </a>
+          $endif$
+
+          $if(next.url)$
+          <a href="$next.url$" accesskey="n" rel="next" class="navlink btn next">
+            <span class="navlink-label">Next</span>
+            <span class="navlink-title">$next.title$</span> 
+          </a>
+          $endif$
+
+        </div>
+      </nav>
+      $endif$
+
+    </main>
+
+    $for(include-after)$
+    $include-after$
+    $endfor$
+  </body>
+</html>

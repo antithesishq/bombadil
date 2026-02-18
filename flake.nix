@@ -81,6 +81,9 @@
               # Docs
               pandoc
               texliveSmall
+              watchexec
+              nodePackages.browser-sync
+              nodePackages.concurrently
             ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
               # Runtime
               pkgs.chromium

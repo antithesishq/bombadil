@@ -1,12 +1,14 @@
 ---
-title: Bombadil Manual
-author: Bombadil Team
-date: 2026-02-18
+title: The Bombadil Manual
+version: v0.2.1
+copyright: Antithesis Operations LLC
+toc-title: The Bombadil Manual
 ---
 
 # Introduction
 
-Bombadil is a browser testing framework designed for Antithesis.
+Bombadil is Property-based testing for web UIs, autonomously exploring and
+validating correctness properties, *finding harder bugs earlier*.
 
 ## What is Bombadil?
 

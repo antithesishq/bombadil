@@ -4,13 +4,13 @@
 
 TODO: Overview of the specification language
 
+## Properties
+
+TODO: Available assertions
+
 ## Actions
 
 TODO: Available actions
-
-## Assertions
-
-TODO: Available assertions
 
 ## Examples
 
