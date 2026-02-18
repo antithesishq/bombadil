@@ -15,7 +15,7 @@ use crate::specification::module_loader::{
 };
 
 thread_local! {
-    static RANDOM_BYTES: RefCell<VecDeque<u8>> = RefCell::new(VecDeque::new());
+    static RANDOM_BYTES: RefCell<VecDeque<u8>> = const { RefCell::new(VecDeque::new()) };
 }
 
 fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
