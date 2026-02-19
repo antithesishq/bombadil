@@ -83,6 +83,10 @@ ul, ol {
   margin-bottom: 1rem;
 }
 
+li {
+  margin: .5rem 0;
+}
+
 a {
   color: inherit;
   text-decoration: underline;
@@ -201,6 +205,7 @@ main {
   max-width: 60rem;
   margin-left: 16rem;
   background-color: var(--color-bg);
+  border-right: 1px solid var(--color-border);
 }
 
 .content {
@@ -216,7 +221,7 @@ main {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
-  padding: 2rem;
+  padding: 0 2rem 2rem;
   gap: 2rem;
 }
 
@@ -265,6 +270,7 @@ main {
   display: flex;
   gap: 1rem;
   justify-content: space-between;
+  align-items: center;
 }
 .site-footer nav ul {
   list-style-type: none;
