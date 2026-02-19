@@ -90,7 +90,7 @@ a {
 
 pre, code {
   font-family: var(--font-family-code);
-  font-size: .875rem;
+  font-size: .95rem;
 }
 
 code {
@@ -108,14 +108,117 @@ details {
   border: 1px solid var(--color-border);
   border-radius: .25rem;
   background-color: var(--color-bg-muted);
-  padding: 1rem;
 }
 summary {
-  font-family: var(--font-family-headings);
-  list-style-type: '› ';
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  list-style-type: "";
+  cursor: pointer;
+  padding: 1rem;
+}
+summary:after {
+  content: "❯";
+  font-size: .75rem;
+  line-height: 1.5rem;
+}
+details[open] summary:after {
+  transform: rotate(90deg);
+}
+details[open]::details-content {
+  padding: 1rem;
+  overflow-x: auto;
 }
 
 
+.accordion {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+}
+.accordion details {
+  margin-bottom: 0;
+  border-radius: 0;
+  border-top: 0;
+}
+.accordion details:first-child {
+  border-top: 1px solid var(--color-border);
+  border-top-right-radius: .25rem;
+  border-top-left-radius: .25rem;
+}
+.accordion details:last-child {
+  border-bottom-right-radius: .25rem;
+  border-bottom-left-radius: .25rem;
+}
+
+/* Admonitions */
+.callout {
+  border: 1px solid var(--color-border);
+  border-radius: .25rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-left-width: 4px;
+}
+
+.callout > :first-child {
+  margin-top: 0;
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+.callout-note {
+  background-color: color-mix(in hsl, var(--color-secondary) 8%, var(--color-bg) 92%);
+  border-left-color: var(--color-secondary);
+}
+
+.callout-note::before {
+  content: "Note:";
+  display: block;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.callout-warning {
+  background-color: color-mix(in hsl, #d97706 8%, var(--color-bg) 92%);
+  border-left-color: #d97706;
+}
+
+.callout-warning::before {
+  content: "Warning:";
+  display: block;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.callout-tip {
+  background-color: color-mix(in hsl, #059669 8%, var(--color-bg) 92%);
+  border-left-color: #059669;
+}
+
+.callout-tip::before {
+  content: "Tip:";
+  display: block;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.callout-important {
+  background-color: color-mix(in hsl, #dc2626 8%, var(--color-bg) 92%);
+  border-left-color: #dc2626;
+}
+
+.callout-important::before {
+  content: "Important:";
+  display: block;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
 
 table {
   border-collapse: collapse;
@@ -393,5 +496,9 @@ code span.dv {
 .bash span.ex {
   user-select: none;
   color: var(--color-fg-muted);
+}
+.bash {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 

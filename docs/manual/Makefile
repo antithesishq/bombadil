@@ -17,11 +17,17 @@ TXT_FILE := $(TARGET_DIR)/bombadil-manual.txt
 PANDOC := pandoc
 PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=3 -Vtoc-title="The Bombadil Manual" \
 	--split-level=1 --resource-path=$(SRC_DIR) --css=reset.css --css=style.css \
+	--lua-filter=$(SRC_DIR)/replace.lua \
+	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--template=$(SRC_DIR)/template.html -M version=$(VERSION)
 PANDOC_EPUB_OPTS := --toc --toc-depth=3 \
-	--epub-metadata=$(SRC_DIR)/metadata.yaml --resource-path=$(SRC_DIR) -M version=$(VERSION)
+	--epub-metadata=$(SRC_DIR)/metadata.yaml --resource-path=$(SRC_DIR) \
+	--lua-filter=$(SRC_DIR)/replace.lua \
+	--lua-filter=$(SRC_DIR)/admonitions.lua -M version=$(VERSION)
 PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	--pdf-engine=lualatex --resource-path=$(SRC_DIR) \
+	--lua-filter=$(SRC_DIR)/replace.lua \
+	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--highlight-style=monochrome \
 	-V mainfont="Inter" \
 	-V monofont="JetBrains Mono" \
@@ -46,17 +52,17 @@ $(TARGET_DIR):
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
+$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
 	rm -rf $(HTML_DIR)
 	$(PANDOC) $(SOURCES) --output $(HTML_DIR)/ $(PANDOC_HTML_OPTS)
 	cp $(SRC_DIR)/*.css $(HTML_DIR)/
 	cp $(SRC_DIR)/*.js $(HTML_DIR)/
 	touch $(HTML_DIR)/.built
 
-$(EPUB_FILE): $(SOURCES) | $(TARGET_DIR)
+$(EPUB_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(EPUB_FILE) $(PANDOC_EPUB_OPTS)
 
-$(PDF_FILE): $(SOURCES) | $(TARGET_DIR)
+$(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(PDF_FILE) $(PANDOC_PDF_OPTS)
 
 $(TXT_FILE): $(SOURCES) | $(TARGET_DIR)
