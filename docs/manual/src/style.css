@@ -45,10 +45,13 @@
   outline-color: var(--color-secondary);
 }
 
-body {
+html {
   font-family: var(--font-family-copy);
   font-size: 16px;
   line-height: 1.6;
+}
+
+body {
   margin: 0;
   padding: 0;
   display: flex;
@@ -291,6 +294,9 @@ main {
 
 
 @media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
   nav#TOC {
     top: 0;
     left: 0;
@@ -324,6 +330,13 @@ main {
   main {
     margin-top: 4rem;
     margin-left: 0;
+  }
+
+  .content, .page-nav, .site-footer {
+    padding: 1rem;
+  }
+  .page-nav {
+    gap: 1rem;
   }
 }
 
