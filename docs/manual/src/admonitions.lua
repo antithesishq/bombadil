@@ -7,6 +7,7 @@ end
 
 -- Track state for multi-block details elements
 local in_details = false
+local in_summary = false
 
 function Div(el)
   -- Handle callout admonitions
@@ -22,11 +23,11 @@ function Div(el)
         callout_type = 'Important'
       end
 
-      -- Create a simple framed box with a label
+      -- Create a simple block with a label, no indentation
       return {
-        pandoc.RawBlock('latex', '\\begin{quote}\\noindent\\textbf{' .. callout_type .. ':}\\par\\vspace{0.3em}'),
+        pandoc.RawBlock('latex', '\\noindent\\textbf{' .. callout_type .. ':}\\par\\vspace{0.3em}'),
         el,
-        pandoc.RawBlock('latex', '\\end{quote}')
+        pandoc.RawBlock('latex', '\\vspace{0.5em}')
       }
     end
   end
@@ -43,7 +44,8 @@ function RawBlock(el)
     if content:match('^<details[^>]*>$') then
       in_details = true
       if FORMAT:match 'latex' then
-        return pandoc.RawBlock('latex', '\\begin{quote}')
+        -- Use a simple structure with indentation
+        return pandoc.RawBlock('latex', '')
       end
       return {}
     end
@@ -52,7 +54,7 @@ function RawBlock(el)
     local summary = content:match('^<summary[^>]*>(.-)</summary>$')
     if summary then
       if FORMAT:match 'latex' then
-        return pandoc.RawBlock('latex', '\\noindent{\\large\\textbf{' .. summary .. '}}\\par\\vspace{0.5em}')
+        return pandoc.RawBlock('latex', '\\noindent\\textbf{' .. summary .. '}\\par\\vspace{0.3em}\n\\begin{quote}')
       else
         return pandoc.RawBlock('markdown', '**' .. summary .. '**\n\n')
       end
@@ -60,11 +62,16 @@ function RawBlock(el)
 
     -- Opening summary tag (without inline text)
     if content:match('^<summary[^>]*>$') then
+      in_summary = true
       return {}
     end
 
     -- Closing summary tag
     if content:match('^</summary>$') then
+      in_summary = false
+      if FORMAT:match 'latex' then
+        return pandoc.RawBlock('latex', '\\vspace{0.3em}\n\\begin{quote}')
+      end
       return {}
     end
 
@@ -72,7 +79,7 @@ function RawBlock(el)
     if content:match('^</details>$') then
       in_details = false
       if FORMAT:match 'latex' then
-        return pandoc.RawBlock('latex', '\\end{quote}')
+        return pandoc.RawBlock('latex', '\\end{quote}\\vspace{0.5em}')
       end
       return {}
     end
@@ -89,6 +96,22 @@ function RawInline(el)
   -- Only strip HTML inlines when NOT outputting to HTML
   if el.format == 'html' and not is_html_output() then
     return {}
+  end
+  return el
+end
+
+function Para(el)
+  -- When inside summary, make paragraph bold for LaTeX
+  if in_summary and FORMAT:match 'latex' then
+    return pandoc.Para(pandoc.Strong(el.content))
+  end
+  return el
+end
+
+function Plain(el)
+  -- When inside summary, make plain text bold for LaTeX
+  if in_summary and FORMAT:match 'latex' then
+    return pandoc.Plain(pandoc.Strong(el.content))
   end
   return el
 end

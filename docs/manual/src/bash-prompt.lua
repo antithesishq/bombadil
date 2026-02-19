@@ -35,8 +35,8 @@ function CodeBlock(el)
       if line:match("^%$ ") then
         local command = line:sub(3)
         -- Use | as escape character for commands within Verbatim
-        -- |textcolor{gray}{$ }| renders "$ " in gray
-        table.insert(latex_lines, '|textcolor{gray}{$ }|' .. command)
+        -- |textcolor{gray}{$ } renders "$ " in gray, then back to verbatim for the command
+        table.insert(latex_lines, '|textcolor{gray}{$ }' .. command)
       else
         table.insert(latex_lines, line)
       end
