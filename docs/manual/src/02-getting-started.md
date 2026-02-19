@@ -104,7 +104,7 @@ $ bun add --development @antithesishq/bombadil
 </details>
 </div>
 
-Or use the files provided in the [the 
+Or use the files provided in [the 
 release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 
 ## Quick Start
