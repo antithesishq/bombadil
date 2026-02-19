@@ -458,7 +458,10 @@ main {
     margin-left: 0;
   }
 
-  .content, .page-nav, .site-footer {
+  .content {
+    padding: 2rem 1rem 1rem;
+  }
+  .page-nav, .site-footer {
     padding: 1rem;
   }
   .page-nav {

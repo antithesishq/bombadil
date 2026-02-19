@@ -36,7 +36,8 @@
         packages = {
           default = bombadil.bin;
           types = bombadil.types;
-        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
@@ -49,57 +50,82 @@
         };
 
         checks = {
+
           inherit (bombadil) clippy fmt types;
-        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           inherit (bombadil) tests;
         };
 
         devShells = {
-          default = pkgs.mkShell ({
-            CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
-            inputsFrom = [ self.packages.${system}.default ];
-            buildInputs = with pkgs; [
-              # Rust
-              cargo
-              rustc
-              rust-analyzer
-              rustfmt
-              crate2nix
-              cargo-insta
-              clippy
+          default = pkgs.mkShell (
+            {
+              CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
+              inputsFrom = [ self.packages.${system}.default ];
+              buildInputs =
+                with pkgs;
+                [
+                  # Rust
+                  cargo
+                  rustc
+                  rust-analyzer
+                  rustfmt
+                  crate2nix
+                  cargo-insta
+                  clippy
 
-              # Nix
-              nil
+                  # Nix
+                  nil
 
-              # TS/JS
-              typescript
-              typescript-language-server
-              esbuild
-              bun
-              biome
+                  # TS/JS
+                  typescript
+                  typescript-language-server
+                  esbuild
+                  bun
+                  biome
 
-              # Docs
-              pandoc
-              (texlive.combine {
-                inherit (texlive) scheme-basic
-                  lualatex-math luatexbase fontspec unicode-math
-                  amsmath tools sectsty xcolor hyperref geometry
-                  fancyvrb booktabs caption fancyhdr titling
-                  parskip listings lm;
-              })
-              inter
-              jetbrains-mono
-              watchexec
-              nodePackages.browser-sync
-              nodePackages.concurrently
-            ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-              # Runtime
-              pkgs.chromium
-            ];
-          } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-            # override how chromiumoxide finds the chromium executable
-            CHROME = pkgs.lib.getExe pkgs.chromium;
-          });
+                  # Docs
+                  pandoc
+                  (texlive.combine {
+                    inherit (texlive)
+                      scheme-basic
+                      lualatex-math
+                      luatexbase
+                      fontspec
+                      unicode-math
+                      amsmath
+                      tools
+                      sectsty
+                      xcolor
+                      hyperref
+                      geometry
+                      fancyvrb
+                      booktabs
+                      caption
+                      fancyhdr
+                      titling
+                      parskip
+                      listings
+                      lm
+                      ;
+                  })
+                  ibm-plex
+                  watchexec
+                  nodePackages.browser-sync
+                  nodePackages.concurrently
+                ]
+                ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+                  # Runtime
+                  pkgs.chromium
+                ];
+              # Make IBM Plex fonts available to LuaLaTeX
+              OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
+            }
+            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+              # override how chromiumoxide finds the chromium executable
+              CHROME = pkgs.lib.getExe pkgs.chromium;
+            }
+          );
         };
       }
     );

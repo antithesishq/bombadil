@@ -32,8 +32,9 @@ PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
 	--highlight-style=monochrome \
-	-V mainfont="Inter" \
-	-V monofont="JetBrains Mono" \
+	-V mainfont="IBM Plex Sans Condensed" \
+	-V mainfontoptions="BoldFont=IBMPlexSansCondensed-SemiBold.otf" \
+	-V monofont="IBM Plex Mono" \
 	-M version=$(VERSION) \
 	-V subtitle="Version $(VERSION)" \
 	-V geometry="margin=1in" \
