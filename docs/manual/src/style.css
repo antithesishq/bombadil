@@ -110,6 +110,7 @@ button, .btn {
   border-radius: .25rem;
   text-decoration: none;
   background-color: var(--color-bg-muted);
+  color: var(--color-fg);
   transition: background-color .2s ease, border-color .2s ease;
   cursor: pointer;
 }
