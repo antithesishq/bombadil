@@ -1,9 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600&family=Inter+Tight:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:ital,wght@0,400;0,600;1,400&family=Saira+Condensed:wght@600&display=swap');
 
 * {
   box-sizing: border-box;
 }
 
+/* Colors mainly sourced from zenbones themes in https://github.com/zenbones-theme/zenbones.nvim/blob/main/extras/ghostty */
 :root {
   --color-bg: #ffffff;
   --color-bg-muted: color-mix(in hsl, var(--color-bg) 80%, var(--color-border) 20%);
@@ -16,8 +17,8 @@
   --color-selection: #CBD9E3;
 
   --font-family-headings: "Saira Condensed", sans-serif;
-  --font-family-copy: "Inter Tight", sans-serif;
-  --font-family-code: "JetBrains Mono", monospace;
+  --font-family-copy: "IBM Plex Sans Condensed", sans-serif;
+  --font-family-code: "IBM Plex Mono", monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -75,7 +76,11 @@ h2 { font-size: 1.5rem; }
 h3 { font-size: 1.25rem; }
 
 p {
-  margin-bottom: .5rem;
+  margin-bottom: 1rem;
+}
+
+ul, ol {
+  margin-bottom: 1rem;
 }
 
 a {
@@ -84,7 +89,7 @@ a {
 }
 
 pre, code {
-  font-family: monospace;
+  font-family: var(--font-family-code);
   font-size: .875rem;
 }
 
