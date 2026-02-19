@@ -1,8 +1,6 @@
 ---
 title: The Bombadil Manual
-version: v0.2.1
 copyright: Antithesis Operations LLC
-toc-title: The Bombadil Manual
 ---
 
 # Introduction

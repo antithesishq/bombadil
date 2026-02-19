@@ -1,12 +1,19 @@
 # Specification Language
 
+foo bar baz.
+
 ## Overview
 
 TODO: Overview of the specification language
 
 ## Properties
 
-TODO: Available assertions
+```typescript
+// Here is a property.
+export const noHttpErrorCodes = always(
+  () => (responseStatus.current ?? 0) < 400,
+);
+```
 
 ## Actions
 

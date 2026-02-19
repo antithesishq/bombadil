@@ -80,7 +80,15 @@
 
               # Docs
               pandoc
-              texliveSmall
+              (texlive.combine {
+                inherit (texlive) scheme-basic
+                  lualatex-math luatexbase fontspec unicode-math
+                  amsmath tools sectsty xcolor hyperref geometry
+                  fancyvrb booktabs caption fancyhdr titling
+                  parskip listings lm;
+              })
+              inter
+              jetbrains-mono
               watchexec
               nodePackages.browser-sync
               nodePackages.concurrently

@@ -1,22 +1,41 @@
-/* @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap'); */
-@import url('https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&family=Smooch+Sans:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 
 * {
   box-sizing: border-box;
 }
 
 :root {
-  --color-bg-dark: color-mix(in hsl, #000000 60%, #2c2d3d);
-  --color-bg-light: #1a1b26;
-  --color-bg-muted: #2c2d3d;
-  --color-fg: #c0caf5;
-  --color-fg-muted: #65677D;
+  --color-bg: #ffffff;
+  --color-bg-muted: #edeff0;
+  --color-fg: #2c363c;
+  --color-fg-muted: #B4BDC3;
 
-  --color-primary: #bb9bf7;
-  --color-secondary: #7592ea;
+  --color-primary: #88507D;
+  --color-secondary: #286486;
+  --color-selection: #CBD9E3;
 
-  --font-family-headings: "Smooch Sans", sans-serif;
-  --font-family-copy: "Exo 2", sans-serif;
+  --font-family-headings: "Inter Tight", sans-serif;
+  --font-family-copy: "Inter Tight", sans-serif;
+  --font-family-code: "JetBrains Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #1C1917;
+    --color-bg-muted: #403833;
+    --color-fg: #B4BDC3;
+    --color-fg-muted: #888F94;
+
+    --color-primary: #B279A7;
+    --color-secondary: #6099C0;
+    --color-selection: #3D4042;
+  }
+}
+
+::selection, ::-moz-selection {
+    background: var(--color-selection);
+    color: var(--color-fg);
+    text-shadow: none;
 }
 
 body {
@@ -27,20 +46,23 @@ body {
   padding: 0;
   display: flex;
   width: 100%;
+  min-width: 280px;
   min-height: 100vh;
-  background-color: var(--color-bg-dark);
+  background-color: var(--color-bg);
   color: var(--color-fg);
 }
 
 h1, h2, h3, h4, h5, h6 {
   line-height: 1.25;
   font-family: var(--font-family-headings);
-  margin-bottom: .25rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 h1 { font-size: 2rem; }
-h2 { font-size: 1.5rem; }
-h3 { font-size: 1.25rem; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: 1rem; }
 
 p {
   margin-bottom: .5rem;
@@ -53,6 +75,7 @@ a {
 
 pre, code {
   font-family: monospace;
+  font-size: .875rem;
 }
 
 code {
@@ -72,22 +95,19 @@ table {
   margin: 1em 0;
 }
 
-/* Mobile responsive */
-@media (max-width: 768px) {
-}
-
-.btn {
+button, .btn {
   display: flex;
   flex-direction: row;
   padding: .5rem 1rem;
-  border: 1px solid var(--color-fg-muted);
+  border: 1px solid var(--color-fg);
   border-radius: .25rem;
   text-decoration: none;
-  background-color: var(--color-bg-light);
+  background-color: var(--color-bg);
   transition: background-color .2s ease;
+  cursor: pointer;
 }
 .btn:hover {
-  background-color: var(--color-bg-dark);
+  background-color: var(--color-bg);
 }
 
 .btn-primary {
@@ -96,17 +116,38 @@ table {
 }
 
 nav#TOC {
-  flex: 1 1 25%;
-  padding: 1rem;
-  max-width: 16rem;
-  min-width: 14rem;
-  background-color: var(--color-bg-light);
+  padding: 0 1rem 1rem;
+  width: 16rem;
+  background-color: var(--color-bg);
   border-right: 1px solid var(--color-bg-muted);
+  position: fixed;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
-nav#TOC h2 {
-  margin-bottom: 1rem;
+nav#TOC header {
+  flex: 0 0 auto;
+  height: 4rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
+nav#TOC header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  overflow: hidden;
+}
+nav#TOC header h2 a {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+nav#TOC header .btn {
+  display: none;
+}
+
 nav#TOC ul {
   list-style: none;
   padding-left: 0;
@@ -121,6 +162,8 @@ nav#TOC > ul > li > ul {
 }
 
 nav#TOC li {
+  font-size: .875rem;
+  margin: .25rem 0;
 }
 
 nav#TOC a {
@@ -135,55 +178,62 @@ nav#TOC a:hover {
 
 nav#TOC > ul > li > a {
   font-weight: 600;
-  color: var(--color-secondary);
 }
 
 main {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 40rem;
-  padding: 1rem 2rem;
-  background-color: var(--color-bg-dark);
+  max-width: 60rem;
+  margin-left: 16rem;
+  background-color: var(--color-bg);
 }
 
 .content {
+  flex: 1 1 auto;
   width: 100%;
+  padding: 2rem;
+}
+.content > :first-child {
+  margin-top: 0;
 }
 
 .page-nav {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
-  margin-top: 2rem;
+  font-size: .875rem;
+  padding: 1rem 2rem;
   gap: 1rem;
+  border-top: 1px solid var(--color-bg-muted);
 }
 
 .navlink {
   flex: 0 1 50%;
   display: flex;
   flex-direction: column;
+  text-decoration: none;
 }
-.navlink:hover {
-  background-color: var(--color-bg-dark);
+.navlink:hover .navlink-title {
+  text-decoration: underline;
 }
 .navlink.next {
   text-align: right;
   margin-left: auto;
 }
 .navlink-label {
-  font-size: .875rem;
-  color: var(--color-secondary);
-}
-.navlink-title {
-  font-size: 1rem;
-  font-weight: 500;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
 }
 
 .index {
   display: flex;
   justify-content: center;
   align-items: center;
+  text-align: center;
+}
+.index main {
+  margin-left: 0;
 }
 .index #title-block-header {
   display: flex;
@@ -197,3 +247,77 @@ main {
   justify-content: center;
   margin-top: 2rem;
 }
+
+@media (max-width: 480px) {
+  .index-cta {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+
+@media (max-width: 768px) {
+  nav#TOC {
+    top: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: initial;
+    height: 4rem;
+    border-bottom: 1px solid var(--color-bg-muted);
+    border-right: none;
+    position: fixed;
+    transition: height .2s ease;
+    overflow-y: hidden;
+  }
+  nav#TOC ul {
+    display: none;
+  }
+  nav#TOC header {
+  }
+  nav#TOC header .btn {
+    display: block;
+    padding: .25rem .75rem;
+  }
+
+  nav#TOC.expanded {
+    height: 100%;
+    overflow-y: auto;
+  }
+  nav#TOC.expanded ul {
+    display: block;
+  }
+
+  main {
+    margin-top: 4rem;
+    margin-left: 0;
+  }
+}
+
+/* Syntax highlighting overrides */
+
+code span.kw,
+code span.cf,
+code span.pp,
+code span.im {
+  font-weight: 600;
+}
+
+code span.at,
+code span.dt {
+  text-decoration: none;
+  font-style: italic;
+}
+
+code span.co {
+  color: var(--color-fg-muted);
+}
+
+code span.st, code span.ss {
+  color: var(--color-primary);
+}
+
+code span.dv {
+  color: var(--color-secondary);
+}
+

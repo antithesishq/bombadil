@@ -38,9 +38,12 @@
 
     $if(top)$
     <nav id="$idprefix$TOC" role="doc-toc">
-      $if(toc-title)$
-      <h2 id="$idprefix$toc-title"><a href="index.html">$toc-title$</a></h2>
-      $endif$
+      <header>
+        $if(toc-title)$
+        <h2 id="$idprefix$toc-title"><a href="index.html">$toc-title$</a></h2>
+        $endif$
+        <button class="btn" aria-label="expand">&#9776;</button>
+      </header>
       $table-of-contents$
     </nav>
     $endif$
@@ -64,7 +67,7 @@
           <p class="date">$date$</p>
           $endif$
           $if(version)$
-          <p class="version">$version$</p>
+          <p class="version">v$version$</p>
           $endif$
           $if(abstract)$
           <div class="abstract">
@@ -90,14 +93,14 @@
         <div class="page-nav">
 
           $if(previous.url)$
-          <a href="$previous.url$" accesskey="p" rel="previous" class="navlink btn prev">
+          <a href="$previous.url$" accesskey="p" rel="previous" class="navlink prev">
             <span class="navlink-label">Previous</span> 
             <span class="navlink-title">$previous.title$</span> 
           </a>
           $endif$
 
           $if(next.url)$
-          <a href="$next.url$" accesskey="n" rel="next" class="navlink btn next">
+          <a href="$next.url$" accesskey="n" rel="next" class="navlink next">
             <span class="navlink-label">Next</span>
             <span class="navlink-title">$next.title$</span> 
           </a>
@@ -112,5 +115,6 @@
     $for(include-after)$
     $include-after$
     $endfor$
+    <script src="toc-toggle.js"></script>
   </body>
 </html>
