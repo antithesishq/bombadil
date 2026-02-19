@@ -493,7 +493,8 @@ code span.dv {
   color: var(--color-secondary);
 }
 
-.bash span.ex {
+/* Bash prompt styling */
+.bash .prompt {
   user-select: none;
   color: var(--color-fg-muted);
 }
