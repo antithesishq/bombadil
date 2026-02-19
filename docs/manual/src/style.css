@@ -6,7 +6,8 @@
 
 :root {
   --color-bg: #ffffff;
-  --color-bg-muted: #edeff0;
+  --color-bg-muted: color-mix(in hsl, var(--color-bg) 80%, var(--color-border) 20%);
+  --color-border: #edeff0;
   --color-fg: #2c363c;
   --color-fg-muted: #B4BDC3;
 
@@ -22,7 +23,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #1C1917;
-    --color-bg-muted: #403833;
+    --color-border: #403833;
     --color-fg: #B4BDC3;
     --color-fg-muted: #888F94;
 
@@ -36,6 +37,12 @@
     background: var(--color-selection);
     color: var(--color-fg);
     text-shadow: none;
+}
+
+:focus {
+  outline: 2px solid;
+  border-radius: .125rem;
+  outline-color: var(--color-secondary);
 }
 
 body {
@@ -99,17 +106,19 @@ button, .btn {
   display: flex;
   flex-direction: row;
   padding: .5rem 1rem;
-  border: 1px solid var(--color-fg);
+  border: 1px solid var(--color-border);
   border-radius: .25rem;
   text-decoration: none;
-  background-color: var(--color-bg);
-  transition: background-color .2s ease;
+  background-color: var(--color-bg-muted);
+  transition: background-color .2s ease, border-color .2s ease;
   cursor: pointer;
 }
-.btn:hover {
-  background-color: var(--color-bg);
+.btn-outline {
+  background-color: transparent;
 }
-
+.btn:hover {
+  border: 1px solid var(--color-fg);
+}
 .btn-primary {
   color: var(--color-primary);
   border-color: var(--color-primary);
@@ -118,8 +127,8 @@ button, .btn {
 nav#TOC {
   padding: 0 1rem 1rem;
   width: 16rem;
-  background-color: var(--color-bg);
-  border-right: 1px solid var(--color-bg-muted);
+  background-color: var(--color-bg-muted);
+  border-right: 1px solid var(--color-border);
   position: fixed;
   height: 100%;
   overflow-y: auto;
@@ -137,12 +146,6 @@ nav#TOC header {
 nav#TOC header h2 {
   margin: 0;
   font-size: 1.25rem;
-  overflow: hidden;
-}
-nav#TOC header h2 a {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 nav#TOC header .btn {
   display: none;
@@ -203,9 +206,8 @@ main {
   align-items: stretch;
   justify-content: flex-start;
   font-size: .875rem;
-  padding: 1rem 2rem;
-  gap: 1rem;
-  border-top: 1px solid var(--color-bg-muted);
+  padding: 2rem;
+  gap: 2rem;
 }
 
 .navlink {
@@ -213,9 +215,6 @@ main {
   display: flex;
   flex-direction: column;
   text-decoration: none;
-}
-.navlink:hover .navlink-title {
-  text-decoration: underline;
 }
 .navlink.next {
   text-align: right;
@@ -248,10 +247,44 @@ main {
   margin-top: 2rem;
 }
 
+.site-footer {
+  padding: 1rem 2rem;
+  font-size: .875rem;
+  background-color: var(--color-bg-muted);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+.site-footer nav ul {
+  list-style-type: none;
+  display: flex;
+  gap: 1em;
+  padding: 0;
+  margin: 0;
+}
+.site-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: .5ch;
+  text-decoration: none;
+}
+.site-footer nav a:hover {
+  text-decoration: underline;
+}
+.site-footer nav a svg {
+  width: 1em;
+  height: 1em;
+}
+
 @media (max-width: 480px) {
   .index-cta {
     flex-direction: column;
     align-items: center;
+  }
+  .site-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
@@ -264,7 +297,7 @@ main {
     width: 100%;
     max-width: initial;
     height: 4rem;
-    border-bottom: 1px solid var(--color-bg-muted);
+    border-bottom: 1px solid var(--color-border);
     border-right: none;
     position: fixed;
     transition: height .2s ease;
@@ -277,7 +310,6 @@ main {
   }
   nav#TOC header .btn {
     display: block;
-    padding: .25rem .75rem;
   }
 
   nav#TOC.expanded {

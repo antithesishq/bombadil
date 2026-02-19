@@ -1,6 +1,5 @@
 ---
 title: The Bombadil Manual
-copyright: Antithesis Operations LLC
 ---
 
 # Introduction
