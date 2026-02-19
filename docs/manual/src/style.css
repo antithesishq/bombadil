@@ -75,11 +75,7 @@ h1 { font-size: 2.5rem; }
 h2 { font-size: 1.5rem; }
 h3 { font-size: 1.25rem; }
 
-p {
-  margin-bottom: 1rem;
-}
-
-ul, ol {
+p, ul, ol, details {
   margin-bottom: 1rem;
 }
 
@@ -107,6 +103,19 @@ pre {
 
 pre code {
 }
+
+details {
+  border: 1px solid var(--color-border);
+  border-radius: .25rem;
+  background-color: var(--color-bg-muted);
+  padding: 1rem;
+}
+summary {
+  font-family: var(--font-family-headings);
+  list-style-type: '› ';
+}
+
+
 
 table {
   border-collapse: collapse;
@@ -206,12 +215,14 @@ main {
   margin-left: 16rem;
   background-color: var(--color-bg);
   border-right: 1px solid var(--color-border);
+  overflow-x: hidden;
 }
 
 .content {
   flex: 1 1 auto;
   width: 100%;
   padding: 2rem;
+  overflow-x: hidden;
 }
 .content > :first-child {
   margin-top: 0;
@@ -377,5 +388,10 @@ code span.st, code span.ss {
 
 code span.dv {
   color: var(--color-secondary);
+}
+
+.bash span.ex {
+  user-select: none;
+  color: var(--color-fg-muted);
 }
 
