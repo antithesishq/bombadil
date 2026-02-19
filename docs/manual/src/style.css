@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600&family=Inter+Tight:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 
 * {
   box-sizing: border-box;
@@ -15,7 +15,7 @@
   --color-secondary: #286486;
   --color-selection: #CBD9E3;
 
-  --font-family-headings: "Inter Tight", sans-serif;
+  --font-family-headings: "Saira Condensed", sans-serif;
   --font-family-copy: "Inter Tight", sans-serif;
   --font-family-code: "JetBrains Mono", monospace;
 }
@@ -70,9 +70,9 @@ h1, h2, h3, h4, h5, h6 {
   margin-bottom: 1rem;
 }
 
-h1 { font-size: 2rem; }
-h2 { font-size: 1.25rem; }
-h3 { font-size: 1rem; }
+h1 { font-size: 2.5rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
 
 p {
   margin-bottom: .5rem;
@@ -184,6 +184,8 @@ nav#TOC a:hover {
 }
 
 nav#TOC > ul > li > a {
+  font-size: 1.25em;
+  font-family: var(--font-family-headings);
   font-weight: 600;
 }
 
@@ -209,7 +211,6 @@ main {
   display: flex;
   align-items: stretch;
   justify-content: flex-start;
-  font-size: .875rem;
   padding: 2rem;
   gap: 2rem;
 }
