@@ -116,7 +116,7 @@ With the CLI installed, let's run a test just to see that things are working:
 $ bombadil test https://en.wikipedia.org --output-path my-test
 ```
 
-This will run until you shut it down using `CTRL + C`. Any property violations
+This will run until you shut it down using <kbd>CTRL</kbd>+<kbd>C</kbd>. Any property violations
 will be logged as errors, but we also specify the `--output-path` option, meaning
 we get a JSONL file to inspect.
 
