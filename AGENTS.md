@@ -16,6 +16,15 @@ nix --extra-experimental-features 'nix-command flakes' develop --command <cmd>
 
 The `--extra-experimental-features 'nix-command flakes'` flag is required for all `nix` invocations.
 
+### Development Shells
+
+There are two development shells:
+
+- **default**: For general development (Rust, TypeScript, testing). Does not include documentation tools.
+- **manual**: For building the manual (includes Pandoc, TeXLive, fonts). Use this in `docs/manual/`.
+
+The `docs/manual/.envrc` file automatically loads the `manual` shell when you `cd` into that directory (requires direnv).
+
 **Build:** `nix --extra-experimental-features 'nix-command flakes' develop --command cargo build` (the build script in `src/build.rs` runs esbuild to compile `src/specification/**/*.ts` into `target/specification/`)
 
 **Integration tests:** `nix --extra-experimental-features 'nix-command flakes' develop --command cargo test --test integration_tests` (limited to 2 concurrent tests; 120s timeout each)

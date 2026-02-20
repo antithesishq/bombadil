@@ -83,54 +83,58 @@
                   esbuild
                   bun
                   biome
-
-                  # Docs
-                  pandoc
-                  (texlive.combine {
-                    inherit (texlive)
-                      scheme-basic
-                      lualatex-math
-                      luatexbase
-                      fontspec
-                      unicode-math
-                      amsmath
-                      tools
-                      sectsty
-                      xcolor
-                      hyperref
-                      geometry
-                      fancyvrb
-                      booktabs
-                      caption
-                      fancyhdr
-                      titling
-                      parskip
-                      listings
-                      lm
-                      tcolorbox
-                      pgf
-                      environ
-                      etoolbox
-                      listingsutf8
-                      ;
-                  })
-                  ibm-plex
-                  watchexec
-                  nodePackages.browser-sync
-                  nodePackages.concurrently
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
                   pkgs.chromium
                 ];
-              # Make IBM Plex fonts available to LuaLaTeX
-              OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
             }
             // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
               # override how chromiumoxide finds the chromium executable
               CHROME = pkgs.lib.getExe pkgs.chromium;
             }
           );
+
+          manual = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              # Docs
+              pandoc
+              (texlive.combine {
+                inherit (texlive)
+                  scheme-basic
+                  lualatex-math
+                  luatexbase
+                  fontspec
+                  unicode-math
+                  amsmath
+                  tools
+                  sectsty
+                  xcolor
+                  hyperref
+                  geometry
+                  fancyvrb
+                  booktabs
+                  caption
+                  fancyhdr
+                  titling
+                  parskip
+                  listings
+                  lm
+                  tcolorbox
+                  pgf
+                  environ
+                  etoolbox
+                  listingsutf8
+                  ;
+              })
+              ibm-plex
+              watchexec
+              nodePackages.browser-sync
+              nodePackages.concurrently
+            ];
+            # Make IBM Plex fonts available to LuaLaTeX
+            OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
+          };
         };
       }
     );
