@@ -35,7 +35,6 @@ let
       pgf
       environ
       etoolbox
-      listingsutf8
       mdwtools
       fontawesome5
       relsize
