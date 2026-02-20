@@ -13,7 +13,7 @@ function Div(el)
   -- Handle callout admonitions
   if el.classes:includes('callout') then
     if FORMAT:match 'latex' then
-      -- For PDF, just show colored label inline
+      -- For PDF, wrap in admonitionbox with colored label
       local callout_type = 'NOTE'
       local callout_color = 'admonitionblue'
       if el.classes:includes('callout-warning') then
@@ -33,6 +33,12 @@ function Div(el)
           '\\textcolor{' .. callout_color .. '}{\\textbf{' .. callout_type .. ':}} ')
         table.insert(el.content[1].content, 1, label)
       end
+
+      -- Wrap content in colored admonition box
+      local begin_box = pandoc.RawBlock('latex', '\\begin{' .. callout_color .. '}')
+      local end_box = pandoc.RawBlock('latex', '\\end{' .. callout_color .. '}')
+      table.insert(el.content, 1, begin_box)
+      table.insert(el.content, end_box)
 
       return el
     end

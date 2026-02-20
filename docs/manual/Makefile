@@ -32,14 +32,13 @@ PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
 	--listings \
-	--highlight-style=monochrome \
 	-V mainfont="IBM Plex Sans Condensed" \
 	-V mainfontoptions="BoldFont=IBMPlexSansCondensed-SemiBold.otf" \
 	-V monofont="IBM Plex Mono" \
 	-M version=$(VERSION) \
 	-V subtitle="Version $(VERSION)" \
 	-V geometry="margin=1in" \
-	-V header-includes='\usepackage{xcolor}\definecolor{admonitionblue}{HTML}{286486}\definecolor{admonitionyellow}{HTML}{944927}\definecolor{admonitioncyan}{HTML}{3B8992}\definecolor{admonitionred}{HTML}{A8334C}\usepackage{fancyvrb}\usepackage{etoolbox}\BeforeBeginEnvironment{Verbatim}{\vspace{6pt}}\AfterEndEnvironment{Verbatim}{\vspace{6pt}}\usepackage{tcolorbox}\newtcolorbox{admonitionbox}{colback=black!5,colframe=white,boxrule=0pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\usepackage{listings}\lstset{basicstyle=\small\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,showstringspaces=false,frame=single,frameround=tttt,rulecolor=\color{black!10},backgroundcolor=\color{black!5},aboveskip=6pt,belowskip=6pt,postbreak=\mbox{\textcolor{gray}{\tiny\ensuremath{\hookrightarrow}}\space}}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
+	-V header-includes='\usepackage{xcolor}\definecolor{admonitionblue}{HTML}{286486}\definecolor{admonitionyellow}{HTML}{944927}\definecolor{admonitioncyan}{HTML}{3B8992}\definecolor{admonitionred}{HTML}{A8334C}\usepackage{fancyvrb}\usepackage{etoolbox}\BeforeBeginEnvironment{Verbatim}{\vspace{6pt}}\AfterEndEnvironment{Verbatim}{\vspace{6pt}}\usepackage{tcolorbox}\newtcolorbox{admonitionblue}{colback=white,colframe=admonitionblue,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionyellow}{colback=white,colframe=admonitionyellow,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitioncyan}{colback=white,colframe=admonitioncyan,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionred}{colback=white,colframe=admonitionred,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\usepackage{listings}\lstset{basicstyle=\small\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,showstringspaces=false,frame=none,backgroundcolor=,aboveskip=6pt,belowskip=6pt,xleftmargin=1em,postbreak=\mbox{\textcolor{gray}{\tiny\ensuremath{\hookrightarrow}}\space}}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
 PANDOC_TXT_OPTS := --to plain --wrap=none
 
 all: html epub pdf txt
