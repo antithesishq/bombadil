@@ -144,10 +144,10 @@ pre {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background-color: var(--color-bg-muted);
-  font-size: .9rem;
 }
 
-pre code {
+code {
+  font-size: .9em;
 }
 
 kbd {
