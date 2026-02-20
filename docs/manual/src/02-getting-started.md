@@ -71,6 +71,7 @@ $ nix run github:antithesishq/bombadil
 
 Not yet available, but coming soon:
 
+* executables bundled in NPM package (i.e. `npx @antithesishq/bombadil`)
 * Docker images
 * a GitHub Action, ready to be used in your CI configuration
 

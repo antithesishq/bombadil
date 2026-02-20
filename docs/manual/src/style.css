@@ -6,30 +6,65 @@
 
 /* Colors mainly sourced from zenbones themes in https://github.com/zenbones-theme/zenbones.nvim/blob/main/extras/ghostty */
 :root {
-  --color-bg: #ffffff;
-  --color-bg-muted: color-mix(in hsl, var(--color-bg) 80%, var(--color-border) 20%);
-  --color-border: #edeff0;
+  --color-black: #F0EDEC;
+  --color-black-bright: #CFC1BA;
+  --color-red: #A8334C;
+  --color-red-bright: #94253E;
+  --color-green: #4F6C31;
+  --color-green-bright: #3F5A22;
+  --color-yellow: #944927;
+  --color-yellow-bright: #803D1C;
+  --color-blue: #286486;
+  --color-blue-bright: #1D5573;
+  --color-magenta: #88507D;
+  --color-magenta-bright: #7B3B70;
+  --color-cyan: #3B8992;
+  --color-cyan-bright: #2B747C;
+  --color-fg: var(--color-white);
+  --color-fg-muted: var(--color-white-bright);
+
+  --color-bg: var(--color-black);
+  --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, var(--color-border) 20%);
+  --color-border: var(--color-black-bright);
   --color-fg: #2c363c;
   --color-fg-muted: #B4BDC3;
 
-  --color-primary: #88507D;
-  --color-secondary: #286486;
+  --color-primary: var(--color-magenta);
+  --color-secondary: var(--color-blue);
   --color-selection: #CBD9E3;
 
   --font-family-headings: "Saira Condensed", sans-serif;
   --font-family-copy: "IBM Plex Sans Condensed", sans-serif;
   --font-family-code: "IBM Plex Mono", monospace;
+
+  --border-radius: .125rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #1C1917;
-    --color-border: #403833;
-    --color-fg: #B4BDC3;
-    --color-fg-muted: #888F94;
+    --color-black: #1C1917;
+    --color-black-bright: #403833;
+    --color-red: #DE6E7C;
+    --color-red-bright: #E8838F;
+    --color-green: #819B69;
+    --color-green-bright: #8BAE68;
+    --color-yellow: #B77E64;
+    --color-yellow-bright: #D68C67;
+    --color-blue: #6099C0;
+    --color-blue-bright: #61ABDA;
+    --color-magenta: #B279A7;
+    --color-magenta-bright: #CF86C1;
+    --color-cyan: #66A5AD;
+    --color-cyan-bright: #65B8C1;
+    --color-white: #B4BDC3;
+    --color-white-bright: #888F94;
 
-    --color-primary: #B279A7;
-    --color-secondary: #6099C0;
+    --color-bg: var(--color-black);
+    --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, #000 20%);
+    --color-border: var(--color-black-bright);
+    --color-fg: var(--color-white);
+    --color-fg-muted: var(--color-white-bright);
+
     --color-selection: #3D4042;
   }
 }
@@ -42,7 +77,7 @@
 
 :focus {
   outline: 2px solid;
-  border-radius: .125rem;
+  border-radius: .var(--border-radius);
   outline-color: var(--color-secondary);
 }
 
@@ -106,7 +141,7 @@ pre code {
 
 details {
   border: 1px solid var(--color-border);
-  border-radius: .25rem;
+  border-radius: var(--border-radius);
   background-color: var(--color-bg-muted);
 }
 summary {
@@ -143,21 +178,24 @@ details[open]::details-content {
 }
 .accordion details:first-child {
   border-top: 1px solid var(--color-border);
-  border-top-right-radius: .25rem;
-  border-top-left-radius: .25rem;
+  border-top-right-radius: var(--border-radius);
+  border-top-left-radius: var(--border-radius);
 }
 .accordion details:last-child {
-  border-bottom-right-radius: .25rem;
-  border-bottom-left-radius: .25rem;
+  border-bottom-right-radius: var(--border-radius);
+  border-bottom-left-radius: var(--border-radius);
 }
 
 /* Admonitions */
 .callout {
-  border: 1px solid var(--color-border);
-  border-radius: .25rem;
-  padding: 1rem;
+  padding: .5rem 1rem;
   margin-bottom: 1rem;
+  border: 0;
   border-left-width: 4px;
+  border-style: solid;
+  border-color: var(--color-border);
+  background-color: var(--color-bg-muted);
+  border-radius: var(--border-radius);
 }
 
 .callout > :first-child {
@@ -168,56 +206,43 @@ details[open]::details-content {
   margin-bottom: 0;
 }
 
-.callout-note {
-  background-color: color-mix(in hsl, var(--color-secondary) 8%, var(--color-bg) 92%);
-  border-left-color: var(--color-secondary);
-}
-
-.callout-note::before {
-  content: "Note:";
+.callout:before {
   display: block;
   font-family: var(--font-family-headings);
   font-weight: 600;
   margin-bottom: 0.5rem;
+}
+
+.callout-note {
+  border-left-color: var(--color-blue);
+}
+
+.callout-note:before {
+  content: "NOTE";
 }
 
 .callout-warning {
-  background-color: color-mix(in hsl, #d97706 8%, var(--color-bg) 92%);
-  border-left-color: #d97706;
+  border-left-color: var(--color-yellow);
 }
 
-.callout-warning::before {
-  content: "Warning:";
-  display: block;
-  font-family: var(--font-family-headings);
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+.callout-warning:before {
+  content: "WARNING";
 }
 
 .callout-tip {
-  background-color: color-mix(in hsl, #059669 8%, var(--color-bg) 92%);
-  border-left-color: #059669;
+  border-left-color: var(--color-cyan);
 }
 
-.callout-tip::before {
-  content: "Tip:";
-  display: block;
-  font-family: var(--font-family-headings);
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+.callout-tip:before {
+  content: "TIP";
 }
 
 .callout-important {
-  background-color: color-mix(in hsl, #dc2626 8%, var(--color-bg) 92%);
-  border-left-color: #dc2626;
+  border-left-color: var(--color-red);
 }
 
-.callout-important::before {
-  content: "Important:";
-  display: block;
-  font-family: var(--font-family-headings);
-  font-weight: 600;
-  margin-bottom: 0.5rem;
+.callout-important:before {
+  content: "IMPORTANT";
 }
 
 table {
@@ -231,7 +256,7 @@ button, .btn {
   flex-direction: row;
   padding: .5rem 1rem;
   border: 1px solid var(--color-border);
-  border-radius: .25rem;
+  border-radius: var(--border-radius);
   text-decoration: none;
   background-color: var(--color-bg-muted);
   color: var(--color-fg);
