@@ -233,6 +233,7 @@ details[open]::details-content {
 
 .callout-note:before {
   content: "NOTE";
+  color: var(--color-blue);
 }
 
 .callout-warning {
@@ -240,6 +241,7 @@ details[open]::details-content {
 }
 
 .callout-warning:before {
+  color: var(--color-yellow);
   content: "WARNING";
 }
 
@@ -249,6 +251,7 @@ details[open]::details-content {
 
 .callout-tip:before {
   content: "TIP";
+  color: var(--color-cyan);
 }
 
 .callout-important {
@@ -257,6 +260,7 @@ details[open]::details-content {
 
 .callout-important:before {
   content: "IMPORTANT";
+  color: var(--color-red);
 }
 
 table {
