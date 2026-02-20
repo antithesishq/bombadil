@@ -108,10 +108,11 @@ $ bun add --development @antithesishq/bombadil
 Or use the files provided in [the 
 release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 
-## Quick Start
-
-TODO: Quick start guide
-
 ## Your First Test
 
-TODO: Step-by-step first test
+With `bombadil` installed, you're ready to run your first tests! Let's start
+out easy:
+
+```bash
+$ bombadil test https://en.wikipedia.org
+```

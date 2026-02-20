@@ -61,7 +61,7 @@
 
     --color-bg: var(--color-black);
     --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, #000 20%);
-    --color-border: var(--color-black-bright);
+    --color-border: color-mix(in hsl, var(--color-black), var(--color-black-bright));
     --color-fg: var(--color-white);
     --color-fg-muted: var(--color-white-bright);
 
