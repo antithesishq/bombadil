@@ -38,7 +38,7 @@ PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	-M version=$(VERSION) \
 	-V subtitle="Version $(VERSION)" \
 	-V geometry="margin=1in" \
-	-V header-includes='\usepackage{xcolor}\usepackage{fancyvrb}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
+	-V header-includes='\usepackage{xcolor}\usepackage{fancyvrb}\usepackage{etoolbox}\BeforeBeginEnvironment{Verbatim}{\vspace{6pt}}\AfterEndEnvironment{Verbatim}{\vspace{6pt}}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
 PANDOC_TXT_OPTS := --to plain --wrap=none
 
 all: html epub pdf txt
