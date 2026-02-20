@@ -233,7 +233,84 @@ export const navigation = weighted([
 
 ## Examples
 
-**TODO:** Example specifications
+These are examples of shapes of properties and action generators you might need
+in your own testing with Bombadil. Copy and adjust to your needs!
+
+### Invariant: Max Notification Count
+
+This is a simple one checking that there are never more than five notifications
+shown.
+
+```typescript
+const notification_count = extract(
+  (state) => state.document.body.querySelectorAll(".notification").length,
+);
+
+export const max_notifications_shown = always(
+  () => notification_count.current <= 5,
+);
+```
+
+### Sliding Window: Constant Notification Count
+
+This property checks that the notification count doesn't change ---
+that it is the same as in the first state. Note how this property
+evaluates `time.current` in the outer thunk, and then uses that
+time value to look up older values.
+
+```typescript
+export const constant_notification_count = now(() => {
+  const start = time.current;
+  return always(
+    () => notification_count.current === notification_count.at(start),
+  );
+});
+```
+
+### Guarantee: Error Disappears
+
+```typescript
+const errorMessage = extract(
+  (state) => state.document.body.querySelector(".error")?.textContent ?? null,
+);
+
+export const errorDisappears = always(
+  now(() => errorMessage !== null).implies(
+    eventually(() => errorMessage === null).within(5, "seconds"),
+  ),
+);
+```
+
+### Contextful Guarantee: Notification Includes Past Value
+
+This example uses the fact that an out thunk can force and bind
+a cell value (from the `nameEntered` cell in the example) ...
+
+```typescript
+const name = extract((state) => {
+  const element = state.document.body.querySelector("#name-field");
+  return (element as HTMLInputElement | null)?.value ?? null;
+});
+
+const submitInProgress = extract(
+  (state) => state.document.body.querySelector("submit.progress") !== null,
+);
+
+const notificationText = extract(
+  (state) =>
+    state.document.body.querySelector(".notification")?.textContent ?? null,
+);
+
+export const notificationIncludesMessage = always(() => {
+  const nameEntered = name.current?.trim() ?? "";
+
+  return now(() => nameEntered !== "" && submitInProgress.current)
+      .implies(eventually(
+          () => notificationText?.current?.includes(nameEntered) ?? false,
+      ).within(5, "seconds"));
+  }
+});
+```
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of
 [Linear Temporal Logic](https://en.wikipedia.org/wiki/Linear_temporal_logic), if you're into

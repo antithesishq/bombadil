@@ -15,4 +15,10 @@ document.addEventListener('DOMContentLoaded', function() {
       toc.classList.remove('expanded');
     }
   });
+
+  toc.addEventListener('click', function(e) {
+    if (e.target.tagName === 'A' && e.target.hash) {
+      toc.classList.remove('expanded');
+    }
+  });
 });
