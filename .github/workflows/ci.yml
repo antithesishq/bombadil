@@ -36,3 +36,24 @@ jobs:
       - name: Build Docker image
         if: matrix.target == 'x86_64-linux'
         run: nix build ".#docker"
+
+  manual:
+    permissions:
+      contents: read
+    name: Build Manual
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - run: nix config show
+      - run: nix build ".#manual"
+      - name: Upload manual
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-manual
+          path: result/
