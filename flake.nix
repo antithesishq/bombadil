@@ -111,6 +111,7 @@
                       pgf
                       environ
                       etoolbox
+                      listingsutf8
                       ;
                   })
                   ibm-plex

@@ -30,20 +30,19 @@ function CodeBlock(el)
     return pandoc.RawBlock('html', '<pre class="bash"><code>' .. new_text .. '</code></pre>')
 
   elseif FORMAT:match 'latex' then
-    -- For LaTeX: use fancyvrb with commandchars to color the prompt (including the space)
+    -- For LaTeX: use listings with escapechar to color the prompt (including the space)
     local latex_lines = {}
     for _, line in ipairs(lines) do
       if line:match("^%$ ") then
         local command = line:sub(3)
-        -- Use | as escape character for commands within Verbatim
-        -- |textcolor{gray}{$ } renders "$ " in gray, then back to verbatim for the command
-        table.insert(latex_lines, '|textcolor{gray}{$ }' .. command)
+        -- Use @ as escape character for injecting textcolor
+        table.insert(latex_lines, '@\\textcolor{gray}{\\$ }@' .. command)
       else
         table.insert(latex_lines, line)
       end
     end
     local latex_text = table.concat(latex_lines, '\n')
-    return pandoc.RawBlock('latex', '\\begin{Verbatim}[commandchars=\\|\\{\\}]\n' .. latex_text .. '\n\\end{Verbatim}')
+    return pandoc.RawBlock('latex', '\\begin{lstlisting}[language=bash,escapechar=@]\n' .. latex_text .. '\n\\end{lstlisting}')
 
   else
     -- For other formats (epub, plain text), keep as-is
