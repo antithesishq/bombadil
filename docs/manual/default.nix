@@ -37,7 +37,6 @@ let
       etoolbox
       mdwtools
       fontawesome5
-      relsize
       ;
   };
 in

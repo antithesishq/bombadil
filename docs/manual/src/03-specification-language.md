@@ -191,7 +191,7 @@ In addition to exporting properties in a specification, you export action
 generators. A generator is an object with a `generate()` method. An action
 generator is such an object that generates values of type `Tree<Action>`.
 
-**TODO:** link to `Action` type when we have generated TypeScript reference
+<!-- TODO: link to `Action` type when we have generated TypeScript reference -->
 
 Like with [default properties](#defaults), there are default actions provided
 by Bombadil. These will get you a long way, but there are times where you
