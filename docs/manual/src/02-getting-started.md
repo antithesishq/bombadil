@@ -132,6 +132,6 @@ Bombadil runs and produces results.
 
 ::: {.callout .callout-note}
 Bombadil doesn't yet produce a
-human-readable test report, so we have to resort to `jq` tricky for now. Stay
+human-readable test report, so we have to resort to `jq` trickery for now. Stay
 tuned, better UIs are on their way! 
 :::
