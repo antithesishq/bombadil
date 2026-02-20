@@ -36,6 +36,7 @@
         packages = {
           default = bombadil.bin;
           types = bombadil.types;
+          manual = pkgs.callPackage ./docs/manual/default.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
@@ -96,44 +97,12 @@
           );
 
           manual = pkgs.mkShell {
+            inputsFrom = [ self.packages.${system}.manual ];
             buildInputs = with pkgs; [
-              # Docs
-              pandoc
-              (texlive.combine {
-                inherit (texlive)
-                  scheme-basic
-                  lualatex-math
-                  luatexbase
-                  fontspec
-                  unicode-math
-                  amsmath
-                  tools
-                  sectsty
-                  xcolor
-                  hyperref
-                  geometry
-                  fancyvrb
-                  booktabs
-                  caption
-                  fancyhdr
-                  titling
-                  parskip
-                  listings
-                  lm
-                  tcolorbox
-                  pgf
-                  environ
-                  etoolbox
-                  listingsutf8
-                  mdwtools
-                  ;
-              })
-              ibm-plex
               watchexec
               nodePackages.browser-sync
               nodePackages.concurrently
             ];
-            # Make IBM Plex fonts available to LuaLaTeX
             OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
           };
         };
