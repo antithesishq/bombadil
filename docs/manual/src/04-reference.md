@@ -31,7 +31,7 @@
 
 ### bombadil test-external
 
-`bombadil` `test` [`[OPTIONS]`](#options-test-external) [`<ORIGIN>`](#arguments-test-external) [`[SPECIFICATION_FILE]`](#arguments-test-external)
+`bombadil` `test-external` [`[OPTIONS]`](#options-test-external) [`<ORIGIN>`](#arguments-test-external) [`[SPECIFICATION_FILE]`](#arguments-test-external)
 
 ::: {#arguments-test}
 | Argument | Description |
