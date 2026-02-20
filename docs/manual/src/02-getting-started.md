@@ -110,9 +110,28 @@ release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 
 ## Your First Test
 
-With `bombadil` installed, you're ready to run your first tests! Let's start
-out easy:
+With the CLI installed, let's run a test just to see that things are working:
 
 ```bash
-$ bombadil test https://en.wikipedia.org
+$ bombadil test https://en.wikipedia.org --output-path my-test
 ```
+
+This will run until you shut it down using `CTRL + C`. Any property violations
+will be logged as errors, but we also specify the `--output-path` option, meaning
+we get a JSONL file to inspect.
+
+Let's find the URLs with violations (assuming you have `jq` installed):
+
+```bash
+$ jq -r 'select(.violations != []) | .url' my-test/trace.jsonl
+```
+
+Nothing? That's fine, Wikipedia is pretty solid! But we have confirmed that
+Bombadil runs and produces results.
+
+
+::: {.callout .callout-note}
+Bombadil doesn't yet produce a
+human-readable test report, so we have to resort to `jq` tricky for now. Stay
+tuned, better UIs are on their way! 
+:::

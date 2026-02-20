@@ -25,7 +25,8 @@ function CodeBlock(el)
         table.insert(new_lines, line)
       end
     end
-    local new_text = table.concat(new_lines, "\n")
+    -- Use <br> tags instead of actual newlines to avoid indentation issues
+    local new_text = table.concat(new_lines, "<br>")
     return pandoc.RawBlock('html', '<pre class="bash"><code>' .. new_text .. '</code></pre>')
 
   elseif FORMAT:match 'latex' then
