@@ -37,6 +37,8 @@ let
       etoolbox
       listingsutf8
       mdwtools
+      fontawesome5
+      relsize
       ;
   };
 in

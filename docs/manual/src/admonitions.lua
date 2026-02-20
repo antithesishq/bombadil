@@ -16,27 +16,38 @@ function Div(el)
       -- For PDF, wrap in admonitionbox with colored label
       local callout_type = 'NOTE'
       local callout_color = 'admonitionblue'
+      local callout_icon = '\\faInfoCircle' -- Font Awesome info circle
       if el.classes:includes('callout-warning') then
         callout_type = 'WARNING'
         callout_color = 'admonitionyellow'
+        callout_icon = '\\faExclamationTriangle' -- Font Awesome warning triangle
       elseif el.classes:includes('callout-tip') then
         callout_type = 'TIP'
         callout_color = 'admonitioncyan'
+        callout_icon = '\\faLightbulb[regular]' -- Font Awesome lightbulb (regular style)
       elseif el.classes:includes('callout-important') then
         callout_type = 'IMPORTANT'
         callout_color = 'admonitionred'
+        callout_icon = '\\faExclamationCircle' -- Font Awesome exclamation circle
       end
 
-      -- Prepend the colored label to the first paragraph if it exists
-      if #el.content > 0 and el.content[1].t == 'Para' then
-        local label = pandoc.RawInline('latex',
-          '\\textcolor{' .. callout_color .. '}{\\textbf{' .. callout_type .. ':}} ')
-        table.insert(el.content[1].content, 1, label)
-      end
+      -- Create a label paragraph on its own line (no colon, with icon)
+      -- Add spacing between icon and label, and after the label line
+      local label_para = pandoc.Para({
+        pandoc.RawInline('latex',
+          '\\textcolor{' .. callout_color .. '}{' .. callout_icon .. '\\hspace{0.5em}\\textbf{' .. callout_type .. '}}')
+      })
+
+      -- Add vertical space after the label
+      local label_space = pandoc.RawBlock('latex', '\\vspace{0.5em}')
 
       -- Wrap content in colored admonition box
       local begin_box = pandoc.RawBlock('latex', '\\begin{' .. callout_color .. '}')
       local end_box = pandoc.RawBlock('latex', '\\end{' .. callout_color .. '}')
+
+      -- Insert: begin box, label paragraph, spacing, original content, end box
+      table.insert(el.content, 1, label_space)
+      table.insert(el.content, 1, label_para)
       table.insert(el.content, 1, begin_box)
       table.insert(el.content, end_box)
 
