@@ -73,14 +73,14 @@ specification module. Its name is used in error reports, so give the
 export a meaningful name.
 
 ```typescript
-export const doesNotCrash = always( 
-    // check that there's no crash somehow
+export const pageHasTitle = always( 
+    // check that there's a page title somehow
 );
 ```
 
 You may export multiple properties, including the [defaults](#defaults), and
-they'll all be checked independently. But how do we "check that there's no
-crash somehow"? We need access to the browser. For that, we use *extractors*.
+they'll all be checked independently. But how do we "check that there's a page
+title somehow"? We need access to the browser, and for that, we use *extractors*.
 
 ## Extractors
 
@@ -101,19 +101,34 @@ To extract the page title, you'd define this at the top level of your
 specification:
 
 ```typescript
-const pageTitle = extract(state => state.document.title);
+const pageTitle = extract(state => state.document.title || "");
 ```
 
-The `pageTitle` value is not a `string` though --- it's a `Cell<string>`,
-meaning it's a stateful value that changes over time. For every new state
-captured by Bombadil, the extractor function gets run, and the cell is updated
-with its return value.
+The `pageTitle` value is not a `string` though --- it's a `Cell<string>`, a
+stateful value that changes over time. For every new state captured by
+Bombadil, the extractor function gets run, and the cell is updated with its
+return value.
+
+Using the `pageTitle` cell, you can now define the property:
 
 ```typescript
-const pageTitle = extract(state => state.document.title);
-
-export const pageHasTitle = always(() => pageTitle !== "");
+export const pageHasTitle = always(() => 
+    pageTitle.current !== ""
+);
 ```
+
+There are a couple of new things going on here:
+
+1. The expression passed to `always` is a function that takes no arguments ---
+   a *thunk*. This is because it needs to be evaluated in every state. It needs
+   to *always* be true, not just once, and that's why you need to supply the
+   thunk rather than a `boolean`.
+2. To get the `string` value out of the cell, you use `pageTitle.current`.
+
+You know have a custom property using the *temporal* operator called `always`.
+There are other temporal operators that you'll learn about in the next section.
+
+## Temporal Operators
 
 ## Actions
 
