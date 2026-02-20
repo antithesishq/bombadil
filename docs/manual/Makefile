@@ -1,4 +1,4 @@
-.PHONY: all html epub pdf txt clean serve watch dev
+.PHONY: all html epub pdf txt man clean serve watch dev
 
 SRC_DIR := src
 TARGET_DIR := target
@@ -12,6 +12,7 @@ HTML_DIR := $(TARGET_DIR)/html
 EPUB_FILE := $(TARGET_DIR)/bombadil-manual.epub
 PDF_FILE := $(TARGET_DIR)/bombadil-manual.pdf
 TXT_FILE := $(TARGET_DIR)/bombadil-manual.txt
+MAN_FILE := $(TARGET_DIR)/bombadil.1
 
 # Pandoc options
 PANDOC := pandoc
@@ -40,8 +41,9 @@ PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	-V geometry="margin=1in" \
 	-V header-includes='\usepackage{xcolor}\definecolor{admonitionblue}{HTML}{286486}\definecolor{admonitionyellow}{HTML}{944927}\definecolor{admonitioncyan}{HTML}{3B8992}\definecolor{admonitionred}{HTML}{A8334C}\usepackage{fancyvrb}\usepackage{etoolbox}\BeforeBeginEnvironment{Verbatim}{\vspace{6pt}}\AfterEndEnvironment{Verbatim}{\vspace{6pt}}\usepackage{tcolorbox}\newtcolorbox{admonitionblue}{colback=white,colframe=admonitionblue,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionyellow}{colback=white,colframe=admonitionyellow,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitioncyan}{colback=white,colframe=admonitioncyan,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionred}{colback=white,colframe=admonitionred,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\usepackage{listings}\lstset{basicstyle=\small\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,showstringspaces=false,frame=none,backgroundcolor=,aboveskip=6pt,belowskip=6pt,xleftmargin=1em,postbreak=\mbox{\textcolor{gray}{\tiny\ensuremath{\hookrightarrow}}\space}}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
 PANDOC_TXT_OPTS := --to plain --wrap=none
+PANDOC_MAN_OPTS := --standalone --to man -M section=1 -M title=bombadil
 
-all: html epub pdf txt
+all: html epub pdf txt man
 
 html: $(HTML_DIR)/.built
 
@@ -50,6 +52,8 @@ epub: $(EPUB_FILE)
 pdf: $(PDF_FILE)
 
 txt: $(TXT_FILE)
+
+man: $(MAN_FILE)
 
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
@@ -71,6 +75,9 @@ $(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_
 
 $(TXT_FILE): $(SOURCES) | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(TXT_FILE) $(PANDOC_TXT_OPTS)
+
+$(MAN_FILE): $(SOURCES) | $(TARGET_DIR)
+	$(PANDOC) $(SOURCES) -o $(MAN_FILE) $(PANDOC_MAN_OPTS)
 
 clean:
 	rm -rf $(TARGET_DIR)
