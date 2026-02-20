@@ -136,7 +136,6 @@ a.footnote-ref:hover sup {
 
 pre, code {
   font-family: var(--font-family-code);
-  font-size: .9rem;
 }
 
 pre {
@@ -145,7 +144,7 @@ pre {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background-color: var(--color-bg-muted);
-
+  font-size: .9rem;
 }
 
 pre code {
@@ -277,7 +276,27 @@ details[open]::details-content {
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1em 0;
+  margin: 1rem 0;
+}
+
+th, td {
+  padding: .25rem .5rem;
+  text-align: left;
+}
+
+tr th, tr td {
+  border-bottom: 1px solid var(--color-border);
+  font-size: .875rem;
+}
+
+tbody td {
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  background-color: var(--color-bg-muted);
+}
+
+col {
+  width: auto !important;
 }
 
 button, .btn {

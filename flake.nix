@@ -125,6 +125,7 @@
                   environ
                   etoolbox
                   listingsutf8
+                  mdwtools
                   ;
               })
               ibm-plex

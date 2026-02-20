@@ -116,7 +116,7 @@ export const pageHasTitle = always(() =>
 );
 ```
 
-There are a couple of new things going on here:
+Two things to note about this example:
 
 1. The expression passed to `always` is a function that takes no arguments ---
    a *thunk*. This is because it needs to be evaluated in every state. It needs
@@ -138,7 +138,8 @@ facts about formulas and temporal operators:
 * A temporal operator is a function that takes some subformula and evaluates it
   over time. 
 * Different temporal operators evaluate their subformulas in different ways.
-* Bombadil evalutes formulas against a sequence of states to check if they *hold true*.
+* Bombadil evaluates formulas against a sequence of states to check if they
+  *hold true*.
 
 In addition to `always`, there's also `eventually` and `next`. Here's an
 informal[^ltl] description of how they work:
@@ -147,7 +148,7 @@ informal[^ltl] description of how they work:
 * `next(x)` holds if `x` holds in *the next* state
 * `eventually(x)` holds if `x` holds in *this* or *any future* state
 
-Remember that they accept *subformulas* as arguments. But in the example with
+They accept *subformulas* as arguments, but in the example with
 `always` above, the argument was a thunk. This works because the operators
 automatically convert thunks into formulas. There's an operator for doing that
 explicitly, called `now`:
@@ -172,6 +173,9 @@ following property checks that pressing a button shows a spinner that is
 eventually hidden again:
 
 ```typescript
+const buttonPressed = extract(() => ...);
+const spinnerVisible = extract(() => ...);
+
 now(() => buttonPressed).implies(
     now(() => spinnerVisible).and(eventually(() => !spinnerVisible))
 )
@@ -183,8 +187,8 @@ inspiration.
 
 ## Actions
 
-In addition to exporting properties in specification, you export action
-generators. A generator in an object with a `generate()` method. An action
+In addition to exporting properties in a specification, you export action
+generators. A generator is an object with a `generate()` method. An action
 generator is such an object that generates values of type `Tree<Action>`.
 
 **TODO:** link to `Action` type when we have generated TypeScript reference
@@ -211,10 +215,21 @@ export const myAction = actions(() => {
 ```
 
 The actions you return must be possible to perform in the current state. Your
-action generators should therefor depend on [cells](#extractors) and validate
+action generators should therefore depend on [cells](#extractors) and validate
 your actions before returning them. As an example, the `back` action generator
 provided by Bombadil checks that there's a history entry to go back to, otherwise
 it returns `[]`.
+
+To give actions different weights, use the `weighted` combinator and wrap each
+subgenerator in an array with the weight as the first element:
+
+```typescript
+export const navigation = weighted([
+  [10, back],
+  [1, forward],
+  [1, reload],
+]);
+```
 
 ## Examples
 
