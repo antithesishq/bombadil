@@ -390,8 +390,11 @@ main {
   max-width: 60rem;
   margin-left: 16rem;
   background-color: var(--color-bg);
-  border-right: 1px solid var(--color-border);
   overflow-x: hidden;
+}
+
+.page main {
+  border-right: 1px solid var(--color-border);
 }
 
 .content {
