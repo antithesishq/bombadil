@@ -13,7 +13,7 @@ function Div(el)
   -- Handle callout admonitions
   if el.classes:includes('callout') then
     if FORMAT:match 'latex' then
-      -- For PDF, convert to a simple framed box with auto-generated label
+      -- For PDF, convert to a gray box with inline label
       local callout_type = 'Note'
       if el.classes:includes('callout-warning') then
         callout_type = 'Warning'
@@ -23,11 +23,17 @@ function Div(el)
         callout_type = 'Important'
       end
 
-      -- Create a simple block with a label, no indentation
+      -- Prepend the label to the first paragraph if it exists
+      if #el.content > 0 and el.content[1].t == 'Para' then
+        local label = pandoc.Strong({pandoc.Str(callout_type .. ':'), pandoc.Space()})
+        table.insert(el.content[1].content, 1, label)
+      end
+
+      -- Wrap in a light gray box using the custom admonitionbox environment
       return {
-        pandoc.RawBlock('latex', '\\noindent\\textbf{' .. callout_type .. ':}\\par\\vspace{0.3em}'),
+        pandoc.RawBlock('latex', '\\begin{admonitionbox}'),
         el,
-        pandoc.RawBlock('latex', '\\vspace{0.5em}')
+        pandoc.RawBlock('latex', '\\end{admonitionbox}')
       }
     end
   end

@@ -107,6 +107,10 @@
                       parskip
                       listings
                       lm
+                      tcolorbox
+                      pgf
+                      environ
+                      etoolbox
                       ;
                   })
                   ibm-plex
