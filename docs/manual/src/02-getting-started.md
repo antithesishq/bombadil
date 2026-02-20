@@ -1,5 +1,11 @@
 # Getting Started
 
+Bombadil runs on your development machine if you're on macOS or Linux. You can
+use it to validate changes to [TypeScript
+specifications](3-specification-language.html#properties), and to run short
+tests while working on your system. Then you'll have something like GitHub
+Actions to run longer tests on your main branch or in nightlies.
+
 ## Installation
 
 The most straightforward way for you to get started is downloading the
