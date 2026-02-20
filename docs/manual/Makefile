@@ -18,21 +18,26 @@ MAN_FILE := $(TARGET_DIR)/bombadil.1
 PANDOC := pandoc
 PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=3 -Vtoc-title="The Bombadil Manual" \
 	--split-level=1 --resource-path=$(SRC_DIR) --css=reset.css --css=style.css \
+	--highlight-style=monochrome \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
+	--lua-filter=$(SRC_DIR)/table-nowrap.lua \
 	--template=$(SRC_DIR)/template.html -M version=$(VERSION)
 PANDOC_EPUB_OPTS := --toc --toc-depth=3 \
 	--epub-metadata=$(SRC_DIR)/metadata.yaml --resource-path=$(SRC_DIR) \
+	--highlight-style=monochrome \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
-	--lua-filter=$(SRC_DIR)/bash-prompt.lua -M version=$(VERSION)
+	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
+	--lua-filter=$(SRC_DIR)/table-nowrap.lua -M version=$(VERSION)
 PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	--pdf-engine=lualatex --resource-path=$(SRC_DIR) \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
-	--listings \
+	--lua-filter=$(SRC_DIR)/table-nowrap.lua \
+	--highlight-style=monochrome \
 	-V mainfont="IBM Plex Sans Condensed" \
 	-V mainfontoptions="BoldFont=IBMPlexSansCondensed-SemiBold.otf" \
 	-V monofont="IBM Plex Mono" \
@@ -40,8 +45,8 @@ PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	-V subtitle="Version $(VERSION)" \
 	-V geometry="margin=1in" \
 	-V header-includes='\usepackage{xcolor}\definecolor{admonitionblue}{HTML}{286486}\definecolor{admonitionyellow}{HTML}{944927}\definecolor{admonitioncyan}{HTML}{3B8992}\definecolor{admonitionred}{HTML}{A8334C}\usepackage{fancyvrb}\usepackage{etoolbox}\BeforeBeginEnvironment{Verbatim}{\vspace{6pt}}\AfterEndEnvironment{Verbatim}{\vspace{6pt}}\usepackage{tcolorbox}\newtcolorbox{admonitionblue}{colback=white,colframe=admonitionblue,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionyellow}{colback=white,colframe=admonitionyellow,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitioncyan}{colback=white,colframe=admonitioncyan,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\newtcolorbox{admonitionred}{colback=white,colframe=admonitionred,boxrule=0pt,leftrule=4pt,arc=0pt,left=8pt,right=8pt,top=6pt,bottom=6pt}\usepackage{listings}\lstset{basicstyle=\small\ttfamily,breaklines=true,breakatwhitespace=false,columns=fullflexible,keepspaces=true,showstringspaces=false,frame=none,backgroundcolor=,aboveskip=6pt,belowskip=6pt,xleftmargin=1em,postbreak=\mbox{\textcolor{gray}{\tiny\ensuremath{\hookrightarrow}}\space}}\usepackage{fancyhdr}\pagestyle{fancy}\fancyhf{}\fancyhead[L]{The Bombadil Manual v$(VERSION)}\fancyhead[R]{\leftmark}\fancyfoot[C]{\thepage}\usepackage{titling}\pretitle{\begin{center}\LARGE\bfseries}\posttitle{\par\end{center}}'
-PANDOC_TXT_OPTS := --to plain --wrap=none
-PANDOC_MAN_OPTS := --standalone --to man -M section=1 -M title=bombadil
+PANDOC_TXT_OPTS := --to plain --wrap=none --lua-filter=$(SRC_DIR)/table-nowrap.lua
+PANDOC_MAN_OPTS := --standalone --to man -M section=1 -M title=bombadil --lua-filter=$(SRC_DIR)/table-nowrap.lua
 
 all: html epub pdf txt man
 
@@ -60,17 +65,17 @@ $(TARGET_DIR):
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
+$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
 	rm -rf $(HTML_DIR)
 	$(PANDOC) $(SOURCES) --output $(HTML_DIR)/ $(PANDOC_HTML_OPTS)
 	cp $(SRC_DIR)/*.css $(HTML_DIR)/
 	cp $(SRC_DIR)/*.js $(HTML_DIR)/
 	touch $(HTML_DIR)/.built
 
-$(EPUB_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua | $(TARGET_DIR)
+$(EPUB_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(EPUB_FILE) $(PANDOC_EPUB_OPTS)
 
-$(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua | $(TARGET_DIR)
+$(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(PDF_FILE) $(PANDOC_PDF_OPTS)
 
 $(TXT_FILE): $(SOURCES) | $(TARGET_DIR)
