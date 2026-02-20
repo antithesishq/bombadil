@@ -374,6 +374,20 @@ main {
   margin-top: 0;
 }
 
+hr {
+  background-color: var(--color-fg);
+  height: 1px;
+  border: 0;
+  margin: 1rem 0;
+}
+.footnotes {
+  font-style: italic;
+  margin-top: 1rem;
+}
+.footnotes hr {
+  background-color: var(--color-border);
+}
+
 .page-nav {
   display: flex;
   align-items: stretch;
@@ -505,7 +519,7 @@ main {
     padding: 2rem 1rem 1rem;
   }
   .page-nav, .site-footer {
-    padding: 1rem;
+    padding: 0 1rem 1rem;
   }
   .page-nav {
     gap: 1rem;

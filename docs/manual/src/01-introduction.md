@@ -27,6 +27,8 @@ play. By randomly and systematically searching the state space, Bombadil
 behaves in ways you didn't think about testing for. Unexpected sequences of
 actions, weird timings, strange inputs that you forgot could be entered.
 
+## How It Works
+
 Instead of describing "what good looks like" in terms of fixed test cases, you
 express general properties of your system, how it should behave in all cases.
 Bombadil checks each property as it explores your system in its chaotic ways,
@@ -37,3 +39,17 @@ TypeScript that exports [properties](3-specification-language.html#properties)
 and [action generators](3-specification-language.html#actions). It doesn't
 matter how the application is built --- if it's a single-page app, server-side
 rendered, or even static HTML --- Bombadil tests anything that uses the DOM.
+
+Conceptually, it runs in a loop doing the following:
+
+1. Extracts the current state from the browser
+2. Checks all properties against the current state, recording violations[^exit]
+3. Selects the next action based on the current state, and performs it
+4. Waits for the next event (page navigation, DOM mutation, or timeout)
+5. *Goes to step 1*
+
+Bombadil itself decides what is an interesting event and when to capture state.
+The specification author provides the properties and actions, Bombadil does the
+rest.
+
+[^exit]: You can also configure Bombadil to exit on the first found violation.
