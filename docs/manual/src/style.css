@@ -23,9 +23,9 @@
   --color-fg: var(--color-white);
   --color-fg-muted: var(--color-white-bright);
 
-  --color-bg: var(--color-black);
-  --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, var(--color-border) 20%);
-  --color-border: var(--color-black-bright);
+  --color-bg: #fff;
+  --color-bg-muted: #fafafa;
+  --color-border: #ddd;
   --color-fg: #2c363c;
   --color-fg-muted: #B4BDC3;
 
@@ -142,13 +142,14 @@ pre code {
 
 kbd {
   display: inline-block;
-  padding: .25em .25em;
+  padding: .25em .375em;
   line-height: 1;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background-color: var(--color-bg-muted);
-  font-size: .875em;
-  font-family: var(--font-family-headings);
+  font-size: .75em;
+  font-family: var(--font-family-code);
+  font-weight: 600;
   text-transform: uppercase;
 }
 
