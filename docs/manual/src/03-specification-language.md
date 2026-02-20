@@ -183,11 +183,42 @@ inspiration.
 
 ## Actions
 
-TODO: Available actions
+In addition to exporting properties in specification, you export action
+generators. A generator in an object with a `generate()` method. An action
+generator is such an object that generates values of type `Tree<Action>`.
+
+**TODO:** link to `Action` type when we have generated TypeScript reference
+
+Like with [default properties](#defaults), there are default actions provided
+by Bombadil. These will get you a long way, but there are times where you
+need to define your own action generators.
+
+For every state that Bombadil captures, all action generators are run, contributing
+to a tree structure of *possible* actions. Bombadil then randomly picks one in that
+tree. Why a tree, though? It's because the branches are *weighted* --- by default
+they're equally weighted, but you can override this to control the probability of
+an action being picked.
+
+To define a custom action, you use the `actions` function, which takes a thunk
+that returns an array of actions:
+
+```typescript
+export const myAction = actions(() => {
+  return [
+    ...
+  ];
+});
+```
+
+The actions you return must be possible to perform in the current state. Your
+action generators should therefor depend on [cells](#extractors) and validate
+your actions before returning them. As an example, the `back` action generator
+provided by Bombadil checks that there's a history entry to go back to, otherwise
+it returns `[]`.
 
 ## Examples
 
-TODO: Example specifications
+**TODO:** Example specifications
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of
 [Linear Temporal Logic](https://en.wikipedia.org/wiki/Linear_temporal_logic), if you're into
