@@ -123,6 +123,17 @@ a {
   text-decoration: underline;
 }
 
+a.footnote-ref {
+  text-decoration: none;
+  font-size: .875rem;
+}
+a.footnote-ref sup {
+  text-decoration: none;
+}
+a.footnote-ref:hover sup {
+  text-decoration: underline;
+}
+
 pre, code {
   font-family: var(--font-family-code);
   font-size: .9rem;

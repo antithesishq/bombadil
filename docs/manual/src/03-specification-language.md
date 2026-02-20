@@ -49,8 +49,7 @@ export {
 } from "@antithesishq/bombadil/defaults/actions";
 ```
 
-You may freely combine defaults with your own properties and actions --- you'll
-learn more about this in the next section.
+You may freely combine defaults with your own properties and actions.
 
 ## Properties
 
@@ -79,8 +78,8 @@ export const pageHasTitle = always(
 ```
 
 You may export multiple properties, including the [defaults](#defaults), and
-they'll all be checked independently. But how do we "check that there's a page
-title somehow"? We need access to the browser, and for that, we use *extractors*.
+they'll all be checked independently. But how do you "check that there's a page
+title somehow"? You need access to the browser, and for that, you use *extractors*.
 
 ## Extractors
 
@@ -93,9 +92,9 @@ extract(state => ...)
 ```
 
 You give it a function that takes the current browser state as an argument, and
-returns some JSON-serializable data. The state object contains a bunch of
-things, but for now we'll focus on the `document` and `window`, which are the
-same ones you have access to in JavaScript running in a browser.
+returns JSON-serializable data. The state object contains a bunch of things,
+but most important are `document` and `window`, the same ones you have access
+to in JavaScript running in a browser.
 
 To extract the page title, you'd define this at the top level of your
 specification:
@@ -109,7 +108,7 @@ stateful value that changes over time. For every new state captured by
 Bombadil, the extractor function gets run, and the cell is updated with its
 return value.
 
-Using the `pageTitle` cell, you can now define the property:
+Using the `pageTitle` cell, you can define the property:
 
 ```typescript
 export const pageHasTitle = always(() => 
@@ -125,10 +124,62 @@ There are a couple of new things going on here:
    thunk rather than a `boolean`.
 2. To get the `string` value out of the cell, you use `pageTitle.current`.
 
-You know have a custom property using the *temporal* operator called `always`.
-There are other temporal operators that you'll learn about in the next section.
+This is a custom property using the *temporal* operator called `always`.
+There are other temporal operators, described in [Formulas](#formulas).
 
-## Temporal Operators
+## Formulas
+
+Formulas and temporal operators may sound scary, but fear not --- they are
+essentially ways of expressing "conditions over time". Here are some quick
+facts about formulas and temporal operators:
+
+* Temporal operators return formulas. 
+* Every property in Bombadil is a formula (of the `Formula` type). 
+* A temporal operator is a function that takes some subformula and evaluates it
+  over time. 
+* Different temporal operators evaluate their subformulas in different ways.
+* Bombadil evalutes formulas against a sequence of states to check if they *hold true*.
+
+In addition to `always`, there's also `eventually` and `next`. Here's an
+informal[^ltl] description of how they work:
+
+* `always(x)` holds if `x` holds in *this* and *every future* state
+* `next(x)` holds if `x` holds in *the next* state
+* `eventually(x)` holds if `x` holds in *this* or *any future* state
+
+Remember that they accept *subformulas* as arguments. But in the example with
+`always` above, the argument was a thunk. This works because the operators
+automatically convert thunks into formulas. There's an operator for doing that
+explicitly, called `now`:
+
+```typescript
+always(now(() => pageTitle.current !== ""))
+```
+
+You normally don't have to use the `now` operator, unless you want to use
+*logical connectives* at the formula level. They are defined as methods on
+formulas:
+
+* `x.and(y)` holds if `x` holds and `y` holds
+* `x.or(y)` holds if `x` holds or `y` holds
+* `x.implies(y)` holds if `x` doesn't hold or `y` holds
+
+There's also negation, both as a function and as a method on
+formulas, i.e. `not(x)` and `x.not()`.
+
+The `now` operator is useful when expressing single-state preconditions. The
+following property checks that pressing a button shows a spinner that is
+eventually hidden again:
+
+```typescript
+now(() => buttonPressed).implies(
+    now(() => spinnerVisible).and(eventually(() => !spinnerVisible))
+)
+```
+
+You can build more advanced formulas, even with nested temporal operators, but
+the basics are often powerful enough. See the [examples](#examples) at the bottom for more
+inspiration.
 
 ## Actions
 
@@ -137,3 +188,7 @@ TODO: Available actions
 ## Examples
 
 TODO: Example specifications
+
+[^ltl]: Formally, the properties in Bombadil use a flavor of
+[Linear Temporal Logic](https://en.wikipedia.org/wiki/Linear_temporal_logic), if you're into
+dense theoretical stuff. 
