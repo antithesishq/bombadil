@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Counter State Machine</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        #counter {
+            font-size: 48px;
+            margin: 20px;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            font-size: 24px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Counter State Machine</h1>
+    <div id="counter">0</div>
+    <div class="buttons">
+        <button id="decrement">-</button>
+        <button id="increment">+</button>
+    </div>
+    <script>
+        let count = 0;
+        const counterElement = document.getElementById('counter');
+        const incrementButton = document.getElementById('increment');
+        const decrementButton = document.getElementById('decrement');
+
+        incrementButton.addEventListener('click', () => {
+            count++;
+            counterElement.textContent = count;
+        });
+
+        decrementButton.addEventListener('click', () => {
+            count--;
+            counterElement.textContent = count;
+        });
+    </script>
+</body>
+</html>

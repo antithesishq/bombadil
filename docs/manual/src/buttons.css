@@ -1,0 +1,23 @@
+/* Buttons */
+button, .btn {
+  display: flex;
+  flex-direction: row;
+  padding: .5rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  text-decoration: none;
+  background-color: var(--color-bg-muted);
+  color: var(--color-fg);
+  transition: background-color .2s ease, border-color .2s ease;
+  cursor: pointer;
+}
+.btn-outline {
+  background-color: transparent;
+}
+.btn:hover {
+  border: 1px solid var(--color-fg);
+}
+.btn-primary {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}

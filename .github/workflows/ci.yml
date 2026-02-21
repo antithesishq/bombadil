@@ -36,3 +36,50 @@ jobs:
       - name: Build Docker image
         if: matrix.target == 'x86_64-linux'
         run: nix build ".#docker"
+
+  manual:
+    permissions:
+      contents: read
+    name: Build Manual
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - run: nix config show
+      - run: nix build ".#manual"
+      - name: Upload manual
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-manual.zip
+          path: result/
+
+  # TEMPORARY: Deploy manual to GitHub Pages for preview
+  # DELETE THIS JOB BEFORE MERGING
+  deploy-manual:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    name: Deploy Manual to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: manual
+    steps:
+      - name: Download manual artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: bombadil-manual.zip
+          path: manual
+      - name: Upload to GitHub Pages
+        if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: manual/html
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: github.event_name == 'push'
+        uses: actions/deploy-pages@v4

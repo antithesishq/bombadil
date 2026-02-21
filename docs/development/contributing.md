@@ -10,6 +10,24 @@ nix develop
 direnv allow .
 ```
 
+### Documentation Shell
+
+Documentation building requires a separate shell with Pandoc and TeXLive. This keeps the default development environment lighter.
+
+To work on the manual in `docs/manual/`:
+
+```bash
+cd docs/manual
+direnv allow  # loads the 'manual' shell automatically
+make html     # or make pdf, make epub, etc.
+```
+
+Or run commands directly:
+
+```bash
+nix develop '.#manual' --command make -C docs/manual pdf
+```
+
 ## Debugging
 
 See debug logs:

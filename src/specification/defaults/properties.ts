@@ -11,9 +11,7 @@ export const noHttpErrorCodes = always(
   () => (responseStatus.current ?? 0) < 400,
 );
 
-const uncaughtExceptions = extract(
-  (state) => state.errors.uncaughtExceptions,
-);
+const uncaughtExceptions = extract((state) => state.errors.uncaughtExceptions);
 
 export const noUncaughtExceptions = always(() =>
   uncaughtExceptions.current.every((e) => e.text !== "Uncaught"),

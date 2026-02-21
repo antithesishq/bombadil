@@ -1,0 +1,57 @@
+/* Syntax highlighting overrides */
+
+code span.kw,
+code span.cf,
+code span.pp,
+code span.im {
+  font-weight: 600;
+}
+
+code span.at,
+code span.dt {
+  text-decoration: none;
+  font-style: italic;
+}
+
+code span.co {
+  color: var(--color-fg-muted);
+}
+
+code span.st, code span.ss {
+  color: var(--color-primary);
+}
+
+code span.dv {
+  color: var(--color-secondary);
+}
+
+/* Bash prompt styling */
+.bash .prompt {
+  user-select: none;
+  color: var(--color-fg-muted);
+}
+.bash {
+}
+
+pre {
+  position: relative;
+}
+pre:after {
+  content: "";
+  position: absolute;
+  display: block;
+  top: 0;
+  right: 0;
+  padding: .5rem;
+  line-height: 1;
+  font-size: .875em;
+  color: var(--color-fg-muted);
+}
+pre.typescript:after {
+  content: "TS";
+  font-family: var(--font-family-headings);
+}
+pre.bash:after {
+  content: "BASH";
+  font-family: var(--font-family-headings);
+}
