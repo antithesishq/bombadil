@@ -234,7 +234,8 @@ export const navigation = weighted([
 ## Examples
 
 These are examples of shapes of properties and action generators you might need
-in your own testing with Bombadil. Copy and adjust to your needs!
+in your own testing with Bombadil. Think of them as design patterns for
+properties.
 
 ### Invariant: Max Notification Count
 
@@ -269,6 +270,10 @@ export const constant_notification_count = now(() => {
 
 ### Guarantee: Error Disappears
 
+A *guarantee property* checks that something good eventually happens, within
+some time bound. Here is a property that checks that error messages disappear
+within five seconds.
+
 ```typescript
 const errorMessage = extract(
   (state) => state.document.body.querySelector(".error")?.textContent ?? null,
@@ -283,8 +288,11 @@ export const errorDisappears = always(
 
 ### Contextful Guarantee: Notification Includes Past Value
 
-This example uses the fact that an out thunk can force and bind
-a cell value (from the `nameEntered` cell in the example) ...
+This example uses an outer thunk to force a cell value (`nameEntered`) at every
+state, and then closes over that value with the inner thunk passed to
+`eventually`. The property checks that if there's a non-blank name entered, and
+it is submitted, then eventually there will be a notification that includes the
+name.
 
 ```typescript
 const name = extract((state) => {
@@ -304,7 +312,8 @@ const notificationText = extract(
 export const notificationIncludesMessage = always(() => {
   const nameEntered = name.current?.trim() ?? "";
 
-  return now(() => nameEntered !== "" && submitInProgress.current)
+  return now(() => nameEntered !== "")
+      .and(next(() => submitInProgress.current))
       .implies(eventually(
           () => notificationText?.current?.includes(nameEntered) ?? false,
       ).within(5, "seconds"));
@@ -312,6 +321,42 @@ export const notificationIncludesMessage = always(() => {
 });
 ```
 
+### State Machine: Counter
+
+This property models a counter as a state machine, checking that the counter
+only transitions by staying the same, incrementing by 1, or decrementing by 1
+(no invalid jumps allowed).
+
+```typescript
+const counterValue = extract((state) => {
+  const element = state.document.body.querySelector("#counter");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const unchanged = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current);
+});
+
+const increment = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current + 1);
+});
+
+const decrement = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current - 1);
+});
+
+export const counterStateMachine = always(unchanged.or(increment).or(decrement));
+```
+
+If this specification exports the `reload` action, the `unchanged` property
+becomes relevant[^stuttering]. Unless this application stored the state of the counter
+somehow, reloading the page would clear the counter, which this property
+would catch as a violation.
+
 [^ltl]: Formally, the properties in Bombadil use a flavor of
 [Linear Temporal Logic](https://en.wikipedia.org/wiki/Linear_temporal_logic), if you're into
 dense theoretical stuff. 
+[^stuttering]: A state transition that allows for nothing to change is a way of making a property "stutter-invariant", as it's called in the literature.

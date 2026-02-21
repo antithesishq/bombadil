@@ -16,7 +16,7 @@ MAN_FILE := $(TARGET_DIR)/bombadil.1
 
 # Pandoc options
 PANDOC := pandoc
-PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=3 -Vtoc-title="The Bombadil Manual" \
+PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=2 -Vtoc-title="The Bombadil Manual" \
 	--split-level=1 --resource-path=$(SRC_DIR) --css=reset.css --css=style.css \
 	--highlight-style=monochrome \
 	--lua-filter=$(SRC_DIR)/replace.lua \

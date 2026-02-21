@@ -407,13 +407,51 @@ import { extract, now, eventually } from "@antithesishq/bombadil";
 export { clicks, inputs } from "@antithesishq/bombadil/defaults";
 
 const inputValue = extract((state) => {
-  const input = state.document.querySelector('#text-input');
+  const input = state.document.querySelector("\#text-input");
   return input ? input.value : "";
 });
 
 export const input_eventually_has_text = eventually(
   () => inputValue.current.length > 0
 ).within(10, "seconds");
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_counter_state_machine() {
+    run_browser_test(
+        "counter-state-machine",
+        Expect::Success,
+        Duration::from_secs(3),
+        Some(
+            r#"
+import { extract, now, next, always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+const counterValue = extract((state) => {
+  const element = state.document.body.querySelector("\#counter");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const unchanged = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current);
+});
+
+const increment = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current + 1);
+});
+
+const decrement = now(() => {
+  const current = counterValue.current;
+  return next(() => counterValue.current === current - 1);
+});
+
+export const counterStateMachine = always(unchanged.or(increment).or(decrement));
 "#,
         ),
     )
