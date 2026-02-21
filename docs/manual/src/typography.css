@@ -1,0 +1,72 @@
+h1, h2, h3, h4, h5, h6 {
+  line-height: 1.25;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+
+p, ul, ol, details, pre {
+  margin-bottom: 1rem;
+}
+
+li {
+  margin: .5rem 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+a.footnote-ref {
+  text-decoration: none;
+  font-size: .875rem;
+}
+a.footnote-ref sup {
+  text-decoration: none;
+}
+a.footnote-ref:hover sup {
+  text-decoration: underline;
+}
+
+.footnotes {
+  font-style: italic;
+  margin-top: 1rem;
+}
+.footnotes hr {
+  background-color: var(--color-border);
+}
+
+pre, code {
+  font-family: var(--font-family-code);
+}
+
+pre {
+  padding: 1rem;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-bg-muted);
+}
+
+code {
+  font-size: .9em;
+}
+
+kbd {
+  display: inline-block;
+  padding: .25em .375em;
+  line-height: 1;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-bg-muted);
+  font-size: .75em;
+  font-family: var(--font-family-code);
+  font-weight: 600;
+  text-transform: uppercase;
+}

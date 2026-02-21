@@ -1,0 +1,46 @@
+/* Details and Accordion */
+details {
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: var(--color-bg-muted);
+}
+summary {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  list-style-type: "";
+  cursor: pointer;
+  padding: 1rem;
+}
+summary:after {
+  content: "❯";
+  font-size: .75rem;
+  line-height: 1.5rem;
+}
+details[open] summary:after {
+  transform: rotate(90deg);
+}
+details[open]::details-content {
+  padding: 1rem;
+  overflow-x: auto;
+}
+
+.accordion {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+}
+.accordion details {
+  margin-bottom: 0;
+  border-radius: 0;
+  border-top: 0;
+}
+.accordion details:first-child {
+  border-top: 1px solid var(--color-border);
+  border-top-right-radius: var(--border-radius);
+  border-top-left-radius: var(--border-radius);
+}
+.accordion details:last-child {
+  border-bottom-right-radius: var(--border-radius);
+  border-bottom-left-radius: var(--border-radius);
+}

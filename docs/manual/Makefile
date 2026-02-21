@@ -68,7 +68,8 @@ $(TARGET_DIR):
 $(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
 	rm -rf $(HTML_DIR)
 	$(PANDOC) $(SOURCES) --output $(HTML_DIR)/ $(PANDOC_HTML_OPTS)
-	cp $(SRC_DIR)/*.css $(HTML_DIR)/
+	esbuild $(SRC_DIR)/index.css --bundle --outfile=$(HTML_DIR)/style.css
+	cp $(SRC_DIR)/reset.css $(HTML_DIR)/
 	cp $(SRC_DIR)/*.js $(HTML_DIR)/
 	touch $(HTML_DIR)/.built
 

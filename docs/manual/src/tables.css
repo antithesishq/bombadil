@@ -1,0 +1,26 @@
+/* Tables */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+}
+
+th, td {
+  padding: .25rem .5rem;
+  text-align: left;
+}
+
+tr th, tr td {
+  border-bottom: 1px solid var(--color-border);
+  font-size: .875rem;
+}
+
+tbody td {
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  background-color: var(--color-bg-muted);
+}
+
+col {
+  width: auto !important;
+}

@@ -5,6 +5,7 @@
   texlive,
   ibm-plex,
   gnumake,
+  esbuild,
 }:
 let
   version =
@@ -62,6 +63,7 @@ stdenvNoCC.mkDerivation {
     pandoc
     texliveBundle
     gnumake
+    esbuild
   ];
 
   OSFONTDIR = "${ibm-plex}/share/fonts/opentype";

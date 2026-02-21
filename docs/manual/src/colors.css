@@ -1,0 +1,64 @@
+/* Colors mainly sourced from zenbones themes in https://github.com/zenbones-theme/zenbones.nvim/blob/main/extras/ghostty */
+:root {
+  --color-black: #F0EDEC;
+  --color-black-bright: #CFC1BA;
+  --color-red: #A8334C;
+  --color-red-bright: #94253E;
+  --color-green: #4F6C31;
+  --color-green-bright: #3F5A22;
+  --color-yellow: #944927;
+  --color-yellow-bright: #803D1C;
+  --color-blue: #286486;
+  --color-blue-bright: #1D5573;
+  --color-magenta: #88507D;
+  --color-magenta-bright: #7B3B70;
+  --color-cyan: #3B8992;
+  --color-cyan-bright: #2B747C;
+  --color-fg: var(--color-white);
+  --color-fg-muted: var(--color-white-bright);
+
+  --color-bg: #fff;
+  --color-bg-muted: #fafafa;
+  --color-border: #ddd;
+  --color-fg: #2c363c;
+  --color-fg-muted: #B4BDC3;
+
+  --color-primary: var(--color-magenta);
+  --color-secondary: var(--color-blue);
+  --color-selection: #CBD9E3;
+
+  --font-family-headings: "Saira Condensed", sans-serif;
+  --font-family-copy: "IBM Plex Sans Condensed", sans-serif;
+  --font-family-code: "IBM Plex Mono", monospace;
+
+  --border-radius: .125rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-black: #1C1917;
+    --color-black-bright: #403833;
+    --color-red: #DE6E7C;
+    --color-red-bright: #E8838F;
+    --color-green: #819B69;
+    --color-green-bright: #8BAE68;
+    --color-yellow: #B77E64;
+    --color-yellow-bright: #D68C67;
+    --color-blue: #6099C0;
+    --color-blue-bright: #61ABDA;
+    --color-magenta: #B279A7;
+    --color-magenta-bright: #CF86C1;
+    --color-cyan: #66A5AD;
+    --color-cyan-bright: #65B8C1;
+    --color-white: #B4BDC3;
+    --color-white-bright: #888F94;
+
+    --color-bg: var(--color-black);
+    --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, #000 20%);
+    --color-border: color-mix(in hsl, var(--color-black), var(--color-black-bright));
+    --color-fg: var(--color-white);
+    --color-fg-muted: var(--color-white-bright);
+
+    --color-selection: #3D4042;
+  }
+}
