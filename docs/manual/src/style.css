@@ -214,10 +214,8 @@ details[open]::details-content {
 .callout {
   padding: 1rem;
   margin-bottom: 1rem;
-  border: 0;
+  border: 1px solid var(--color-border);
   border-left-width: 4px;
-  border-style: solid;
-  border-color: var(--color-border);
   background-color: var(--color-bg-muted);
   border-radius: var(--border-radius);
 }
@@ -594,3 +592,25 @@ code span.dv {
 .bash {
 }
 
+pre {
+  position: relative;
+}
+pre:after {
+  content: "";
+  position: absolute;
+  display: block;
+  top: 0;
+  right: 0;
+  padding: .5rem;
+  line-height: 1;
+  font-size: .875em;
+  color: var(--color-fg-muted);
+}
+pre.typescript:after {
+  content: "TS";
+  font-family: var(--font-family-headings);
+}
+pre.bash:after {
+  content: "BASH";
+  font-family: var(--font-family-headings);
+}
