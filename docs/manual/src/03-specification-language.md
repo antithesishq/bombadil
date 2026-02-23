@@ -1,4 +1,4 @@
-# Specification Language
+# Specification language
 
 To extend Bombadil with domain-specific knowledge, you write specifications.
 These are plain TypeScript or JavaScript modules using the library provided by
@@ -10,7 +10,7 @@ Here's how you run Bombadil with a custom specification:
 bombadil test https://example.com example.ts
 ```
 
-For a full listing of CLI options, see [the reference](#cli).
+For a full listing of CLI options, see [the reference](#command-line-interface).
 
 ## Structure
 
@@ -299,7 +299,7 @@ These are examples of shapes of properties and action generators you might need
 in your own testing with Bombadil. Think of them as design patterns for
 properties.
 
-### Invariant: Max Notification Count
+### Invariant: max notification count
 
 This is a simple one checking that there are never more than five notifications
 shown.
@@ -314,7 +314,7 @@ export const max_notifications_shown = always(
 );
 ```
 
-### Sliding Window: Constant Notification Count
+### Sliding window: constant notification count
 
 This property checks that the notification count doesn't change ---
 that it is the same as in the first state. Note how this property
@@ -330,7 +330,7 @@ export const constant_notification_count = now(() => {
 });
 ```
 
-### Guarantee: Error Disappears
+### Guarantee: error disappears
 
 A *guarantee property* checks that something good eventually happens, within
 some time bound. Here is a property that checks that error messages disappear
@@ -348,7 +348,7 @@ export const errorDisappears = always(
 );
 ```
 
-### Contextful Guarantee: Notification Includes Past Value
+### Contextful guarantee: notification includes past value
 
 This example uses an outer thunk to force a cell value (`nameEntered`) at every
 state, and then closes over that value with the inner thunk passed to
@@ -383,7 +383,7 @@ export const notificationIncludesMessage = always(() => {
 });
 ```
 
-### State Machine: Counter
+### State machine: counter
 
 This property models a counter as a state machine, checking that the counter
 only transitions by staying the same, incrementing by 1, or decrementing by 1

@@ -1,4 +1,4 @@
-# Getting Started
+# Getting started
 
 Bombadil runs on your development machine if you're on macOS or Linux. You can
 use it to validate changes to [TypeScript
@@ -83,7 +83,7 @@ Not yet available, but coming soon:
 
 If you want to compile from source, see [Contributing](https://github.com/antithesishq/bombadil/tree/main/docs/contributing.md).
 
-## TypeScript Support
+## TypeScript support
 
 When writing specifications in TypeScript, you'll want the types available.
 Get them from [NPM](https://www.npmjs.com/package/@antithesishq/bombadil)
@@ -114,7 +114,7 @@ bun add --development @antithesishq/bombadil
 Or use the files provided in [the 
 release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 
-## Your First Test
+## Your first test
 
 With the CLI installed, let's run a test just to see that things are working:
 

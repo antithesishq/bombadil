@@ -27,7 +27,7 @@ play. By randomly and systematically searching the state space, Bombadil
 behaves in ways you didn't think about testing for. Unexpected sequences of
 actions, weird timings, strange inputs that you forgot could be entered.
 
-## How It Works
+## How it works
 
 Instead of describing "what good looks like" in terms of fixed test cases, you
 express general properties of your system, how it should behave in all cases.

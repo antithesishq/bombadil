@@ -1,6 +1,6 @@
 # Reference
 
-## CLI
+## Command-line interface
 
 <!-- **TODO:** generate this automatically but in structured HTML -->
 
