@@ -78,11 +78,9 @@ jobs:
           name: bombadil-manual.zip
           path: manual
       - name: Upload to GitHub Pages
-        if: github.event_name == 'push'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: manual/html
+          path: manual
       - name: Deploy to GitHub Pages
         id: deployment
-        if: github.event_name == 'push'
         uses: actions/deploy-pages@v4
