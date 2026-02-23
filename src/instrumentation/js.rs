@@ -253,6 +253,8 @@ impl Instrumenter {
     ) {
         let mut statements = self.coverage_hooks(ctx);
         let expression_old = expression.take_in(ctx.ast.allocator);
+        let is_await =
+            matches!(expression_old, ast::Expression::AwaitExpression(_));
         let return_expression = ctx.ast.statement_return(
             SPAN,
             Some(ctx.ast.expression_parenthesized(SPAN, expression_old)),
@@ -260,13 +262,13 @@ impl Instrumenter {
         statements.push(return_expression);
         let function_body =
             ctx.ast.function_body(SPAN, ctx.ast.vec(), statements);
-        *expression = ctx.ast.expression_call(
+        let call =ctx.ast.expression_call(
             SPAN,
             ctx.ast.expression_parenthesized(SPAN,
                 ctx.ast.expression_arrow_function(
                     SPAN,
                     false,
-                    false,
+                    is_await,
                     None::<TSTypeParameterDeclaration<'b>>,
                     ctx.ast
                     .formal_parameters::<Option<Box<'b, FormalParameterRest<'b>>>>(
@@ -282,6 +284,11 @@ impl Instrumenter {
                 ctx.ast.vec(),
                 false,
                 );
+        *expression = if is_await {
+            ctx.ast.expression_await(SPAN, call)
+        } else {
+            call
+        };
     }
 }
 
@@ -430,6 +437,20 @@ mod tests {
                 return a ? (x = y, b) : (y = z, c);
             }
             console.log(example(true, 1, 2), x, y, z);
+        "#;
+
+        let code =
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
+        assert_snapshot!(code);
+    }
+
+    #[test]
+    fn test_instrument_source_code_ternary_await() {
+        let source_text = r#"
+            async function example(a) {
+                return a ? await bar() : await baz();
+            }
         "#;
 
         let code =
