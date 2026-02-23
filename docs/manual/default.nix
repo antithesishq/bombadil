@@ -78,7 +78,12 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p $out
-    cp -r target/* $out/
+    cp -r target/html/* $out/
+    rm -f $out/.built
+    cp target/bombadil-manual.pdf $out/
+    cp target/bombadil-manual.epub $out/
+    cp target/bombadil-manual.txt $out/
+    cp target/bombadil.1 $out/
     runHook postInstall
   '';
 }

@@ -121,11 +121,11 @@ main {
   align-items: center;
 }
 
-.index-cta {
+.index .index-cta {
   display: flex;
   gap: 1rem;
   justify-content: center;
-  margin-top: 2rem;
+  margin: 2rem 0 3rem;
 }
 
 .site-footer {
