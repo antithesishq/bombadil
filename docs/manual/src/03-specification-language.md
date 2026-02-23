@@ -191,8 +191,6 @@ In addition to exporting properties in a specification, you export action
 generators. A generator is an object with a `generate()` method. An action
 generator is such an object that generates values of type `Tree<Action>`.
 
-<!-- TODO: link to `Action` type when we have generated TypeScript reference -->
-
 Like with [default properties](#defaults), there are default actions provided
 by Bombadil. These will get you a long way, but there are times where you
 need to define your own action generators.
@@ -214,11 +212,58 @@ export const myAction = actions(() => {
 });
 ```
 
+In the returned array, each element is a value of the following `Action` type,
+provided by [the NPM package](#typescript-support):
+
+<!-- TODO: link to `Action` type when we have generated TypeScript reference rather than hard coding it here -->
+```typescript
+interface Point {
+  x: number;
+  y: number;
+}
+
+type Action =
+  | "Back"
+  | "Forward"
+  | "Reload"
+  | { Click: { name: string; content?: string; point: Point } }
+  | { TypeText: { text: string; delayMillis: number } }
+  | { PressKey: { code: number } }
+  | { ScrollUp: { origin: Point; distance: number } }
+  | { ScrollDown: { origin: Point; distance: number } };
+```
+
+Here's a generator for clicks in the center of a `canvas` element:
+
+```typescript
+const canvasCenter = extract((state) => {
+    const canvas = state.document.querySelector("#my-canvas");
+    if (!canvas) {
+        return null;
+    }
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+        return { 
+            x: rect.left + rect.width / 2, 
+            y: rect.top + rect.height / 2,
+        };
+    }
+    return null;
+});
+
+
+export const clickCanvas = actions(() => {
+    const point = canvasCenter.current;
+    return point ? [{ Click: { name: "canvas", point } }] : [];
+});
+```
+
 The actions you return must be possible to perform in the current state. Your
 action generators should therefore depend on [cells](#extractors) and validate
-your actions before returning them. As an example, the `back` action generator
-provided by Bombadil checks that there's a history entry to go back to, otherwise
-it returns `[]`.
+your actions before returning them, as done with `canvasCenter` in the previous
+example. Another example is the `back` action generator provided by Bombadil,
+which  checks that there's a history entry to go back to, otherwise returning
+`[]`.
 
 To give actions different weights, use the `weighted` combinator and wrap each
 subgenerator in an array with the weight as the first element:

@@ -7,10 +7,15 @@ function CodeBlock(el)
   end
 
   local lang = el.classes[1] or ''
+
+  if lang == '' then
+    return el
+  end
+
   local nav = '<nav class="code-navigation">'
-    .. '<button class="copy"><span class="icon">⧉</span>Copy</button>'
-    .. '<span class="name">' .. lang .. '</span>'
-    .. '</nav>'
+      .. '<button class="copy"><span class="icon">⧉</span>Copy</button>'
+      .. '<span class="name">' .. lang .. '</span>'
+      .. '</nav>'
 
   return {
     pandoc.RawBlock('html', '<div class="code-block">'),

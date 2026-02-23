@@ -61,7 +61,7 @@ code span.dv {
 .code-block .icon.copied {
   color: var(--color-green);
 }
-.code-block .sourceCode {
+.code-block pre {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
   border-top: none;
@@ -71,6 +71,6 @@ code span.dv {
 }
 
 details .code-block nav,
-details .code-block .sourceCode {
+details .code-block pre {
   background-color: var(--color-bg);
 }
