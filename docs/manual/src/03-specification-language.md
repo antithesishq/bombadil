@@ -4,6 +4,14 @@ To extend Bombadil with domain-specific knowledge, you write specifications.
 These are plain TypeScript or JavaScript modules using the library provided by
 Bombadil, exporting *properties* and *action generators*.
 
+Here's how you run Bombadil with a custom specification:
+
+```bash
+bombadil test https://example.com example.ts
+```
+
+For a full listing of CLI options, see [the reference](#cli).
+
 ## Structure
 
 A specification is a regular ES module. The following examples use TypeScript,
