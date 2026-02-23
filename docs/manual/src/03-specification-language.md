@@ -11,7 +11,7 @@ but you may also write them in JavaScript.
 
 
 ::: {.callout .callout-note}
-If you do use TypeScript, you'll want to install the types from [@antithesishq/bombadil](2-getting-started.html#typescript-support).
+If you do use TypeScript, you'll want to install the types from [@antithesishq/bombadil](#typescript-support).
 :::
 
 Both properties and action generators are exposed to Bombadil as exports:

@@ -35,8 +35,8 @@ Bombadil checks each property as it explores your system in its chaotic ways,
 reporting back any violations.
 
 To test a web application using Bombadil, you write a specification in
-TypeScript that exports [properties](3-specification-language.html#properties)
-and [action generators](3-specification-language.html#actions). It doesn't
+TypeScript that exports [properties](#properties)
+and [action generators](#actions). It doesn't
 matter how the application is built --- if it's a single-page app, server-side
 rendered, or even static HTML --- Bombadil tests anything that uses the DOM.
 
