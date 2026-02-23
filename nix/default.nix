@@ -10,6 +10,7 @@
   makeFontsConf,
   craneLib,
   craneLibStatic,
+  cargoTarget ? "x86_64-unknown-linux-musl",
   darwin ? null,
 }:
 let
@@ -68,7 +69,7 @@ in
     }
     // lib.optionalAttrs stdenv.isLinux {
       cargoArtifacts = cargoArtifactsStatic;
-      CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+      CARGO_BUILD_TARGET = cargoTarget;
       CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     }
     // lib.optionalAttrs stdenv.isDarwin {
