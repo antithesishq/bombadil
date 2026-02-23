@@ -29,7 +29,8 @@ export properties and action generators.
 ## Defaults
 
 Bombadil comes with a set of default properties and action generators that work
-for most web applications. You'll probably want to reexport these:
+for most web applications. You'll probably want to reexport all or at least
+most of these:
 
 ```typescript
 export * from "@antithesishq/bombadil/defaults";
@@ -48,6 +49,11 @@ export {
     reload,
 } from "@antithesishq/bombadil/defaults/actions";
 ```
+
+The defaults include properties checking for uncaught exceptions, unhandled
+promise rejections, error logs, HTTP 4xx and 5xx responses, and more. On the
+actions side, there are generators for general navigation and interaction with
+semantic HTML elements.
 
 You may freely combine defaults with your own properties and action generators.
 
