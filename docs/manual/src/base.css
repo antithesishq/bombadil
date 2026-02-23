@@ -14,6 +14,7 @@
   outline: 2px solid;
   border-radius: .var(--border-radius);
   outline-color: var(--color-secondary);
+  z-index: 1;
 }
 
 html {

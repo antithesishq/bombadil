@@ -18,21 +18,21 @@ executable for your platform:
 Download the `bombadil` binary using `curl` (or `wget`) and make it executable:
 
 ```bash
-$ curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-aarch64-darwin
-$ chmod +x bombadil
+curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-aarch64-darwin
+chmod +x bombadil
 ```
 
 Put the binary somewhere on your `PATH`, like in `~/.local/bin` if that is
 configured.
 
 ```bash
-$ mv ./bombadil ~/.local/bin/bombadil
+mv ./bombadil ~/.local/bin/bombadil
 ```
 
 You should now be able to run it:
 
 ```bash
-$ bombadil --version
+bombadil --version
 ```
 
 ::: {.callout .callout-warning}
@@ -46,8 +46,8 @@ Do not download the executable with your web browser. It will be blocked by Gate
 Download the `bombadil` binary and make it executable:
 
 ```bash
-$ curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-x86_64-linux
-$ chmod +x bombadil
+curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-x86_64-linux
+chmod +x bombadil
 ```
 
 
@@ -55,13 +55,13 @@ Put the binary somewhere on your `PATH`, like in `~/.local/bin` if that is
 configured.
 
 ```bash
-$ mv ./bombadil ~/.local/bin/bombadil
+mv ./bombadil ~/.local/bin/bombadil
 ```
 
 You should now be able to run it:
 
 ```bash
-$ bombadil --version
+bombadil --version
 ```
 
 </details>
@@ -69,7 +69,7 @@ $ bombadil --version
 <summary>Nix (flake)</summary>
 
 ```bash
-$ nix run github:antithesishq/bombadil
+nix run github:antithesishq/bombadil
 ```
 
 </details>
@@ -94,19 +94,19 @@ with your package manager of choice:
 <details name="typescript">
 <summary>npm</summary>
 ```bash
-$ npm install --save-dev @antithesishq/bombadil
+npm install --save-dev @antithesishq/bombadil
 ```
 </details>
 <details name="typescript">
 <summary>Yarn</summary>
 ```bash
-$ yarn add --dev @antithesishq/bombadil
+yarn add --dev @antithesishq/bombadil
 ```
 </details>
 <details name="typescript">
 <summary>Bun</summary>
 ```bash
-$ bun add --development @antithesishq/bombadil
+bun add --development @antithesishq/bombadil
 ```
 </details>
 </div>
@@ -119,7 +119,7 @@ release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 With the CLI installed, let's run a test just to see that things are working:
 
 ```bash
-$ bombadil test https://en.wikipedia.org --output-path my-test
+bombadil test https://en.wikipedia.org --output-path my-test
 ```
 
 This will run until you shut it down using <kbd>CTRL</kbd>+<kbd>C</kbd>. Any
@@ -129,7 +129,7 @@ option you get a JSONL file to inspect afterwards.
 Find the URLs with violations (assuming you have `jq` installed):
 
 ```bash
-$ jq -r 'select(.violations != []) | .url' my-test/trace.jsonl
+jq -r 'select(.violations != []) | .url' my-test/trace.jsonl
 ```
 
 Nothing? That's fine, Wikipedia is pretty solid! This confirms that

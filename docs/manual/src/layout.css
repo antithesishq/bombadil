@@ -145,6 +145,9 @@ main {
   padding: 0;
   margin: 0;
 }
+.site-footer nav ul li {
+  margin: 0;
+}
 .site-footer nav a {
   display: inline-flex;
   align-items: center;

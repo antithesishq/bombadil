@@ -21,7 +21,7 @@ PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=2 -Vtoc-title="The Bombad
 	--highlight-style=monochrome \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
-	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
+	--lua-filter=$(SRC_DIR)/code-nav.lua \
 	--lua-filter=$(SRC_DIR)/table-nowrap.lua \
 	--template=$(SRC_DIR)/template.html -M version=$(VERSION)
 PANDOC_EPUB_OPTS := --toc --toc-depth=3 \
@@ -29,13 +29,11 @@ PANDOC_EPUB_OPTS := --toc --toc-depth=3 \
 	--highlight-style=monochrome \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
-	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
 	--lua-filter=$(SRC_DIR)/table-nowrap.lua -M version=$(VERSION)
 PANDOC_PDF_OPTS := --toc --toc-depth=3 \
 	--pdf-engine=lualatex --resource-path=$(SRC_DIR) \
 	--lua-filter=$(SRC_DIR)/replace.lua \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
-	--lua-filter=$(SRC_DIR)/bash-prompt.lua \
 	--lua-filter=$(SRC_DIR)/table-nowrap.lua \
 	--listings \
 	-V mainfont="IBM Plex Sans Condensed" \
@@ -65,7 +63,7 @@ $(TARGET_DIR):
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
+$(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua $(wildcard $(SRC_DIR)/*.css) $(wildcard $(SRC_DIR)/*.js) | $(TARGET_DIR)
 	rm -rf $(HTML_DIR)
 	$(PANDOC) $(SOURCES) --output $(HTML_DIR)/ $(PANDOC_HTML_OPTS)
 	esbuild $(SRC_DIR)/index.css --bundle --outfile=$(HTML_DIR)/style.css
@@ -73,10 +71,10 @@ $(HTML_DIR)/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/replace.lua $
 	cp $(SRC_DIR)/*.js $(HTML_DIR)/
 	touch $(HTML_DIR)/.built
 
-$(EPUB_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
+$(EPUB_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(EPUB_FILE) $(PANDOC_EPUB_OPTS)
 
-$(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/bash-prompt.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
+$(PDF_FILE): $(SOURCES) $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) -o $(PDF_FILE) $(PANDOC_PDF_OPTS)
 
 $(TXT_FILE): $(SOURCES) | $(TARGET_DIR)

@@ -26,32 +26,51 @@ code span.dv {
 }
 
 /* Bash prompt styling */
-.bash .prompt {
+.bash .ex:first-child {
   user-select: none;
   color: var(--color-fg-muted);
 }
-.bash {
+
+
+.code-block nav {
+  display: flex;
+  justify-content: flex-end;
+  border: 1px solid var(--color-border);
+  border-top-left-radius: var(--border-radius);
+  border-top-right-radius: var(--border-radius);
+  background-color: var(--color-bg-muted);
+}
+.code-block nav > * {
+  border: none;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+  padding: 0.25rem 0.75rem;
+  font-size: .875em;
+  font-family: var(--font-family-headings);
+  text-transform: uppercase;
+}
+.code-block nav > button:hover {
+  background: color-mix(in hsl, var(--color-primary) 20%, transparent);
 }
 
-pre {
-  position: relative;
+.code-block .icon {
+  margin-right: 1ch;
+  width: 2ch;
 }
-pre:after {
-  content: "";
-  position: absolute;
-  display: block;
-  top: 0;
-  right: 0;
-  padding: .5rem;
-  line-height: 1;
-  font-size: .875em;
+.code-block .icon.copied {
+  color: var(--color-green);
+}
+.code-block .sourceCode {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top: none;
+}
+.code-block .name {
   color: var(--color-fg-muted);
 }
-pre.typescript:after {
-  content: "TS";
-  font-family: var(--font-family-headings);
-}
-pre.bash:after {
-  content: "BASH";
-  font-family: var(--font-family-headings);
+
+details .code-block nav,
+details .code-block .sourceCode {
+  background-color: var(--color-bg);
 }
