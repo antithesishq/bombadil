@@ -36,7 +36,7 @@ reporting back any violations.
 
 To test a web application using Bombadil, you write a specification in
 TypeScript that exports [properties](#properties) and [action
-generators](#actions). These can be domain-specific --- to exercise and
+generators](#action-generators). These can be domain-specific --- to exercise and
 validate your system's logic in custom ways --- or be imported from the
 [defaults](#default-properties-and-action-generators) provided by Bombadil. It
 doesn't matter how the application is built --- if it's a single-page app,

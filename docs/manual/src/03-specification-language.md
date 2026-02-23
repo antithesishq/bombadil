@@ -67,6 +67,9 @@ You may freely combine defaults with your own properties and action generators.
 
 ## Language features
 
+The specification language of Bombadil, embedded in TypeScript or JavaScript,
+has a small set of central concepts. This section describes them in detail.
+
 ### Properties
 
 A property is a description of how the system under test should behave *in
@@ -202,7 +205,7 @@ You can build more advanced formulas, even with nested temporal operators, but
 the basics are often powerful enough. See the [examples](#examples) at the bottom for more
 inspiration.
 
-### Actions
+### Action generators
 
 In addition to exporting properties in a specification, you export action
 generators. A generator is an object with a `generate()` method. An action
@@ -218,8 +221,8 @@ tree. Why a tree, though? It's because the branches are *weighted* --- by defaul
 they're equally weighted, but you can override this to control the probability of
 an action being picked.
 
-To define a custom action, you use the `actions` function, which takes a thunk
-that returns an array of actions:
+To define a custom action generator, you use the `actions` function, which
+takes a thunk that returns an array of actions:
 
 ```typescript
 export const myAction = actions(() => {
