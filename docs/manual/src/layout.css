@@ -213,8 +213,13 @@ main {
   .content {
     padding: 2rem 1rem 1rem;
   }
-  .page-nav, .site-footer {
-    padding: 0 1rem 1rem;
+  .page-nav {
+
+    padding: 0 1rem 2rem;
+  }
+
+  .site-footer {
+    padding: .75rem 1rem;
   }
   .page-nav {
     gap: 1rem;
