@@ -246,6 +246,134 @@ impl Instrumenter {
         }
     }
 
+    /// Recursively checks if an expression contains any await expressions
+    fn contains_await(expression: &Expression) -> bool {
+        match expression {
+            Expression::AwaitExpression(_) => true,
+            Expression::BinaryExpression(e) => {
+                Self::contains_await(&e.left) || Self::contains_await(&e.right)
+            }
+            Expression::UnaryExpression(e) => Self::contains_await(&e.argument),
+            Expression::AssignmentExpression(e) => {
+                Self::contains_await(&e.right)
+            }
+            Expression::ConditionalExpression(e) => {
+                Self::contains_await(&e.test)
+                    || Self::contains_await(&e.consequent)
+                    || Self::contains_await(&e.alternate)
+            }
+            Expression::CallExpression(e) => {
+                Self::contains_await(&e.callee)
+                    || e.arguments.iter().any(|arg| {
+                        arg.as_expression()
+                            .map(Self::contains_await)
+                            .unwrap_or(false)
+                    })
+            }
+            Expression::ComputedMemberExpression(e) => {
+                Self::contains_await(&e.object)
+                    || Self::contains_await(&e.expression)
+            }
+            Expression::StaticMemberExpression(e) => {
+                Self::contains_await(&e.object)
+            }
+            Expression::PrivateFieldExpression(e) => {
+                Self::contains_await(&e.object)
+            }
+            Expression::SequenceExpression(e) => {
+                e.expressions.iter().any(Self::contains_await)
+            }
+            Expression::ParenthesizedExpression(e) => {
+                Self::contains_await(&e.expression)
+            }
+            Expression::ArrayExpression(e) => e.elements.iter().any(|elem| {
+                elem.as_expression()
+                    .map(Self::contains_await)
+                    .unwrap_or(false)
+            }),
+            Expression::ObjectExpression(e) => {
+                e.properties.iter().any(|prop| match prop {
+                    ast::ObjectPropertyKind::ObjectProperty(p) => {
+                        Self::contains_await(&p.value)
+                    }
+                    ast::ObjectPropertyKind::SpreadProperty(p) => {
+                        Self::contains_await(&p.argument)
+                    }
+                })
+            }
+            Expression::LogicalExpression(e) => {
+                Self::contains_await(&e.left) || Self::contains_await(&e.right)
+            }
+            Expression::NewExpression(e) => {
+                Self::contains_await(&e.callee)
+                    || e.arguments.iter().any(|arg| {
+                        arg.as_expression()
+                            .map(Self::contains_await)
+                            .unwrap_or(false)
+                    })
+            }
+            Expression::TaggedTemplateExpression(e) => {
+                Self::contains_await(&e.tag)
+            }
+            Expression::ChainExpression(e) => {
+                Self::contains_await_in_chain_element(&e.expression)
+            }
+            // Terminal expressions that can't contain await
+            Expression::Identifier(_)
+            | Expression::NumericLiteral(_)
+            | Expression::StringLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_)
+            | Expression::BigIntLiteral(_)
+            | Expression::RegExpLiteral(_)
+            | Expression::ThisExpression(_)
+            | Expression::Super(_)
+            | Expression::MetaProperty(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ClassExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::YieldExpression(_)
+            | Expression::UpdateExpression(_)
+            | Expression::ImportExpression(_)
+            | Expression::PrivateInExpression(_)
+            | Expression::JSXElement(_)
+            | Expression::JSXFragment(_)
+            | Expression::TSAsExpression(_)
+            | Expression::TSSatisfiesExpression(_)
+            | Expression::TSTypeAssertion(_)
+            | Expression::TSNonNullExpression(_)
+            | Expression::TSInstantiationExpression(_)
+            | Expression::V8IntrinsicExpression(_) => false,
+        }
+    }
+
+    fn contains_await_in_chain_element(element: &ast::ChainElement) -> bool {
+        match element {
+            ast::ChainElement::CallExpression(e) => {
+                Self::contains_await(&e.callee)
+                    || e.arguments.iter().any(|arg| {
+                        arg.as_expression()
+                            .map(Self::contains_await)
+                            .unwrap_or(false)
+                    })
+            }
+            ast::ChainElement::ComputedMemberExpression(e) => {
+                Self::contains_await(&e.object)
+                    || Self::contains_await(&e.expression)
+            }
+            ast::ChainElement::StaticMemberExpression(e) => {
+                Self::contains_await(&e.object)
+            }
+            ast::ChainElement::PrivateFieldExpression(e) => {
+                Self::contains_await(&e.object)
+            }
+            ast::ChainElement::TSNonNullExpression(e) => {
+                Self::contains_await(&e.expression)
+            }
+        }
+    }
+
     fn wrap_iife_coverage_hook<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
@@ -253,8 +381,7 @@ impl Instrumenter {
     ) {
         let mut statements = self.coverage_hooks(ctx);
         let expression_old = expression.take_in(ctx.ast.allocator);
-        let is_await =
-            matches!(expression_old, ast::Expression::AwaitExpression(_));
+        let is_await = Self::contains_await(&expression_old);
         let return_expression = ctx.ast.statement_return(
             SPAN,
             Some(ctx.ast.expression_parenthesized(SPAN, expression_old)),
@@ -480,6 +607,20 @@ mod tests {
                 }
             }
             "#;
+
+        let code =
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
+        assert_snapshot!(code);
+    }
+
+    #[test]
+    fn test_instrument_source_code_ternary_assignment_with_await() {
+        let source_text = r#"
+            async function test() {
+                return f(x) ? y = await z.instantiator(t) : f(y);
+            }
+        "#;
 
         let code =
             instrument_source_code(SourceId(0), source_text, SourceType::cjs())
