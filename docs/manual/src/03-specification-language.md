@@ -49,7 +49,7 @@ export {
 } from "@antithesishq/bombadil/defaults/actions";
 ```
 
-You may freely combine defaults with your own properties and actions.
+You may freely combine defaults with your own properties and action generators.
 
 ## Properties
 
@@ -58,8 +58,8 @@ general*. This is different from example-based testing (Playwright, Cypress)
 where you describe how it behaves for *particular* cases.
 
 The most intuitive kind of property, which you might have come across before,
-is an *invariant*. In Bombadil, invariants are expressed using the `always`
-temporal operator:
+is an *invariant*: a condition that should always be true. In Bombadil,
+invariants are expressed using the `always` temporal operator:
 
 ```typescript
 always( 
@@ -176,8 +176,8 @@ eventually hidden again:
 const buttonPressed = extract(() => ...);
 const spinnerVisible = extract(() => ...);
 
-now(() => buttonPressed).implies(
-    now(() => spinnerVisible).and(eventually(() => !spinnerVisible))
+now(() => buttonPressed.current).implies(
+    now(() => spinnerVisible.current).and(eventually(() => !spinnerVisible.current))
 )
 ```
 
