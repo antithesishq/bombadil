@@ -226,9 +226,9 @@ takes a thunk that returns an array of actions:
 
 ```typescript
 export const myAction = actions(() => {
-  return [
-    ...
-  ];
+    return [
+        ...
+    ];
 });
 ```
 
@@ -238,19 +238,19 @@ provided by [the NPM package](#typescript-support):
 <!-- TODO: link to `Action` type when we have generated TypeScript reference rather than hard coding it here -->
 ```typescript
 interface Point {
-  x: number;
-  y: number;
+    x: number;
+    y: number;
 }
 
 type Action =
-  | "Back"
-  | "Forward"
-  | "Reload"
-  | { Click: { name: string; content?: string; point: Point } }
-  | { TypeText: { text: string; delayMillis: number } }
-  | { PressKey: { code: number } }
-  | { ScrollUp: { origin: Point; distance: number } }
-  | { ScrollDown: { origin: Point; distance: number } };
+    | "Back"
+    | "Forward"
+    | "Reload"
+    | { Click: { name: string; content?: string; point: Point } }
+    | { TypeText: { text: string; delayMillis: number } }
+    | { PressKey: { code: number } }
+    | { ScrollUp: { origin: Point; distance: number } }
+    | { ScrollDown: { origin: Point; distance: number } };
 ```
 
 Here's a generator for clicks in the center of a `canvas` element:
@@ -290,17 +290,17 @@ subgenerator in an array with the weight as the first element:
 
 ```typescript
 export const navigation = weighted([
-  [10, back],
-  [1, forward],
-  [1, reload],
+    [10, back],
+    [1, forward],
+    [1, reload],
 ]);
 ```
 
 ## Examples
 
-These are examples of shapes of properties and action generators you might need
-in your own testing with Bombadil. Think of them as design patterns for
-properties.
+These are full, runnable examples of properties and action generators you might
+need in your own testing with Bombadil. Think of them as design patterns for
+properties. Each example is a self-contained specification file.
 
 ### Invariant: max notification count
 
@@ -308,12 +308,15 @@ This is a simple one checking that there are never more than five notifications
 shown.
 
 ```typescript
-const notification_count = extract(
-  (state) => state.document.body.querySelectorAll(".notification").length,
+import { extract, always } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
+const notification_count = extract((state) => 
+    state.document.body.querySelectorAll(".notification").length,
 );
 
-export const max_notifications_shown = always(
-  () => notification_count.current <= 5,
+export const max_notifications_shown = always(() =>
+    notification_count.current <= 5,
 );
 ```
 
@@ -325,11 +328,18 @@ evaluates `time.current` in the outer thunk, and then uses that
 time value to look up older values.
 
 ```typescript
-export const constant_notification_count = now(() => {
-  const start = time.current;
-  return always(
-    () => notification_count.current === notification_count.at(start),
-  );
+import { extract, always, now, time } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
+const notification_count = extract((state) =>
+    state.document.body.querySelectorAll(".notification").length,
+);
+
+export const constantNotificationCount = now(() => {
+    const start = time.current;
+    return always(() => 
+        notification_count.current === notification_count.at(start),
+    );
 });
 ```
 
@@ -340,14 +350,18 @@ some time bound. Here is a property that checks that error messages disappear
 within five seconds.
 
 ```typescript
-const errorMessage = extract(
-  (state) => state.document.body.querySelector(".error")?.textContent ?? null,
+import { extract, always, now, eventually } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
+const errorMessage = extract((state) => 
+    state.document.body.querySelector(".error")?.textContent ?? null,
 );
 
 export const errorDisappears = always(
-  now(() => errorMessage !== null).implies(
-    eventually(() => errorMessage === null).within(5, "seconds"),
-  ),
+    now(() => errorMessage.current !== null).implies(
+        eventually(() => errorMessage.current === null)
+            .within(5, "seconds"),
+    ),
 );
 ```
 
@@ -360,29 +374,34 @@ it is submitted, then eventually there will be a notification that includes the
 name.
 
 ```typescript
+import { extract, always, now, next, eventually } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
 const name = extract((state) => {
-  const element = state.document.body.querySelector("#name-field");
-  return (element as HTMLInputElement | null)?.value ?? null;
+    const element = 
+        state.document.body.querySelector("#name-field");
+    return (element as HTMLInputElement | null)?.value ?? null;
 });
 
-const submitInProgress = extract(
-  (state) => state.document.body.querySelector("submit.progress") !== null,
+const submitInProgress = extract((state) => 
+    state.document.body.querySelector("submit.progress")
+        !== null,
 );
 
-const notificationText = extract(
-  (state) =>
-    state.document.body.querySelector(".notification")?.textContent ?? null,
+const notificationText = extract((state) =>
+    state.document.body.querySelector(".notification")?.textContent 
+        ?? null,
 );
 
 export const notificationIncludesMessage = always(() => {
-  const nameEntered = name.current?.trim() ?? "";
+    const nameEntered = name.current?.trim() ?? "";
 
-  return now(() => nameEntered !== "")
-      .and(next(() => submitInProgress.current))
-      .implies(eventually(
-          () => notificationText?.current?.includes(nameEntered) ?? false,
-      ).within(5, "seconds"));
-  }
+    return now(() => nameEntered !== "")
+        .and(next(() => submitInProgress.current))
+        .implies(eventually(() => 
+            notificationText.current?.includes(nameEntered) 
+                ?? false,
+        ).within(5, "seconds"));
 });
 ```
 
@@ -393,27 +412,31 @@ only transitions by staying the same, incrementing by 1, or decrementing by 1
 (no invalid jumps allowed).
 
 ```typescript
+import { extract, always, now, next } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
 const counterValue = extract((state) => {
-  const element = state.document.body.querySelector("#counter");
-  return parseInt(element?.textContent ?? "0", 10);
+    const element = state.document.body.querySelector("#counter");
+    return parseInt(element?.textContent ?? "0", 10);
 });
 
 const unchanged = now(() => {
-  const current = counterValue.current;
-  return next(() => counterValue.current === current);
+    const current = counterValue.current;
+    return next(() => counterValue.current === current);
 });
 
 const increment = now(() => {
-  const current = counterValue.current;
-  return next(() => counterValue.current === current + 1);
+    const current = counterValue.current;
+    return next(() => counterValue.current === current + 1);
 });
 
 const decrement = now(() => {
-  const current = counterValue.current;
-  return next(() => counterValue.current === current - 1);
+    const current = counterValue.current;
+    return next(() => counterValue.current === current - 1);
 });
 
-export const counterStateMachine = always(unchanged.or(increment).or(decrement));
+export const counterStateMachine = 
+    always(unchanged.or(increment).or(decrement));
 ```
 
 If this specification exports the `reload` action, the `unchanged` property
