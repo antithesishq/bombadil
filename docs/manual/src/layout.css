@@ -32,7 +32,11 @@ nav#TOC ul {
 }
 
 nav#TOC ul ul {
+  list-style: square;
   padding-left: 1rem;
+}
+nav#TOC ul ul ul {
+  list-style: circle;
 }
 nav#TOC > ul > li > ul {
   margin-bottom: 1rem;

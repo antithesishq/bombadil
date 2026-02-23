@@ -34,7 +34,7 @@ You may split up your specification into multiple modules and structure it the
 way you like, but the top-level specification you give to Bombadil must only
 export properties and action generators. 
 
-## Defaults
+## Default properties and action generators
 
 Bombadil comes with a set of default properties and action generators that work
 for most web applications. You'll probably want to reexport all or at least
@@ -65,7 +65,9 @@ semantic HTML elements.
 
 You may freely combine defaults with your own properties and action generators.
 
-## Properties
+## Language features
+
+### Properties
 
 A property is a description of how the system under test should behave *in
 general*. This is different from example-based testing (Playwright, Cypress)
@@ -91,11 +93,12 @@ export const pageHasTitle = always(
 );
 ```
 
-You may export multiple properties, including the [defaults](#defaults), and
-they'll all be checked independently. But how do you "check that there's a page
-title somehow"? You need access to the browser, and for that, you use *extractors*.
+You may export multiple properties, including the
+[defaults](#default-properties-and-action-generators), and they'll all be
+checked independently. But how do you "check that there's a page title
+somehow"? You need access to the browser, and for that, you use *extractors*.
 
-## Extractors
+### Extractors
 
 In order to describe a condition about the web page you're testing, you first
 need to extract state. This is done with the `extract` function, which runs
@@ -141,7 +144,7 @@ Two things to note about this example:
 This is a custom property using the *temporal* operator called `always`.
 There are other temporal operators, described in [Formulas](#formulas).
 
-## Formulas
+### Formulas
 
 Formulas and temporal operators may sound scary, but fear not --- they are
 essentially ways of expressing "conditions over time". Here are some quick
@@ -199,15 +202,15 @@ You can build more advanced formulas, even with nested temporal operators, but
 the basics are often powerful enough. See the [examples](#examples) at the bottom for more
 inspiration.
 
-## Actions
+### Actions
 
 In addition to exporting properties in a specification, you export action
 generators. A generator is an object with a `generate()` method. An action
 generator is such an object that generates values of type `Tree<Action>`.
 
-Like with [default properties](#defaults), there are default actions provided
-by Bombadil. These will get you a long way, but there are times where you
-need to define your own action generators.
+Like with [default properties](#default-properties-and-action-generators),
+there are default actions provided by Bombadil. These will get you a long way,
+but there are times where you need to define your own action generators.
 
 For every state that Bombadil captures, all action generators are run, contributing
 to a tree structure of *possible* actions. Bombadil then randomly picks one in that
