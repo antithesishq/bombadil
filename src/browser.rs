@@ -776,6 +776,20 @@ async fn process_event(
             }
         }
         (
+            state @ InnerState {
+                kind: Loading | Navigating,
+                ..
+            },
+            InnerEvent::ActionAccepted(action, _),
+        ) => {
+            log::debug!(
+                "ignoring action {:?} received during {:?}",
+                action,
+                state.kind
+            );
+            state
+        }
+        (
             InnerState {
                 kind: Pausing,
                 shared,
