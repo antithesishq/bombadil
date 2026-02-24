@@ -61,30 +61,3 @@ jobs:
         with:
           name: bombadil-manual.zip
           path: result/
-
-  # TEMPORARY: Deploy manual to GitHub Pages for preview
-  # DELETE THIS JOB BEFORE MERGING
-  deploy-manual:
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    name: Deploy Manual to GitHub Pages
-    runs-on: ubuntu-latest
-    needs: manual
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Download manual artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: bombadil-manual.zip
-          path: manual
-      - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: manual
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
