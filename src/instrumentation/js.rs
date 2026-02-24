@@ -5,14 +5,12 @@ use std::hash::{Hash, Hasher};
 use const_format::{formatcp, str_replace};
 use oxc::allocator;
 use oxc::ast::ast::{
-    AssignmentOperator, AssignmentTarget, Expression, FormalParameterRest,
-    Statement, TSTypeAnnotation, TSTypeParameterDeclaration,
-    TSTypeParameterInstantiation,
+    AssignmentOperator, AssignmentTarget, Expression, Statement,
 };
 use oxc::codegen::Codegen;
 use oxc::semantic::SemanticBuilder;
 use oxc::{
-    allocator::{Allocator, Box, CloneIn, TakeIn},
+    allocator::{Allocator, CloneIn, TakeIn},
     ast::ast::{self},
     parser::Parser,
     span::{SPAN, SourceType},
@@ -129,7 +127,7 @@ impl Instrumenter {
     fn coverage_hooks<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
-    ) -> allocator::Vec<'b, Statement<'b>> {
+    ) -> allocator::Vec<'b, Expression<'b>> {
         let antithesis_member = |name: &'static str| -> Expression {
             ctx.ast
                 .member_expression_static(
@@ -170,51 +168,45 @@ impl Instrumenter {
             ),
         );
 
-        let edge_addition: Statement = ctx.ast.statement_expression(
+        let edge_addition = ctx.ast.expression_assignment(
             SPAN,
-            ctx.ast.expression_assignment(
-                SPAN,
-                AssignmentOperator::Addition,
-                AssignmentTarget::ComputedMemberExpression(
-                    ctx.ast.alloc_computed_member_expression(
-                        SPAN,
-                        antithesis_member(EDGES_CURRENT),
-                        edge_index,
-                        false,
-                    ),
+            AssignmentOperator::Addition,
+            AssignmentTarget::ComputedMemberExpression(
+                ctx.ast.alloc_computed_member_expression(
+                    SPAN,
+                    antithesis_member(EDGES_CURRENT),
+                    edge_index,
+                    false,
                 ),
+            ),
+            ctx.ast.expression_numeric_literal(
+                SPAN,
+                1.0,
+                None,
+                ast::NumberBase::Decimal,
+            ),
+        );
+
+        let location_previous_update = ctx.ast.expression_assignment(
+            SPAN,
+            AssignmentOperator::Assign,
+            AssignmentTarget::StaticMemberExpression(
+                ctx.ast.alloc_static_member_expression(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, NAMESPACE),
+                    ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
+                    false,
+                ),
+            ),
+            ctx.ast.expression_binary(
+                SPAN,
+                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+                ast::BinaryOperator::ShiftRight,
                 ctx.ast.expression_numeric_literal(
                     SPAN,
                     1.0,
                     None,
                     ast::NumberBase::Decimal,
-                ),
-            ),
-        );
-
-        let location_previous_update = ctx.ast.statement_expression(
-            SPAN,
-            ctx.ast.expression_assignment(
-                SPAN,
-                AssignmentOperator::Assign,
-                AssignmentTarget::StaticMemberExpression(
-                    ctx.ast.alloc_static_member_expression(
-                        SPAN,
-                        ctx.ast.expression_identifier(SPAN, NAMESPACE),
-                        ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
-                        false,
-                    ),
-                ),
-                ctx.ast.expression_binary(
-                    SPAN,
-                    branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
-                    ast::BinaryOperator::ShiftRight,
-                    ctx.ast.expression_numeric_literal(
-                        SPAN,
-                        1.0,
-                        None,
-                        ast::NumberBase::Decimal,
-                    ),
                 ),
             ),
         );
@@ -237,7 +229,12 @@ impl Instrumenter {
         ctx: &mut TraverseCtx<'b, ()>,
         statement: &'_ mut Statement<'b>,
     ) {
-        let mut statements = self.coverage_hooks(ctx);
+        let hook_expressions = self.coverage_hooks(ctx);
+        let mut statements =
+            ctx.ast.vec_with_capacity(hook_expressions.len() + 1);
+        for expression in hook_expressions {
+            statements.push(ctx.ast.statement_expression(SPAN, expression));
+        }
         if let Statement::BlockStatement(block_statement) = statement {
             block_statement.body.splice(0..0, statements);
         } else {
@@ -246,176 +243,17 @@ impl Instrumenter {
         }
     }
 
-    /// Recursively checks if an expression contains any await expressions
-    fn contains_await(expression: &Expression) -> bool {
-        match expression {
-            Expression::AwaitExpression(_) => true,
-            Expression::BinaryExpression(e) => {
-                Self::contains_await(&e.left) || Self::contains_await(&e.right)
-            }
-            Expression::UnaryExpression(e) => Self::contains_await(&e.argument),
-            Expression::AssignmentExpression(e) => {
-                Self::contains_await(&e.right)
-            }
-            Expression::ConditionalExpression(e) => {
-                Self::contains_await(&e.test)
-                    || Self::contains_await(&e.consequent)
-                    || Self::contains_await(&e.alternate)
-            }
-            Expression::CallExpression(e) => {
-                Self::contains_await(&e.callee)
-                    || e.arguments.iter().any(|arg| {
-                        arg.as_expression()
-                            .map(Self::contains_await)
-                            .unwrap_or(false)
-                    })
-            }
-            Expression::ComputedMemberExpression(e) => {
-                Self::contains_await(&e.object)
-                    || Self::contains_await(&e.expression)
-            }
-            Expression::StaticMemberExpression(e) => {
-                Self::contains_await(&e.object)
-            }
-            Expression::PrivateFieldExpression(e) => {
-                Self::contains_await(&e.object)
-            }
-            Expression::SequenceExpression(e) => {
-                e.expressions.iter().any(Self::contains_await)
-            }
-            Expression::ParenthesizedExpression(e) => {
-                Self::contains_await(&e.expression)
-            }
-            Expression::ArrayExpression(e) => e.elements.iter().any(|elem| {
-                elem.as_expression()
-                    .map(Self::contains_await)
-                    .unwrap_or(false)
-            }),
-            Expression::ObjectExpression(e) => {
-                e.properties.iter().any(|prop| match prop {
-                    ast::ObjectPropertyKind::ObjectProperty(p) => {
-                        Self::contains_await(&p.value)
-                    }
-                    ast::ObjectPropertyKind::SpreadProperty(p) => {
-                        Self::contains_await(&p.argument)
-                    }
-                })
-            }
-            Expression::LogicalExpression(e) => {
-                Self::contains_await(&e.left) || Self::contains_await(&e.right)
-            }
-            Expression::NewExpression(e) => {
-                Self::contains_await(&e.callee)
-                    || e.arguments.iter().any(|arg| {
-                        arg.as_expression()
-                            .map(Self::contains_await)
-                            .unwrap_or(false)
-                    })
-            }
-            Expression::TaggedTemplateExpression(e) => {
-                Self::contains_await(&e.tag)
-            }
-            Expression::ChainExpression(e) => {
-                Self::contains_await_in_chain_element(&e.expression)
-            }
-            // Terminal expressions that can't contain await
-            Expression::Identifier(_)
-            | Expression::NumericLiteral(_)
-            | Expression::StringLiteral(_)
-            | Expression::BooleanLiteral(_)
-            | Expression::NullLiteral(_)
-            | Expression::BigIntLiteral(_)
-            | Expression::RegExpLiteral(_)
-            | Expression::ThisExpression(_)
-            | Expression::Super(_)
-            | Expression::MetaProperty(_)
-            | Expression::TemplateLiteral(_)
-            | Expression::FunctionExpression(_)
-            | Expression::ClassExpression(_)
-            | Expression::ArrowFunctionExpression(_)
-            | Expression::YieldExpression(_)
-            | Expression::UpdateExpression(_)
-            | Expression::ImportExpression(_)
-            | Expression::PrivateInExpression(_)
-            | Expression::JSXElement(_)
-            | Expression::JSXFragment(_)
-            | Expression::TSAsExpression(_)
-            | Expression::TSSatisfiesExpression(_)
-            | Expression::TSTypeAssertion(_)
-            | Expression::TSNonNullExpression(_)
-            | Expression::TSInstantiationExpression(_)
-            | Expression::V8IntrinsicExpression(_) => false,
-        }
-    }
-
-    fn contains_await_in_chain_element(element: &ast::ChainElement) -> bool {
-        match element {
-            ast::ChainElement::CallExpression(e) => {
-                Self::contains_await(&e.callee)
-                    || e.arguments.iter().any(|arg| {
-                        arg.as_expression()
-                            .map(Self::contains_await)
-                            .unwrap_or(false)
-                    })
-            }
-            ast::ChainElement::ComputedMemberExpression(e) => {
-                Self::contains_await(&e.object)
-                    || Self::contains_await(&e.expression)
-            }
-            ast::ChainElement::StaticMemberExpression(e) => {
-                Self::contains_await(&e.object)
-            }
-            ast::ChainElement::PrivateFieldExpression(e) => {
-                Self::contains_await(&e.object)
-            }
-            ast::ChainElement::TSNonNullExpression(e) => {
-                Self::contains_await(&e.expression)
-            }
-        }
-    }
-
-    fn wrap_iife_coverage_hook<'b>(
+    fn wrap_expression_with_coverage_hook<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
         expression: &'_ mut Expression<'b>,
     ) {
-        let mut statements = self.coverage_hooks(ctx);
+        let mut expressions = self.coverage_hooks(ctx);
+
         let expression_old = expression.take_in(ctx.ast.allocator);
-        let is_await = Self::contains_await(&expression_old);
-        let return_expression = ctx.ast.statement_return(
-            SPAN,
-            Some(ctx.ast.expression_parenthesized(SPAN, expression_old)),
-        );
-        statements.push(return_expression);
-        let function_body =
-            ctx.ast.function_body(SPAN, ctx.ast.vec(), statements);
-        let call =ctx.ast.expression_call(
-            SPAN,
-            ctx.ast.expression_parenthesized(SPAN,
-                ctx.ast.expression_arrow_function(
-                    SPAN,
-                    false,
-                    is_await,
-                    None::<TSTypeParameterDeclaration<'b>>,
-                    ctx.ast
-                    .formal_parameters::<Option<Box<'b, FormalParameterRest<'b>>>>(
-                        SPAN,
-                        ast::FormalParameterKind::ArrowFormalParameters,
-                        ctx.ast.vec(),
-                        None,
-                    ),
-                    None::<TSTypeAnnotation<'b>>,
-                    function_body,
-                )),
-                None::<TSTypeParameterInstantiation<'b>>,
-                ctx.ast.vec(),
-                false,
-                );
-        *expression = if is_await {
-            ctx.ast.expression_await(SPAN, call)
-        } else {
-            call
-        };
+        expressions.push(expression_old);
+
+        *expression = ctx.ast.expression_sequence(SPAN, expressions);
     }
 }
 
@@ -426,8 +264,11 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
         expression: &mut ast::ConditionalExpression<'a>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
-        self.wrap_iife_coverage_hook(ctx, &mut expression.consequent);
-        self.wrap_iife_coverage_hook(ctx, &mut expression.alternate);
+        self.wrap_expression_with_coverage_hook(
+            ctx,
+            &mut expression.consequent,
+        );
+        self.wrap_expression_with_coverage_hook(ctx, &mut expression.alternate);
     }
 
     /// Add coverage hooks to if statement branches.
@@ -476,7 +317,11 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
         node: &mut ast::SwitchCase<'a>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
-        let statements = self.coverage_hooks(ctx);
+        let expressions = self.coverage_hooks(ctx);
+        let mut statements = ctx.ast.vec_with_capacity(expressions.len() + 1);
+        for expression in expressions {
+            statements.push(ctx.ast.statement_expression(SPAN, expression));
+        }
         node.consequent.splice(0..0, statements);
     }
 }

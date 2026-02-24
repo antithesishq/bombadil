@@ -106,13 +106,39 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                 let body_instrumented = if event.resource_type
                     == network::ResourceType::Script
                 {
-                    instrumentation::js::instrument_source_code(
-                        source_id,
-                        &body,
-                        // As we can't know if the script is an ES module or a regular script,
-                        // we use this source type to let the parser decide.
-                        SourceType::unambiguous(),
-                    )?
+                    let instrumented =
+                        instrumentation::js::instrument_source_code(
+                            source_id,
+                            &body,
+                            // As we can't know if the script is an ES module or a regular script,
+                            // we use this source type to let the parser decide.
+                            SourceType::unambiguous(),
+                        )?;
+
+                    // Write to /tmp/ for debugging
+                    if let Some(filename) =
+                        event.request.url.split('/').next_back()
+                    {
+                        let safe_filename =
+                            filename.replace(['?', '#', '&', '='], "_");
+                        let path = format!("/tmp/{}", safe_filename);
+                        if let Err(e) =
+                            tokio::fs::write(&path, &instrumented).await
+                        {
+                            log::debug!(
+                                "failed to write debug file to {}: {}",
+                                path,
+                                e
+                            );
+                        } else {
+                            log::debug!(
+                                "wrote instrumented script to {}",
+                                path
+                            );
+                        }
+                    }
+
+                    instrumented
                 } else if is_html_document {
                     instrumentation::html::instrument_inline_scripts(
                         source_id, &body,

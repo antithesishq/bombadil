@@ -11,14 +11,6 @@ let x = 1;
 let y = 2;
 let z = 3;
 function example(a, b, c) {
-	return a ? (() => {
-		__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x76be999e3e25b400 >> 1;
-		return x = y, b;
-	})() : (() => {
-		__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x7359aa1156ce8800 >> 1;
-		return y = z, c;
-	})();
+	return a ? (__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x76be999e3e25b400 >> 1, x = y, b) : (__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x7359aa1156ce8800 >> 1, y = z, c);
 }
 console.log(example(true, 1, 2), x, y, z);

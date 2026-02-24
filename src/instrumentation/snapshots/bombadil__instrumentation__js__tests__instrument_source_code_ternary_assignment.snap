@@ -9,14 +9,6 @@ window.__bombadil__ = window.__bombadil__ || {
 };
 let x;
 function example(a, b, c) {
-	return a ? (() => {
-		__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x76be999e3e25b400 >> 1;
-		return console.log(x), x = b;
-	})() : (() => {
-		__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x7359aa1156ce8800 >> 1;
-		return console.log(x), x = c;
-	})();
+	return a ? (__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x76be999e3e25b400 >> 1, console.log(x), x = b) : (__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x7359aa1156ce8800 >> 1, console.log(x), x = c);
 }
 console.log(example(true, 1, 2), x);

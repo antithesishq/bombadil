@@ -9,15 +9,7 @@ expression: output
     previous: 0,
 };
 function example(a, b, c) {
-	return a ? (() => {
-		__bombadil__.edges_current[(0x22c1feea839d4200 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x22c1feea839d4200 >> 1;
-		return b;
-	})() : (() => {
-		__bombadil__.edges_current[(0x11b1b3220bdaeb00 ^ __bombadil__.previous) % 65536] += 1;
-		__bombadil__.previous = 0x11b1b3220bdaeb00 >> 1;
-		return c;
-	})();
+	return a ? (__bombadil__.edges_current[(0x22c1feea839d4200 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x22c1feea839d4200 >> 1, b) : (__bombadil__.edges_current[(0x11b1b3220bdaeb00 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x11b1b3220bdaeb00 >> 1, c);
 }
 console.log(example(true, 1, 2));
 </script>
