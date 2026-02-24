@@ -1,5 +1,5 @@
 /target
-/.direnv
+.direnv
 /result
 .envrc.local
 /.vscode
