@@ -7,6 +7,7 @@ on:
 permissions:
   id-token: write  # Required for OIDC
   contents: write
+  pages: write
 
 jobs:
   check-version:
@@ -103,6 +104,34 @@ jobs:
           name: bombadil-types
           path: bombadil-types.tar.gz
 
+  build-manual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build manual
+        run: nix build .#manual
+
+      - name: Create manual archive
+        run: tar -czf bombadil-manual.tar.gz -C result .
+
+      - name: Upload manual artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-manual
+          path: bombadil-manual.tar.gz
+
+      - name: Upload manual for GitHub Pages
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-pages
+          path: result/
+
   smoke-test:
     name: Smoke test (${{ matrix.os }})
     needs: build
@@ -126,7 +155,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check-version, build, build-types, smoke-test]
+    needs: [check-version, build, build-types, build-manual, smoke-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -146,6 +175,7 @@ jobs:
             artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
             artifacts/bombadil-types/bombadil-types.tar.gz
+            artifacts/bombadil-manual/bombadil-manual.tar.gz
 
   publish-types:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -169,3 +199,26 @@ jobs:
         run: |
           cd pkg
           npm publish --provenance --access public
+
+  publish-manual:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-manual, release]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download manual pages
+        uses: actions/download-artifact@v4
+        with:
+          name: manual-pages
+          path: manual
+
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: manual
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
