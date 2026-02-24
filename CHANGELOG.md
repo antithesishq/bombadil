@@ -1,5 +1,31 @@
 # The Bombadil Changelog
 
+## 0.3.0
+
+Major updates:
+
+* Add action generators to specification language (#36)
+* Publish The Bombadil Manual (#47)
+* Arm64 linux builds
+* Sign mac executable (#33)
+
+Breaking changes:
+
+* Convert all TypeScript to use camelCase (#45)
+
+Bug fixes:
+
+* Ignore stale action (#52)
+* Use sequence expressions for instrumentation hooks (#50)
+* Fix action serialization issue (#46)
+* Collect a first state when running in existing target (#41)
+* Handle exceptions pausing (#40)
+* Fix state capture hanging on screenshot (#38)
+* Don't parse non-HTML using html5ever in instrumentation (#37)
+* Abort tokio task running action on timeout (#35)
+
+
+
 ## 0.2.1
 
 * Add help messages to commands and options (#30)
