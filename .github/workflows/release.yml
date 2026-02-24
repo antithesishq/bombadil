@@ -46,6 +46,10 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux
             artifact: bombadil-x86_64-linux
+          - os: ubuntu-latest
+            target: aarch64-linux
+            package: aarch64-linux
+            artifact: bombadil-aarch64-linux
           - os: macos-latest
             target: aarch64-darwin
             artifact: bombadil-aarch64-darwin
@@ -59,7 +63,7 @@ jobs:
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
 
       - name: Build binary
-        run: nix build .
+        run: nix build .#${{ matrix.package || 'default' }}
 
       - name: Copy binary
         run: |
@@ -139,6 +143,7 @@ jobs:
           body: ${{ needs.check-version.outputs.changelog }}
           files: |
             artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
+            artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
             artifacts/bombadil-types/bombadil-types.tar.gz
 

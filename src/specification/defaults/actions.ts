@@ -157,7 +157,8 @@ const clickablePoints = extract((state) => {
         }
       } else if (
         element instanceof HTMLIFrameElement &&
-        element.contentDocument
+        element.contentDocument &&
+        element.contentDocument.body
       ) {
         queue.push(element.contentDocument.body);
       } else {

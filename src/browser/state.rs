@@ -59,11 +59,23 @@ pub struct NavigationEntry {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Exception {
+    pub exception_id: u32,
+    pub timestamp: SystemTime,
     pub text: String,
     pub line: u32,
     pub column: u32,
     pub url: Option<String>,
+    pub remote_object: Option<ExceptionRemoteObject>,
     pub stacktrace: Option<Vec<CallFrame>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExceptionRemoteObject {
+    pub type_name: String,
+    pub subtype: Option<String>,
+    pub class_name: Option<String>,
+    pub description: Option<String>,
+    pub value: Option<json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

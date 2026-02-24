@@ -146,6 +146,9 @@ impl Runner {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
                             let snapshots = run_extractors(&state, &extractors, &last_action).await?;
+                            for (id, value) in &snapshots {
+                                log::debug!("snapshot {id}: {value}");
+                            }
                             let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots, state.timestamp).await?;
 
                             // Convert JsAction tree to BrowserAction tree

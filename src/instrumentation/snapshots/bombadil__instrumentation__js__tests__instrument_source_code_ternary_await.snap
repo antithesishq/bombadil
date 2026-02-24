@@ -1,0 +1,12 @@
+---
+source: src/instrumentation/js.rs
+expression: code
+---
+window.__bombadil__ = window.__bombadil__ || {
+    edges_previous: new Uint8Array(65536),
+    edges_current: new Uint8Array(65536),
+    previous: 0,
+};
+async function example(a) {
+	return a ? (__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x76be999e3e25b400 >> 1, await bar()) : (__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x7359aa1156ce8800 >> 1, await baz());
+}

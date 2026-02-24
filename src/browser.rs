@@ -402,10 +402,27 @@ async fn inner_events(
             .await?
             .map(|e| {
                 InnerEvent::ExceptionThrown(Exception {
+                    exception_id: e.exception_details.exception_id as u32,
+                    timestamp: UNIX_EPOCH
+                        + Duration::from_secs_f64(
+                            *e.timestamp.inner() / 1000.0,
+                        ),
                     text: e.exception_details.text.clone(),
                     line: e.exception_details.line_number as u32,
                     column: e.exception_details.column_number as u32,
                     url: e.exception_details.url.clone(),
+                    remote_object: e.exception_details.exception.as_ref().map(
+                        |obj| state::ExceptionRemoteObject {
+                            type_name: format!("{:?}", obj.r#type),
+                            subtype: obj
+                                .subtype
+                                .as_ref()
+                                .map(|st| format!("{:?}", st)),
+                            class_name: obj.class_name.clone(),
+                            description: obj.description.clone(),
+                            value: obj.value.clone(),
+                        },
+                    ),
                     stacktrace: e.exception_details.stack_trace.as_ref().map(
                         |stack_trace| {
                             stack_trace

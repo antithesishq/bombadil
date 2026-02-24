@@ -14,6 +14,9 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux
+          - os: ubuntu-latest
+            target: aarch64-linux
+            package: aarch64-linux
           - os: macos-latest
             target: aarch64-darwin
     runs-on: ${{ matrix.os }}
@@ -27,7 +30,8 @@ jobs:
 
       - run: nix config show
       - run: nix flake check .
-      - run: nix build .
+      - name: Build package
+        run: nix build .#${{ matrix.package || 'default' }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:

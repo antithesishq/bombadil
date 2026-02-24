@@ -5,14 +5,12 @@ use std::hash::{Hash, Hasher};
 use const_format::{formatcp, str_replace};
 use oxc::allocator;
 use oxc::ast::ast::{
-    AssignmentOperator, AssignmentTarget, Expression, FormalParameterRest,
-    Statement, TSTypeAnnotation, TSTypeParameterDeclaration,
-    TSTypeParameterInstantiation,
+    AssignmentOperator, AssignmentTarget, Expression, Statement,
 };
 use oxc::codegen::Codegen;
 use oxc::semantic::SemanticBuilder;
 use oxc::{
-    allocator::{Allocator, Box, CloneIn, TakeIn},
+    allocator::{Allocator, CloneIn, TakeIn},
     ast::ast::{self},
     parser::Parser,
     span::{SPAN, SourceType},
@@ -129,7 +127,7 @@ impl Instrumenter {
     fn coverage_hooks<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
-    ) -> allocator::Vec<'b, Statement<'b>> {
+    ) -> allocator::Vec<'b, Expression<'b>> {
         let antithesis_member = |name: &'static str| -> Expression {
             ctx.ast
                 .member_expression_static(
@@ -170,51 +168,45 @@ impl Instrumenter {
             ),
         );
 
-        let edge_addition: Statement = ctx.ast.statement_expression(
+        let edge_addition = ctx.ast.expression_assignment(
             SPAN,
-            ctx.ast.expression_assignment(
-                SPAN,
-                AssignmentOperator::Addition,
-                AssignmentTarget::ComputedMemberExpression(
-                    ctx.ast.alloc_computed_member_expression(
-                        SPAN,
-                        antithesis_member(EDGES_CURRENT),
-                        edge_index,
-                        false,
-                    ),
+            AssignmentOperator::Addition,
+            AssignmentTarget::ComputedMemberExpression(
+                ctx.ast.alloc_computed_member_expression(
+                    SPAN,
+                    antithesis_member(EDGES_CURRENT),
+                    edge_index,
+                    false,
                 ),
+            ),
+            ctx.ast.expression_numeric_literal(
+                SPAN,
+                1.0,
+                None,
+                ast::NumberBase::Decimal,
+            ),
+        );
+
+        let location_previous_update = ctx.ast.expression_assignment(
+            SPAN,
+            AssignmentOperator::Assign,
+            AssignmentTarget::StaticMemberExpression(
+                ctx.ast.alloc_static_member_expression(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, NAMESPACE),
+                    ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
+                    false,
+                ),
+            ),
+            ctx.ast.expression_binary(
+                SPAN,
+                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+                ast::BinaryOperator::ShiftRight,
                 ctx.ast.expression_numeric_literal(
                     SPAN,
                     1.0,
                     None,
                     ast::NumberBase::Decimal,
-                ),
-            ),
-        );
-
-        let location_previous_update = ctx.ast.statement_expression(
-            SPAN,
-            ctx.ast.expression_assignment(
-                SPAN,
-                AssignmentOperator::Assign,
-                AssignmentTarget::StaticMemberExpression(
-                    ctx.ast.alloc_static_member_expression(
-                        SPAN,
-                        ctx.ast.expression_identifier(SPAN, NAMESPACE),
-                        ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
-                        false,
-                    ),
-                ),
-                ctx.ast.expression_binary(
-                    SPAN,
-                    branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
-                    ast::BinaryOperator::ShiftRight,
-                    ctx.ast.expression_numeric_literal(
-                        SPAN,
-                        1.0,
-                        None,
-                        ast::NumberBase::Decimal,
-                    ),
                 ),
             ),
         );
@@ -237,7 +229,12 @@ impl Instrumenter {
         ctx: &mut TraverseCtx<'b, ()>,
         statement: &'_ mut Statement<'b>,
     ) {
-        let mut statements = self.coverage_hooks(ctx);
+        let hook_expressions = self.coverage_hooks(ctx);
+        let mut statements =
+            ctx.ast.vec_with_capacity(hook_expressions.len() + 1);
+        for expression in hook_expressions {
+            statements.push(ctx.ast.statement_expression(SPAN, expression));
+        }
         if let Statement::BlockStatement(block_statement) = statement {
             block_statement.body.splice(0..0, statements);
         } else {
@@ -246,42 +243,17 @@ impl Instrumenter {
         }
     }
 
-    fn wrap_iife_coverage_hook<'b>(
+    fn wrap_expression_with_coverage_hook<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
         expression: &'_ mut Expression<'b>,
     ) {
-        let mut statements = self.coverage_hooks(ctx);
+        let mut expressions = self.coverage_hooks(ctx);
+
         let expression_old = expression.take_in(ctx.ast.allocator);
-        let return_expression = ctx.ast.statement_return(
-            SPAN,
-            Some(ctx.ast.expression_parenthesized(SPAN, expression_old)),
-        );
-        statements.push(return_expression);
-        let function_body =
-            ctx.ast.function_body(SPAN, ctx.ast.vec(), statements);
-        *expression = ctx.ast.expression_call(
-            SPAN,
-            ctx.ast.expression_parenthesized(SPAN,
-                ctx.ast.expression_arrow_function(
-                    SPAN,
-                    false,
-                    false,
-                    None::<TSTypeParameterDeclaration<'b>>,
-                    ctx.ast
-                    .formal_parameters::<Option<Box<'b, FormalParameterRest<'b>>>>(
-                        SPAN,
-                        ast::FormalParameterKind::ArrowFormalParameters,
-                        ctx.ast.vec(),
-                        None,
-                    ),
-                    None::<TSTypeAnnotation<'b>>,
-                    function_body,
-                )),
-                None::<TSTypeParameterInstantiation<'b>>,
-                ctx.ast.vec(),
-                false,
-                );
+        expressions.push(expression_old);
+
+        *expression = ctx.ast.expression_sequence(SPAN, expressions);
     }
 }
 
@@ -292,8 +264,11 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
         expression: &mut ast::ConditionalExpression<'a>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
-        self.wrap_iife_coverage_hook(ctx, &mut expression.consequent);
-        self.wrap_iife_coverage_hook(ctx, &mut expression.alternate);
+        self.wrap_expression_with_coverage_hook(
+            ctx,
+            &mut expression.consequent,
+        );
+        self.wrap_expression_with_coverage_hook(ctx, &mut expression.alternate);
     }
 
     /// Add coverage hooks to if statement branches.
@@ -342,7 +317,11 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
         node: &mut ast::SwitchCase<'a>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
-        let statements = self.coverage_hooks(ctx);
+        let expressions = self.coverage_hooks(ctx);
+        let mut statements = ctx.ast.vec_with_capacity(expressions.len() + 1);
+        for expression in expressions {
+            statements.push(ctx.ast.statement_expression(SPAN, expression));
+        }
         node.consequent.splice(0..0, statements);
     }
 }
@@ -439,6 +418,20 @@ mod tests {
     }
 
     #[test]
+    fn test_instrument_source_code_ternary_await() {
+        let source_text = r#"
+            async function example(a) {
+                return a ? await bar() : await baz();
+            }
+        "#;
+
+        let code =
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
+        assert_snapshot!(code);
+    }
+
+    #[test]
     fn test_instrument_source_code_switch() {
         let source_text = r#"
             function foo() {
@@ -459,6 +452,20 @@ mod tests {
                 }
             }
             "#;
+
+        let code =
+            instrument_source_code(SourceId(0), source_text, SourceType::cjs())
+                .unwrap();
+        assert_snapshot!(code);
+    }
+
+    #[test]
+    fn test_instrument_source_code_ternary_assignment_with_await() {
+        let source_text = r#"
+            async function test() {
+                return f(x) ? y = await z.instantiator(t) : f(y);
+            }
+        "#;
 
         let code =
             instrument_source_code(SourceId(0), source_text, SourceType::cjs())

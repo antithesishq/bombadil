@@ -30,7 +30,13 @@
         );
         craneLib = crane.mkLib pkgs;
         craneLibStatic = crane.mkLib pkgs.pkgsCross.musl64;
+        craneLibAarch64 = crane.mkLib pkgs.pkgsCross.aarch64-multiplatform-musl;
         bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib craneLibStatic; };
+        bombadilAarch64 = pkgs.callPackage ./nix/default.nix {
+          inherit craneLib;
+          craneLibStatic = craneLibAarch64;
+          cargoTarget = "aarch64-unknown-linux-musl";
+        };
       in
       {
         packages = {
@@ -39,6 +45,7 @@
           manual = pkgs.callPackage ./docs/manual/default.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          aarch64-linux = bombadilAarch64.bin;
           docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
