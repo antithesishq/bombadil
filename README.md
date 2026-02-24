@@ -186,12 +186,12 @@ release package](https://github.com/antithesishq/bombadil/releases/latest).
 
 ## More Resources
 
-* [Contributing](docs/contributing.md): if you want to hack on it
+* [Contributing](docs/development/contributing.md): if you want to hack on it
 * [Quickstrom](https://quickstrom.io/): a predecessor to Bombadil
 
 <hr>
 
-<img alt="Tom Bombadil" src="docs/tom.png" width=360 />
+<img alt="Tom Bombadil" src="docs/development/tom.png" width=360 />
 
 > Old Tom Bombadil is a merry fellow,<br>
 > Bright blue his jacket is, and his boots are yellow.<br>
