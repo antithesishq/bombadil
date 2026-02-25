@@ -1,3 +1,4 @@
+pub mod bundler;
 pub mod js;
 pub mod ltl;
 pub(crate) mod module_loader;
