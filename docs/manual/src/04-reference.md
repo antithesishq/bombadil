@@ -24,6 +24,7 @@
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
+| `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--headless` | Whether the browser should run in a visible window or not | |
 | `--no-sandbox` | Disable Chromium sandboxing | |
 | `-h, --help` | Print help | |
@@ -48,6 +49,7 @@
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
+| `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--remote-debugger <REMOTE_DEBUGGER>` | Address to the remote debugger's server, e.g. http://localhost:9222 | |
 | `--create-target` | Whether Bombadil should create a new tab and navigate to the origin URL in it, as part of starting the test (this should probably be false if you test an Electron app) | |
 | `-h, --help` | Print help | |
