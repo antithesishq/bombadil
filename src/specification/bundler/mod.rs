@@ -4,9 +4,9 @@ use std::{
 };
 
 use anyhow::Result;
-use oxc_resolver::{self, Resolution, ResolveOptions, Resolver};
+use oxc_resolver::{ResolveOptions, Resolver};
 
-struct Modules {
+pub struct Modules {
     by_path: HashMap<PathBuf, Module>,
 }
 
@@ -33,8 +33,6 @@ pub fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<Modules> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
 
     #[test]
@@ -42,8 +40,15 @@ mod tests {
         let modules =
             bundle("src/specification/bundler/fixtures", "./index.ts").unwrap();
         assert_eq!(
-            modules.by_path.keys().cloned().collect::<Vec<_>>(),
-            vec![PathBuf::from("src/specification/bundler/fixtures/index.ts")],
+            modules
+                .by_path
+                .keys()
+                .map(|path| path.to_string_lossy().to_ascii_lowercase())
+                .collect::<Vec<_>>(),
+            vec![
+                "src/specification/bundler/fixtures/index.ts",
+                "src/specification/bundler/fixtures/other.ts",
+            ],
         );
     }
 }
