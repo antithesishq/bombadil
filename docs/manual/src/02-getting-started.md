@@ -81,7 +81,7 @@ Not yet available, but coming soon:
 * Docker images
 * a GitHub Action, ready to be used in your CI configuration
 
-If you want to compile from source, see [Contributing](https://github.com/antithesishq/bombadil/tree/main/docs/contributing.md).
+If you want to compile from source, see [Contributing](https://github.com/antithesishq/bombadil/tree/main/docs/development/contributing.md).
 
 ## TypeScript support
 
