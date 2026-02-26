@@ -18,8 +18,10 @@ mod tests {
     #[test]
     fn test_bundle() {
         assert_eq!(
-            bundle(".", "index.ts").unwrap().full_path(),
-            PathBuf::from("")
+            bundle("src/specification/bundler/fixtures", "./index.ts")
+                .unwrap()
+                .full_path(),
+            PathBuf::from("src/specification/bundler/fixtures/index.ts")
         );
     }
 }
