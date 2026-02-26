@@ -13,9 +13,13 @@ use std::sync::Arc;
 use tokio::spawn;
 
 use crate::instrumentation;
+use crate::instrumentation::InstrumentationConfig;
 use crate::instrumentation::source_id::SourceId;
 
-pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
+pub async fn instrument_js_coverage(
+    page: Arc<Page>,
+    config: InstrumentationConfig,
+) -> Result<()> {
     page.execute(
         fetch::EnableParams::builder()
             .pattern(
@@ -106,14 +110,21 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
                 let body_instrumented = if event.resource_type
                     == network::ResourceType::Script
                 {
-                    let instrumented =
+                    let instrumented = if !config.instrument_files {
+                        log::debug!(
+                            "skipping script file (disabled): {}",
+                            event.request.url
+                        );
+                        body.clone()
+                    } else {
                         instrumentation::js::instrument_source_code(
                             source_id,
                             &body,
                             // As we can't know if the script is an ES module or a regular script,
                             // we use this source type to let the parser decide.
                             SourceType::unambiguous(),
-                        )?;
+                        )?
+                    };
 
                     // Write to /tmp/ for debugging
                     if let Some(filename) =
@@ -140,9 +151,14 @@ pub async fn instrument_js_coverage(page: Arc<Page>) -> Result<()> {
 
                     instrumented
                 } else if is_html_document {
-                    instrumentation::html::instrument_inline_scripts(
-                        source_id, &body,
-                    )?
+                    if config.instrument_inline {
+                        instrumentation::html::instrument_inline_scripts(
+                            source_id, &body,
+                        )?
+                    } else {
+                        log::debug!("skipping inline scripts (disabled)");
+                        body.clone()
+                    }
                 } else if event.resource_type == network::ResourceType::Document
                 {
                     // Non-HTML documents (XML, PDF, etc.) are passed

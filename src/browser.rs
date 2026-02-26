@@ -167,6 +167,7 @@ pub struct Emulation {
 pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
+    pub instrumentation: crate::instrumentation::InstrumentationConfig,
 }
 
 #[derive(Clone)]
@@ -270,7 +271,11 @@ impl Browser {
             origin: origin.clone(),
         };
 
-        instrumentation::instrument_js_coverage(page.clone()).await?;
+        instrumentation::instrument_js_coverage(
+            page.clone(),
+            browser_options.instrumentation.clone(),
+        )
+        .await?;
 
         let browser_events = browser
             .event_listener::<target::EventTargetDestroyed>()
