@@ -1,0 +1,10 @@
+---
+source: src/specification/bundler/mod.rs
+expression: code
+---
+const { x, foo: bar } = require("./other.ts");
+export const y = x + z + bar.bar;
+
+export const x = 10;
+export default 20;
+export const foo = { bar: 30 };

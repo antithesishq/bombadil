@@ -1,3 +1,3 @@
-import { x } from "./other.ts";
+import z, { x, foo as bar } from "./other.ts";
 
-export const y = x + 10;
+export const y = x + z + bar.bar;

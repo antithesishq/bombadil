@@ -6,8 +6,13 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use oxc::{
-    allocator::Allocator, ast::ast, parser::Parser, semantic::SemanticBuilder,
-    span::SourceType,
+    allocator::{Allocator, TakeIn},
+    ast::ast,
+    codegen::Codegen,
+    parser::Parser,
+    semantic::SemanticBuilder,
+    span::{SPAN, SourceType},
+    transformer::{TransformOptions, Transformer},
 };
 use oxc_resolver::{ResolveOptions, Resolver};
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
@@ -21,11 +26,10 @@ impl Display for CanonicalPath {
     }
 }
 
-pub struct Modules {
-    by_path: HashMap<CanonicalPath, Module>,
+pub struct Module {
+    path: CanonicalPath,
+    code: String,
 }
-
-struct Module {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
@@ -52,18 +56,13 @@ impl Display for BundlerError {
     }
 }
 
-pub async fn bundle(
-    path: impl AsRef<Path>,
-    specifier: &str,
-) -> Result<Modules> {
+pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path: &Path = path.as_ref();
     let options = ResolveOptions::default();
     let resolver = Resolver::new(options);
     let allocator = Allocator::default();
 
-    let mut modules = Modules {
-        by_path: HashMap::new(),
-    };
+    let mut modules = vec![];
     let mut queue = VecDeque::new();
     queue.push_front(specifier);
 
@@ -96,56 +95,185 @@ pub async fn bundle(
         let scopes = semantic.semantic.into_scoping();
 
         let mut rewriter = Rewriter::default();
-        traverse_mut(&mut rewriter, &allocator, &mut program, scopes, ());
+        let mut imports = HashSet::new();
+        traverse_mut(
+            &mut rewriter,
+            &allocator,
+            &mut program,
+            scopes,
+            &mut imports,
+        );
+
         // TODO: handle cycles/duplicates
-        queue.extend(rewriter.imports);
-        modules.by_path.insert(canonical, Module {});
+        queue.extend(imports);
+
+        let transform_options = TransformOptions {
+            typescript: oxc::transformer::TypeScriptOptions {
+                only_remove_type_imports: true,
+                allow_namespaces: true,
+                remove_class_fields_without_initializer: false,
+                rewrite_import_extensions: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Must we do this again after traversal?
+        let semantic = SemanticBuilder::new()
+            .with_check_syntax_error(true)
+            .build(&program);
+        if !semantic.errors.is_empty() {
+            let errors = semantic.errors.to_vec();
+            bail!(BundlerError::SemanticErrors(errors));
+        }
+        let scopes = semantic.semantic.into_scoping();
+
+        let transformer =
+            Transformer::new(&allocator, path, &transform_options);
+        transformer.build_with_scoping(scopes, &mut program);
+
+        let codegen = Codegen::new().build(&program);
+        modules.push(Module {
+            path: canonical,
+            code: codegen.code,
+        });
     }
 
-    Ok(modules)
+    let code: String = modules
+        .iter()
+        .map(|module| module.code.clone())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(code)
 }
 
 /// Rewrites a single module from ESM to CommonJS style, making it suitable for inclusion in the
 /// bundle. Tracks what imports were made.
 #[derive(Default)]
-struct Rewriter<'a> {
-    imports: HashSet<&'a str>,
-}
+struct Rewriter {}
 
-impl<'a, 'b> Traverse<'b, ()> for Rewriter<'a>
-where
-    'b: 'a,
-{
-    fn enter_import_declaration(
+impl<'a> Traverse<'a, &mut HashSet<&'a str>> for Rewriter {
+    fn enter_statement(
         &mut self,
-        import: &mut ast::ImportDeclaration<'b>,
-        ctx: &mut TraverseCtx<'b, ()>,
+        statement: &mut ast::Statement<'a>,
+        ctx: &mut TraverseCtx<'a, &mut HashSet<&'a str>>,
     ) {
-        log::info!("source: {:?}", import.source);
-        self.imports.insert(import.source.value.as_str());
+        match statement {
+            ast::Statement::ImportDeclaration(import_declaration) => {
+                let source_specifier = import_declaration.source.value.as_str();
+                ctx.state.insert(source_specifier);
+
+                let require_call = ctx.ast.expression_call(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, "require"),
+                    Option::None::<
+                        oxc::allocator::Box<
+                            '_,
+                            ast::TSTypeParameterInstantiation<'_>,
+                        >,
+                    >,
+                    ctx.ast.vec1(ast::Argument::StringLiteral(
+                        import_declaration
+                            .source
+                            .take_in_box(ctx.ast.allocator),
+                    )),
+                    false,
+                );
+
+                let binding_pattern = if let Some(specifiers) =
+                    &import_declaration.specifiers
+                {
+                    let mut properties =
+                        ctx.ast.vec_with_capacity(specifiers.len());
+                    for specifier in specifiers {
+                        match specifier {
+                            ast::ImportDeclarationSpecifier::ImportSpecifier(import_specifier ) => {
+                                let imported = &import_specifier.imported;
+                                let local = &import_specifier.local;
+                                match import_specifier.import_kind{
+                                    ast::ImportOrExportKind::Value => {
+                                        properties.push(
+                                            ctx.ast.binding_property(
+                                                SPAN,
+                                                ctx.ast.property_key_static_identifier(SPAN, imported.name()),
+                                                ctx.ast.binding_pattern_binding_identifier(SPAN, local.name),
+                                                false,
+                                                false
+                                            )
+                                        );
+                                    },
+                                    ast::ImportOrExportKind::Type => return,
+                                }
+                            },
+                            ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(import_default_specifier) => {
+                                eprintln!("const {{ default: {} }} = require({:?});", import_default_specifier.local, source_specifier);
+
+                            },
+                            ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(import_namespace_specifier) => {
+                                eprintln!("const {} = require({:?});", import_namespace_specifier.local, source_specifier);
+                            },
+                        }
+                    }
+                    ctx.ast.binding_pattern_object_pattern(
+                        SPAN,
+                        properties,
+                        Option::None::<
+                            oxc::allocator::Box<'_, ast::BindingRestElement>,
+                        >,
+                    )
+                } else {
+                    return;
+                };
+
+                *statement = ast::Statement::VariableDeclaration(
+                    ctx.ast
+                        .variable_declaration(
+                            SPAN,
+                            ast::VariableDeclarationKind::Const,
+                            ctx.ast.vec1(ctx.ast.variable_declarator(
+                                SPAN,
+                                ast::VariableDeclarationKind::Const,
+                                binding_pattern,
+                                Option::None::<
+                                    oxc::allocator::Box<
+                                        'a,
+                                        ast::TSTypeAnnotation,
+                                    >,
+                                >,
+                                Some(require_call),
+                                false,
+                            )),
+                            false,
+                        )
+                        .take_in_box(ctx.ast.allocator),
+                );
+            }
+            ast::Statement::ExportAllDeclaration(_export_all_declaration) => {}
+            ast::Statement::ExportDefaultDeclaration(
+                _export_default_declaration,
+            ) => {}
+            ast::Statement::ExportNamedDeclaration(
+                _export_named_declaration,
+            ) => {}
+            _ => {
+                eprintln!("statement: {:?}", statement);
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use insta::assert_snapshot;
+
     use super::*;
 
     #[tokio::test]
     async fn test_bundle() {
-        let modules =
-            bundle("src/specification/bundler/fixtures", "./index.ts")
-                .await
-                .unwrap();
-        assert_eq!(
-            modules
-                .by_path
-                .keys()
-                .map(|path| path.to_string())
-                .collect::<Vec<_>>(),
-            vec![
-                "src/specification/bundler/fixtures/index.ts",
-                "src/specification/bundler/fixtures/other.ts",
-            ],
-        );
+        let bundle = bundle("src/specification/bundler/fixtures", "./index.ts")
+            .await
+            .unwrap();
+        assert_snapshot!(bundle);
     }
 }
