@@ -265,13 +265,34 @@ impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
                         .take_in_box(ctx.ast.allocator),
                 );
             }
-            ast::Statement::ExportAllDeclaration(_export_all_declaration) => {}
+            ast::Statement::ExportAllDeclaration(export_all_declaration) => {
+                eprintln!("{:?}", export_all_declaration);
+            }
             ast::Statement::ExportDefaultDeclaration(
-                _export_default_declaration,
-            ) => {}
+                export_default_declaration,
+            ) => {
+                eprintln!("{:?}", export_default_declaration);
+            }
             ast::Statement::ExportNamedDeclaration(
-                _export_named_declaration,
-            ) => {}
+                export_named_declaration,
+            ) => match export_named_declaration.export_kind {
+                ast::ImportOrExportKind::Value => {
+                    if let Some(declaration) =
+                        &export_named_declaration.declaration
+                    {
+                    } else if let Some(source) =
+                        &export_named_declaration.source
+                    {
+                        eprintln!("source = {:?}", source);
+                    } else {
+                        panic!(
+                            "unsupported export: {:?}",
+                            export_named_declaration
+                        );
+                    }
+                }
+                ast::ImportOrExportKind::Type => {}
+            },
             _ => {}
         }
     }
