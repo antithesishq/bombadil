@@ -17,12 +17,14 @@ use oxc::{
 use oxc_resolver::{ResolveOptions, Resolver};
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
-#[derive(PartialEq, Eq, Hash, Debug)]
-pub struct CanonicalPath(PathBuf);
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
+pub struct CanonicalPath {
+    path: PathBuf,
+}
 
 impl Display for CanonicalPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.display().fmt(f)
+        self.path.display().fmt(f)
     }
 }
 
@@ -63,21 +65,23 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let allocator = Allocator::default();
 
     let mut modules = vec![];
+    let mut paths_processed = HashSet::<CanonicalPath>::new();
     let mut queue = VecDeque::new();
-    queue.push_front(specifier);
 
-    while let Some(specifier) = queue.pop_front() {
-        let resolution = resolver.resolve(path, specifier)?;
-        let canonical = CanonicalPath(resolution.full_path());
+    queue.push_front(CanonicalPath {
+        path: resolver.resolve(path, specifier)?.full_path(),
+    });
 
-        let source_text =
-            tokio::fs::read_to_string(resolution.full_path()).await?;
+    while let Some(canonical) = queue.pop_front() {
+        assert!(!paths_processed.contains(&canonical));
+
+        let source_text = tokio::fs::read_to_string(&canonical.path).await?;
         let source_text = allocator.alloc_str(&source_text);
 
         let parser = Parser::new(
             &allocator,
             source_text,
-            SourceType::from_path(resolution.full_path())?,
+            SourceType::from_path(&canonical.path)?,
         );
         let result = parser.parse();
         if result.panicked {
@@ -104,8 +108,23 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             &mut imports,
         );
 
-        // TODO: handle cycles/duplicates
-        queue.extend(imports);
+        let mut imports_to_process =
+            HashSet::<CanonicalPath>::with_capacity(imports.len());
+        for import in imports {
+            let import_canonical = CanonicalPath {
+                path: resolver.resolve(path, import)?.full_path(),
+            };
+            if !paths_processed.contains(&import_canonical) {
+                imports_to_process.insert(import_canonical);
+            }
+        }
+        if !imports_to_process.is_empty() {
+            for import in imports_to_process {
+                queue.push_front(import);
+            }
+            queue.push_back(canonical);
+            continue;
+        }
 
         let transform_options = TransformOptions {
             typescript: oxc::transformer::TypeScriptOptions {
@@ -129,14 +148,15 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let scopes = semantic.semantic.into_scoping();
 
         let transformer =
-            Transformer::new(&allocator, path, &transform_options);
+            Transformer::new(&allocator, &canonical.path, &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
         let codegen = Codegen::new().build(&program);
         modules.push(Module {
-            path: canonical,
+            path: canonical.clone(),
             code: codegen.code,
         });
+        paths_processed.insert(canonical);
     }
 
     let code: String = modules
