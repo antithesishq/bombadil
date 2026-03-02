@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     fmt::{Display, Formatter},
     path::{Path, PathBuf},
 };
@@ -17,7 +17,7 @@ use oxc::{
 use oxc_resolver::{ResolveOptions, Resolver};
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
-#[derive(PartialEq, Eq, Hash, Debug, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
 pub struct CanonicalPath {
     path: PathBuf,
 }
@@ -65,7 +65,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let allocator = Allocator::default();
 
     let mut modules = vec![];
-    let mut paths_processed = HashSet::<CanonicalPath>::new();
+    let mut paths_processed = BTreeSet::<CanonicalPath>::new();
     let mut queue = VecDeque::new();
 
     queue.push_front(CanonicalPath {
@@ -73,7 +73,11 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     });
 
     while let Some(canonical) = queue.pop_front() {
-        assert!(!paths_processed.contains(&canonical));
+        eprintln!("processing {:?}", &canonical.path);
+        if paths_processed.contains(&canonical) {
+            eprintln!("already processed, skipping {:?}", &canonical.path);
+            continue;
+        }
 
         let source_text = tokio::fs::read_to_string(&canonical.path).await?;
         let source_text = allocator.alloc_str(&source_text);
@@ -99,7 +103,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let scopes = semantic.semantic.into_scoping();
 
         let mut rewriter = Rewriter::default();
-        let mut imports = HashSet::new();
+        let mut imports = BTreeSet::new();
         traverse_mut(
             &mut rewriter,
             &allocator,
@@ -108,22 +112,13 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             &mut imports,
         );
 
-        let mut imports_to_process =
-            HashSet::<CanonicalPath>::with_capacity(imports.len());
         for import in imports {
             let import_canonical = CanonicalPath {
                 path: resolver.resolve(path, import)?.full_path(),
             };
             if !paths_processed.contains(&import_canonical) {
-                imports_to_process.insert(import_canonical);
+                queue.push_back(import_canonical);
             }
-        }
-        if !imports_to_process.is_empty() {
-            for import in imports_to_process {
-                queue.push_front(import);
-            }
-            queue.push_back(canonical);
-            continue;
         }
 
         let transform_options = TransformOptions {
@@ -151,6 +146,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             Transformer::new(&allocator, &canonical.path, &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
+        eprintln!("done processing {:?}", &canonical.path);
         let codegen = Codegen::new().build(&program);
         modules.push(Module {
             path: canonical.clone(),
@@ -161,7 +157,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
 
     let code: String = modules
         .iter()
-        .map(|module| module.code.clone())
+        .map(|module| format!("// {} \n{}\n", module.path, module.code))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -173,11 +169,11 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
 #[derive(Default)]
 struct Rewriter {}
 
-impl<'a> Traverse<'a, &mut HashSet<&'a str>> for Rewriter {
+impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
     fn enter_statement(
         &mut self,
         statement: &mut ast::Statement<'a>,
-        ctx: &mut TraverseCtx<'a, &mut HashSet<&'a str>>,
+        ctx: &mut TraverseCtx<'a, &mut BTreeSet<&'a str>>,
     ) {
         match statement {
             ast::Statement::ImportDeclaration(import_declaration) => {
@@ -276,9 +272,7 @@ impl<'a> Traverse<'a, &mut HashSet<&'a str>> for Rewriter {
             ast::Statement::ExportNamedDeclaration(
                 _export_named_declaration,
             ) => {}
-            _ => {
-                eprintln!("statement: {:?}", statement);
-            }
+            _ => {}
         }
     }
 }
