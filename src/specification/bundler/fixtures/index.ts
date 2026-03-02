@@ -1,3 +1,4 @@
 import z, { x, foo as bar } from "./other.ts";
+import { incr } from "./shared.ts";
 
-export const y = x + z + bar.bar;
+export const y = incr(x + z + bar.bar);
