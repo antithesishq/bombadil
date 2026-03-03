@@ -1,3 +1,5 @@
+export { c } from "./c.ts";
+
 import { b } from "./b.ts";
 import "./sideEffect.ts";
 

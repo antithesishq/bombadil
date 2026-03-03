@@ -145,7 +145,6 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             ..Default::default()
         };
 
-        // Must we do this again after traversal?
         let semantic = SemanticBuilder::new()
             .with_check_syntax_error(true)
             .build(&program);
@@ -585,7 +584,137 @@ where
                                 *statement = ctx.ast.statement_empty(SPAN);
                             }
                         }
-                    } else if export_named_declaration.source.is_none() {
+                    } else if let Some(source) =
+                        &export_named_declaration.source
+                    {
+                        let source_specifier = source.value.as_str();
+
+                        let canonical = match ctx
+                            .state
+                            .resolver
+                            .resolve(ctx.state.base_path, source_specifier)
+                        {
+                            Ok(resolved) => CanonicalPath {
+                                path: resolved.full_path(),
+                            },
+                            Err(e) => {
+                                ctx.state.resolution_errors.push(format!(
+                                    "Cannot resolve '{}': {}",
+                                    source_specifier, e
+                                ));
+                                return;
+                            }
+                        };
+                        ctx.state.imports.insert(canonical.clone());
+
+                        let canonical_str = ctx
+                            .ast
+                            .allocator
+                            .alloc_str(&canonical.path.display().to_string());
+                        let require_call = ctx.ast.expression_call(
+                            SPAN,
+                            ctx.ast.expression_identifier(SPAN, "require"),
+                            Option::None::<
+                                oxc::allocator::Box<
+                                    '_,
+                                    ast::TSTypeParameterInstantiation<'_>,
+                                >,
+                            >,
+                            ctx.ast.vec1(ast::Argument::StringLiteral(
+                                ctx.ast.alloc(ctx.ast.string_literal(
+                                    SPAN,
+                                    canonical_str,
+                                    None,
+                                )),
+                            )),
+                            false,
+                        );
+
+                        let mut properties = ctx.ast.vec_with_capacity(
+                            export_named_declaration.specifiers.len(),
+                        );
+                        for export_specifier in
+                            &export_named_declaration.specifiers
+                        {
+                            let local_name = export_specifier.local.name();
+                            let exported_name =
+                                export_specifier.exported.name();
+
+                            properties.push(ctx.ast.binding_property(
+                                SPAN,
+                                ctx.ast.property_key_static_identifier(
+                                    SPAN, local_name,
+                                ),
+                                ctx.ast.binding_pattern_binding_identifier(
+                                    SPAN, local_name,
+                                ),
+                                false,
+                                false,
+                            ));
+
+                            let module_exports =
+                                ctx.ast.member_expression_static(
+                                    SPAN,
+                                    ctx.ast
+                                        .expression_identifier(SPAN, "module"),
+                                    ctx.ast.identifier_name(SPAN, "exports"),
+                                    false,
+                                );
+
+                            let member_expr = ctx.ast.member_expression_static(
+                                SPAN,
+                                module_exports.into(),
+                                ctx.ast.identifier_name(SPAN, exported_name),
+                                false,
+                            );
+
+                            let assignment = ctx.ast.expression_assignment(
+                                SPAN,
+                                ast::AssignmentOperator::Assign,
+                                member_expr.into(),
+                                ctx.ast.expression_identifier(SPAN, local_name),
+                            );
+
+                            let export_statement =
+                                ctx.ast.statement_expression(SPAN, assignment);
+                            ctx.state.export_statements.push(export_statement);
+                        }
+
+                        let binding_pattern =
+                            ctx.ast.binding_pattern_object_pattern(
+                                SPAN,
+                                properties,
+                                Option::None::<
+                                    oxc::allocator::Box<
+                                        '_,
+                                        ast::BindingRestElement,
+                                    >,
+                                >,
+                            );
+
+                        *statement = ast::Statement::VariableDeclaration(
+                            ctx.ast
+                                .variable_declaration(
+                                    SPAN,
+                                    ast::VariableDeclarationKind::Const,
+                                    ctx.ast.vec1(ctx.ast.variable_declarator(
+                                        SPAN,
+                                        ast::VariableDeclarationKind::Const,
+                                        binding_pattern,
+                                        Option::None::<
+                                            oxc::allocator::Box<
+                                                'a,
+                                                ast::TSTypeAnnotation,
+                                            >,
+                                        >,
+                                        Some(require_call),
+                                        false,
+                                    )),
+                                    false,
+                                )
+                                .take_in_box(ctx.ast.allocator),
+                        );
+                    } else {
                         for export_specifier in
                             &export_named_declaration.specifiers
                         {
@@ -625,23 +754,6 @@ where
                 }
             },
             _ => {}
-        }
-    }
-
-    fn exit_statement(
-        &mut self,
-        statement: &mut ast::Statement<'a>,
-        _ctx: &mut TraverseCtx<'a, &'b mut RewriterState<'a>>,
-    ) {
-        if let ast::Statement::ExportNamedDeclaration(export_named_declaration) =
-            statement
-            && export_named_declaration.source.is_some()
-            && export_named_declaration.export_kind
-                == ast::ImportOrExportKind::Value
-        {
-            // TODO: Implement re-exports (export { x } from "./other.ts")
-            // Currently causes stack overflow during AST construction - unclear why
-            // Re-export statement is left unmodified for now
         }
     }
 }
