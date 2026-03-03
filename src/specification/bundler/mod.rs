@@ -106,6 +106,9 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let mut state = RewriterState {
             imports: BTreeSet::new(),
             export_statements: oxc::allocator::Vec::new_in(&allocator),
+            resolver: &resolver,
+            base_path: path,
+            resolution_errors: Vec::new(),
         };
         traverse_mut(
             &mut rewriter,
@@ -114,12 +117,18 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             scopes,
             &mut state,
         );
+
+        if !state.resolution_errors.is_empty() {
+            bail!(
+                "Failed to resolve imports in {:?}:\n  {}",
+                canonical.path,
+                state.resolution_errors.join("\n  ")
+            );
+        }
+
         program.body.append(&mut state.export_statements);
 
-        for import in state.imports {
-            let import_canonical = CanonicalPath {
-                path: resolver.resolve(path, import)?.full_path(),
-            };
+        for import_canonical in state.imports {
             if !paths_processed.contains(&import_canonical) {
                 queue.push_back(import_canonical);
             }
@@ -170,12 +179,24 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
 
 /// Rewrites a single module from ESM to CommonJS style, making it suitable for
 /// inclusion in the bundle. Tracks what imports were made.
+///
+/// NOTE: Semantic differences from ESM:
+/// - Exports are added at the END of the module, not inline with declarations.
+///   This means side effects run before exports are set up, unlike ESM where
+///   exports are hoisted.
+/// - No live bindings: exported values are snapshots, mutations are not visible
+///   to importers (unlike ESM where `export let x` creates a live binding).
+/// - For a browser bundle where everything runs synchronously in dependency order,
+///   these differences are acceptable.
 #[derive(Default)]
 struct Rewriter {}
 
 struct RewriterState<'a> {
-    imports: BTreeSet<&'a str>,
+    imports: BTreeSet<CanonicalPath>,
     export_statements: oxc::allocator::Vec<'a, ast::Statement<'a>>,
+    resolver: &'a Resolver,
+    base_path: &'a Path,
+    resolution_errors: Vec<String>,
 }
 
 impl<'a, 'b> Traverse<'a, &'b mut RewriterState<'a>> for Rewriter
@@ -190,8 +211,29 @@ where
         match statement {
             ast::Statement::ImportDeclaration(import_declaration) => {
                 let source_specifier = import_declaration.source.value.as_str();
-                ctx.state.imports.insert(source_specifier);
 
+                let canonical = match ctx
+                    .state
+                    .resolver
+                    .resolve(ctx.state.base_path, source_specifier)
+                {
+                    Ok(resolved) => CanonicalPath {
+                        path: resolved.full_path(),
+                    },
+                    Err(e) => {
+                        ctx.state.resolution_errors.push(format!(
+                            "Cannot resolve '{}': {}",
+                            source_specifier, e
+                        ));
+                        return;
+                    }
+                };
+                ctx.state.imports.insert(canonical.clone());
+
+                let canonical_str = ctx
+                    .ast
+                    .allocator
+                    .alloc_str(&canonical.path.display().to_string());
                 let require_call = ctx.ast.expression_call(
                     SPAN,
                     ctx.ast.expression_identifier(SPAN, "require"),
@@ -201,11 +243,9 @@ where
                             ast::TSTypeParameterInstantiation<'_>,
                         >,
                     >,
-                    ctx.ast.vec1(ast::Argument::StringLiteral(
-                        import_declaration
-                            .source
-                            .take_in_box(ctx.ast.allocator),
-                    )),
+                    ctx.ast.vec1(ast::Argument::StringLiteral(ctx.ast.alloc(
+                        ctx.ast.string_literal(SPAN, canonical_str, None),
+                    ))),
                     false,
                 );
 
@@ -277,15 +317,49 @@ where
                         .take_in_box(ctx.ast.allocator),
                 );
             }
-            ast::Statement::ExportAllDeclaration(export_all_declaration) => {
-                // TODO: export the require() result
-                eprintln!("{:?}", export_all_declaration);
+            ast::Statement::ExportAllDeclaration(_export_all_declaration) => {
+                // TODO: Implement export * from (Object.assign pattern)
             }
             ast::Statement::ExportDefaultDeclaration(
                 export_default_declaration,
             ) => {
-                // TODO: module.exports.default = ...
-                eprintln!("{:?}", export_default_declaration);
+                let module_exports = ctx.ast.member_expression_static(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, "module"),
+                    ctx.ast.identifier_name(SPAN, "exports"),
+                    false,
+                );
+
+                let member_expr = ctx.ast.member_expression_static(
+                    SPAN,
+                    module_exports.into(),
+                    ctx.ast.identifier_name(SPAN, "default"),
+                    false,
+                );
+
+                let declaration_expr = match &mut export_default_declaration.declaration {
+                    ast::ExportDefaultDeclarationKind::FunctionDeclaration(func) => {
+                        ast::Expression::FunctionExpression(func.take_in_box(ctx.ast.allocator))
+                    }
+                    ast::ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                        ast::Expression::ClassExpression(class.take_in_box(ctx.ast.allocator))
+                    }
+                    ast::ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => {
+                        return;
+                    }
+                    expr => {
+                        expr.to_expression_mut().take_in(ctx.ast.allocator)
+                    }
+                };
+
+                let assignment = ctx.ast.expression_assignment(
+                    SPAN,
+                    ast::AssignmentOperator::Assign,
+                    member_expr.into(),
+                    declaration_expr,
+                );
+
+                *statement = ctx.ast.statement_expression(SPAN, assignment);
             }
             ast::Statement::ExportNamedDeclaration(
                 export_named_declaration,
@@ -369,11 +443,7 @@ where
                             | ast::Declaration::TSImportEqualsDeclaration(_) => {
                             }
                         }
-                    } else if let Some(source) =
-                        &export_named_declaration.source
-                    {
-                        eprintln!("source = {:?}", source);
-                    } else {
+                    } else if export_named_declaration.source.is_none() {
                         panic!(
                             "unsupported export: {:?}",
                             export_named_declaration
@@ -383,6 +453,23 @@ where
                 ast::ImportOrExportKind::Type => {}
             },
             _ => {}
+        }
+    }
+
+    fn exit_statement(
+        &mut self,
+        statement: &mut ast::Statement<'a>,
+        _ctx: &mut TraverseCtx<'a, &'b mut RewriterState<'a>>,
+    ) {
+        if let ast::Statement::ExportNamedDeclaration(export_named_declaration) =
+            statement
+            && export_named_declaration.source.is_some()
+            && export_named_declaration.export_kind
+                == ast::ImportOrExportKind::Value
+        {
+            // TODO: Implement re-exports (export { x } from "./other.ts")
+            // Currently causes stack overflow during AST construction - unclear why
+            // Re-export statement is left unmodified for now
         }
     }
 }
