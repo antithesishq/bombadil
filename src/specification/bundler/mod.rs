@@ -15,58 +15,89 @@ use oxc::{
     span::{SPAN, SourceType},
     transformer::{TransformOptions, Transformer},
 };
-use oxc_resolver::{FileSystem, FileSystemOs, ResolveOptions, ResolverGeneric};
+use oxc_resolver::ResolveOptions;
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
 static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
-#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
-pub struct CanonicalPath {
-    path: PathBuf,
-}
-
-impl Display for CanonicalPath {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.path.display().fmt(f)
-    }
-}
-
 pub struct Module {
-    path: CanonicalPath,
+    key: ModuleKey,
     code: String,
 }
 
-type Resolver = ResolverGeneric<HybridFileSystem>;
-
-struct HybridFileSystem {
-    filesystem_os: FileSystemOs,
+#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
+enum ModuleKey {
+    Embedded(String, PathBuf),
+    OnDisk(String, PathBuf),
 }
 
-enum HybridFileSystemPath<'a> {
-    Builtin(PathBuf),
-    Passthrough(&'a Path),
-}
-
-impl HybridFileSystem {
-    fn classify_path<'a>(&self, path: &'a Path) -> HybridFileSystemPath<'a> {
-        eprintln!("classifying {:?}", path);
-        if let Ok(relative) = path.strip_prefix("@antithesishq/bombadil") {
-            if relative == "" {
-                HybridFileSystemPath::Builtin(PathBuf::from("index.js"))
-            } else {
-                HybridFileSystemPath::Builtin(
-                    relative.with_added_extension("js"),
-                )
-            }
-        } else {
-            HybridFileSystemPath::Passthrough(path)
+impl ModuleKey {
+    fn specifier(&self) -> &str {
+        match self {
+            ModuleKey::Embedded(specifier, _path) => specifier,
+            ModuleKey::OnDisk(specifier, _path) => specifier,
+        }
+    }
+    fn path(&self) -> &Path {
+        match self {
+            ModuleKey::Embedded(_specifier, path) => path,
+            ModuleKey::OnDisk(_specifier, path) => path,
         }
     }
 }
 
-impl FileSystem for HybridFileSystem {
+struct Resolver {
+    resolver: oxc_resolver::Resolver,
+}
+impl Resolver {
+    pub fn new(options: ResolveOptions) -> Self {
+        Self {
+            resolver: oxc_resolver::Resolver::new(options),
+        }
+    }
+
+    fn resolve(
+        &self,
+        path: impl AsRef<Path>,
+        specifier: &str,
+    ) -> Result<ModuleKey> {
+        if let Ok(relative) =
+            PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
+        {
+            if relative == "" {
+                Ok(ModuleKey::Embedded(
+                    specifier.to_string(),
+                    PathBuf::from("index.js"),
+                ))
+            } else {
+                Ok(ModuleKey::Embedded(
+                    specifier.to_string(),
+                    relative
+                        .strip_prefix("/")
+                        .unwrap_or(relative)
+                        .with_added_extension("js"),
+                ))
+            }
+        } else {
+            let resolution = self.resolver.resolve(path, specifier)?;
+            let path = resolution.full_path();
+            Ok(ModuleKey::OnDisk(
+                path.to_str()
+                    .ok_or(anyhow!(
+                        "resolved path is not valid utf8: {}",
+                        path.display()
+                    ))?
+                    .to_string(),
+                path,
+            ))
+        }
+    }
+}
+
+/*
+impl FileSystem for Resolver {
     fn new() -> Self {
-        HybridFileSystem {
+        Resolver {
             filesystem_os: FileSystemOs::new(),
         }
     }
@@ -153,6 +184,7 @@ impl FileSystem for HybridFileSystem {
         self.filesystem_os.canonicalize(path)
     }
 }
+*/
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
@@ -182,30 +214,41 @@ impl Display for BundlerError {
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path: &Path = path.as_ref();
     let options = ResolveOptions::default();
-    let resolver =
-        ResolverGeneric::new_with_file_system(HybridFileSystem::new(), options);
+    let resolver = Resolver::new(options);
     let allocator = Allocator::default();
 
     let mut modules = vec![];
-    let mut paths_processed = BTreeSet::<CanonicalPath>::new();
+    let mut keys_processed = BTreeSet::<ModuleKey>::new();
     let mut queue = VecDeque::new();
 
-    queue.push_front(CanonicalPath {
-        path: resolver.resolve(path, specifier)?.full_path(),
-    });
+    queue.push_front(resolver.resolve(path, specifier)?);
 
-    while let Some(canonical) = queue.pop_front() {
-        if paths_processed.contains(&canonical) {
+    while let Some(key) = queue.pop_front() {
+        if keys_processed.contains(&key) {
             continue;
         }
 
-        let source_text = tokio::fs::read_to_string(&canonical.path).await?;
+        let source_text = match &key {
+            ModuleKey::Embedded(_, path) => JS_DIR
+                .get_file(path)
+                .ok_or(anyhow!(
+                    "module at {} cannot be resolved",
+                    &path.display()
+                ))?
+                .contents_utf8()
+                .ok_or(anyhow!("module is not valid utf8: {}", path.display()))?
+                .to_string(),
+            ModuleKey::OnDisk(_, path) => {
+                tokio::fs::read_to_string(&path).await?
+            }
+        };
+
         let source_text = allocator.alloc_str(&source_text);
 
         let parser = Parser::new(
             &allocator,
             source_text,
-            SourceType::from_path(&canonical.path)?,
+            SourceType::from_path(key.path())?,
         );
         let result = parser.parse();
         if result.panicked {
@@ -241,7 +284,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         if !state.resolution_errors.is_empty() {
             bail!(
                 "Failed to resolve imports in {:?}:\n  {}",
-                canonical.path,
+                key.path(),
                 state.resolution_errors.join("\n  ")
             );
         }
@@ -249,7 +292,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         program.body.append(&mut state.export_statements);
 
         for import_canonical in state.imports {
-            if !paths_processed.contains(&import_canonical) {
+            if !keys_processed.contains(&import_canonical) {
                 queue.push_back(import_canonical);
             }
         }
@@ -275,15 +318,15 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let scopes = semantic.semantic.into_scoping();
 
         let transformer =
-            Transformer::new(&allocator, &canonical.path, &transform_options);
+            Transformer::new(&allocator, key.path(), &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
         let codegen = Codegen::new().build(&program);
         modules.push(Module {
-            path: canonical.clone(),
+            key: key.clone(),
             code: codegen.code,
         });
-        paths_processed.insert(canonical);
+        keys_processed.insert(key);
     }
 
     let mut bundle = String::from(
@@ -313,7 +356,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     for module in &modules {
         bundle.push_str(&format!(
             "  modules[{:?}] = function(module, exports, require) {{\n",
-            module.path.to_string()
+            module.key.specifier()
         ));
         for line in module.code.lines() {
             bundle.push_str("    ");
@@ -324,7 +367,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     }
 
     if let Some(entry) = modules.first() {
-        bundle.push_str(&format!("  require({:?});\n", entry.path.to_string()));
+        bundle.push_str(&format!("  require({:?});\n", entry.key.specifier()));
     }
 
     bundle.push_str("})();\n");
@@ -347,7 +390,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
 struct Rewriter {}
 
 struct RewriterState<'a> {
-    imports: BTreeSet<CanonicalPath>,
+    imports: BTreeSet<ModuleKey>,
     export_statements: oxc::allocator::Vec<'a, ast::Statement<'a>>,
     resolver: &'a Resolver,
     base_path: &'a Path,
@@ -367,13 +410,12 @@ where
             ast::Statement::ImportDeclaration(import_declaration) => {
                 let source_specifier = import_declaration.source.value.as_str();
 
-                let Some(canonical) = resolve_import(source_specifier, ctx)
-                else {
+                let Some(key) = resolve_import(source_specifier, ctx) else {
                     return;
                 };
-                ctx.state.imports.insert(canonical.clone());
+                ctx.state.imports.insert(key.clone());
 
-                let require_call = build_require_call(&canonical, ctx);
+                let require_call = build_require_call(&key, ctx);
 
                 let specifiers = match &import_declaration.specifiers {
                     Some(s) => s,
@@ -452,13 +494,12 @@ where
                 let source_specifier =
                     export_all_declaration.source.value.as_str();
 
-                let Some(canonical) = resolve_import(source_specifier, ctx)
-                else {
+                let Some(key) = resolve_import(source_specifier, ctx) else {
                     return;
                 };
-                ctx.state.imports.insert(canonical.clone());
+                ctx.state.imports.insert(key.clone());
 
-                let require_call = build_require_call(&canonical, ctx);
+                let require_call = build_require_call(&key, ctx);
                 let module_exports = build_module_exports(ctx);
 
                 let object_assign_call = ctx.ast.expression_call(
@@ -606,14 +647,13 @@ where
                     {
                         let source_specifier = source.value.as_str();
 
-                        let Some(canonical) =
-                            resolve_import(source_specifier, ctx)
+                        let Some(key) = resolve_import(source_specifier, ctx)
                         else {
                             return;
                         };
-                        ctx.state.imports.insert(canonical.clone());
+                        ctx.state.imports.insert(key.clone());
 
-                        let require_call = build_require_call(&canonical, ctx);
+                        let require_call = build_require_call(&key, ctx);
 
                         let mut properties = ctx.ast.vec_with_capacity(
                             export_named_declaration.specifiers.len(),
@@ -686,20 +726,17 @@ where
 }
 
 fn build_require_call<'a>(
-    canonical_path: &CanonicalPath,
+    key: &ModuleKey,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
 ) -> ast::Expression<'a> {
-    let canonical_string = ctx
-        .ast
-        .allocator
-        .alloc_str(&canonical_path.path.display().to_string());
+    let key_string = ctx.ast.allocator.alloc_str(key.specifier());
     ctx.ast.expression_call(
         SPAN,
         ctx.ast.expression_identifier(SPAN, "require"),
         NONE,
         ctx.ast.vec1(ast::Argument::StringLiteral(
             ctx.ast
-                .alloc(ctx.ast.string_literal(SPAN, canonical_string, None)),
+                .alloc(ctx.ast.string_literal(SPAN, key_string, None)),
         )),
         false,
     )
@@ -740,15 +777,13 @@ fn build_module_exports_assignment<'a>(
 fn resolve_import<'a>(
     source_specifier: &str,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
-) -> Option<CanonicalPath> {
+) -> Option<ModuleKey> {
     match ctx
         .state
         .resolver
         .resolve(ctx.state.base_path, source_specifier)
     {
-        Ok(resolved) => Some(CanonicalPath {
-            path: resolved.full_path(),
-        }),
+        Ok(key) => Some(key),
         Err(e) => {
             ctx.state
                 .resolution_errors
@@ -995,8 +1030,8 @@ mod tests {
 
         let options = ResolveOptions::default();
         let resolver = Resolver::new(options);
-        let entry_path =
-            resolver.resolve(base_path, entry).unwrap().full_path();
+        let key = resolver.resolve(base_path, entry).unwrap();
+        let entry_path = key.path();
 
         let unbundled_logs =
             eval_module_with_logging(&entry_path).await.unwrap();
