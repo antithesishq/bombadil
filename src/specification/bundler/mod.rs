@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Result, anyhow, bail};
 use oxc::{
     allocator::{Allocator, TakeIn},
-    ast::ast,
+    ast::{NONE, ast},
     codegen::Codegen,
     parser::Parser,
     semantic::SemanticBuilder,
@@ -317,8 +317,72 @@ where
                         .take_in_box(ctx.ast.allocator),
                 );
             }
-            ast::Statement::ExportAllDeclaration(_export_all_declaration) => {
-                // TODO: Implement export * from (Object.assign pattern)
+            ast::Statement::ExportAllDeclaration(export_all_declaration) => {
+                let source_specifier =
+                    export_all_declaration.source.value.as_str();
+
+                let canonical = match ctx
+                    .state
+                    .resolver
+                    .resolve(ctx.state.base_path, source_specifier)
+                {
+                    Ok(resolved) => CanonicalPath {
+                        path: resolved.full_path(),
+                    },
+                    Err(e) => {
+                        ctx.state.resolution_errors.push(format!(
+                            "Cannot resolve '{}': {}",
+                            source_specifier, e
+                        ));
+                        return;
+                    }
+                };
+                ctx.state.imports.insert(canonical.clone());
+
+                let canonical_str = ctx
+                    .ast
+                    .allocator
+                    .alloc_str(&canonical.path.display().to_string());
+
+                let require_call = ctx.ast.expression_call(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, "require"),
+                    NONE,
+                    ctx.ast.vec1(ast::Argument::StringLiteral(ctx.ast.alloc(
+                        ctx.ast.string_literal(SPAN, canonical_str, None),
+                    ))),
+                    false,
+                );
+
+                let module_exports = ctx.ast.member_expression_static(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, "module"),
+                    ctx.ast.identifier_name(SPAN, "exports"),
+                    false,
+                );
+
+                let module_exports_expr: ast::Expression =
+                    module_exports.into();
+                let object_assign_call = ctx.ast.expression_call(
+                    SPAN,
+                    ctx.ast
+                        .member_expression_static(
+                            SPAN,
+                            ctx.ast.expression_identifier(SPAN, "Object"),
+                            ctx.ast.identifier_name(SPAN, "assign"),
+                            false,
+                        )
+                        .into(),
+                    NONE,
+                    ctx.ast.vec_from_iter([
+                        ast::Argument::from(module_exports_expr),
+                        ast::Argument::from(require_call),
+                    ]),
+                    false,
+                );
+
+                *statement =
+                    ctx.ast.statement_expression(SPAN, object_assign_call);
             }
             ast::Statement::ExportDefaultDeclaration(
                 export_default_declaration,

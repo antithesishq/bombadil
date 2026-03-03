@@ -6,7 +6,7 @@ expression: bundle
 const { x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
 const { incr } = require("src/specification/bundler/fixtures/shared.ts");
 const y = incr(x + z + bar.bar);
-export * from "./other.ts";
+Object.assign(module.exports, require("src/specification/bundler/fixtures/other.ts"));
 module.exports.y = y;
 
 
