@@ -286,17 +286,35 @@ where
                     false,
                 );
 
-                let binding_pattern = if let Some(specifiers) =
-                    &import_declaration.specifiers
-                {
+                let specifiers = match &import_declaration.specifiers {
+                    Some(s) => s,
+                    None => {
+                        return;
+                    }
+                };
+
+                let namespace_import = specifiers.iter().find_map(|s| match s {
+                    ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) => Some(ns),
+                    _ => None,
+                });
+
+                let binding_pattern = if let Some(ns) = namespace_import {
+                    if specifiers.len() > 1 {
+                        panic!(
+                            "Cannot mix namespace import with other imports"
+                        );
+                    }
+                    ctx.ast
+                        .binding_pattern_binding_identifier(SPAN, ns.local.name)
+                } else {
                     let mut properties =
                         ctx.ast.vec_with_capacity(specifiers.len());
                     for specifier in specifiers {
                         match specifier {
-                            ast::ImportDeclarationSpecifier::ImportSpecifier(import_specifier ) => {
+                            ast::ImportDeclarationSpecifier::ImportSpecifier(import_specifier) => {
                                 let imported = &import_specifier.imported;
                                 let local = &import_specifier.local;
-                                match import_specifier.import_kind{
+                                match import_specifier.import_kind {
                                     ast::ImportOrExportKind::Value => {
                                         properties.push(
                                             ctx.ast.binding_property(
@@ -312,11 +330,18 @@ where
                                 }
                             },
                             ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(import_default_specifier) => {
-                                eprintln!("const {{ default: {} }} = require({:?});", import_default_specifier.local, source_specifier);
-
+                                properties.push(
+                                    ctx.ast.binding_property(
+                                        SPAN,
+                                        ctx.ast.property_key_static_identifier(SPAN, "default"),
+                                        ctx.ast.binding_pattern_binding_identifier(SPAN, import_default_specifier.local.name),
+                                        false,
+                                        false
+                                    )
+                                );
                             },
-                            ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(import_namespace_specifier) => {
-                                eprintln!("const {} = require({:?});", import_namespace_specifier.local, source_specifier);
+                            ast::ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => {
+                                unreachable!("handled above");
                             },
                         }
                     }
@@ -327,8 +352,6 @@ where
                             oxc::allocator::Box<'_, ast::BindingRestElement>,
                         >,
                     )
-                } else {
-                    return;
                 };
 
                 *statement = ast::Statement::VariableDeclaration(
@@ -465,7 +488,17 @@ where
             ast::Statement::ExportNamedDeclaration(
                 export_named_declaration,
             ) => match export_named_declaration.export_kind {
+                ast::ImportOrExportKind::Type => {
+                    *statement = ctx.ast.statement_empty(SPAN);
+                }
                 ast::ImportOrExportKind::Value => {
+                    if export_named_declaration.declaration.is_none()
+                        && export_named_declaration.specifiers.is_empty()
+                        && export_named_declaration.source.is_none()
+                    {
+                        *statement = ctx.ast.statement_empty(SPAN);
+                        return;
+                    }
                     if let Some(declaration) =
                         &mut export_named_declaration.declaration
                     {
@@ -542,6 +575,7 @@ where
                             | ast::Declaration::TSModuleDeclaration(_)
                             | ast::Declaration::TSGlobalDeclaration(_)
                             | ast::Declaration::TSImportEqualsDeclaration(_) => {
+                                *statement = ctx.ast.statement_empty(SPAN);
                             }
                         }
                     } else if export_named_declaration.source.is_none() {
@@ -551,7 +585,6 @@ where
                         );
                     }
                 }
-                ast::ImportOrExportKind::Type => {}
             },
             _ => {}
         }
@@ -605,6 +638,7 @@ fn commonjs_export_name<'a>(
 
 #[cfg(test)]
 mod tests {
+    use boa_engine::{JsValue, NativeFunction, Source};
     use insta::assert_snapshot;
 
     use super::*;
@@ -615,5 +649,206 @@ mod tests {
             .await
             .unwrap();
         assert_snapshot!(bundle);
+    }
+
+    async fn eval_module_with_logging(
+        entry_path: impl AsRef<Path>,
+    ) -> Result<Vec<String>> {
+        use crate::specification::{
+            module_loader::{load_modules, transpile},
+            result::SpecificationError,
+        };
+        use boa_engine::{
+            context::ContextBuilder, js_string, module::SimpleModuleLoader,
+            object::builtins::JsArray,
+        };
+        use std::rc::Rc;
+
+        let entry_path = entry_path.as_ref();
+
+        let loader = Rc::new(SimpleModuleLoader::new(".").map_err(|e| {
+            SpecificationError::JS(format!(
+                "Failed to create loader: {}",
+                e.to_string()
+            ))
+        })?);
+
+        let mut context = ContextBuilder::default()
+            .module_loader(loader.clone())
+            .build()
+            .map_err(|e| SpecificationError::JS(e.to_string()))?;
+
+        let logs_array = JsArray::new(&mut context);
+        context
+            .register_global_property(
+                js_string!("__logs"),
+                logs_array.clone(),
+                boa_engine::property::Attribute::all(),
+            )
+            .unwrap();
+
+        context
+            .register_global_builtin_callable(
+                js_string!("log"),
+                1,
+                NativeFunction::from_copy_closure(|_, args, context| {
+                    if let Some(arg) = args.first() {
+                        let logs = context
+                            .global_object()
+                            .get(js_string!("__logs"), context)?;
+                        if let Some(obj) = logs.as_object() {
+                            let len = obj
+                                .get(js_string!("length"), context)?
+                                .to_length(context)?;
+                            obj.set(len, arg.clone(), true, context)?;
+                        }
+                    }
+                    Ok(JsValue::undefined())
+                }),
+            )
+            .unwrap();
+
+        let source_text = tokio::fs::read_to_string(&entry_path).await?;
+        let source_type = SourceType::from_path(&entry_path)?;
+        let js_source = if source_type == SourceType::mjs() {
+            source_text
+        } else {
+            transpile(&source_text, &entry_path, &source_type)?
+        };
+
+        let source =
+            Source::from_reader(js_source.as_bytes(), Some(&entry_path));
+        let module = boa_engine::Module::parse(source, None, &mut context)
+            .map_err(|e| {
+                SpecificationError::JS(format!(
+                    "Failed to parse module: {}",
+                    e.to_string()
+                ))
+            })?;
+
+        load_modules(&mut context, &[module])?;
+
+        let logs_value = context
+            .global_object()
+            .get(js_string!("__logs"), &mut context)
+            .unwrap();
+        let logs_obj = logs_value.as_object().unwrap();
+        let len = logs_obj
+            .get(js_string!("length"), &mut context)
+            .unwrap()
+            .to_u32(&mut context)
+            .unwrap();
+
+        Ok((0..len)
+            .map(|i| {
+                logs_obj
+                    .get(i, &mut context)
+                    .unwrap()
+                    .to_string(&mut context)
+                    .unwrap()
+                    .to_std_string_escaped()
+            })
+            .collect())
+    }
+
+    async fn eval_script_with_logging(code: &str) -> Result<Vec<String>> {
+        use crate::specification::result::SpecificationError;
+        use boa_engine::{Context, js_string, object::builtins::JsArray};
+
+        let mut context = Context::default();
+
+        let logs_array = JsArray::new(&mut context);
+        context
+            .register_global_property(
+                js_string!("__logs"),
+                logs_array.clone(),
+                boa_engine::property::Attribute::all(),
+            )
+            .map_err(|e| {
+                SpecificationError::JS(format!(
+                    "Failed to register __logs: {}",
+                    e
+                ))
+            })?;
+
+        context
+            .register_global_builtin_callable(
+                js_string!("log"),
+                1,
+                NativeFunction::from_copy_closure(|_, args, context| {
+                    if let Some(arg) = args.first() {
+                        let logs = context
+                            .global_object()
+                            .get(js_string!("__logs"), context)?;
+                        if let Some(obj) = logs.as_object() {
+                            let len = obj
+                                .get(js_string!("length"), context)?
+                                .to_length(context)?;
+                            obj.set(len, arg.clone(), true, context)?;
+                        }
+                    }
+                    Ok(JsValue::undefined())
+                }),
+            )
+            .map_err(|e| {
+                SpecificationError::JS(format!("Failed to register log: {}", e))
+            })?;
+
+        context.eval(Source::from_bytes(code)).map_err(|e| {
+            SpecificationError::JS(format!("Eval failed: {}", e))
+        })?;
+
+        let logs_value = context
+            .global_object()
+            .get(js_string!("__logs"), &mut context)
+            .map_err(|e| {
+                SpecificationError::JS(format!("Failed to get logs: {}", e))
+            })?;
+        let logs_obj = logs_value.as_object().ok_or_else(|| {
+            SpecificationError::JS("__logs is not an object".to_string())
+        })?;
+        let len = logs_obj
+            .get(js_string!("length"), &mut context)
+            .map_err(|e| {
+                SpecificationError::JS(format!("Failed to get length: {}", e))
+            })?
+            .to_u32(&mut context)
+            .map_err(|e| {
+                SpecificationError::JS(format!(
+                    "Failed to convert length: {}",
+                    e
+                ))
+            })?;
+
+        Ok((0..len)
+            .map(|i| {
+                logs_obj
+                    .get(i, &mut context)
+                    .unwrap()
+                    .to_string(&mut context)
+                    .unwrap()
+                    .to_std_string_escaped()
+            })
+            .collect())
+    }
+
+    #[tokio::test]
+    async fn test_bundle_runtime() {
+        let base_path = "src/specification/bundler/fixtures/runtime";
+        let entry = "./a.ts";
+
+        let bundled_code = bundle(base_path, entry).await.unwrap();
+        let bundled_logs =
+            eval_script_with_logging(&bundled_code).await.unwrap();
+
+        let options = ResolveOptions::default();
+        let resolver = Resolver::new(options);
+        let entry_path =
+            resolver.resolve(base_path, entry).unwrap().full_path();
+
+        let unbundled_logs =
+            eval_module_with_logging(&entry_path).await.unwrap();
+
+        assert_eq!(bundled_logs, unbundled_logs);
     }
 }

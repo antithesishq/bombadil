@@ -23,7 +23,7 @@ expression: bundle
   }
 
   modules["src/specification/bundler/fixtures/index.ts"] = function(module, exports, require) {
-    const { x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
+    const { default: z, x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
     const { incr } = require("src/specification/bundler/fixtures/shared.ts");
     const y = incr(x + z + bar.bar);
     Object.assign(module.exports, require("src/specification/bundler/fixtures/other.ts"));
