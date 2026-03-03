@@ -78,6 +78,28 @@ Heavy use of Tokio: async/await, broadcast channels for events, oneshot for sync
 - Rust: 80-char max width, 4-space indentation, no hard tabs (`.rustfmt.toml`)
 - TypeScript/JS: formatted with biome (available in dev shell)
 
+## Comments
+
+Do NOT add verbose comments that restate what the code does. Only add comments where:
+- The logic is genuinely non-obvious or has a subtle reason
+- You need to explain "why" something is done, not "what" is being done
+- There's a workaround for a library limitation or bug
+
+Bad (don't do this):
+```rust
+// Create a require call
+let require_call = ctx.ast.expression_call(...);
+
+// Get module.exports
+let module_exports = ctx.ast.member_expression_static(...);
+```
+
+Good (acceptable):
+```rust
+// Use Object.assign instead of for-in loop to avoid stack overflow in oxc traverse
+let object_assign_call = ...;
+```
+
 ## Testing
 
 Integration tests are in `tests/`. Each test scenario has an HTML fixture directory (e.g., `tests/links/`, `tests/console-error/`). Tests spawn local web servers (axum) and run Bombadil against them. Snapshot tests use `insta`. Property tests use `proptest`.
