@@ -2,34 +2,58 @@
 source: src/specification/bundler/mod.rs
 expression: bundle
 ---
-// src/specification/bundler/fixtures/index.ts 
-const { x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
-const { incr } = require("src/specification/bundler/fixtures/shared.ts");
-const y = incr(x + z + bar.bar);
-Object.assign(module.exports, require("src/specification/bundler/fixtures/other.ts"));
-module.exports.y = y;
+(function() {
+  const modules = {};
+  const cache = {};
 
+  function require(path) {
+    if (cache[path]) {
+      return cache[path].exports;
+    }
 
-// src/specification/bundler/fixtures/other.ts 
-const { incr } = require("src/specification/bundler/fixtures/shared.ts");
-const x = 10;
-module.exports.default = incr(20);
-const foo = { bar: 30 };
-const { x: y } = { x: 123 };
-const [z = 0] = [1];
-const [{ a: b = 1 }] = [{}];
-module.exports.x = x;
-module.exports.foo = foo;
-module.exports.y = y;
-module.exports.z = z;
-module.exports.b = b;
+    const module = { exports: {} };
+    cache[path] = module;
 
+    if (!modules[path]) {
+      throw new Error("Module not found: " + path);
+    }
 
-// src/specification/bundler/fixtures/shared.ts 
-const { x } = require("src/specification/bundler/fixtures/other.ts");
-function incr(x) {
-	return x + 1;
-}
-const cyclic = x + 10;
-module.exports.incr = incr;
-module.exports.cyclic = cyclic;
+    modules[path](module, module.exports, require);
+    return module.exports;
+  }
+
+  modules["src/specification/bundler/fixtures/index.ts"] = function(module, exports, require) {
+    const { x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
+    const { incr } = require("src/specification/bundler/fixtures/shared.ts");
+    const y = incr(x + z + bar.bar);
+    Object.assign(module.exports, require("src/specification/bundler/fixtures/other.ts"));
+    module.exports.y = y;
+  };
+
+  modules["src/specification/bundler/fixtures/other.ts"] = function(module, exports, require) {
+    const { incr } = require("src/specification/bundler/fixtures/shared.ts");
+    const x = 10;
+    module.exports.default = incr(20);
+    const foo = { bar: 30 };
+    const { x: y } = { x: 123 };
+    const [z = 0] = [1];
+    const [{ a: b = 1 }] = [{}];
+    module.exports.x = x;
+    module.exports.foo = foo;
+    module.exports.y = y;
+    module.exports.z = z;
+    module.exports.b = b;
+  };
+
+  modules["src/specification/bundler/fixtures/shared.ts"] = function(module, exports, require) {
+    const { x } = require("src/specification/bundler/fixtures/other.ts");
+    function incr(x) {
+    	return x + 1;
+    }
+    const cyclic = x + 10;
+    module.exports.incr = incr;
+    module.exports.cyclic = cyclic;
+  };
+
+  require("src/specification/bundler/fixtures/index.ts");
+})();

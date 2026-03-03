@@ -168,13 +168,50 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         paths_processed.insert(canonical);
     }
 
-    let code: String = modules
-        .iter()
-        .map(|module| format!("// {} \n{}\n", module.path, module.code))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut bundle = String::from(
+        r#"(function() {
+  const modules = {};
+  const cache = {};
 
-    Ok(code)
+  function require(path) {
+    if (cache[path]) {
+      return cache[path].exports;
+    }
+
+    const module = { exports: {} };
+    cache[path] = module;
+
+    if (!modules[path]) {
+      throw new Error("Module not found: " + path);
+    }
+
+    modules[path](module, module.exports, require);
+    return module.exports;
+  }
+
+"#,
+    );
+
+    for module in &modules {
+        bundle.push_str(&format!(
+            "  modules[{:?}] = function(module, exports, require) {{\n",
+            module.path.to_string()
+        ));
+        for line in module.code.lines() {
+            bundle.push_str("    ");
+            bundle.push_str(line);
+            bundle.push('\n');
+        }
+        bundle.push_str("  };\n\n");
+    }
+
+    if let Some(entry) = modules.first() {
+        bundle.push_str(&format!("  require({:?});\n", entry.path.to_string()));
+    }
+
+    bundle.push_str("})();\n");
+
+    Ok(bundle)
 }
 
 /// Rewrites a single module from ESM to CommonJS style, making it suitable for
