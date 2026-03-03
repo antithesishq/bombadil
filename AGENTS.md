@@ -78,6 +78,18 @@ Heavy use of Tokio: async/await, broadcast channels for events, oneshot for sync
 - Rust: 80-char max width, 4-space indentation, no hard tabs (`.rustfmt.toml`)
 - TypeScript/JS: formatted with biome (available in dev shell)
 
+## Naming Conventions
+
+Use clear, descriptive names without needless abbreviations:
+- `statement` not `stmt`
+- `expression` not `expr`
+- `string` not `str` (except for the Rust type `&str`)
+- `declaration` not `decl`
+- `specifier` not `spec`
+- `identifier` not `ident`
+
+Exception: `ctx` is acceptable for `TraverseCtx` parameters since it's used pervasively in oxc traversal code.
+
 ## Comments
 
 Do NOT add verbose comments that restate what the code does. Only add comments where:
