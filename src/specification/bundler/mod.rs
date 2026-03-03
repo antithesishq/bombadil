@@ -289,6 +289,8 @@ where
                 let specifiers = match &import_declaration.specifiers {
                     Some(s) => s,
                     None => {
+                        *statement =
+                            ctx.ast.statement_expression(SPAN, require_call);
                         return;
                     }
                 };
@@ -326,7 +328,7 @@ where
                                             )
                                         );
                                     },
-                                    ast::ImportOrExportKind::Type => return,
+                                    ast::ImportOrExportKind::Type => continue,
                                 }
                             },
                             ast::ImportDeclarationSpecifier::ImportDefaultSpecifier(import_default_specifier) => {
@@ -344,6 +346,11 @@ where
                                 unreachable!("handled above");
                             },
                         }
+                    }
+                    if properties.is_empty() {
+                        *statement =
+                            ctx.ast.statement_expression(SPAN, require_call);
+                        return;
                     }
                     ctx.ast.binding_pattern_object_pattern(
                         SPAN,
@@ -579,10 +586,41 @@ where
                             }
                         }
                     } else if export_named_declaration.source.is_none() {
-                        panic!(
-                            "unsupported export: {:?}",
-                            export_named_declaration
-                        );
+                        for export_specifier in
+                            &export_named_declaration.specifiers
+                        {
+                            let local_name = export_specifier.local.name();
+                            let exported_name =
+                                export_specifier.exported.name();
+
+                            let module_exports =
+                                ctx.ast.member_expression_static(
+                                    SPAN,
+                                    ctx.ast
+                                        .expression_identifier(SPAN, "module"),
+                                    ctx.ast.identifier_name(SPAN, "exports"),
+                                    false,
+                                );
+
+                            let member_expr = ctx.ast.member_expression_static(
+                                SPAN,
+                                module_exports.into(),
+                                ctx.ast.identifier_name(SPAN, exported_name),
+                                false,
+                            );
+
+                            let assignment = ctx.ast.expression_assignment(
+                                SPAN,
+                                ast::AssignmentOperator::Assign,
+                                member_expr.into(),
+                                ctx.ast.expression_identifier(SPAN, local_name),
+                            );
+
+                            let export_statement =
+                                ctx.ast.statement_expression(SPAN, assignment);
+                            ctx.state.export_statements.push(export_statement);
+                        }
+                        *statement = ctx.ast.statement_empty(SPAN);
                     }
                 }
             },
