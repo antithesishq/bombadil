@@ -22,16 +22,16 @@ expression: bundle
     return module.exports;
   }
 
-  modules["src/specification/bundler/fixtures/index.ts"] = function(module, exports, require) {
-    const { default: z, x, foo: bar } = require("src/specification/bundler/fixtures/other.ts");
-    const { incr } = require("src/specification/bundler/fixtures/shared.ts");
+  modules["src/specification/bundler/fixtures/snapshot/index.ts"] = function(module, exports, require) {
+    const { default: z, x, foo: bar } = require("src/specification/bundler/fixtures/snapshot/other.ts");
+    const { incr } = require("src/specification/bundler/fixtures/snapshot/shared.ts");
     const y = incr(x + z + bar.bar);
-    Object.assign(module.exports, require("src/specification/bundler/fixtures/other.ts"));
+    Object.assign(module.exports, require("src/specification/bundler/fixtures/snapshot/other.ts"));
     module.exports.y = y;
   };
 
-  modules["src/specification/bundler/fixtures/other.ts"] = function(module, exports, require) {
-    const { incr } = require("src/specification/bundler/fixtures/shared.ts");
+  modules["src/specification/bundler/fixtures/snapshot/other.ts"] = function(module, exports, require) {
+    const { incr } = require("src/specification/bundler/fixtures/snapshot/shared.ts");
     const x = 10;
     module.exports.default = incr(20);
     const foo = { bar: 30 };
@@ -45,8 +45,8 @@ expression: bundle
     module.exports.b = b;
   };
 
-  modules["src/specification/bundler/fixtures/shared.ts"] = function(module, exports, require) {
-    const { x } = require("src/specification/bundler/fixtures/other.ts");
+  modules["src/specification/bundler/fixtures/snapshot/shared.ts"] = function(module, exports, require) {
+    const { x } = require("src/specification/bundler/fixtures/snapshot/other.ts");
     function incr(x) {
     	return x + 1;
     }
@@ -55,5 +55,5 @@ expression: bundle
     module.exports.cyclic = cyclic;
   };
 
-  require("src/specification/bundler/fixtures/index.ts");
+  require("src/specification/bundler/fixtures/snapshot/index.ts");
 })();

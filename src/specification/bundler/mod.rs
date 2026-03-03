@@ -683,9 +683,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_bundle() {
-        let bundle = bundle("src/specification/bundler/fixtures", "./index.ts")
-            .await
-            .unwrap();
+        let bundle =
+            bundle("src/specification/bundler/fixtures/snapshot", "./index.ts")
+                .await
+                .unwrap();
         assert_snapshot!(bundle);
     }
 
