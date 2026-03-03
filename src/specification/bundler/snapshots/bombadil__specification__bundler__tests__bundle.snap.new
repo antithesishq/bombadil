@@ -1,25 +1,36 @@
 ---
 source: src/specification/bundler/mod.rs
-assertion_line: 304
+assertion_line: 429
 expression: bundle
 ---
 // src/specification/bundler/fixtures/index.ts 
 const { x, foo: bar } = require("./other.ts");
 const { incr } = require("./shared.ts");
 export { x } from "./other.ts";
-export const y = incr(x + z + bar.bar);
+const y = incr(x + z + bar.bar);
+module.exports.y = y;
 
 
 // src/specification/bundler/fixtures/other.ts 
 const { incr } = require("./shared.ts");
-export const x = 10;
+const x = 10;
 export default incr(20);
-export const foo = { bar: 30 };
+const foo = { bar: 30 };
+const { x: y } = { x: 123 };
+const [z = 0] = [1];
+const [{ a: b = 1 }] = [{}];
+module.exports.x = x;
+module.exports.foo = foo;
+module.exports.y = y;
+module.exports.z = z;
+module.exports.b = b;
 
 
 // src/specification/bundler/fixtures/shared.ts 
 const { x } = require("./other.ts");
-export function incr(x) {
+function incr(x) {
 	return x + 1;
 }
-export const cyclic = x + 10;
+const cyclic = x + 10;
+module.exports.incr = incr;
+module.exports.cyclic = cyclic;

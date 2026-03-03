@@ -103,16 +103,20 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let scopes = semantic.semantic.into_scoping();
 
         let mut rewriter = Rewriter::default();
-        let mut imports = BTreeSet::new();
+        let mut state = RewriterState {
+            imports: BTreeSet::new(),
+            export_statements: oxc::allocator::Vec::new_in(&allocator),
+        };
         traverse_mut(
             &mut rewriter,
             &allocator,
             &mut program,
             scopes,
-            &mut imports,
+            &mut state,
         );
+        program.body.append(&mut state.export_statements);
 
-        for import in imports {
+        for import in state.imports {
             let import_canonical = CanonicalPath {
                 path: resolver.resolve(path, import)?.full_path(),
             };
@@ -164,21 +168,29 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     Ok(code)
 }
 
-/// Rewrites a single module from ESM to CommonJS style, making it suitable for inclusion in the
-/// bundle. Tracks what imports were made.
+/// Rewrites a single module from ESM to CommonJS style, making it suitable for
+/// inclusion in the bundle. Tracks what imports were made.
 #[derive(Default)]
 struct Rewriter {}
 
-impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
+struct RewriterState<'a> {
+    imports: BTreeSet<&'a str>,
+    export_statements: oxc::allocator::Vec<'a, ast::Statement<'a>>,
+}
+
+impl<'a, 'b> Traverse<'a, &'b mut RewriterState<'a>> for Rewriter
+where
+    'a: 'b,
+{
     fn enter_statement(
         &mut self,
         statement: &mut ast::Statement<'a>,
-        ctx: &mut TraverseCtx<'a, &mut BTreeSet<&'a str>>,
+        ctx: &mut TraverseCtx<'a, &'b mut RewriterState<'a>>,
     ) {
         match statement {
             ast::Statement::ImportDeclaration(import_declaration) => {
                 let source_specifier = import_declaration.source.value.as_str();
-                ctx.state.insert(source_specifier);
+                ctx.state.imports.insert(source_specifier);
 
                 let require_call = ctx.ast.expression_call(
                     SPAN,
@@ -266,11 +278,13 @@ impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
                 );
             }
             ast::Statement::ExportAllDeclaration(export_all_declaration) => {
+                // TODO: export the require() result
                 eprintln!("{:?}", export_all_declaration);
             }
             ast::Statement::ExportDefaultDeclaration(
                 export_default_declaration,
             ) => {
+                // TODO: module.exports.default = ...
                 eprintln!("{:?}", export_default_declaration);
             }
             ast::Statement::ExportNamedDeclaration(
@@ -278,8 +292,83 @@ impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
             ) => match export_named_declaration.export_kind {
                 ast::ImportOrExportKind::Value => {
                     if let Some(declaration) =
-                        &export_named_declaration.declaration
+                        &mut export_named_declaration.declaration
                     {
+                        match declaration {
+                            ast::Declaration::VariableDeclaration(
+                                variable_declaration,
+                            ) => {
+                                for declarator in
+                                    &variable_declaration.declarations
+                                {
+                                    let mut queue = VecDeque::new();
+                                    queue.push_front(&declarator.id);
+
+                                    while let Some(id) = queue.pop_front() {
+                                        match id {
+                                                ast::BindingPattern::BindingIdentifier(binding_identifier) => {
+                                                    let export_statement = commonjs_export_name(binding_identifier.name, ctx);
+                                                    ctx.state.export_statements.push(export_statement);
+                                                },
+                                                ast::BindingPattern::ObjectPattern(object_pattern) => {
+                                                    for property in &object_pattern.properties {
+                                                        queue.push_back(&property.value);
+                                                    }
+                                                },
+                                                ast::BindingPattern::ArrayPattern(array_pattern) => {
+                                                    for pattern in (&array_pattern.elements).into_iter().flatten() {
+                                                        queue.push_back(pattern);
+                                                    }
+                                                },
+                                                ast::BindingPattern::AssignmentPattern(assignment_pattern) => {
+                                                    queue.push_back(&assignment_pattern.left)
+                                                },
+                                            }
+                                    }
+                                }
+                                *statement =
+                                    ast::Statement::VariableDeclaration(
+                                        variable_declaration
+                                            .take_in_box(ctx.ast.allocator),
+                                    );
+                            }
+                            ast::Declaration::FunctionDeclaration(function) => {
+                                let export_statement = commonjs_export_name(
+                                    function.name().expect(
+                                        "cannot export function without a name",
+                                    ),
+                                    ctx,
+                                );
+                                ctx.state
+                                    .export_statements
+                                    .push(export_statement);
+                                *statement =
+                                    ast::Statement::FunctionDeclaration(
+                                        function.take_in_box(ctx.ast.allocator),
+                                    );
+                            }
+                            ast::Declaration::ClassDeclaration(class) => {
+                                let export_statement = commonjs_export_name(
+                                    class.name().expect(
+                                        "cannot export class without a name",
+                                    ),
+                                    ctx,
+                                );
+                                ctx.state
+                                    .export_statements
+                                    .push(export_statement);
+                                *statement = ast::Statement::ClassDeclaration(
+                                    class.take_in_box(ctx.ast.allocator),
+                                );
+                            }
+                            ast::Declaration::TSTypeAliasDeclaration(_)
+                            | ast::Declaration::TSInterfaceDeclaration(_)
+                            | ast::Declaration::TSEnumDeclaration(_)
+                            | ast::Declaration::TSModuleDeclaration(_)
+                            | ast::Declaration::TSGlobalDeclaration(_)
+                            | ast::Declaration::TSImportEqualsDeclaration(_) => {
+                            }
+                        }
                     } else if let Some(source) =
                         &export_named_declaration.source
                     {
@@ -296,6 +385,34 @@ impl<'a> Traverse<'a, &mut BTreeSet<&'a str>> for Rewriter {
             _ => {}
         }
     }
+}
+
+fn commonjs_export_name<'a>(
+    name: oxc::span::Ident<'a>,
+    ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
+) -> ast::Statement<'a> {
+    let module_exports = ctx.ast.member_expression_static(
+        SPAN,
+        ctx.ast.expression_identifier(SPAN, "module"),
+        ctx.ast.identifier_name(SPAN, "exports"),
+        false,
+    );
+
+    let member_expr = ctx.ast.member_expression_static(
+        SPAN,
+        module_exports.into(),
+        ctx.ast.identifier_name(SPAN, name),
+        false,
+    );
+
+    let assignment = ctx.ast.expression_assignment(
+        SPAN,
+        ast::AssignmentOperator::Assign,
+        member_expr.into(),
+        ctx.ast.expression_identifier(SPAN, name),
+    );
+
+    ctx.ast.statement_expression(SPAN, assignment)
 }
 
 #[cfg(test)]
