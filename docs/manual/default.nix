@@ -83,7 +83,6 @@ stdenvNoCC.mkDerivation {
     cp target/bombadil-manual.pdf $out/
     cp target/bombadil-manual.epub $out/
     cp target/bombadil-manual.txt $out/
-    cp target/bombadil-manual.txt $out/llms.txt
     cp target/bombadil.1 $out/
     runHook postInstall
   '';
