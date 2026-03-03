@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
+use include_dir::{Dir, include_dir};
 use oxc::{
     allocator::{Allocator, TakeIn},
     ast::{NONE, ast},
@@ -14,10 +15,12 @@ use oxc::{
     span::{SPAN, SourceType},
     transformer::{TransformOptions, Transformer},
 };
-use oxc_resolver::{ResolveOptions, Resolver};
+use oxc_resolver::{FileSystem, FileSystemOs, ResolveOptions, ResolverGeneric};
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
+static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
+
+#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
 pub struct CanonicalPath {
     path: PathBuf,
 }
@@ -31,6 +34,124 @@ impl Display for CanonicalPath {
 pub struct Module {
     path: CanonicalPath,
     code: String,
+}
+
+type Resolver = ResolverGeneric<HybridFileSystem>;
+
+struct HybridFileSystem {
+    filesystem_os: FileSystemOs,
+}
+
+enum HybridFileSystemPath<'a> {
+    Builtin(PathBuf),
+    Passthrough(&'a Path),
+}
+
+impl HybridFileSystem {
+    fn classify_path<'a>(&self, path: &'a Path) -> HybridFileSystemPath<'a> {
+        eprintln!("classifying {:?}", path);
+        if let Ok(relative) = path.strip_prefix("@antithesishq/bombadil") {
+            if relative == "" {
+                HybridFileSystemPath::Builtin(PathBuf::from("index.js"))
+            } else {
+                HybridFileSystemPath::Builtin(
+                    relative.with_added_extension("js"),
+                )
+            }
+        } else {
+            HybridFileSystemPath::Passthrough(path)
+        }
+    }
+}
+
+impl FileSystem for HybridFileSystem {
+    fn new() -> Self {
+        HybridFileSystem {
+            filesystem_os: FileSystemOs::new(),
+        }
+    }
+
+    fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
+        match self.classify_path(path) {
+            HybridFileSystemPath::Builtin(path) => {
+                let file =
+                    JS_DIR.get_file(&path).ok_or(std::io::Error::other(
+                        anyhow!("embedded file not found: {}", &path.display()),
+                    ))?;
+                Ok(file.contents().to_vec())
+            }
+            HybridFileSystemPath::Passthrough(path) => {
+                self.filesystem_os.read(path)
+            }
+        }
+    }
+
+    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
+        String::from_utf8(self.read(path)?).map_err(std::io::Error::other)
+    }
+
+    fn metadata(
+        &self,
+        path: &Path,
+    ) -> std::io::Result<oxc_resolver::FileMetadata> {
+        match self.classify_path(path) {
+            HybridFileSystemPath::Builtin(path) => {
+                let entry =
+                    JS_DIR.get_entry(&path).ok_or(std::io::Error::other(
+                        anyhow!("embedded file not found: {}", &path.display()),
+                    ))?;
+                match entry {
+                    include_dir::DirEntry::Dir(_dir) => {
+                        Ok(oxc_resolver::FileMetadata::new(false, true, false))
+                    }
+                    include_dir::DirEntry::File(_file) => {
+                        Ok(oxc_resolver::FileMetadata::new(true, false, false))
+                    }
+                }
+            }
+            HybridFileSystemPath::Passthrough(path) => {
+                self.filesystem_os.metadata(path)
+            }
+        }
+    }
+
+    fn symlink_metadata(
+        &self,
+        path: &Path,
+    ) -> std::io::Result<oxc_resolver::FileMetadata> {
+        match self.classify_path(path) {
+            HybridFileSystemPath::Builtin(path) => {
+                panic!(
+                    "symlinks not supported in embedded file system, but requested symlink metadata for {}",
+                    path.display()
+                );
+            }
+            HybridFileSystemPath::Passthrough(path) => {
+                self.filesystem_os.metadata(path)
+            }
+        }
+    }
+
+    fn read_link(
+        &self,
+        path: &Path,
+    ) -> std::result::Result<PathBuf, oxc_resolver::ResolveError> {
+        match self.classify_path(path) {
+            HybridFileSystemPath::Builtin(path) => {
+                panic!(
+                    "symlinks not supported in embedded file system, but requested read_link called on {}",
+                    path.display()
+                );
+            }
+            HybridFileSystemPath::Passthrough(path) => {
+                self.filesystem_os.read_link(path)
+            }
+        }
+    }
+
+    fn canonicalize(&self, path: &Path) -> std::io::Result<PathBuf> {
+        self.filesystem_os.canonicalize(path)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +182,8 @@ impl Display for BundlerError {
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path: &Path = path.as_ref();
     let options = ResolveOptions::default();
-    let resolver = Resolver::new(options);
+    let resolver =
+        ResolverGeneric::new_with_file_system(HybridFileSystem::new(), options);
     let allocator = Allocator::default();
 
     let mut modules = vec![];
@@ -73,9 +195,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     });
 
     while let Some(canonical) = queue.pop_front() {
-        eprintln!("processing {:?}", &canonical.path);
         if paths_processed.contains(&canonical) {
-            eprintln!("already processed, skipping {:?}", &canonical.path);
             continue;
         }
 
@@ -158,7 +278,6 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             Transformer::new(&allocator, &canonical.path, &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
-        eprintln!("done processing {:?}", &canonical.path);
         let codegen = Codegen::new().build(&program);
         modules.push(Module {
             path: canonical.clone(),
@@ -706,10 +825,7 @@ mod tests {
         let entry_path = entry_path.as_ref();
 
         let loader = Rc::new(SimpleModuleLoader::new(".").map_err(|e| {
-            SpecificationError::JS(format!(
-                "Failed to create loader: {}",
-                e.to_string()
-            ))
+            SpecificationError::JS(format!("Failed to create loader: {}", e))
         })?);
 
         let mut context = ContextBuilder::default()
@@ -748,21 +864,18 @@ mod tests {
             .unwrap();
 
         let source_text = tokio::fs::read_to_string(&entry_path).await?;
-        let source_type = SourceType::from_path(&entry_path)?;
+        let source_type = SourceType::from_path(entry_path)?;
         let js_source = if source_type == SourceType::mjs() {
             source_text
         } else {
-            transpile(&source_text, &entry_path, &source_type)?
+            transpile(&source_text, entry_path, &source_type)?
         };
 
         let source =
-            Source::from_reader(js_source.as_bytes(), Some(&entry_path));
+            Source::from_reader(js_source.as_bytes(), Some(entry_path));
         let module = boa_engine::Module::parse(source, None, &mut context)
             .map_err(|e| {
-                SpecificationError::JS(format!(
-                    "Failed to parse module: {}",
-                    e.to_string()
-                ))
+                SpecificationError::JS(format!("Failed to parse module: {}", e))
             })?;
 
         load_modules(&mut context, &[module])?;

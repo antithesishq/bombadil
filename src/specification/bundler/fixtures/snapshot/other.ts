@@ -1,4 +1,5 @@
 import { incr } from "./shared.ts";
+import * as bombadil from "@antithesishq/bombadil";
 
 export const x = 10;
 export default incr(20);
