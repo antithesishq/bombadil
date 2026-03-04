@@ -1,10 +1,9 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::{path::Path, rc::Rc};
 
-use crate::specification::result::{Result, SpecificationError};
+use crate::specification::{
+    resolver::{ModuleKey, Resolver},
+    result::{Result, SpecificationError},
+};
 use boa_engine::{
     Context, JsError, JsResult, JsString, Module, Source,
     module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
@@ -16,10 +15,12 @@ use oxc::{
     transformer::{TransformOptions, Transformer},
 };
 use oxc::{codegen::Codegen, semantic::SemanticBuilder};
+use oxc_resolver::ResolveOptions;
 
 static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
 pub struct HybridModuleLoader {
+    resolver: Resolver,
     map_loader: Rc<MapModuleLoader>,
     file_loader: Rc<SimpleModuleLoader>,
 }
@@ -27,6 +28,7 @@ pub struct HybridModuleLoader {
 impl HybridModuleLoader {
     pub fn new() -> Result<Self> {
         Ok(HybridModuleLoader {
+            resolver: Resolver::new(ResolveOptions::default()),
             map_loader: Rc::new(MapModuleLoader::new()),
             file_loader: Rc::new(SimpleModuleLoader::new(".")?),
         })
@@ -45,17 +47,21 @@ impl HybridModuleLoader {
         &self,
         referrer: &Referrer,
         specifier: &JsString,
-    ) -> JsResult<PathBuf> {
+    ) -> JsResult<ModuleKey> {
         let referrer_path = referrer.path().ok_or(JsError::from_rust(
             SpecificationError::OtherError(format!(
                 "import {:?} failed, referrer has no path: {:?}",
                 specifier, referrer
             )),
         ))?;
-        Ok(referrer_path
-            .parent()
-            .expect("referrer path has no parent directory")
-            .join(specifier.to_std_string_lossy()))
+        self.resolver
+            .resolve(
+                referrer_path
+                    .parent()
+                    .expect("referrer path has no parent directory"),
+                &specifier.to_std_string_lossy(),
+            )
+            .map_err(JsError::from_rust)
     }
 }
 
@@ -87,17 +93,16 @@ impl ModuleLoader for HybridModuleLoader {
                 }
 
                 // Otherwise we transpile to JS and load that in-memory.
-                let path = self.resolve_path(&referrer, &specifier)?;
+                let key = self.resolve_path(&referrer, &specifier)?;
                 let ts_source =
-                    fs::read_to_string(&path).map_err(JsError::from_rust)?;
+                    key.source_text().await.map_err(JsError::from_rust)?;
 
-                let js_source =
-                    transpile(&ts_source, path.as_path(), &source_type)
-                        .map_err(JsError::from_rust)?;
+                let js_source = transpile(&ts_source, key.path(), &source_type)
+                    .map_err(JsError::from_rust)?;
 
                 let context = &mut context.borrow_mut();
                 let source =
-                    Source::from_reader(js_source.as_bytes(), Some(&path));
+                    Source::from_reader(js_source.as_bytes(), Some(key.path()));
                 Module::parse(source, None, context)
             }
         }

@@ -1,8 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::{
+    error::Error,
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{Result, anyhow};
 use include_dir::{Dir, include_dir};
-use oxc_resolver::ResolveOptions;
+use oxc_resolver::{ResolveError, ResolveOptions};
 
 static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
@@ -10,6 +13,43 @@ static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 pub enum ModuleKey {
     Embedded { specifier: String, path: PathBuf },
     OnDisk { specifier: String, path: PathBuf },
+}
+
+#[derive(Debug)]
+pub enum ResolutionError {
+    EmbeddedFileNotFound { path: PathBuf },
+    InvalidUtf8 { path: PathBuf },
+    ResolveError(ResolveError),
+    IoError(std::io::Error),
+}
+
+impl Display for ResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResolutionError::EmbeddedFileNotFound { path } => {
+                write!(f, "embedded file not found: {}", path.display())
+            }
+            ResolutionError::InvalidUtf8 { path } => {
+                write!(f, "invalid utf8 in file: {}", path.display())
+            }
+            ResolutionError::ResolveError(error) => error.fmt(f),
+            ResolutionError::IoError(error) => error.fmt(f),
+        }
+    }
+}
+
+impl Error for ResolutionError {}
+
+impl From<ResolveError> for ResolutionError {
+    fn from(value: ResolveError) -> Self {
+        Self::ResolveError(value)
+    }
+}
+
+impl From<std::io::Error> for ResolutionError {
+    fn from(value: std::io::Error) -> Self {
+        Self::IoError(value)
+    }
 }
 
 impl ModuleKey {
@@ -25,19 +65,15 @@ impl ModuleKey {
             ModuleKey::OnDisk { path, .. } => path,
         }
     }
-    pub async fn source_text(&self) -> Result<String> {
+    pub async fn source_text(&self) -> Result<String, ResolutionError> {
         Ok(match self {
             ModuleKey::Embedded { path, .. } => JS_DIR
                 .get_file(path)
-                .ok_or(anyhow!(
-                    "embedded module at {} cannot be resolved",
-                    &path.display()
-                ))?
+                .ok_or(ResolutionError::EmbeddedFileNotFound {
+                    path: path.clone(),
+                })?
                 .contents_utf8()
-                .ok_or(anyhow!(
-                    "embedded module is not valid utf8: {}",
-                    path.display()
-                ))?
+                .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
                 .to_string(),
             ModuleKey::OnDisk { path, .. } => {
                 tokio::fs::read_to_string(&path).await?
@@ -61,7 +97,7 @@ impl Resolver {
         &self,
         path: impl AsRef<Path>,
         specifier: &str,
-    ) -> Result<ModuleKey> {
+    ) -> Result<ModuleKey, ResolutionError> {
         if let Ok(relative) =
             PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
         {
@@ -85,10 +121,7 @@ impl Resolver {
             Ok(ModuleKey::OnDisk {
                 specifier: path
                     .to_str()
-                    .ok_or(anyhow!(
-                        "resolved path is not valid utf8: {}",
-                        path.display()
-                    ))?
+                    .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
                     .to_string(),
                 path,
             })

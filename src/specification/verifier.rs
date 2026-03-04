@@ -866,8 +866,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_load_ts_file() {
+    #[tokio::test]
+    async fn test_load_ts_file() {
         let mut imported_file =
             tempfile::NamedTempFile::with_suffix(".ts").unwrap();
         imported_file
