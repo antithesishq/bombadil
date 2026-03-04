@@ -24,14 +24,14 @@ expression: bundle
 
   modules["src/specification/bundler/fixtures/snapshot/index.ts"] = function(module, exports, require) {
     const { default: z, x, foo: bar } = require("src/specification/bundler/fixtures/snapshot/other.ts");
-    const { incr } = require("src/specification/bundler/fixtures/snapshot/shared.ts");
+    const { incr } = require("src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts");
     const y = incr(x + z + bar.bar);
     Object.assign(module.exports, require("src/specification/bundler/fixtures/snapshot/other.ts"));
     module.exports.y = y;
   };
 
   modules["src/specification/bundler/fixtures/snapshot/other.ts"] = function(module, exports, require) {
-    const { incr } = require("src/specification/bundler/fixtures/snapshot/shared.ts");
+    const { incr } = require("src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts");
     require("@antithesishq/bombadil");
     const x = 10;
     module.exports.default = incr(20);
@@ -46,7 +46,7 @@ expression: bundle
     module.exports.b = b;
   };
 
-  modules["src/specification/bundler/fixtures/snapshot/shared.ts"] = function(module, exports, require) {
+  modules["src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts"] = function(module, exports, require) {
     const { x } = require("src/specification/bundler/fixtures/snapshot/other.ts");
     function incr(x) {
     	return x + 1;

@@ -181,8 +181,8 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             imports: BTreeSet::new(),
             export_statements: oxc::allocator::Vec::new_in(&allocator),
             resolver: &resolver,
-            base_path: path,
             resolution_errors: Vec::new(),
+            key: key.clone(),
         };
         traverse_mut(
             &mut rewriter,
@@ -304,7 +304,7 @@ struct RewriterState<'a> {
     imports: BTreeSet<ModuleKey>,
     export_statements: oxc::allocator::Vec<'a, ast::Statement<'a>>,
     resolver: &'a Resolver,
-    base_path: &'a Path,
+    key: ModuleKey,
     resolution_errors: Vec<String>,
 }
 
@@ -689,11 +689,14 @@ fn resolve_import<'a>(
     source_specifier: &str,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
 ) -> Option<ModuleKey> {
-    match ctx
-        .state
-        .resolver
-        .resolve(ctx.state.base_path, source_specifier)
-    {
+    match ctx.state.resolver.resolve(
+        ctx.state
+            .key
+            .path()
+            .parent()
+            .expect("no parent to resolve from"),
+        source_specifier,
+    ) {
         Ok(key) => Some(key),
         Err(e) => {
             ctx.state

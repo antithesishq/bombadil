@@ -1,4 +1,4 @@
-import { incr } from "./shared.ts";
+import { incr } from "./subdirectory/shared.ts";
 import "@antithesishq/bombadil";
 
 export const x = 10;
