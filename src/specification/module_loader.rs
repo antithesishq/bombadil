@@ -6,7 +6,7 @@ use crate::specification::{
 };
 use boa_engine::{
     Context, JsError, JsResult, JsString, Module, Source,
-    module::{MapModuleLoader, ModuleLoader, Referrer, SimpleModuleLoader},
+    module::{MapModuleLoader, ModuleLoader, Referrer},
 };
 use include_dir::{Dir, include_dir};
 use oxc::{
@@ -22,7 +22,6 @@ static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 pub struct HybridModuleLoader {
     resolver: Resolver,
     map_loader: Rc<MapModuleLoader>,
-    file_loader: Rc<SimpleModuleLoader>,
 }
 
 impl HybridModuleLoader {
@@ -30,17 +29,11 @@ impl HybridModuleLoader {
         Ok(HybridModuleLoader {
             resolver: Resolver::new(ResolveOptions::default()),
             map_loader: Rc::new(MapModuleLoader::new()),
-            file_loader: Rc::new(SimpleModuleLoader::new(".")?),
         })
     }
 
     pub fn insert_mapped_module(&self, path: impl AsRef<str>, module: Module) {
         self.map_loader.insert(path, module);
-    }
-
-    fn specifier_source_type(&self, spec: &JsString) -> JsResult<SourceType> {
-        let s = spec.to_std_string_escaped();
-        SourceType::from_path(s).map_err(JsError::from_rust)
     }
 
     fn resolve_path(
@@ -81,28 +74,26 @@ impl ModuleLoader for HybridModuleLoader {
         {
             Ok(module) => Ok(module),
             Err(_) => {
-                let source_type = self.specifier_source_type(&specifier)?;
-                // If it looks like JS, use the regular file loader.
-                if [SourceType::cjs(), SourceType::mjs()].contains(&source_type)
-                {
-                    return self
-                        .file_loader
-                        .clone()
-                        .load_imported_module(referrer, specifier, context)
-                        .await;
-                }
-
-                // Otherwise we transpile to JS and load that in-memory.
                 let key = self.resolve_path(&referrer, &specifier)?;
-                let ts_source =
+                let source_type = SourceType::from_path(key.specifier())
+                    .map_err(JsError::from_rust)?;
+                let mut source_text =
                     key.source_text().await.map_err(JsError::from_rust)?;
 
-                let js_source = transpile(&ts_source, key.path(), &source_type)
-                    .map_err(JsError::from_rust)?;
+                // If it looks like something other than JS, we try to transpile.
+                if ![SourceType::cjs(), SourceType::mjs()]
+                    .contains(&source_type)
+                {
+                    source_text =
+                        transpile(&source_text, key.path(), &source_type)
+                            .map_err(JsError::from_rust)?;
+                }
 
                 let context = &mut context.borrow_mut();
-                let source =
-                    Source::from_reader(js_source.as_bytes(), Some(key.path()));
+                let source = Source::from_reader(
+                    source_text.as_bytes(),
+                    Some(key.path()),
+                );
                 Module::parse(source, None, context)
             }
         }
