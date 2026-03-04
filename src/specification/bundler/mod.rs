@@ -94,98 +94,6 @@ impl Resolver {
     }
 }
 
-/*
-impl FileSystem for Resolver {
-    fn new() -> Self {
-        Resolver {
-            filesystem_os: FileSystemOs::new(),
-        }
-    }
-
-    fn read(&self, path: &Path) -> std::io::Result<Vec<u8>> {
-        match self.classify_path(path) {
-            HybridFileSystemPath::Builtin(path) => {
-                let file =
-                    JS_DIR.get_file(&path).ok_or(std::io::Error::other(
-                        anyhow!("embedded file not found: {}", &path.display()),
-                    ))?;
-                Ok(file.contents().to_vec())
-            }
-            HybridFileSystemPath::Passthrough(path) => {
-                self.filesystem_os.read(path)
-            }
-        }
-    }
-
-    fn read_to_string(&self, path: &Path) -> std::io::Result<String> {
-        String::from_utf8(self.read(path)?).map_err(std::io::Error::other)
-    }
-
-    fn metadata(
-        &self,
-        path: &Path,
-    ) -> std::io::Result<oxc_resolver::FileMetadata> {
-        match self.classify_path(path) {
-            HybridFileSystemPath::Builtin(path) => {
-                let entry =
-                    JS_DIR.get_entry(&path).ok_or(std::io::Error::other(
-                        anyhow!("embedded file not found: {}", &path.display()),
-                    ))?;
-                match entry {
-                    include_dir::DirEntry::Dir(_dir) => {
-                        Ok(oxc_resolver::FileMetadata::new(false, true, false))
-                    }
-                    include_dir::DirEntry::File(_file) => {
-                        Ok(oxc_resolver::FileMetadata::new(true, false, false))
-                    }
-                }
-            }
-            HybridFileSystemPath::Passthrough(path) => {
-                self.filesystem_os.metadata(path)
-            }
-        }
-    }
-
-    fn symlink_metadata(
-        &self,
-        path: &Path,
-    ) -> std::io::Result<oxc_resolver::FileMetadata> {
-        match self.classify_path(path) {
-            HybridFileSystemPath::Builtin(path) => {
-                panic!(
-                    "symlinks not supported in embedded file system, but requested symlink metadata for {}",
-                    path.display()
-                );
-            }
-            HybridFileSystemPath::Passthrough(path) => {
-                self.filesystem_os.metadata(path)
-            }
-        }
-    }
-
-    fn read_link(
-        &self,
-        path: &Path,
-    ) -> std::result::Result<PathBuf, oxc_resolver::ResolveError> {
-        match self.classify_path(path) {
-            HybridFileSystemPath::Builtin(path) => {
-                panic!(
-                    "symlinks not supported in embedded file system, but requested read_link called on {}",
-                    path.display()
-                );
-            }
-            HybridFileSystemPath::Passthrough(path) => {
-                self.filesystem_os.read_link(path)
-            }
-        }
-    }
-
-    fn canonicalize(&self, path: &Path) -> std::io::Result<PathBuf> {
-        self.filesystem_os.canonicalize(path)
-    }
-}
-*/
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
     ParseErrors(Vec<oxc::diagnostics::OxcDiagnostic>),
@@ -232,11 +140,14 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             ModuleKey::Embedded(_, path) => JS_DIR
                 .get_file(path)
                 .ok_or(anyhow!(
-                    "module at {} cannot be resolved",
+                    "embedded module at {} cannot be resolved",
                     &path.display()
                 ))?
                 .contents_utf8()
-                .ok_or(anyhow!("module is not valid utf8: {}", path.display()))?
+                .ok_or(anyhow!(
+                    "embedded module is not valid utf8: {}",
+                    path.display()
+                ))?
                 .to_string(),
             ModuleKey::OnDisk(_, path) => {
                 tokio::fs::read_to_string(&path).await?
