@@ -1,11 +1,11 @@
 use std::{
     collections::{BTreeSet, VecDeque},
     fmt::{Display, Formatter},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
+use crate::specification::resolver::{ModuleKey, Resolver};
 use anyhow::{Result, anyhow, bail};
-use include_dir::{Dir, include_dir};
 use oxc::{
     allocator::{Allocator, TakeIn},
     ast::{NONE, ast},
@@ -17,82 +17,6 @@ use oxc::{
 };
 use oxc_resolver::ResolveOptions;
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
-
-static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
-
-pub struct Module {
-    key: ModuleKey,
-    code: String,
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
-enum ModuleKey {
-    Embedded(String, PathBuf),
-    OnDisk(String, PathBuf),
-}
-
-impl ModuleKey {
-    fn specifier(&self) -> &str {
-        match self {
-            ModuleKey::Embedded(specifier, _path) => specifier,
-            ModuleKey::OnDisk(specifier, _path) => specifier,
-        }
-    }
-    fn path(&self) -> &Path {
-        match self {
-            ModuleKey::Embedded(_specifier, path) => path,
-            ModuleKey::OnDisk(_specifier, path) => path,
-        }
-    }
-}
-
-struct Resolver {
-    resolver: oxc_resolver::Resolver,
-}
-impl Resolver {
-    pub fn new(options: ResolveOptions) -> Self {
-        Self {
-            resolver: oxc_resolver::Resolver::new(options),
-        }
-    }
-
-    fn resolve(
-        &self,
-        path: impl AsRef<Path>,
-        specifier: &str,
-    ) -> Result<ModuleKey> {
-        if let Ok(relative) =
-            PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
-        {
-            if relative == "" {
-                Ok(ModuleKey::Embedded(
-                    specifier.to_string(),
-                    PathBuf::from("index.js"),
-                ))
-            } else {
-                Ok(ModuleKey::Embedded(
-                    specifier.to_string(),
-                    relative
-                        .strip_prefix("/")
-                        .unwrap_or(relative)
-                        .with_added_extension("js"),
-                ))
-            }
-        } else {
-            let resolution = self.resolver.resolve(path, specifier)?;
-            let path = resolution.full_path();
-            Ok(ModuleKey::OnDisk(
-                path.to_str()
-                    .ok_or(anyhow!(
-                        "resolved path is not valid utf8: {}",
-                        path.display()
-                    ))?
-                    .to_string(),
-                path,
-            ))
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
@@ -119,6 +43,11 @@ impl Display for BundlerError {
     }
 }
 
+pub struct Module {
+    key: ModuleKey,
+    code: String,
+}
+
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path: &Path = path.as_ref();
     let options = ResolveOptions::default();
@@ -136,24 +65,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             continue;
         }
 
-        let source_text = match &key {
-            ModuleKey::Embedded(_, path) => JS_DIR
-                .get_file(path)
-                .ok_or(anyhow!(
-                    "embedded module at {} cannot be resolved",
-                    &path.display()
-                ))?
-                .contents_utf8()
-                .ok_or(anyhow!(
-                    "embedded module is not valid utf8: {}",
-                    path.display()
-                ))?
-                .to_string(),
-            ModuleKey::OnDisk(_, path) => {
-                tokio::fs::read_to_string(&path).await?
-            }
-        };
-
+        let source_text = key.source_text().await?;
         let source_text = allocator.alloc_str(&source_text);
 
         let parser = Parser::new(
