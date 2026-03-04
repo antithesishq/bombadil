@@ -49,7 +49,6 @@ pub struct Module {
 }
 
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
-    let path: &Path = path.as_ref();
     let options = ResolveOptions::default();
     let resolver = Resolver::new(options);
     let allocator = Allocator::default();
