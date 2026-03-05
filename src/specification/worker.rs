@@ -5,6 +5,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
+use crate::specification::module_loader::HybridModuleLoader;
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
@@ -74,7 +75,15 @@ impl VerifierWorker {
         let handle = Arc::new(VerifierWorker { tx });
 
         let _worker_thread = std::thread::spawn(move || {
-            let mut verifier = match Verifier::new(specification) {
+            let loader = match HybridModuleLoader::new() {
+                Ok(loader) => loader,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            };
+
+            let mut verifier = match Verifier::new(loader, specification) {
                 Ok(verifier) => {
                     let _ = ready_tx.send(Ok(()));
                     verifier

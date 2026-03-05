@@ -160,15 +160,12 @@ async fn test(
     // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification = if let Some(path) = &shared_options.specification_file {
         log::info!("loading specification from file: {}", path.display());
-        Specification::from_path(path.as_path()).await?
+        Specification::BySpecifier(path.display().to_string())
     } else {
         log::info!("using default specification");
-        Specification::from_string(
-            r#"
-                export * from "@antithesishq/bombadil/defaults";
-            "#,
-            PathBuf::from("default_spec.js").as_path(),
-        )?
+        Specification::BySpecifier(
+            "@antithesishq/bombadil/defaults".to_string(),
+        )
     };
 
     let output_path = match shared_options.output_path {

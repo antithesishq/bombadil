@@ -65,7 +65,11 @@ impl ModuleKey {
             ModuleKey::OnDisk { path, .. } => path,
         }
     }
-    pub async fn source_text(&self) -> Result<String, ResolutionError> {
+    // NOTE: this needs to be sync in order for our boa_engine module
+    // loader to have a non-async API, otherwise the verifier gets into
+    // trouble with the boa_engine primitivies not being Send.
+    pub fn source_text(&self) -> Result<String, ResolutionError> {
+        eprintln!("resolving {:?}", self);
         Ok(match self {
             ModuleKey::Embedded { path, .. } => JS_DIR
                 .get_file(path)
@@ -75,9 +79,7 @@ impl ModuleKey {
                 .contents_utf8()
                 .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
                 .to_string(),
-            ModuleKey::OnDisk { path, .. } => {
-                tokio::fs::read_to_string(&path).await?
-            }
+            ModuleKey::OnDisk { path, .. } => std::fs::read_to_string(path)?,
         })
     }
 }

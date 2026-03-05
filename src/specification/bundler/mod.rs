@@ -64,7 +64,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             continue;
         }
 
-        let source_text = key.source_text().await?;
+        let source_text = key.source_text()?;
         let source_text = allocator.alloc_str(&source_text);
 
         let parser = Parser::new(
@@ -738,7 +738,7 @@ mod tests {
                 SpecificationError::JS(format!("Failed to parse module: {}", e))
             })?;
 
-        load_modules(&mut context, &[module])?;
+        load_modules(&mut context, &[&module])?;
 
         let logs_value = context
             .global_object()

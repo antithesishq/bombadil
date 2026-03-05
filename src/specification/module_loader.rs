@@ -1,4 +1,4 @@
-use std::{path::Path, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc, sync::Arc};
 
 use crate::specification::{
     resolver::{ModuleKey, Resolver},
@@ -6,9 +6,8 @@ use crate::specification::{
 };
 use boa_engine::{
     Context, JsError, JsResult, JsString, Module, Source,
-    module::{MapModuleLoader, ModuleLoader, Referrer},
+    module::{ModuleLoader, Referrer},
 };
-use include_dir::{Dir, include_dir};
 use oxc::{
     allocator::Allocator,
     span::SourceType,
@@ -17,44 +16,76 @@ use oxc::{
 use oxc::{codegen::Codegen, semantic::SemanticBuilder};
 use oxc_resolver::ResolveOptions;
 
-static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
-
+#[derive(Clone)]
 pub struct HybridModuleLoader {
-    resolver: Resolver,
-    map_loader: Rc<MapModuleLoader>,
+    resolver: Arc<Resolver>,
+    cache: Rc<RefCell<HashMap<String, Module>>>,
 }
 
 impl HybridModuleLoader {
     pub fn new() -> Result<Self> {
         Ok(HybridModuleLoader {
-            resolver: Resolver::new(ResolveOptions::default()),
-            map_loader: Rc::new(MapModuleLoader::new()),
+            resolver: Arc::new(Resolver::new(ResolveOptions::default())),
+            cache: Rc::new(RefCell::new(HashMap::new())),
         })
-    }
-
-    pub fn insert_mapped_module(&self, path: impl AsRef<str>, module: Module) {
-        self.map_loader.insert(path, module);
     }
 
     fn resolve_path(
         &self,
-        referrer: &Referrer,
+        referrer: &Path,
         specifier: &JsString,
     ) -> JsResult<ModuleKey> {
-        let referrer_path = referrer.path().ok_or(JsError::from_rust(
-            SpecificationError::OtherError(format!(
-                "import {:?} failed, referrer has no path: {:?}",
-                specifier, referrer
-            )),
-        ))?;
+        let referrer = if referrer.is_file() {
+            referrer
+                .parent()
+                .expect("referrer path has no parent directory")
+        } else {
+            referrer
+        };
+
         self.resolver
-            .resolve(
-                referrer_path
-                    .parent()
-                    .expect("referrer path has no parent directory"),
-                &specifier.to_std_string_lossy(),
-            )
+            .resolve(referrer, &specifier.to_std_string_lossy())
             .map_err(JsError::from_rust)
+    }
+
+    pub fn load_module(
+        &self,
+        referrer: &Path,
+        specifier: JsString,
+        context: &std::cell::RefCell<&mut Context>,
+    ) -> JsResult<Module> {
+        log::debug!("loading module: {}", specifier.display_escaped());
+        let key = self.resolve_path(referrer, &specifier)?;
+
+        if let Some(module) = self.cache.borrow().get(key.specifier()) {
+            return Ok(module.clone());
+        }
+
+        let source_type = match &key {
+            ModuleKey::Embedded { .. } => SourceType::mjs(),
+            ModuleKey::OnDisk { specifier, .. } => {
+                SourceType::from_path(specifier).map_err(JsError::from_rust)?
+            }
+        };
+        let mut source_text = key.source_text().map_err(JsError::from_rust)?;
+
+        if ![SourceType::cjs(), SourceType::mjs()].contains(&source_type) {
+            source_text = transpile(&source_text, key.path(), &source_type)
+                .map_err(JsError::from_rust)?;
+        }
+
+        let context = &mut context.borrow_mut();
+        let source = Source::from_reader(
+            source_text.as_bytes(),
+            Some(Path::new(key.specifier())),
+        );
+        let module = Module::parse(source, None, context)?;
+
+        self.cache
+            .borrow_mut()
+            .insert(key.specifier().to_string(), module.clone());
+
+        Ok(module)
     }
 }
 
@@ -65,53 +96,17 @@ impl ModuleLoader for HybridModuleLoader {
         specifier: JsString,
         context: &std::cell::RefCell<&mut Context>,
     ) -> JsResult<Module> {
-        log::debug!("loading module: {}", specifier.display_escaped());
-        match self
-            .map_loader
-            .clone()
-            .load_imported_module(referrer.clone(), specifier.clone(), context)
-            .await
-        {
-            Ok(module) => Ok(module),
-            Err(_) => {
-                let key = self.resolve_path(&referrer, &specifier)?;
-                let source_type = SourceType::from_path(key.specifier())
-                    .map_err(JsError::from_rust)?;
-                let mut source_text =
-                    key.source_text().await.map_err(JsError::from_rust)?;
-
-                // If it looks like something other than JS, we try to transpile.
-                if ![SourceType::cjs(), SourceType::mjs()]
-                    .contains(&source_type)
-                {
-                    source_text =
-                        transpile(&source_text, key.path(), &source_type)
-                            .map_err(JsError::from_rust)?;
-                }
-
-                let context = &mut context.borrow_mut();
-                let source = Source::from_reader(
-                    source_text.as_bytes(),
-                    Some(key.path()),
-                );
-                Module::parse(source, None, context)
-            }
-        }
+        let referrer_path = referrer.path().ok_or(JsError::from_rust(
+            SpecificationError::OtherError(format!(
+                "import {:?} failed, referrer has no path: {:?}",
+                specifier, referrer
+            )),
+        ))?;
+        self.load_module(referrer_path, specifier, context)
     }
 }
 
-pub fn load_bombadil_module(
-    name: impl AsRef<Path>,
-    context: &mut Context,
-) -> Result<Module> {
-    let index_js = JS_DIR.get_file(&name).unwrap_or_else(|| {
-        panic!("{} not available in build", name.as_ref().to_string_lossy())
-    });
-    let source = Source::from_bytes(index_js.contents());
-    Module::parse(source, None, context).map_err(Into::into)
-}
-
-pub fn load_modules(context: &mut Context, modules: &[Module]) -> Result<()> {
+pub fn load_modules(context: &mut Context, modules: &[&Module]) -> Result<()> {
     let mut results = Vec::with_capacity(modules.len());
     for module in modules {
         results.push((module, module.load_link_evaluate(context)));

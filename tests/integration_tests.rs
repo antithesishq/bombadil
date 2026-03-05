@@ -66,7 +66,7 @@ async fn run_browser_test(
     name: &str,
     expect: Expect,
     timeout: Duration,
-    spec: Option<&str>,
+    specification: Option<&str>,
 ) {
     setup();
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -103,17 +103,18 @@ async fn run_browser_test(
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
-    let spec_source =
-        spec.unwrap_or(r#"export * from "@antithesishq/bombadil/defaults";"#);
-    let default_specification = Specification::from_string(
-        spec_source,
-        PathBuf::from("fake.ts").as_path(),
-    )
-    .unwrap();
+    let specification = match specification {
+        Some(spec) => {
+            Specification::InMemory(spec.to_string(), PathBuf::from("fake.ts"))
+        }
+        None => Specification::BySpecifier(
+            "@antithesishq/bombadil/defaults".to_string(),
+        ),
+    };
 
     let runner = Runner::new(
         origin,
-        default_specification,
+        specification,
         RunnerOptions {
             stop_on_violation: true,
         },

@@ -10,9 +10,7 @@ use boa_engine::{
 };
 
 use crate::specification::js;
-use crate::specification::module_loader::{
-    HybridModuleLoader, load_bombadil_module, load_modules,
-};
+use crate::specification::module_loader::{HybridModuleLoader, load_modules};
 
 thread_local! {
     static RANDOM_BYTES: RefCell<VecDeque<u8>> = const { RefCell::new(VecDeque::new()) };
@@ -44,8 +42,14 @@ fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
         )
         .unwrap();
 
-    let module = load_bombadil_module("random.js", &mut context).unwrap();
-    load_modules(&mut context, std::slice::from_ref(&module)).unwrap();
+    let module = loader
+        .load_module(
+            &std::path::PathBuf::from("."),
+            js_string!("@antithesishq/bombadil/random"),
+            &RefCell::new(&mut context),
+        )
+        .unwrap();
+    load_modules(&mut context, &[&module]).unwrap();
     (context, module)
 }
 

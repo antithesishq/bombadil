@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::cell::RefCell;
+use std::path::PathBuf;
 use std::{collections::HashMap, rc::Rc};
 
 use crate::specification::js::{
     BombadilExports, Extractors, RuntimeFunction, module_exports,
 };
-use crate::specification::module_loader::transpile;
 use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
@@ -17,51 +17,13 @@ use boa_engine::{
     property::PropertyKey,
 };
 use boa_engine::{JsError, JsObject, JsValue};
-use oxc::span::SourceType;
 use serde_json as json;
 
 use crate::specification::{
     ltl::{Evaluator, Formula, Residual, Violation},
-    module_loader::{HybridModuleLoader, load_bombadil_module},
+    module_loader::HybridModuleLoader,
     result::SpecificationError,
 };
-
-#[derive(Clone, Debug)]
-pub struct Specification {
-    contents: Vec<u8>,
-    path: PathBuf,
-}
-
-impl Specification {
-    pub async fn from_path(path: impl AsRef<Path>) -> Result<Self> {
-        let path = path.as_ref();
-        let contents = tokio::fs::read_to_string(path)
-            .await
-            .map_err(SpecificationError::IO)?;
-        Self::from_string(&contents, path)
-    }
-    pub fn from_string(contents: &str, path: impl AsRef<Path>) -> Result<Self> {
-        let path: &Path = path.as_ref();
-        let source_type = SourceType::from_path(path).map_err(|error| {
-            SpecificationError::OtherError(error.to_string())
-        })?;
-        let contents =
-            if [SourceType::cjs(), SourceType::mjs()].contains(&source_type) {
-                contents.to_string()
-            } else {
-                log::debug!(
-                    "transpiling {} ({:?}) to javascript",
-                    path.display(),
-                    &source_type,
-                );
-                transpile(contents, path, &source_type)?
-            };
-        Ok(Specification {
-            contents: contents.into_bytes(),
-            path: path.to_path_buf(),
-        })
-    }
-}
 
 #[derive(Clone)]
 pub struct StepResult<A> {
@@ -80,17 +42,21 @@ pub struct Verifier {
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
 
-impl Verifier {
-    pub fn new(specification: Specification) -> Result<Self> {
-        let loader = Rc::new(HybridModuleLoader::new()?);
+pub enum Specification {
+    BySpecifier(String),
+    InMemory(String, PathBuf),
+}
 
-        // Instantiate the execution context
+impl Verifier {
+    pub fn new(
+        loader: HybridModuleLoader,
+        specification: Specification,
+    ) -> Result<Self> {
         let mut context = ContextBuilder::default()
-            .module_loader(loader.clone())
+            .module_loader(Rc::new(loader.clone()))
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
 
-        // Expose random byte generation to JS
         context.register_global_builtin_callable(
             js_string!("__bombadil_random_bytes"),
             1,
@@ -113,62 +79,34 @@ impl Verifier {
             }),
         )?;
 
-        // Non-special modules loaded in dependency order
-        let modules = [
-            ("internal.js", "@antithesishq/bombadil/internal"),
-            ("random.js", "@antithesishq/bombadil/random"),
-            ("actions.js", "@antithesishq/bombadil/actions"),
-        ];
-        for (file, import_path) in modules {
-            let module = load_bombadil_module(file, &mut context)?;
-            loader.insert_mapped_module(import_path, module);
-        }
+        let referrer = PathBuf::from(".");
 
-        // Index module — special: needed for BombadilExports
-        let bombadil_module_index = {
-            let module = load_bombadil_module("index.js", &mut context)?;
-            loader
-                .insert_mapped_module("@antithesishq/bombadil", module.clone());
-            module
-        };
-
-        // Modules that depend on index
-        let modules = [
-            (
-                "defaults/actions.js",
-                "@antithesishq/bombadil/defaults/actions",
-            ),
-            (
-                "defaults/properties.js",
-                "@antithesishq/bombadil/defaults/properties",
-            ),
-            ("defaults.js", "@antithesishq/bombadil/defaults"),
-        ];
-        for (file, import_path) in modules {
-            let module = load_bombadil_module(file, &mut context)?;
-            loader.insert_mapped_module(import_path, module);
-        }
-
-        let specification_module = {
-            let specification_bytes: &[u8] = &specification.contents;
-            Module::parse(
-                Source::from_reader(
-                    specification_bytes,
-                    Some(&specification.path),
-                ),
+        let specification_module = match specification {
+            Specification::BySpecifier(specifier) => loader.load_module(
+                &referrer,
+                js_string!(specifier),
+                &RefCell::new(&mut context),
+            )?,
+            Specification::InMemory(contents, path) => Module::parse(
+                Source::from_reader(contents.as_bytes(), Some(&path)),
                 None,
                 &mut context,
-            )?
+            )?,
         };
-        load_modules(
-            &mut context,
-            std::slice::from_ref(&specification_module),
+
+        load_modules(&mut context, &[&specification_module])?;
+
+        let bombadil_module_index = loader.load_module(
+            &referrer,
+            js_string!("@antithesishq/bombadil"),
+            &RefCell::new(&mut context),
         )?;
 
         let specification_exports =
             module_exports(&specification_module, &mut context)?;
         let bombadil_exports =
             BombadilExports::from_module(&bombadil_module_index, &mut context)?;
+        eprintln!("exports: {:?}", &bombadil_exports);
 
         let mut properties: HashMap<String, Property> = HashMap::new();
         let mut action_generators: HashMap<String, ActionGenerator> =
@@ -422,10 +360,14 @@ mod tests {
     use super::*;
 
     fn verifier(specification: &str) -> Verifier {
-        Verifier::new(Specification {
-            path: PathBuf::from("fake.ts"),
-            contents: specification.to_string().into_bytes(),
-        })
+        let loader = HybridModuleLoader::new().unwrap();
+        Verifier::new(
+            loader,
+            Specification::InMemory(
+                specification.to_string(),
+                PathBuf::from("fake.ts"),
+            ),
+        )
         .unwrap()
     }
 
@@ -664,7 +606,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
+                        match stop_default(&residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -717,7 +659,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
+                        match stop_default(&residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -761,7 +703,7 @@ mod tests {
             if i < 4 {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
+                        match stop_default(&residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -809,7 +751,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
+                        match stop_default(&residual, time) {
                             Some(StopDefault::False(_)) => {}
                             _ => panic!("should have a false stop default"),
                         }
@@ -853,7 +795,7 @@ mod tests {
             if i < 4 {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
+                        match stop_default(&residual, time) {
                             Some(StopDefault::False(_)) => {}
                             _ => panic!("should have a false stop default"),
                         }
@@ -866,8 +808,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_load_ts_file() {
+    #[test]
+    fn test_load_ts_file() {
         let mut imported_file =
             tempfile::NamedTempFile::with_suffix(".ts").unwrap();
         imported_file

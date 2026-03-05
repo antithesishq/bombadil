@@ -252,6 +252,7 @@ fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
     Ok(Some(Duration::from_millis(millis as u64)))
 }
 
+#[derive(Debug)]
 pub struct BombadilExports {
     pub formula: JsValue,
     pub pure: JsValue,

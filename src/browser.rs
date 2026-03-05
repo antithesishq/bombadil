@@ -356,6 +356,11 @@ impl Browser {
         self.actions_sender.send((action, timeout))?;
         Ok(())
     }
+
+    pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
+        let _ = self.page.evaluate_on_new_document(script).await?;
+        Ok(())
+    }
 }
 
 async fn inner_events(
