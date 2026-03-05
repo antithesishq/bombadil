@@ -9,12 +9,6 @@ use oxc_resolver::{ResolveError, ResolveOptions};
 
 static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
 
-#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
-pub enum ModuleKey {
-    Embedded { specifier: String, path: PathBuf },
-    OnDisk { specifier: String, path: PathBuf },
-}
-
 #[derive(Debug)]
 pub enum ResolutionError {
     EmbeddedFileNotFound { path: PathBuf },
@@ -52,6 +46,12 @@ impl From<std::io::Error> for ResolutionError {
     }
 }
 
+#[derive(PartialEq, Eq, PartialOrd, Hash, Ord, Debug, Clone)]
+pub enum ModuleKey {
+    Embedded { specifier: String, path: PathBuf },
+    OnDisk { specifier: String, path: PathBuf },
+}
+
 impl ModuleKey {
     pub fn specifier(&self) -> &str {
         match self {
@@ -67,9 +67,8 @@ impl ModuleKey {
     }
     // NOTE: this needs to be sync in order for our boa_engine module
     // loader to have a non-async API, otherwise the verifier gets into
-    // trouble with the boa_engine primitivies not being Send.
+    // trouble with the boa_engine primitives not being Send.
     pub fn source_text(&self) -> Result<String, ResolutionError> {
-        eprintln!("resolving {:?}", self);
         Ok(match self {
             ModuleKey::Embedded { path, .. } => JS_DIR
                 .get_file(path)

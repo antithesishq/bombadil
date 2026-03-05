@@ -10,7 +10,7 @@ use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, module_loader::load_modules};
 use crate::tree::Tree;
 use boa_engine::{
-    Context, JsString, Module, NativeFunction, Source,
+    Context, JsString, NativeFunction,
     context::ContextBuilder,
     js_string,
     object::builtins::{JsArray, JsUint8Array},
@@ -37,20 +37,19 @@ pub struct Verifier {
     properties: HashMap<String, Property>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
-    extractor_functions: HashMap<u64, String>,
 }
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
 
-pub enum Specification {
-    BySpecifier(String),
-    InMemory(String, PathBuf),
+#[derive(Clone)]
+pub struct Specification {
+    pub module_specifier: String,
 }
 
 impl Verifier {
     pub fn new(
         loader: HybridModuleLoader,
-        specification: Specification,
+        specification: &Specification,
     ) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .module_loader(Rc::new(loader.clone()))
@@ -81,18 +80,11 @@ impl Verifier {
 
         let referrer = PathBuf::from(".");
 
-        let specification_module = match specification {
-            Specification::BySpecifier(specifier) => loader.load_module(
-                &referrer,
-                js_string!(specifier),
-                &RefCell::new(&mut context),
-            )?,
-            Specification::InMemory(contents, path) => Module::parse(
-                Source::from_reader(contents.as_bytes(), Some(&path)),
-                None,
-                &mut context,
-            )?,
-        };
+        let specification_module = loader.load_module(
+            &referrer,
+            js_string!(specification.module_specifier.clone()),
+            &RefCell::new(&mut context),
+        )?;
 
         load_modules(&mut context, &[&specification_module])?;
 
@@ -106,7 +98,6 @@ impl Verifier {
             module_exports(&specification_module, &mut context)?;
         let bombadil_exports =
             BombadilExports::from_module(&bombadil_module_index, &mut context)?;
-        eprintln!("exports: {:?}", &bombadil_exports);
 
         let mut properties: HashMap<String, Property> = HashMap::new();
         let mut action_generators: HashMap<String, ActionGenerator> =
@@ -195,15 +186,12 @@ impl Verifier {
             );
         }
 
-        let extractor_functions = extractors.extract_functions(&mut context)?;
-
         Ok(Verifier {
             context,
             properties,
             action_generators,
             bombadil_exports,
             extractors,
-            extractor_functions,
         })
     }
 
@@ -211,17 +199,9 @@ impl Verifier {
         self.properties.keys().cloned().collect()
     }
 
-    pub fn extractors(&self) -> Result<Vec<(u64, String)>> {
-        let mut results = Vec::with_capacity(self.extractor_functions.len());
-        for (key, value) in &self.extractor_functions {
-            results.push((*key, value.clone()));
-        }
-        Ok(results)
-    }
-
     pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
-        snapshots: Vec<(u64, json::Value)>,
+        snapshots: Vec<json::Value>,
         time: ltl::Time,
     ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
@@ -355,18 +335,26 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
+    use tempfile::NamedTempFile;
+
     use crate::specification::stop::{StopDefault, stop_default};
 
     use super::*;
 
     fn verifier(specification: &str) -> Verifier {
         let loader = HybridModuleLoader::new().unwrap();
+        let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+        specification_file
+            .write_all(specification.as_bytes())
+            .unwrap();
         Verifier::new(
             loader,
-            Specification::InMemory(
-                specification.to_string(),
-                PathBuf::from("fake.ts"),
-            ),
+            &Specification {
+                module_specifier: specification_file
+                    .path()
+                    .display()
+                    .to_string(),
+            },
         )
         .unwrap()
     }
@@ -393,45 +381,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extractors() {
-        let evaluator = verifier(
-            r#"
-            import { actions, extract } from "@antithesishq/bombadil";
-            export const _actions = actions(() => []);
-
-            const notification_count = extract(
-              (state) => state.foo
-            );
-
-            function test() {
-                let local = extract(s => s.bar);
-                let other = extract(function foo(state) { return state.baz; });
-            }
-
-            test();
-            "#,
-        );
-
-        let mut extractors: Vec<String> = evaluator
-            .extractors()
-            .unwrap()
-            .iter()
-            .map(|(_, value)| value.clone())
-            .collect();
-
-        extractors.sort();
-
-        assert_eq!(
-            extractors,
-            vec![
-                "(state) => state.foo",
-                "function foo(state) { return state.baz; }",
-                "s => s.bar",
-            ]
-        );
-    }
-
-    #[test]
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"
@@ -444,16 +393,12 @@ mod tests {
             "#,
         );
 
-        let extractors = verifier.extractors().unwrap();
-        let extractor_foo_id = extractors.first().unwrap().0;
-
         let time = SystemTime::UNIX_EPOCH
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result: StepResult<json::Value> = verifier
-            .step(vec![(extractor_foo_id, json::json!(false))], time)
-            .unwrap();
+        let result: StepResult<json::Value> =
+            verifier.step(vec![(json::json!(false))], time).unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
@@ -474,22 +419,12 @@ mod tests {
             "#,
         );
 
-        let extractors = verifier.extractors().unwrap();
-        let extractor_foo_id = extractors.first().unwrap().0;
-        let extractor_bar_id = extractors.get(1).unwrap().0;
-
         let time = SystemTime::UNIX_EPOCH
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
         let result: StepResult<json::Value> = verifier
-            .step(
-                vec![
-                    (extractor_foo_id, json::json!(true)),
-                    (extractor_bar_id, json::json!(true)),
-                ],
-                time,
-            )
+            .step(vec![json::json!(true), json::json!(true)], time)
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -511,22 +446,12 @@ mod tests {
             "#,
         );
 
-        let extractors = verifier.extractors().unwrap();
-        let extractor_foo_id = extractors.first().unwrap().0;
-        let extractor_bar_id = extractors.get(1).unwrap().0;
-
         let time = SystemTime::UNIX_EPOCH
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
         let result: StepResult<json::Value> = verifier
-            .step(
-                vec![
-                    (extractor_foo_id, json::json!(false)),
-                    (extractor_bar_id, json::json!(true)),
-                ],
-                time,
-            )
+            .step(vec![json::json!(false), json::json!(true)], time)
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -548,22 +473,12 @@ mod tests {
             "#,
         );
 
-        let extractors = verifier.extractors().unwrap();
-        let extractor_foo_id = extractors.first().unwrap().0;
-        let extractor_bar_id = extractors.get(1).unwrap().0;
-
         let time = SystemTime::UNIX_EPOCH
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
         let result: StepResult<json::Value> = verifier
-            .step(
-                vec![
-                    (extractor_foo_id, json::json!(false)),
-                    (extractor_bar_id, json::json!(false)),
-                ],
-                time,
-            )
+            .step(vec![json::json!(false), json::json!(false)], time)
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -584,8 +499,6 @@ mod tests {
             "#,
         );
 
-        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
-
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
                 .checked_add(Duration::from_millis(i))
@@ -594,9 +507,8 @@ mod tests {
 
         for i in 0..=1 {
             let time = time_at(i);
-            let result: StepResult<json::Value> = verifier
-                .step(vec![(extractor_id, json::json!(i))], time)
-                .unwrap();
+            let result: StepResult<json::Value> =
+                verifier.step(vec![json::json!(i)], time).unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -630,8 +542,6 @@ mod tests {
             "#,
         );
 
-        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
-
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
                 .checked_add(Duration::from_millis(i))
@@ -640,9 +550,8 @@ mod tests {
 
         for i in 0..=100 {
             let time = time_at(0);
-            let result: StepResult<json::Value> = verifier
-                .step(vec![(extractor_id, json::json!(i))], time)
-                .unwrap();
+            let result: StepResult<json::Value> =
+                verifier.step(vec![json::json!(i)], time).unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -683,8 +592,6 @@ mod tests {
             "#,
         );
 
-        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
-
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
                 .checked_add(Duration::from_millis(i))
@@ -693,9 +600,8 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> = verifier
-                .step(vec![(extractor_id, json::json!(i))], time)
-                .unwrap();
+            let result: StepResult<json::Value> =
+                verifier.step(vec![json::json!(i)], time).unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -729,8 +635,6 @@ mod tests {
             "#,
         );
 
-        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
-
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
                 .checked_add(Duration::from_millis(i))
@@ -739,9 +643,8 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> = verifier
-                .step(vec![(extractor_id, json::json!(i))], time)
-                .unwrap();
+            let result: StepResult<json::Value> =
+                verifier.step(vec![json::json!(i)], time).unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -775,8 +678,6 @@ mod tests {
             "#,
         );
 
-        let extractor_id = verifier.extractors().unwrap().first().unwrap().0;
-
         let time_at = |i: u64| {
             SystemTime::UNIX_EPOCH
                 .checked_add(Duration::from_millis(i))
@@ -785,9 +686,8 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> = verifier
-                .step(vec![(extractor_id, json::json!(i))], time)
-                .unwrap();
+            let result: StepResult<json::Value> =
+                verifier.step(vec![json::json!(i)], time).unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -806,33 +706,5 @@ mod tests {
                 assert!(matches!(value, ltl::Value::False(_)));
             }
         }
-    }
-
-    #[test]
-    fn test_load_ts_file() {
-        let mut imported_file =
-            tempfile::NamedTempFile::with_suffix(".ts").unwrap();
-        imported_file
-            .write_all(
-                r#"
-                import { extract } from "@antithesishq/bombadil";
-                const example = extract((state) => state.example);
-                "#
-                .as_bytes(),
-            )
-            .unwrap();
-
-        let verifier = verifier(&format!(
-            r#"
-            import {{ actions }} from "@antithesishq/bombadil";
-            export const _actions = actions(() => []);
-            export * from "{}";
-            "#,
-            imported_file.path().display(),
-        ));
-
-        let extractors = verifier.extractors().unwrap();
-        let (_, name) = extractors.first().unwrap();
-        assert_eq!(name, "(state) => state.example");
     }
 }

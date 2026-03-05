@@ -1,6 +1,7 @@
 use crate::browser::actions::BrowserAction;
 use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
+use crate::specification::bundler::bundle;
 use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
@@ -53,11 +54,17 @@ impl Runner {
         let (done_sender, done_receiver) = oneshot::channel();
         let (shutdown_sender, shutdown_receiver) = oneshot::channel();
 
-        let verifier = VerifierWorker::start(specification).await?;
+        let verifier = VerifierWorker::start(specification.clone()).await?;
 
         let browser =
             Browser::new(origin.clone(), browser_options, debugger_options)
                 .await?;
+
+        browser
+            .ensure_script_evaluated(
+                &bundle(".", &specification.module_specifier).await?,
+            )
+            .await?;
 
         Ok(Runner {
             origin,
@@ -133,8 +140,6 @@ impl Runner {
         let mut last_action: Option<BrowserAction> = None;
         let mut edges = [0u8; EDGE_MAP_SIZE];
 
-        let extractors = verifier.extractors().await?;
-
         loop {
             let verifier = verifier.clone();
             select! {
@@ -145,9 +150,9 @@ impl Runner {
                     Some(event) => match event {
                         BrowserEvent::StateChanged(state) => {
                             // Step formulas and collect violations.
-                            let snapshots = run_extractors(&state, &extractors, &last_action).await?;
-                            for (id, value) in &snapshots {
-                                log::debug!("snapshot {id}: {value}");
+                            let snapshots = run_extractors(&state, &last_action).await?;
+                            for value in &snapshots {
+                                log::debug!("snapshot: {value}");
                             }
                             let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots, state.timestamp).await?;
 
@@ -249,11 +254,8 @@ impl RunEvents {
 
 async fn run_extractors(
     state: &BrowserState,
-    extractors: &Vec<(u64, String)>,
     last_action: &Option<BrowserAction>,
-) -> anyhow::Result<Vec<(u64, json::Value)>> {
-    let mut results = Vec::with_capacity(extractors.len());
-
+) -> anyhow::Result<Vec<json::Value>> {
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
@@ -275,18 +277,13 @@ async fn run_extractors(
         "lastAction": json::to_value(last_action)?,
     });
 
-    for (key, function) in extractors {
-        let json: json::Value = state
+    let results: Vec<json::Value> = state
             .evaluate_function_call(
-                format!(
-                    "(state) => ({})({{ ...state, document, window }})",
-                    function
-                ),
+                "(state) => globalThis.bombadil.runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],
             )
             .await?;
-        results.push((*key, json));
-    }
+
     Ok(results)
 }
 

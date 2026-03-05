@@ -9,6 +9,8 @@ import {
 /** @internal */
 export const runtimeDefault = new Runtime<State>();
 
+globalThis.bombadil = { runtime: runtimeDefault };
+
 // Reexports
 export { time, type Cell } from "@antithesishq/bombadil/internal";
 export {

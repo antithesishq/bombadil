@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use oxc::{
     allocator::{Allocator, TakeIn},
     ast::{NONE, ast},
-    codegen::Codegen,
+    codegen::{Codegen, CodegenOptions},
     parser::Parser,
     semantic::SemanticBuilder,
     span::{SPAN, SourceType},
@@ -143,7 +143,9 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             Transformer::new(&allocator, key.path(), &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
-        let codegen = Codegen::new().build(&program);
+        let codegen = Codegen::new()
+            .with_options(CodegenOptions::minify())
+            .build(&program);
         modules.push(Module {
             key: key.clone(),
             code: codegen.code,

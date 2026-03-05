@@ -15,12 +15,8 @@ enum Command {
     GetProperties {
         reply: oneshot::Sender<Vec<String>>,
     },
-    GetExtractors {
-        reply: oneshot::Sender<Result<Vec<(u64, String)>, SpecificationError>>,
-    },
-
     Step {
-        snapshots: Vec<(u64, json::Value)>,
+        snapshots: Vec<json::Value>,
         time: ltl::Time,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
@@ -83,7 +79,7 @@ impl VerifierWorker {
                 }
             };
 
-            let mut verifier = match Verifier::new(loader, specification) {
+            let mut verifier = match Verifier::new(loader, &specification) {
                 Ok(verifier) => {
                     let _ = ready_tx.send(Ok(()));
                     verifier
@@ -97,9 +93,6 @@ impl VerifierWorker {
                 match command {
                     Command::GetProperties { reply } => {
                         let _ = reply.send(verifier.properties());
-                    }
-                    Command::GetExtractors { reply } => {
-                        let _ = reply.send(verifier.extractors());
                     }
                     Command::Step {
                         snapshots,
@@ -145,20 +138,10 @@ impl VerifierWorker {
             .map_err(|_| WorkerError::WorkerGone)?;
         reply_rx.await.map_err(|_| WorkerError::WorkerGone)
     }
-    pub async fn extractors(&self) -> Result<Vec<(u64, String)>, WorkerError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx
-            .send(Command::GetExtractors { reply: reply_tx })
-            .await
-            .map_err(|_| WorkerError::WorkerGone)?;
-        reply_rx
-            .await
-            .map_err(|_| WorkerError::WorkerGone)
-            .and_then(|result| result.map_err(WorkerError::SpecificationError))
-    }
+
     pub async fn step<A: DeserializeOwned>(
         &self,
-        snapshots: Vec<(u64, json::Value)>,
+        snapshots: Vec<json::Value>,
         time: ltl::Time,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();

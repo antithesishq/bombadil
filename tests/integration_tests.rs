@@ -1,7 +1,8 @@
 use anyhow::anyhow;
 use axum::Router;
-use std::{fmt::Display, path::PathBuf, sync::Once, time::Duration};
-use tempfile::TempDir;
+use std::io::Write;
+use std::{fmt::Display, sync::Once, time::Duration};
+use tempfile::{NamedTempFile, TempDir};
 use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
 use url::Url;
@@ -103,13 +104,20 @@ async fn run_browser_test(
         Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap();
     let user_data_directory = TempDir::new().unwrap();
 
+    let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
     let specification = match specification {
         Some(spec) => {
-            Specification::InMemory(spec.to_string(), PathBuf::from("fake.ts"))
+            specification_file.write_all(spec.as_bytes()).unwrap();
+            Specification {
+                module_specifier: specification_file
+                    .path()
+                    .display()
+                    .to_string(),
+            }
         }
-        None => Specification::BySpecifier(
-            "@antithesishq/bombadil/defaults".to_string(),
-        ),
+        None => Specification {
+            module_specifier: "@antithesishq/bombadil/defaults".to_string(),
+        },
     };
 
     let runner = Runner::new(

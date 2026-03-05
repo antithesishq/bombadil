@@ -55,8 +55,8 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
     }
   }
 
-  asJsFunction(): string {
-    return this.extract.toString();
+  run(state: S): T {
+    return this.extract(state);
   }
 }
 
@@ -87,5 +87,9 @@ export class Runtime<S> {
 
   registerExtractor(cell: ExtractorCell<any, S>) {
     this.extractors.push(cell);
+  }
+
+  runExtractors(state: S): JSON[] {
+    return this.extractors.map((extractor) => extractor.run(state));
   }
 }
