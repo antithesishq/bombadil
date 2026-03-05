@@ -159,6 +159,11 @@ async fn test(
 ) -> Result<()> {
     // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification = if let Some(path) = &shared_options.specification_file {
+        let path = if path.is_relative() && !path.starts_with(".") {
+            PathBuf::from(".").join(path)
+        } else {
+            path.clone()
+        };
         log::info!("loading specification from file: {}", path.display());
         Specification {
             module_specifier: path.display().to_string(),
