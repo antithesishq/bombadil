@@ -56,29 +56,43 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         canonical_path,
         specifier
     );
-    let resolver = Resolver::new_with_cwd(canonical_path);
+    let resolver = Resolver::new_with_cwd(canonical_path.clone());
     let allocator = Allocator::default();
 
     let mut modules = vec![];
     let mut keys_processed = BTreeSet::<ModuleKey>::new();
     let mut queue = VecDeque::new();
 
-    log::debug!("Resolving entry: path={:?}, specifier={}", path, specifier);
-    queue.push_front(resolver.resolve(path, specifier)?);
+    log::debug!(
+        "Resolving entry: path={:?}, specifier={}",
+        canonical_path,
+        specifier
+    );
+    queue.push_front(resolver.resolve(&canonical_path, specifier)?);
 
     while let Some(key) = queue.pop_front() {
         if keys_processed.contains(&key) {
             continue;
         }
 
+        // Handle browser stubs (e.g., fs aliased to false)
+        if matches!(
+            key,
+            crate::specification::resolver::ModuleKey::BrowserStub { .. }
+        ) {
+            modules.push(Module {
+                key: key.clone(),
+                code: key.source_text()?,
+            });
+            keys_processed.insert(key);
+            continue;
+        }
+
         let source_text = key.source_text()?;
+        let source_type = SourceType::from_path(key.path())?;
         let source_text = allocator.alloc_str(&source_text);
 
-        let parser = Parser::new(
-            &allocator,
-            source_text,
-            SourceType::from_path(key.path())?,
-        );
+        let parser = Parser::new(&allocator, source_text, source_type);
         let result = parser.parse();
         if result.panicked {
             bail!(BundlerError::ParseErrors(result.errors.to_vec()));
@@ -153,9 +167,13 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let codegen = Codegen::new()
             .with_options(CodegenOptions::minify())
             .build(&program);
+
+        // Prepend __esModule marker to prevent CommonJS interop from adding circular .default
+        let code = format!("module.exports.__esModule=true;{}", codegen.code);
+
         modules.push(Module {
             key: key.clone(),
-            code: codegen.code,
+            code,
         });
         keys_processed.insert(key);
     }
@@ -178,8 +196,17 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     }
 
     modules[path](module, module.exports, require);
+
+    // ESM interop: ensure .default exists for pure CommonJS modules
+    // Skip if module already has __esModule marker (transpiled ESM) or .default property
+    if (!module.exports.__esModule && typeof module.exports.default === 'undefined') {
+      module.exports.default = module.exports;
+    }
+
     return module.exports;
   }
+
+  globalThis.__bombadilRequire = require;
 
 "#,
     );
@@ -198,7 +225,12 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     }
 
     if let Some(entry) = modules.first() {
-        bundle.push_str(&format!("  require({:?});\n", entry.key.specifier()));
+        bundle.push_str(&format!(
+            "  return require({:?});\n",
+            entry.key.specifier()
+        ));
+    } else {
+        bundle.push_str("  return {};\n");
     }
 
     bundle.push_str("})();\n");
@@ -554,6 +586,25 @@ where
             _ => {}
         }
     }
+
+    fn enter_expression(
+        &mut self,
+        expr: &mut ast::Expression<'a>,
+        ctx: &mut TraverseCtx<'a, &'b mut RewriterState<'a>>,
+    ) {
+        // Handle require() calls in expressions
+        if let ast::Expression::CallExpression(call) = expr
+            && let ast::Expression::Identifier(ident) = &call.callee
+            && ident.name == "require"
+            && !call.arguments.is_empty()
+            && let ast::Argument::StringLiteral(string_lit) = &call.arguments[0]
+        {
+            let specifier = string_lit.value.as_str();
+            if let Some(key) = resolve_import(specifier, ctx) {
+                ctx.state.imports.insert(key);
+            }
+        }
+    }
 }
 
 fn build_require_call<'a>(
@@ -609,14 +660,20 @@ fn resolve_import<'a>(
     source_specifier: &str,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
 ) -> Option<ModuleKey> {
-    match ctx.state.resolver.resolve(
-        ctx.state
-            .key
-            .path()
-            .parent()
-            .expect("no parent to resolve from"),
-        source_specifier,
-    ) {
+    let referrer = ctx
+        .state
+        .key
+        .path()
+        .parent()
+        .expect("no parent to resolve from");
+
+    let referrer = if referrer.is_absolute() {
+        referrer.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(referrer)
+    };
+
+    match ctx.state.resolver.resolve(&referrer, source_specifier) {
         Ok(key) => Some(key),
         Err(e) => {
             ctx.state
@@ -662,6 +719,7 @@ fn commonjs_export_name<'a>(
     )
 }
 
+/// Extracts require() call specifiers from a CommonJS module
 #[cfg(test)]
 mod tests {
     use boa_engine::{JsValue, NativeFunction, Source};
@@ -874,7 +932,8 @@ mod tests {
             eval_script_with_logging(&bundled_code).await.unwrap();
 
         let resolver = Resolver::new();
-        let key = resolver.resolve(base_path, entry).unwrap();
+        let absolute_base = std::fs::canonicalize(base_path).unwrap();
+        let key = resolver.resolve(&absolute_base, entry).unwrap();
         let entry_path = key.path();
 
         let unbundled_logs =

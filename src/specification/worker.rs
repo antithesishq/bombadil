@@ -5,7 +5,6 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
-use crate::specification::module_loader::HybridModuleLoader;
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
@@ -64,6 +63,17 @@ impl VerifierWorker {
     pub async fn start(
         specification: Specification,
     ) -> Result<Arc<Self>, SpecificationError> {
+        use crate::specification::bundler::bundle;
+
+        let bundle_code = bundle(".", &specification.module_specifier)
+            .await
+            .map_err(|e| {
+                SpecificationError::OtherError(format!(
+                    "Failed to bundle specification: {}",
+                    e
+                ))
+            })?;
+
         let (ready_tx, ready_rx) =
             oneshot::channel::<Result<(), SpecificationError>>();
 
@@ -71,15 +81,7 @@ impl VerifierWorker {
         let handle = Arc::new(VerifierWorker { tx });
 
         let _worker_thread = std::thread::spawn(move || {
-            let loader = match HybridModuleLoader::new() {
-                Ok(loader) => loader,
-                Err(error) => {
-                    let _ = ready_tx.send(Err(error));
-                    return;
-                }
-            };
-
-            let mut verifier = match Verifier::new(loader, &specification) {
+            let mut verifier = match Verifier::new(&bundle_code) {
                 Ok(verifier) => {
                     let _ = ready_tx.send(Ok(()));
                     verifier

@@ -43,9 +43,7 @@ impl HybridModuleLoader {
         };
 
         let referrer = if referrer.is_file() {
-            referrer
-                .parent()
-                .expect("absolute path should have parent")
+            referrer.parent().expect("absolute path should have parent")
         } else {
             &referrer
         };
@@ -61,8 +59,13 @@ impl HybridModuleLoader {
         specifier: JsString,
         context: &std::cell::RefCell<&mut Context>,
     ) -> JsResult<Module> {
-        log::debug!("loading module: {}", specifier.display_escaped());
+        log::debug!(
+            "loading module: {} from referrer: {:?}",
+            specifier.display_escaped(),
+            referrer
+        );
         let key = self.resolve_path(referrer, &specifier)?;
+        log::debug!("resolved to: {}", key.specifier());
 
         if let Some(module) = self.cache.borrow().get(key.specifier()) {
             return Ok(module.clone());
@@ -73,12 +76,22 @@ impl HybridModuleLoader {
             ModuleKey::OnDisk { specifier, .. } => {
                 SourceType::from_path(specifier).map_err(JsError::from_rust)?
             }
+            ModuleKey::BrowserStub { .. } => SourceType::mjs(),
         };
         let mut source_text = key.source_text().map_err(JsError::from_rust)?;
 
         if ![SourceType::cjs(), SourceType::mjs()].contains(&source_type) {
             source_text = transpile(&source_text, key.path(), &source_type)
                 .map_err(JsError::from_rust)?;
+        } else if source_type == SourceType::cjs() || is_commonjs(&source_text)
+        {
+            log::debug!(
+                "Wrapping CommonJS module: {} (detected by type={:?}, has exports={})",
+                key.specifier(),
+                source_type,
+                is_commonjs(&source_text)
+            );
+            source_text = wrap_commonjs(&source_text);
         }
 
         let context = &mut context.borrow_mut();
@@ -86,7 +99,13 @@ impl HybridModuleLoader {
             source_text.as_bytes(),
             Some(Path::new(key.specifier())),
         );
-        let module = Module::parse(source, None, context)?;
+        let module = Module::parse(source, None, context).map_err(|e| {
+            JsError::from_rust(SpecificationError::OtherError(format!(
+                "Failed to parse module {}: {}",
+                key.specifier(),
+                e
+            )))
+        })?;
 
         self.cache
             .borrow_mut()
@@ -183,4 +202,28 @@ pub fn transpile(
 
     let codegen = Codegen::new().build(&program);
     Ok(codegen.code)
+}
+
+fn is_commonjs(source: &str) -> bool {
+    source.contains("module.exports")
+        || source.contains("exports.")
+        || source.contains("exports[")
+        || (source.contains("exports") && source.contains("require"))
+}
+
+fn wrap_commonjs(source: &str) -> String {
+    format!(
+        r#"const module = {{ exports: {{}} }};
+const exports = module.exports;
+const require = (id) => {{
+    throw new Error("Nested require() not supported in verifier CommonJS wrapper. Module tried to require: " + id);
+}};
+
+{}
+
+export default module.exports;
+export const __esModule = true;
+"#,
+        source
+    )
 }

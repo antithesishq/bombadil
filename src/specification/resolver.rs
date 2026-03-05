@@ -50,6 +50,7 @@ impl From<std::io::Error> for ResolutionError {
 pub enum ModuleKey {
     Embedded { specifier: String, path: PathBuf },
     OnDisk { specifier: String, path: PathBuf },
+    BrowserStub { specifier: String },
 }
 
 impl ModuleKey {
@@ -57,12 +58,16 @@ impl ModuleKey {
         match self {
             ModuleKey::Embedded { specifier, .. } => specifier,
             ModuleKey::OnDisk { specifier, .. } => specifier,
+            ModuleKey::BrowserStub { specifier } => specifier,
         }
     }
     pub fn path(&self) -> &Path {
         match self {
             ModuleKey::Embedded { path, .. } => path,
             ModuleKey::OnDisk { path, .. } => path,
+            ModuleKey::BrowserStub { specifier } => {
+                panic!("BrowserStub module {} has no path", specifier)
+            }
         }
     }
     // NOTE: this needs to be sync in order for our boa_engine module
@@ -79,6 +84,10 @@ impl ModuleKey {
                 .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
                 .to_string(),
             ModuleKey::OnDisk { path, .. } => std::fs::read_to_string(path)?,
+            ModuleKey::BrowserStub { .. } => {
+                // Empty module stub for browser field: false
+                "module.exports = {};".to_string()
+            }
         })
     }
 }
@@ -87,11 +96,18 @@ pub struct Resolver {
     resolver: oxc_resolver::Resolver,
 }
 
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resolver {
     pub fn new() -> Self {
         let cwd = std::env::current_dir().ok();
         let options = ResolveOptions {
             cwd,
+            alias_fields: vec![vec!["browser".to_string()]],
             ..Default::default()
         };
         Self {
@@ -102,6 +118,7 @@ impl Resolver {
     pub fn new_with_cwd(cwd: PathBuf) -> Self {
         let options = ResolveOptions {
             cwd: Some(cwd),
+            alias_fields: vec![vec!["browser".to_string()]],
             ..Default::default()
         };
         Self {
@@ -114,11 +131,13 @@ impl Resolver {
         path: impl AsRef<Path>,
         specifier: &str,
     ) -> Result<ModuleKey, ResolutionError> {
-        log::debug!(
-            "Resolver::resolve: path={:?}, specifier={}",
-            path.as_ref(),
-            specifier
+        let path = path.as_ref();
+        assert!(
+            path.is_absolute(),
+            "Resolver::resolve requires absolute path, got: {:?}",
+            path
         );
+
         if let Ok(relative) =
             PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
         {
@@ -138,21 +157,30 @@ impl Resolver {
             }
         } else {
             let resolution = self.resolver.resolve(path, specifier);
-            match &resolution {
+            match resolution {
                 Ok(r) => {
-                    log::debug!("Resolved {} to {:?}", specifier, r.full_path())
+                    // Check if browser field aliased to false (empty path indicates stub)
+                    if r.full_path().as_os_str().is_empty() {
+                        return Ok(ModuleKey::BrowserStub {
+                            specifier: specifier.to_string(),
+                        });
+                    }
+                    let path = r.full_path();
+                    Ok(ModuleKey::OnDisk {
+                        specifier: path
+                            .to_str()
+                            .ok_or(ResolutionError::InvalidUtf8 {
+                                path: path.clone(),
+                            })?
+                            .to_string(),
+                        path,
+                    })
                 }
-                Err(e) => log::debug!("Failed to resolve {}: {}", specifier, e),
+                Err(ResolveError::Ignored(..)) => Ok(ModuleKey::BrowserStub {
+                    specifier: specifier.to_string(),
+                }),
+                Err(e) => Err(e.into()),
             }
-            let resolution = resolution?;
-            let path = resolution.full_path();
-            Ok(ModuleKey::OnDisk {
-                specifier: path
-                    .to_str()
-                    .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
-                    .to_string(),
-                path,
-            })
         }
     }
 }

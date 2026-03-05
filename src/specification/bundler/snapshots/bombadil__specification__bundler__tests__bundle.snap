@@ -19,23 +19,31 @@ expression: bundle
     }
 
     modules[path](module, module.exports, require);
+
+    // ESM interop: ensure .default exists for CommonJS modules
+    if (typeof module.exports.default === 'undefined') {
+      module.exports.default = module.exports;
+    }
+
     return module.exports;
   }
 
-  modules["src/specification/bundler/fixtures/snapshot/index.ts"] = function(module, exports, require) {
-    const{default:z,x,foo:bar}=require(`src/specification/bundler/fixtures/snapshot/other.ts`);const{incr}=require(`src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);const{default:addFn,multiply,MAGIC_NUMBER}=require(`src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js`);const y=incr(x+z+bar.bar);const computed=multiply(addFn(1,2),MAGIC_NUMBER);Object.assign(module.exports,require(`src/specification/bundler/fixtures/snapshot/other.ts`));module.exports.y=y;module.exports.computed=computed;
+  globalThis.__bombadilRequire = require;
+
+  modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/index.ts"] = function(module, exports, require) {
+    const{default:z,x,foo:bar}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/other.ts`);const{incr}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);const{default:addFn,multiply,MAGIC_NUMBER}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js`);const y=incr(x+z+bar.bar);const computed=multiply(addFn(1,2),MAGIC_NUMBER);Object.assign(module.exports,require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/other.ts`));module.exports.y=y;module.exports.computed=computed;
   };
 
-  modules["src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js"] = function(module, exports, require) {
+  modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js"] = function(module, exports, require) {
     function multiply(a,b){return a*b}const MAGIC_NUMBER=42;module.exports.default=function add(a,b){return a+b};module.exports.multiply=multiply;module.exports.MAGIC_NUMBER=MAGIC_NUMBER;
   };
 
-  modules["src/specification/bundler/fixtures/snapshot/other.ts"] = function(module, exports, require) {
-    const{incr}=require(`src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);require(`@antithesishq/bombadil`);const x=10;module.exports.default=incr(20);const foo={bar:30};const{x:y}={x:123};const[z=0]=[1];const[{a:b=1}]=[{}];module.exports.x=x;module.exports.foo=foo;module.exports.y=y;module.exports.z=z;module.exports.b=b;
+  modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/other.ts"] = function(module, exports, require) {
+    const{incr}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);require(`@antithesishq/bombadil`);const x=10;module.exports.default=incr(20);const foo={bar:30};const{x:y}={x:123};const[z=0]=[1];const[{a:b=1}]=[{}];module.exports.x=x;module.exports.foo=foo;module.exports.y=y;module.exports.z=z;module.exports.b=b;
   };
 
-  modules["src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts"] = function(module, exports, require) {
-    const{x}=require(`src/specification/bundler/fixtures/snapshot/other.ts`);function incr(x){return x+1}const cyclic=x+10;module.exports.incr=incr;module.exports.cyclic=cyclic;
+  modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts"] = function(module, exports, require) {
+    const{x}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/other.ts`);function incr(x){return x+1}const cyclic=x+10;module.exports.incr=incr;module.exports.cyclic=cyclic;
   };
 
   modules["@antithesishq/bombadil"] = function(module, exports, require) {
@@ -55,5 +63,5 @@ expression: bundle
     function randomU32(){return new DataView(__bombadil_random_bytes(4).buffer).getUint32(0)}function randomRange(min,max){if(min>=max){throw new RangeError(`min (${min}) must be less than max (${max})`)}const range=max-min;if(range<=4294967295){return min+randomU32()%range}const view=new DataView(__bombadil_random_bytes(8).buffer);const uniform=((view.getUint32(0)>>>5)*67108864+(view.getUint32(4)>>>6))/9007199254740992;return min+Math.floor(uniform*range)}function randomChoice(items){if(items.length===0){throw new Error(`cannot choose from an empty array of items`)}return items[randomU32()%items.length]}class From{constructor(elements){this.elements=elements}generate(){return randomChoice(this.elements)}}function from(elements){if(elements.length===0){throw new Error("`from` needs at least one element")}return new From(elements)}const ALPHANUMERIC=`abcdefghijklmnopqrstuvwxyz0123456789`;class StringGenerator{size={min:0,max:16};generate(){const len=randomRange(this.size.min,this.size.max);return Array.from({length:len},()=>randomChoice([...ALPHANUMERIC])).join(``)}minSize(value){this.size.min=value;return this}maxSize(value){this.size.max=value;return this}}function strings(){return new StringGenerator}class EmailGenerator{generate(){const user=Array.from({length:randomRange(3,10)},()=>randomChoice([...ALPHANUMERIC])).join(``);const domain=Array.from({length:randomRange(3,8)},()=>randomChoice([...ALPHANUMERIC])).join(``);return`${user}@${domain}.com`}}function emails(){return new EmailGenerator}class IntegerGenerator{range={min:Number.MIN_SAFE_INTEGER,max:Number.MAX_SAFE_INTEGER};generate(){return randomRange(this.range.min,this.range.max)}min(value){this.range.min=value;return this}max(value){this.range.max=value;return this}}function integers(){return new IntegerGenerator}function keycodes(){return from([8,9,13,27])};module.exports.From=From;module.exports.emails=emails;module.exports.from=from;module.exports.integers=integers;module.exports.keycodes=keycodes;module.exports.randomRange=randomRange;module.exports.strings=strings;
   };
 
-  require("src/specification/bundler/fixtures/snapshot/index.ts");
+  return require("/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/index.ts");
 })();

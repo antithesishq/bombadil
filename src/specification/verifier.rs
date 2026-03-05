@@ -1,16 +1,13 @@
-use std::cell::RefCell;
-use std::path::PathBuf;
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use crate::specification::js::{
-    BombadilExports, Extractors, RuntimeFunction, module_exports,
-};
+use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
+use crate::specification::ltl::{Evaluator, Formula, Residual, Violation};
 use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
-use crate::specification::{ltl, module_loader::load_modules};
+use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
 use boa_engine::{
-    Context, JsString, NativeFunction,
+    Context, JsString, NativeFunction, Source,
     context::ContextBuilder,
     js_string,
     object::builtins::{JsArray, JsUint8Array},
@@ -18,12 +15,6 @@ use boa_engine::{
 };
 use boa_engine::{JsError, JsObject, JsValue};
 use serde_json as json;
-
-use crate::specification::{
-    ltl::{Evaluator, Formula, Residual, Violation},
-    module_loader::HybridModuleLoader,
-    result::SpecificationError,
-};
 
 #[derive(Clone)]
 pub struct StepResult<A> {
@@ -47,12 +38,8 @@ pub struct Specification {
 }
 
 impl Verifier {
-    pub fn new(
-        loader: HybridModuleLoader,
-        specification: &Specification,
-    ) -> Result<Self> {
+    pub fn new(bundle_code: &str) -> Result<Self> {
         let mut context = ContextBuilder::default()
-            .module_loader(Rc::new(loader.clone()))
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
 
@@ -78,34 +65,98 @@ impl Verifier {
             }),
         )?;
 
-        let referrer = PathBuf::from(".");
+        // Add console object for compatibility with libraries that use console
+        let console_obj =
+            boa_engine::object::ObjectInitializer::new(&mut context)
+                .function(
+                    NativeFunction::from_copy_closure(
+                        |_this, args, _context| {
+                            log::info!("console.log: {:?}", args);
+                            Ok(JsValue::undefined())
+                        },
+                    ),
+                    js_string!("log"),
+                    0,
+                )
+                .function(
+                    NativeFunction::from_copy_closure(
+                        |_this, args, _context| {
+                            log::warn!("console.warn: {:?}", args);
+                            Ok(JsValue::undefined())
+                        },
+                    ),
+                    js_string!("warn"),
+                    0,
+                )
+                .function(
+                    NativeFunction::from_copy_closure(
+                        |_this, args, _context| {
+                            log::error!("console.error: {:?}", args);
+                            Ok(JsValue::undefined())
+                        },
+                    ),
+                    js_string!("error"),
+                    0,
+                )
+                .build();
+        context
+            .register_global_property(
+                js_string!("console"),
+                console_obj,
+                boa_engine::property::Attribute::all(),
+            )
+            .map_err(|e| {
+                SpecificationError::JS(format!(
+                    "Failed to register console: {}",
+                    e
+                ))
+            })?;
 
-        let specification_module = loader.load_module(
-            &referrer,
-            js_string!(specification.module_specifier.clone()),
-            &RefCell::new(&mut context),
+        let specification_exports_value =
+            context.eval(Source::from_bytes(bundle_code))?;
+        let specification_exports_obj = specification_exports_value
+            .as_object()
+            .ok_or(SpecificationError::OtherError(
+                "specification exports is not an object".to_string(),
+            ))?;
+
+        let require_fn = context
+            .global_object()
+            .get(js_string!("__bombadilRequire"), &mut context)?
+            .as_callable()
+            .ok_or(SpecificationError::OtherError(
+                "__bombadilRequire is not a function".to_string(),
+            ))?;
+
+        let bombadil_exports_value = require_fn.call(
+            &JsValue::undefined(),
+            &[js_string!("@antithesishq/bombadil").into()],
+            &mut context,
+        )?;
+        let bombadil_exports_obj = bombadil_exports_value.as_object().ok_or(
+            SpecificationError::OtherError(
+                "bombadil exports is not an object".to_string(),
+            ),
         )?;
 
-        load_modules(&mut context, &[&specification_module])?;
-
-        let bombadil_module_index = loader.load_module(
-            &referrer,
-            js_string!("@antithesishq/bombadil"),
-            &RefCell::new(&mut context),
-        )?;
-
-        let specification_exports =
-            module_exports(&specification_module, &mut context)?;
         let bombadil_exports =
-            BombadilExports::from_module(&bombadil_module_index, &mut context)?;
+            BombadilExports::from_object(&bombadil_exports_obj, &mut context)?;
+
+        let specification_export_keys =
+            specification_exports_obj.own_property_keys(&mut context)?;
 
         let mut properties: HashMap<String, Property> = HashMap::new();
         let mut action_generators: HashMap<String, ActionGenerator> =
             HashMap::new();
-        for (key, value) in specification_exports.iter() {
+        for key in specification_export_keys {
+            let value =
+                specification_exports_obj.get(key.clone(), &mut context)?;
             if value.instance_of(&bombadil_exports.formula, &mut context)? {
-                let syntax =
-                    Syntax::from_value(value, &bombadil_exports, &mut context)?;
+                let syntax = Syntax::from_value(
+                    &value,
+                    &bombadil_exports,
+                    &mut context,
+                )?;
                 let formula = syntax.nnf();
                 properties.insert(
                     key.to_string(),
@@ -141,9 +192,12 @@ impl Verifier {
                         function,
                     },
                 );
-            } else if let PropertyKey::Symbol(symbol) = key
+            } else if let PropertyKey::Symbol(ref symbol) = key
                 && let Some(description) = symbol.description()
                 && IGNORED_SYMBOL_EXPORTS.contains(&description)
+            {
+                continue;
+            } else if IGNORED_STRING_EXPORTS.contains(&key.to_string().as_str())
             {
                 continue;
             } else {
@@ -280,6 +334,7 @@ impl Verifier {
 }
 
 const IGNORED_SYMBOL_EXPORTS: &[JsString] = &[js_string!("Symbol.toStringTag")];
+const IGNORED_STRING_EXPORTS: &[&str] = &["__esModule"];
 
 #[derive(Debug, Clone)]
 pub struct Property {
@@ -342,21 +397,22 @@ mod tests {
     use super::*;
 
     fn verifier(specification: &str) -> Verifier {
-        let loader = HybridModuleLoader::new().unwrap();
+        use crate::specification::bundler::bundle;
+
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         specification_file
             .write_all(specification.as_bytes())
             .unwrap();
-        Verifier::new(
-            loader,
-            &Specification {
-                module_specifier: specification_file
-                    .path()
-                    .display()
-                    .to_string(),
-            },
-        )
-        .unwrap()
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let bundle_code = rt
+            .block_on(bundle(
+                ".",
+                &specification_file.path().display().to_string(),
+            ))
+            .unwrap();
+
+        Verifier::new(&bundle_code).unwrap()
     }
 
     #[test]

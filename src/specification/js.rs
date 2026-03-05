@@ -305,6 +305,40 @@ impl BombadilExports {
             action_generator: get_export("ActionGenerator")?,
         })
     }
+
+    pub fn from_object(obj: &JsObject, context: &mut Context) -> Result<Self> {
+        let mut get_export = |name: &str| -> Result<JsValue> {
+            obj.get(js_string!(name), context).map_err(|e| {
+                SpecificationError::OtherError(format!(
+                    "Failed to get {}: {}",
+                    name, e
+                ))
+            })
+        };
+        Ok(Self {
+            formula: get_export("Formula")?,
+            pure: get_export("Pure")?,
+            thunk: get_export("Thunk")?,
+            not: get_export("Not")?,
+            and: get_export("And")?,
+            or: get_export("Or")?,
+            implies: get_export("Implies")?,
+            next: get_export("Next")?,
+            always: get_export("Always")?,
+            eventually: get_export("Eventually")?,
+            runtime_default: get_export("runtimeDefault")?.as_object().ok_or(
+                SpecificationError::OtherError(
+                    "runtimeDefault is not an object".to_string(),
+                ),
+            )?,
+            time: get_export("time")?.as_object().ok_or(
+                SpecificationError::OtherError(
+                    "time is not an object".to_string(),
+                ),
+            )?,
+            action_generator: get_export("ActionGenerator")?,
+        })
+    }
 }
 
 pub fn module_exports(
