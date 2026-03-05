@@ -1,0 +1,34 @@
+---
+source: src/specification/bundler/mod.rs
+expression: bundle
+---
+(function() {
+  const modules = {};
+  const cache = {};
+
+  function require(path) {
+    if (cache[path]) {
+      return cache[path].exports;
+    }
+
+    const module = { exports: {} };
+    cache[path] = module;
+
+    if (!modules[path]) {
+      throw new Error("Module not found: " + path);
+    }
+
+    modules[path](module, module.exports, require);
+    return module.exports;
+  }
+
+  modules["src/specification/bundler/fixtures/snapshot/cjs-test.ts"] = function(module, exports, require) {
+    const spell=require(`src/specification/bundler/fixtures/snapshot/node_modules/cjs-lib/index.js`);const result=spell.spell(`hello`);module.exports.result=result;
+  };
+
+  modules["src/specification/bundler/fixtures/snapshot/node_modules/cjs-lib/index.js"] = function(module, exports, require) {
+    module.exports={spell:function(word){return word.toUpperCase()},check:function(text){return{errors:[]}}};module.exports.default=module.exports;
+  };
+
+  require("src/specification/bundler/fixtures/snapshot/cjs-test.ts");
+})();

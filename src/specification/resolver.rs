@@ -88,7 +88,22 @@ pub struct Resolver {
 }
 
 impl Resolver {
-    pub fn new(options: ResolveOptions) -> Self {
+    pub fn new() -> Self {
+        let cwd = std::env::current_dir().ok();
+        let options = ResolveOptions {
+            cwd,
+            ..Default::default()
+        };
+        Self {
+            resolver: oxc_resolver::Resolver::new(options),
+        }
+    }
+
+    pub fn new_with_cwd(cwd: PathBuf) -> Self {
+        let options = ResolveOptions {
+            cwd: Some(cwd),
+            ..Default::default()
+        };
         Self {
             resolver: oxc_resolver::Resolver::new(options),
         }
@@ -99,6 +114,11 @@ impl Resolver {
         path: impl AsRef<Path>,
         specifier: &str,
     ) -> Result<ModuleKey, ResolutionError> {
+        log::debug!(
+            "Resolver::resolve: path={:?}, specifier={}",
+            path.as_ref(),
+            specifier
+        );
         if let Ok(relative) =
             PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
         {
@@ -117,7 +137,14 @@ impl Resolver {
                 })
             }
         } else {
-            let resolution = self.resolver.resolve(path, specifier)?;
+            let resolution = self.resolver.resolve(path, specifier);
+            match &resolution {
+                Ok(r) => {
+                    log::debug!("Resolved {} to {:?}", specifier, r.full_path())
+                }
+                Err(e) => log::debug!("Failed to resolve {}: {}", specifier, e),
+            }
+            let resolution = resolution?;
             let path = resolution.full_path();
             Ok(ModuleKey::OnDisk {
                 specifier: path

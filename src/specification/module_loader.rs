@@ -14,7 +14,6 @@ use oxc::{
     transformer::{TransformOptions, Transformer},
 };
 use oxc::{codegen::Codegen, semantic::SemanticBuilder};
-use oxc_resolver::ResolveOptions;
 
 #[derive(Clone)]
 pub struct HybridModuleLoader {
@@ -25,7 +24,7 @@ pub struct HybridModuleLoader {
 impl HybridModuleLoader {
     pub fn new() -> Result<Self> {
         Ok(HybridModuleLoader {
-            resolver: Arc::new(Resolver::new(ResolveOptions::default())),
+            resolver: Arc::new(Resolver::new()),
             cache: Rc::new(RefCell::new(HashMap::new())),
         })
     }
@@ -35,12 +34,20 @@ impl HybridModuleLoader {
         referrer: &Path,
         specifier: &JsString,
     ) -> JsResult<ModuleKey> {
+        let referrer = if referrer.is_absolute() {
+            referrer.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(JsError::from_rust)?
+                .join(referrer)
+        };
+
         let referrer = if referrer.is_file() {
             referrer
                 .parent()
-                .expect("referrer path has no parent directory")
+                .expect("absolute path should have parent")
         } else {
-            referrer
+            &referrer
         };
 
         self.resolver

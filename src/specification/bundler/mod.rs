@@ -15,7 +15,6 @@ use oxc::{
     span::{SPAN, SourceType},
     transformer::{TransformOptions, Transformer},
 };
-use oxc_resolver::ResolveOptions;
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,14 +48,22 @@ pub struct Module {
 }
 
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
-    let options = ResolveOptions::default();
-    let resolver = Resolver::new(options);
+    let path = path.as_ref();
+    let canonical_path = path.canonicalize()?;
+    log::debug!(
+        "Bundler: path={:?}, canonical={:?}, specifier={}",
+        path,
+        canonical_path,
+        specifier
+    );
+    let resolver = Resolver::new_with_cwd(canonical_path);
     let allocator = Allocator::default();
 
     let mut modules = vec![];
     let mut keys_processed = BTreeSet::<ModuleKey>::new();
     let mut queue = VecDeque::new();
 
+    log::debug!("Resolving entry: path={:?}, specifier={}", path, specifier);
     queue.push_front(resolver.resolve(path, specifier)?);
 
     while let Some(key) = queue.pop_front() {
@@ -671,6 +678,17 @@ mod tests {
         assert_snapshot!(bundle);
     }
 
+    #[tokio::test]
+    async fn test_bundle_commonjs() {
+        let bundle = bundle(
+            "src/specification/bundler/fixtures/snapshot",
+            "./cjs-test.ts",
+        )
+        .await
+        .unwrap();
+        assert_snapshot!(bundle);
+    }
+
     async fn eval_module_with_logging(
         entry_path: impl AsRef<Path>,
     ) -> Result<Vec<String>> {
@@ -855,8 +873,7 @@ mod tests {
         let bundled_logs =
             eval_script_with_logging(&bundled_code).await.unwrap();
 
-        let options = ResolveOptions::default();
-        let resolver = Resolver::new(options);
+        let resolver = Resolver::new();
         let key = resolver.resolve(base_path, entry).unwrap();
         let entry_path = key.path();
 

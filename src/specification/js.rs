@@ -381,7 +381,7 @@ impl Extractors {
 
         for (index, json_result) in results.iter().enumerate() {
             if let Some(obj) = self.get(index) {
-                let js_value = JsValue::from_json(&json_result, context)?;
+                let js_value = JsValue::from_json(json_result, context)?;
                 update(obj, js_value, time.clone(), context)?;
             }
         }

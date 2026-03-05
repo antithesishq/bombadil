@@ -23,7 +23,11 @@ expression: bundle
   }
 
   modules["src/specification/bundler/fixtures/snapshot/index.ts"] = function(module, exports, require) {
-    const{default:z,x,foo:bar}=require(`src/specification/bundler/fixtures/snapshot/other.ts`);const{incr}=require(`src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);const y=incr(x+z+bar.bar);Object.assign(module.exports,require(`src/specification/bundler/fixtures/snapshot/other.ts`));module.exports.y=y;
+    const{default:z,x,foo:bar}=require(`src/specification/bundler/fixtures/snapshot/other.ts`);const{incr}=require(`src/specification/bundler/fixtures/snapshot/subdirectory/shared.ts`);const{default:addFn,multiply,MAGIC_NUMBER}=require(`src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js`);const y=incr(x+z+bar.bar);const computed=multiply(addFn(1,2),MAGIC_NUMBER);Object.assign(module.exports,require(`src/specification/bundler/fixtures/snapshot/other.ts`));module.exports.y=y;module.exports.computed=computed;
+  };
+
+  modules["src/specification/bundler/fixtures/snapshot/node_modules/test-lib/index.js"] = function(module, exports, require) {
+    function multiply(a,b){return a*b}const MAGIC_NUMBER=42;module.exports.default=function add(a,b){return a+b};module.exports.multiply=multiply;module.exports.MAGIC_NUMBER=MAGIC_NUMBER;
   };
 
   modules["src/specification/bundler/fixtures/snapshot/other.ts"] = function(module, exports, require) {
