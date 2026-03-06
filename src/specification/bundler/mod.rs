@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use oxc::{
     allocator::{Allocator, TakeIn},
     ast::{NONE, ast},
-    codegen::{Codegen, CodegenOptions},
+    codegen::Codegen,
     parser::Parser,
     semantic::SemanticBuilder,
     span::{SPAN, SourceType},
@@ -178,9 +178,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             Transformer::new(&allocator, key.path(), &transform_options);
         transformer.build_with_scoping(scopes, &mut program);
 
-        let codegen = Codegen::new()
-            .with_options(CodegenOptions::minify())
-            .build(&program);
+        let codegen = Codegen::new().build(&program);
 
         // Prepend __esModule marker to prevent CommonJS interop from adding circular .default
         let code = format!("module.exports.__esModule=true;{}", codegen.code);
