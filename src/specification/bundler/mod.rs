@@ -844,7 +844,9 @@ export { foo, bar, baz };
             "Should add .named() to extract without existing .named()"
         );
         assert!(
-            bundle.contains(r#"extract((state) => state.bar).named("custom_name")"#),
+            bundle.contains(
+                r#"extract((state) => state.bar).named("custom_name")"#
+            ),
             "Should not modify extract with existing .named()"
         );
         assert!(
