@@ -277,6 +277,19 @@ async fn run_extractors(
         "lastAction": json::to_value(last_action)?,
     });
 
+    // Update time cell in browser runtime before running extractors
+    let timestamp_millis = state
+        .timestamp
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as u64;
+
+    state
+        .evaluate_function_call::<json::Value>(
+            "(timestamp) => { const { time } = __bombadilRequire('@antithesishq/bombadil'); time.update(null, timestamp); return true; }",
+            vec![json::json!(timestamp_millis)],
+        )
+        .await?;
+
     let results: Vec<json::Value> = state
             .evaluate_function_call(
                 "(state) => globalThis.bombadil.runtime.runExtractors({ ...state, document, window })",

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Time Extractor Test</title>
+</head>
+<body>
+    <h1>Time Extractor Test</h1>
+    <button id="btn">Click me</button>
+    <div id="counter">0</div>
+    <script>
+        let counter = 0;
+        document.getElementById('btn').addEventListener('click', () => {
+            counter++;
+            document.getElementById('counter').textContent = counter;
+        });
+    </script>
+</body>
+</html>

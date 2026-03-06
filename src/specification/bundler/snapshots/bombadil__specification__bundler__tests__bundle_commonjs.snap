@@ -20,8 +20,9 @@ expression: bundle
 
     modules[path](module, module.exports, require);
 
-    // ESM interop: ensure .default exists for CommonJS modules
-    if (typeof module.exports.default === 'undefined') {
+    // ESM interop: ensure .default exists for pure CommonJS modules
+    // Skip if module already has __esModule marker (transpiled ESM) or .default property
+    if (!module.exports.__esModule && typeof module.exports.default === 'undefined') {
       module.exports.default = module.exports;
     }
 
@@ -31,40 +32,15 @@ expression: bundle
   globalThis.__bombadilRequire = require;
 
   modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/cjs-test.ts"] = function(module, exports, require) {
-    const spell=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/cjs-lib/index.js`);const{default:MyClass}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/commonjs-pattern/index.js`);const result=spell.spell(`hello`);const greeter=new MyClass(`World`);const greeting=greeter.greet();module.exports.result=result;module.exports.greeter=greeter;module.exports.greeting=greeting;
+    module.exports.__esModule=true;const spell=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/cjs-lib/index.js`);const{default:MyClass}=require(`/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/commonjs-pattern/index.js`);const result=spell.spell(`hello`);const greeter=new MyClass(`World`);const greeting=greeter.greet();module.exports.result=result;module.exports.greeter=greeter;module.exports.greeting=greeting;
   };
 
   modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/cjs-lib/index.js"] = function(module, exports, require) {
-    // CommonJS style exports
-    module.exports = {
-      spell: function(word) {
-        return word.toUpperCase();
-      },
-      check: function(text) {
-        return { errors: [] };
-      }
-    };
-    
-    module.exports.default = module.exports;
+    module.exports.__esModule=true;module.exports={spell:function(word){return word.toUpperCase()},check:function(text){return{errors:[]}}};module.exports.default=module.exports;
   };
 
   modules["/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/node_modules/commonjs-pattern/index.js"] = function(module, exports, require) {
-    // Different CommonJS patterns to test detection
-    
-    function MyClass(name) {
-      this.name = name;
-    }
-    
-    MyClass.prototype.greet = function() {
-      return "Hello, " + this.name;
-    };
-    
-    MyClass.staticMethod = function() {
-      return "I'm static";
-    };
-    
-    // Single assignment pattern
-    module.exports = MyClass;
+    module.exports.__esModule=true;function MyClass(name){this.name=name}MyClass.prototype.greet=function(){return`Hello, `+this.name};MyClass.staticMethod=function(){return`I'm static`};module.exports=MyClass;
   };
 
   return require("/home/owi/projects/bombadil/src/specification/bundler/fixtures/snapshot/cjs-test.ts");

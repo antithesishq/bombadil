@@ -466,3 +466,27 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_time_extractor() {
+    run_browser_test(
+        "time-extractor",
+        Expect::Success,
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        Some(
+            r##"
+import { actions, extract, always, time } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+// Extract current time
+const timeSnapshot = extract((state) => time.current);
+
+// Property: time should be non-decreasing
+export const time_is_non_decreasing = always(() => {
+  return timeSnapshot.previous === undefined || timeSnapshot.current >= timeSnapshot.previous;
+});
+"##,
+        ),
+    )
+    .await;
+}
