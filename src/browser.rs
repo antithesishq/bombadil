@@ -359,6 +359,7 @@ impl Browser {
 
     pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
         let _ = self.page.evaluate_on_new_document(script).await?;
+        let _ = self.page.evaluate(script).await?;
         Ok(())
     }
 }
