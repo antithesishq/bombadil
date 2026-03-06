@@ -41,13 +41,11 @@ fn load_random_module(
         )
         .map_err(|e| e.to_string())?;
 
-    // Bundle the random module directly
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     let bundle_code = rt
         .block_on(bundle(".", "@antithesishq/bombadil/random"))
         .map_err(|e| e.to_string())?;
 
-    // Eval the bundle to get exports
     let specification_exports_value = context
         .eval(Source::from_bytes(&bundle_code))
         .map_err(|e| e.to_string())?;
