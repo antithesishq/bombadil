@@ -1,29 +1,28 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 use proptest::prelude::*;
+use proptest::test_runner::TestCaseError;
 
 use boa_engine::{
-    Context, JsValue, Module, NativeFunction, context::ContextBuilder,
-    js_string, object::builtins::JsUint8Array, property::PropertyKey,
+    Context, JsObject, JsValue, NativeFunction, Source,
+    context::ContextBuilder, js_string, object::builtins::JsUint8Array,
 };
-
-use crate::specification::js;
-use crate::specification::module_loader::{HybridModuleLoader, load_modules};
 
 thread_local! {
     static RANDOM_BYTES: RefCell<VecDeque<u8>> = const { RefCell::new(VecDeque::new()) };
 }
 
-fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
+fn load_random_module(
+    random_bytes: Vec<u8>,
+) -> Result<(Context, JsObject), String> {
+    use crate::specification::bundler::bundle;
+
     RANDOM_BYTES.with(|buf| *buf.borrow_mut() = VecDeque::from(random_bytes));
 
-    let loader = Rc::new(HybridModuleLoader::new().unwrap());
     let mut context = ContextBuilder::default()
-        .module_loader(loader.clone())
         .build()
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     context
         .register_global_builtin_callable(
@@ -40,40 +39,48 @@ fn load_random_module(random_bytes: Vec<u8>) -> (Context, Module) {
                 Ok(JsUint8Array::from_iter(bytes, context)?.into())
             }),
         )
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    let module = loader
-        .load_module(
-            &std::path::PathBuf::from("."),
-            js_string!("@antithesishq/bombadil/random"),
-            &RefCell::new(&mut context),
-        )
-        .unwrap();
-    load_modules(&mut context, &[&module]).unwrap();
-    (context, module)
+    // Bundle the random module directly
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    let bundle_code = rt
+        .block_on(bundle(".", "@antithesishq/bombadil/random"))
+        .map_err(|e| e.to_string())?;
+
+    // Eval the bundle to get exports
+    let specification_exports_value = context
+        .eval(Source::from_bytes(&bundle_code))
+        .map_err(|e| e.to_string())?;
+    let specification_exports_obj = specification_exports_value
+        .as_object()
+        .ok_or_else(|| "specification exports is not an object".to_string())?;
+
+    Ok((context, specification_exports_obj.clone()))
 }
 
 fn call_random_range(
     context: &mut Context,
-    module: &Module,
+    exports_obj: &JsObject,
     min: f64,
     max: f64,
-) -> f64 {
-    let random_range = js::module_exports(module, context)
-        .unwrap()
-        .get(&PropertyKey::String(js_string!("randomRange")))
-        .unwrap()
-        .clone();
-    let result = random_range
+) -> Result<f64, String> {
+    let random_range = exports_obj
+        .get(js_string!("randomRange"), context)
+        .map_err(|e| e.to_string())?
         .as_callable()
-        .unwrap()
+        .ok_or_else(|| "randomRange is not a function".to_string())?;
+
+    let result = random_range
         .call(
             &JsValue::undefined(),
             &[JsValue::from(min), JsValue::from(max)],
             context,
         )
-        .unwrap();
-    result.as_number().unwrap()
+        .map_err(|e| e.to_string())?;
+
+    result
+        .as_number()
+        .ok_or_else(|| "randomRange did not return a number".to_string())
 }
 
 proptest! {
@@ -85,8 +92,10 @@ proptest! {
         random_bytes in prop::collection::vec(any::<u8>(), 8),
     ) {
         let max = min + spread;
-        let (mut context, module) = load_random_module(random_bytes);
-        let n = call_random_range(&mut context, &module, min as f64, max as f64);
+        let (mut context, exports_obj) = load_random_module(random_bytes)
+            .map_err(TestCaseError::fail)?;
+        let n = call_random_range(&mut context, &exports_obj, min as f64, max as f64)
+            .map_err(TestCaseError::fail)?;
         prop_assert!(n >= min as f64, "value {n} < min {min}");
         prop_assert!(n < max as f64, "value {n} >= max {max}");
         prop_assert!(n.fract() == 0.0, "value {n} is not an integer");

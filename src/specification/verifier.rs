@@ -574,7 +574,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(&residual, time) {
+                        match stop_default(residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -624,7 +624,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(&residual, time) {
+                        match stop_default(residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -665,7 +665,7 @@ mod tests {
             if i < 4 {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(&residual, time) {
+                        match stop_default(residual, time) {
                             Some(StopDefault::True) => {}
                             _ => panic!("should have a true stop default"),
                         }
@@ -710,7 +710,7 @@ mod tests {
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(&residual, time) {
+                        match stop_default(residual, time) {
                             Some(StopDefault::False(_)) => {}
                             _ => panic!("should have a false stop default"),
                         }
@@ -751,7 +751,7 @@ mod tests {
             if i < 4 {
                 match value {
                     ltl::Value::Residual(residual) => {
-                        match stop_default(&residual, time) {
+                        match stop_default(residual, time) {
                             Some(StopDefault::False(_)) => {}
                             _ => panic!("should have a false stop default"),
                         }
