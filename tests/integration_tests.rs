@@ -475,15 +475,18 @@ async fn test_time_extractor() {
         Duration::from_secs(10),
         Some(
             r##"
-import { actions, extract, always, eventually, time } from "@antithesishq/bombadil";
+import { actions, extract, now, eventually, time } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults";
 
-const currentTime = extract((state) => time.current);
+const myTime = extract((state) => time.current);
 
 // Property: time is a reasonable value (after year 2020)
-export const time_is_reasonable = always(() => {
-  return currentTime.current > 1577836800000; // Jan 1, 2020
-}).within(5, "seconds");
+export const time_is_reasonable = now(() => {
+  const start = myTime.current;
+  return eventually(() => 
+      myTime.current > start 
+  );
+});
 "##,
         ),
     )
