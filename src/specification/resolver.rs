@@ -73,20 +73,26 @@ impl ModuleKey {
     // NOTE: this needs to be sync in order for our boa_engine module
     // loader to have a non-async API, otherwise the verifier gets into
     // trouble with the boa_engine primitives not being Send.
-    pub fn source_text(&self) -> Result<String, ResolutionError> {
+    pub fn contents(&self) -> Result<Vec<u8>, ResolutionError> {
         Ok(match self {
             ModuleKey::Embedded { path, .. } => JS_DIR
                 .get_file(path)
                 .ok_or(ResolutionError::EmbeddedFileNotFound {
                     path: path.clone(),
                 })?
-                .contents_utf8()
-                .ok_or(ResolutionError::InvalidUtf8 { path: path.clone() })?
-                .to_string(),
-            ModuleKey::OnDisk { path, .. } => std::fs::read_to_string(path)?,
-            ModuleKey::BrowserStub { .. } => {
-                // Empty module stub for browser field: false
-                "module.exports = {};".to_string()
+                .contents()
+                .into(),
+            ModuleKey::OnDisk { path, .. } => std::fs::read(path)?,
+            ModuleKey::BrowserStub { specifier } => {
+                panic!("BrowserStub module {} has no contents", specifier)
+            }
+        })
+    }
+
+    pub fn source_text(&self) -> Result<String, ResolutionError> {
+        String::from_utf8(self.contents()?).map_err(|_| {
+            ResolutionError::InvalidUtf8 {
+                path: self.path().to_path_buf(),
             }
         })
     }

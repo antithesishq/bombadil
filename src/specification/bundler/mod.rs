@@ -16,6 +16,7 @@ use oxc::{
     transformer::{TransformOptions, Transformer},
 };
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
+use serde_json as json;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
@@ -42,9 +43,14 @@ impl Display for BundlerError {
     }
 }
 
+pub enum ModuleContents {
+    Code(String),
+    File(Vec<u8>),
+}
+
 pub struct Module {
     key: ModuleKey,
-    code: String,
+    contents: ModuleContents,
 }
 
 fn module_key_to_relative_path(key: &ModuleKey, base: &Path) -> String {
@@ -95,15 +101,39 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         ) {
             modules.push(Module {
                 key: key.clone(),
-                code: key.source_text()?,
+                contents: ModuleContents::Code("module.exports = {};".into()),
             });
             keys_processed.insert(key);
             continue;
         }
 
-        let source_text = key.source_text()?;
-        let source_type = SourceType::from_path(key.path())?;
-        let source_text = allocator.alloc_str(&source_text);
+        let path = key.path();
+        let source_type = match SourceType::from_path(path) {
+            Ok(source_type) => source_type,
+            Err(_) => {
+                let contents = if let Some(extension) = path.extension()
+                    && extension.eq_ignore_ascii_case("json")
+                {
+                    let json_value: json::Value =
+                        json::from_slice(&key.contents()?)?;
+                    ModuleContents::Code(format!(
+                        "module.exports.__esModule=true;module.exports.default={};",
+                        json::to_string(&json_value)?
+                    ))
+                } else {
+                    ModuleContents::File(key.contents()?)
+                };
+
+                modules.push(Module {
+                    key: key.clone(),
+                    contents,
+                });
+                keys_processed.insert(key);
+                continue;
+            }
+        };
+
+        let source_text = allocator.alloc_str(&key.source_text()?);
 
         let parser = Parser::new(&allocator, source_text, source_type);
         let result = parser.parse();
@@ -185,7 +215,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
 
         modules.push(Module {
             key: key.clone(),
-            code,
+            contents: ModuleContents::Code(code),
         });
         keys_processed.insert(key);
     }
@@ -228,10 +258,23 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             "  modules[{:?}] = function(module, exports, require) {{\n",
             module_key_to_relative_path(&module.key, &canonical_path)
         ));
-        for line in module.code.lines() {
-            bundle.push_str("    ");
-            bundle.push_str(line);
-            bundle.push('\n');
+        match &module.contents {
+            ModuleContents::Code(code) => {
+                for line in code.lines() {
+                    bundle.push_str("    ");
+                    bundle.push_str(line);
+                    bundle.push('\n');
+                }
+            }
+            ModuleContents::File(contents) => {
+                bundle
+                    .push_str(r#"    module.exports.default = Buffer.from(""#);
+                for byte in contents {
+                    bundle.push_str(&format!("{:x}", byte));
+                }
+                bundle.push_str(r#"", "hex");"#);
+                bundle.push('\n');
+            }
         }
         bundle.push_str("  };\n\n");
     }

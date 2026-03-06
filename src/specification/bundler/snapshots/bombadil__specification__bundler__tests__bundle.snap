@@ -35,11 +35,25 @@ expression: bundle
     module.exports.__esModule=true;const { default: z, x, foo: bar } = __bombadilRequire("./other.ts");
     const { incr } = __bombadilRequire("./subdirectory/shared.ts");
     const { default: addFn, multiply, MAGIC_NUMBER } = __bombadilRequire("./node_modules/test-lib/index.js");
+    const { default: file } = __bombadilRequire("./file.txt");
+    const { default: data } = __bombadilRequire("./data.json");
     const y = incr(x + z + bar.bar);
     const computed = multiply(addFn(1, 2), MAGIC_NUMBER);
     Object.assign(module.exports, __bombadilRequire("./other.ts"));
+    const text = file;
+    const jsonx = data.x;
     module.exports.y = y;
     module.exports.computed = computed;
+    module.exports.text = text;
+    module.exports.jsonx = jsonx;
+  };
+
+  modules["./data.json"] = function(module, exports, require) {
+    module.exports.__esModule=true;module.exports.default={"x":123};
+  };
+
+  modules["./file.txt"] = function(module, exports, require) {
+    module.exports.default = Buffer.from("7468697320697320612066696c65a", "hex");
   };
 
   modules["./node_modules/test-lib/index.js"] = function(module, exports, require) {
