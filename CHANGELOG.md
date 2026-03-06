@@ -1,5 +1,12 @@
 # The Bombadil Changelog
 
+## 0.3.1
+
+Bug fixes and small improvements:
+
+* Fix broken links to executables in release (#56)
+* Link to manual from README (#54)
+
 ## 0.3.0
 
 Major updates:

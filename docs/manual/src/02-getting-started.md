@@ -18,7 +18,7 @@ executable for your platform:
 Download the `bombadil` binary using `curl` (or `wget`) and make it executable:
 
 ```bash
-curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-aarch64-darwin
+curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/download/v%version%/bombadil-aarch64-darwin
 chmod +x bombadil
 ```
 
@@ -46,7 +46,7 @@ Do not download the executable with your web browser. It will be blocked by Gate
 Download the `bombadil` binary and make it executable:
 
 ```bash
-curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/v%version%/download/bombadil-x86_64-linux
+curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/download/v%version%/bombadil-x86_64-linux
 chmod +x bombadil
 ```
 
