@@ -20,7 +20,7 @@ export type JSON =
 export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   private snapshots = new Map<Time, T>();
   constructor(
-    runtime: Runtime<S>,
+    private runtime: Runtime<S>,
     private extract: (state: S) => T,
   ) {
     runtime.registerExtractor(this);
@@ -31,6 +31,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 
   get current(): T {
+    this.runtime.checkNotExtracting();
     const value = this.snapshots.get(time.current);
     if (value === undefined) {
       throw new Error(
@@ -84,12 +85,30 @@ export const time: Cell<Time> = new TimeCell();
 
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
+  private extractingDepth: number = 0;
 
   registerExtractor(cell: ExtractorCell<any, S>) {
     this.extractors.push(cell);
   }
 
   runExtractors(state: S): JSON[] {
-    return this.extractors.map((extractor) => extractor.run(state));
+    return this.extractors.map((extractor) => {
+      this.extractingDepth++;
+      try {
+        return extractor.run(state);
+      } finally {
+        this.extractingDepth--;
+      }
+    });
+  }
+
+  checkNotExtracting(): void {
+    if (this.extractingDepth > 0) {
+      throw new Error(
+        "Cannot access cell.current from within an extractor. " +
+        "Extractors must only depend on the 'state' parameter. " +
+        "Use shared helper functions to avoid duplication.",
+      );
+    }
   }
 }

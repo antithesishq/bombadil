@@ -472,19 +472,46 @@ async fn test_time_extractor() {
     run_browser_test(
         "time-extractor",
         Expect::Success,
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        Duration::from_secs(10),
         Some(
             r##"
-import { actions, extract, always, time } from "@antithesishq/bombadil";
+import { actions, extract, always, eventually, time } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults";
 
-// Extract current time
 const timeSnapshot = extract((state) => time.current);
 
-// Property: time should be non-decreasing
 export const time_is_non_decreasing = always(() => {
   return timeSnapshot.previous === undefined || timeSnapshot.current >= timeSnapshot.previous;
-});
+}).within(5, "seconds");
+
+export const time_eventually_advances = eventually(() => {
+  return timeSnapshot.previous !== undefined &&
+         timeSnapshot.current >= timeSnapshot.previous + 1000;
+}).within(5, "seconds");
+"##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_extractor_guard() {
+    run_browser_test(
+        "extractor-guard",
+        Expect::Error {
+            substring: "Cannot access cell.current from within an extractor",
+        },
+        Duration::from_secs(5),
+        Some(
+            r##"
+import { actions, extract } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+// First extractor
+const foo = extract((state) => state.document.title);
+
+// Second extractor tries to access the first - this should fail
+const bar = extract((state) => foo.current);
 "##,
         ),
     )
