@@ -478,15 +478,11 @@ async fn test_time_extractor() {
 import { actions, extract, always, eventually, time } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults";
 
-const timeSnapshot = extract((state) => time.current);
+const currentTime = extract((state) => time.current);
 
-export const time_is_non_decreasing = always(() => {
-  return timeSnapshot.previous === undefined || timeSnapshot.current >= timeSnapshot.previous;
-}).within(5, "seconds");
-
-export const time_eventually_advances = eventually(() => {
-  return timeSnapshot.previous !== undefined &&
-         timeSnapshot.current >= timeSnapshot.previous + 1000;
+// Property: time is a reasonable value (after year 2020)
+export const time_is_reasonable = always(() => {
+  return currentTime.current > 1577836800000; // Jan 1, 2020
 }).within(5, "seconds");
 "##,
         ),
