@@ -483,8 +483,8 @@ const myTime = extract((state) => time.current);
 // Property: time is a reasonable value (after year 2020)
 export const time_is_reasonable = now(() => {
   const start = myTime.current;
-  return eventually(() => 
-      myTime.current > start 
+  return eventually(() =>
+      myTime.current > start
   );
 });
 "##,
