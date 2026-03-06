@@ -214,6 +214,9 @@ jobs:
           name: manual-pages
           path: manual
 
+      - name: Add llms-full.txt
+        run: cp manual/bombadil-manual.txt manual/llms-full.txt
+
       - name: Upload to GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:

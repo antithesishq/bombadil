@@ -133,6 +133,7 @@ async fn run_browser_test(
                 height: 600,
                 device_scale_factor: 2.0,
             },
+            instrumentation: Default::default(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -364,6 +365,7 @@ async fn test_browser_lifecycle() {
                 height: 600,
                 device_scale_factor: 2.0,
             },
+            instrumentation: Default::default(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {

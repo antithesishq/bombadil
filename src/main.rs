@@ -6,6 +6,7 @@ use tempfile::TempDir;
 
 use bombadil::{
     browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
+    instrumentation::InstrumentationConfig,
     runner::{Runner, RunnerOptions},
     specification::{render::render_violation, verifier::Specification},
     trace::writer::TraceWriter,
@@ -43,6 +44,10 @@ struct TestSharedOptions {
     /// mode
     #[arg(long, default_value_t = 2.0)]
     device_scale_factor: f64,
+    /// What types of JavaScript to instrument for coverage tracking.
+    /// Comma-separated list of: "files", "inline"
+    #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
+    instrument_javascript: InstrumentationConfig,
 }
 
 #[derive(clap::Subcommand)]
@@ -94,6 +99,37 @@ impl FromStr for Origin {
     }
 }
 
+fn parse_instrumentation_config(
+    s: &str,
+) -> std::result::Result<InstrumentationConfig, String> {
+    if s.is_empty() {
+        return Ok(InstrumentationConfig::none());
+    }
+
+    let mut instrument_files = false;
+    let mut instrument_inline = false;
+
+    for part in s.split(',') {
+        let part = part.trim();
+        match part {
+            "files" => instrument_files = true,
+            "inline" => instrument_inline = true,
+            "" => {}
+            unknown => {
+                return Err(format!(
+                    "unknown instrumentation target '{}', valid options are: files, inline",
+                    unknown
+                ));
+            }
+        }
+    }
+
+    Ok(InstrumentationConfig {
+        instrument_files,
+        instrument_inline,
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let env = env_logger::Env::default().default_filter_or("info");
@@ -120,6 +156,7 @@ async fn main() -> Result<()> {
                     height: shared.height,
                     device_scale_factor: shared.device_scale_factor,
                 },
+                instrumentation: shared.instrument_javascript.clone(),
             };
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
@@ -144,6 +181,7 @@ async fn main() -> Result<()> {
                     height: shared.height,
                     device_scale_factor: shared.device_scale_factor,
                 },
+                instrumentation: shared.instrument_javascript.clone(),
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
