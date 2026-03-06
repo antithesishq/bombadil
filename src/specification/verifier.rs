@@ -219,7 +219,7 @@ impl Verifier {
         let mut extractors = Extractors::new(&bombadil_exports);
 
         let extractors_value = bombadil_exports
-            .runtime_default
+            .runtime
             .get(js_string!("extractors"), &mut context)?;
         let extractors_array =
             JsArray::from_object(extractors_value.as_object().ok_or(

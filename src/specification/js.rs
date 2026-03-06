@@ -264,7 +264,7 @@ pub struct BombadilExports {
     pub next: JsValue,
     pub always: JsValue,
     pub eventually: JsValue,
-    pub runtime_default: JsObject,
+    pub runtime: JsObject,
     pub time: JsObject,
     pub action_generator: JsValue,
 }
@@ -292,9 +292,9 @@ impl BombadilExports {
             next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
-            runtime_default: get_export("runtimeDefault")?.as_object().ok_or(
+            runtime: get_export("runtime")?.as_object().ok_or(
                 SpecificationError::OtherError(
-                    "runtimeDefault is not an object".to_string(),
+                    "runtime is not an object".to_string(),
                 ),
             )?,
             time: get_export("time")?.as_object().ok_or(
@@ -326,9 +326,9 @@ impl BombadilExports {
             next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
-            runtime_default: get_export("runtimeDefault")?.as_object().ok_or(
+            runtime: get_export("runtime")?.as_object().ok_or(
                 SpecificationError::OtherError(
-                    "runtimeDefault is not an object".to_string(),
+                    "runtime is not an object".to_string(),
                 ),
             )?,
             time: get_export("time")?.as_object().ok_or(

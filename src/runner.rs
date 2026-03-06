@@ -292,7 +292,7 @@ async fn run_extractors(
 
     let results: Vec<json::Value> = state
             .evaluate_function_call(
-                "(state) => globalThis.bombadil.runtime.runExtractors({ ...state, document, window })",
+                "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],
             )
             .await?;
