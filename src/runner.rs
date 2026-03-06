@@ -2,7 +2,7 @@ use crate::browser::actions::BrowserAction;
 use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::specification::bundler::bundle;
-use crate::specification::verifier::Specification;
+use crate::specification::verifier::{Snapshot, Specification};
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
@@ -152,7 +152,11 @@ impl Runner {
                             // Step formulas and collect violations.
                             let snapshots = run_extractors(&state, &last_action).await?;
                             for value in &snapshots {
-                                log::debug!("snapshot: {value}");
+                                log::debug!(
+                                    "snapshot {}: {}",
+                                    value.name.as_deref().unwrap_or("<unnamed>"),
+                                    value.value
+                                );
                             }
                             let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots, state.timestamp).await?;
 
@@ -255,7 +259,7 @@ impl RunEvents {
 async fn run_extractors(
     state: &BrowserState,
     last_action: &Option<BrowserAction>,
-) -> anyhow::Result<Vec<json::Value>> {
+) -> anyhow::Result<Vec<Snapshot>> {
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
@@ -290,7 +294,7 @@ async fn run_extractors(
         )
         .await?;
 
-    let results: Vec<json::Value> = state
+    let results: Vec<Snapshot> = state
             .evaluate_function_call(
                 "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],

@@ -14,6 +14,7 @@ use boa_engine::{
     property::PropertyKey,
 };
 use boa_engine::{JsError, JsObject, JsValue};
+use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 #[derive(Clone)]
@@ -28,6 +29,12 @@ pub struct Verifier {
     properties: HashMap<String, Property>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub name: Option<String>,
+    pub value: json::Value,
 }
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
@@ -255,7 +262,7 @@ impl Verifier {
 
     pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
-        snapshots: Vec<json::Value>,
+        snapshots: Vec<Snapshot>,
         time: ltl::Time,
     ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
@@ -453,8 +460,15 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result: StepResult<json::Value> =
-            verifier.step(vec![(json::json!(false))], time).unwrap();
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                vec![Snapshot {
+                    name: None,
+                    value: json::json!(false),
+                }],
+                time,
+            )
+            .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
@@ -479,8 +493,20 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result: StepResult<json::Value> = verifier
-            .step(vec![json::json!(true), json::json!(true)], time)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                vec![
+                    Snapshot {
+                        name: None,
+                        value: json::json!(true),
+                    },
+                    Snapshot {
+                        name: None,
+                        value: json::json!(true),
+                    },
+                ],
+                time,
+            )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -506,8 +532,20 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result: StepResult<json::Value> = verifier
-            .step(vec![json::json!(false), json::json!(true)], time)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                vec![
+                    Snapshot {
+                        name: None,
+                        value: json::json!(false),
+                    },
+                    Snapshot {
+                        name: None,
+                        value: json::json!(true),
+                    },
+                ],
+                time,
+            )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -533,8 +571,20 @@ mod tests {
             .checked_add(Duration::from_millis(0))
             .unwrap();
 
-        let result: StepResult<json::Value> = verifier
-            .step(vec![json::json!(false), json::json!(false)], time)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                vec![
+                    Snapshot {
+                        name: None,
+                        value: json::json!(false),
+                    },
+                    Snapshot {
+                        name: None,
+                        value: json::json!(false),
+                    },
+                ],
+                time,
+            )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
@@ -563,8 +613,15 @@ mod tests {
 
         for i in 0..=1 {
             let time = time_at(i);
-            let result: StepResult<json::Value> =
-                verifier.step(vec![json::json!(i)], time).unwrap();
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    vec![Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time,
+                )
+                .unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -606,8 +663,15 @@ mod tests {
 
         for i in 0..=100 {
             let time = time_at(0);
-            let result: StepResult<json::Value> =
-                verifier.step(vec![json::json!(i)], time).unwrap();
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    vec![Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time,
+                )
+                .unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -656,8 +720,15 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> =
-                verifier.step(vec![json::json!(i)], time).unwrap();
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    vec![Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time,
+                )
+                .unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -699,8 +770,15 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> =
-                verifier.step(vec![json::json!(i)], time).unwrap();
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    vec![Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time,
+                )
+                .unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");
@@ -742,8 +820,15 @@ mod tests {
 
         for i in 0..10 {
             let time = time_at(i);
-            let result: StepResult<json::Value> =
-                verifier.step(vec![json::json!(i)], time).unwrap();
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    vec![Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time,
+                )
+                .unwrap();
 
             let (name, value) = result.properties.first().unwrap();
             assert_eq!(*name, "my_prop");

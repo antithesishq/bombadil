@@ -14,6 +14,7 @@ use crate::geometry::Point;
 use crate::specification::{
     result::{Result, SpecificationError},
     syntax::Syntax,
+    verifier::Snapshot,
 };
 
 /// TypeScript-friendly action representation with camelCase and f64 for numbers.
@@ -376,7 +377,7 @@ impl Extractors {
 
     pub fn update_from_snapshots(
         &self,
-        results: Vec<json::Value>,
+        snapshots: Vec<Snapshot>,
         time: SystemTime,
         context: &mut Context,
     ) -> Result<()> {
@@ -413,9 +414,9 @@ impl Extractors {
 
         update(&self.time, JsValue::null(), time.clone(), context)?;
 
-        for (index, json_result) in results.iter().enumerate() {
+        for (index, snapshot) in snapshots.iter().enumerate() {
             if let Some(obj) = self.get(index) {
-                let js_value = JsValue::from_json(json_result, context)?;
+                let js_value = JsValue::from_json(&snapshot.value, context)?;
                 update(obj, js_value, time.clone(), context)?;
             }
         }

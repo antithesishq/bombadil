@@ -596,6 +596,59 @@ where
                     }
                 }
             },
+            ast::Statement::VariableDeclaration(variable_declaration) => {
+                for declarator in &mut variable_declaration.declarations {
+                    if let ast::BindingPattern::BindingIdentifier(
+                        binding_identifier,
+                    ) = &declarator.id
+                    {
+                        let should_add_named = if let Some(
+                            ast::Expression::CallExpression(call),
+                        ) = &declarator.init
+                        {
+                            matches!(
+                                &call.callee,
+                                ast::Expression::Identifier(identifier)
+                                    if identifier.name == "extract"
+                            )
+                        } else {
+                            false
+                        };
+
+                        if should_add_named {
+                            let variable_name =
+                                binding_identifier.name.as_str();
+                            let extract_call = declarator.init.take().unwrap();
+
+                            let member_expression =
+                                ctx.ast.member_expression_static(
+                                    SPAN,
+                                    extract_call,
+                                    ctx.ast.identifier_name(SPAN, "named"),
+                                    false,
+                                );
+
+                            let name_string =
+                                ctx.ast.allocator.alloc_str(variable_name);
+                            let named_call = ctx.ast.expression_call(
+                                SPAN,
+                                member_expression.into(),
+                                NONE,
+                                ctx.ast.vec1(ast::Argument::StringLiteral(
+                                    ctx.ast.alloc(ctx.ast.string_literal(
+                                        SPAN,
+                                        name_string,
+                                        None,
+                                    )),
+                                )),
+                                false,
+                            );
+
+                            declarator.init = Some(named_call);
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -760,5 +813,47 @@ mod tests {
         .await
         .unwrap();
         assert_snapshot!(bundle);
+    }
+
+    #[tokio::test]
+    async fn test_extract_named_transformation() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut spec_file = NamedTempFile::with_suffix(".ts").unwrap();
+        spec_file
+            .write_all(
+                br#"
+import { extract } from "@antithesishq/bombadil";
+
+const foo = extract((state) => state.foo);
+const bar = extract((state) => state.bar).named("custom_name");
+const baz = extract((state) => state.baz).foo();
+
+export { foo, bar, baz };
+"#,
+            )
+            .unwrap();
+
+        let bundle = bundle(".", &spec_file.path().display().to_string())
+            .await
+            .unwrap();
+
+        assert!(
+            bundle.contains(r#"extract((state) => state.foo).named("foo")"#),
+            "Should add .named() to extract without existing .named()"
+        );
+        assert!(
+            bundle.contains(r#"extract((state) => state.bar).named("custom_name")"#),
+            "Should not modify extract with existing .named()"
+        );
+        assert!(
+            !bundle.contains(r#".named("bar")"#),
+            "Should not add second .named() to extract with existing .named()"
+        );
+        assert!(
+            !bundle.contains(r#".named("baz")"#),
+            "Should not add .named() to chained method calls"
+        );
     }
 }

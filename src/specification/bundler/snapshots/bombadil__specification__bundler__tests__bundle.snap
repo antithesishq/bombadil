@@ -325,6 +325,7 @@ expression: bundle
     		this.extract = extract;
     		runtime.registerExtractor(this);
     	}
+    	name = null;
     	snapshots = /* @__PURE__ */ new Map();
     	update(snapshot, time2) {
     		this.snapshots.set(time2, snapshot);
@@ -350,6 +351,10 @@ expression: bundle
     		} else {
     			return this.current;
     		}
+    	}
+    	named(name) {
+    		this.name = name;
+    		return this;
     	}
     	run(state) {
     		return this.extract(state);
@@ -382,7 +387,10 @@ expression: bundle
     		return this.extractors.map((extractor) => {
     			this.extractingDepth++;
     			try {
-    				return extractor.run(state);
+    				return {
+    					name: extractor.name,
+    					value: extractor.run(state)
+    				};
     			} finally {
     				this.extractingDepth--;
     			}

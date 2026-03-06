@@ -7,7 +7,7 @@ use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
 use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
-use crate::specification::verifier::{Specification, Verifier};
+use crate::specification::verifier::{Snapshot, Specification, Verifier};
 use crate::tree::Tree;
 
 enum Command {
@@ -15,7 +15,7 @@ enum Command {
         reply: oneshot::Sender<Vec<String>>,
     },
     Step {
-        snapshots: Vec<json::Value>,
+        snapshots: Vec<Snapshot>,
         time: ltl::Time,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
@@ -143,7 +143,7 @@ impl VerifierWorker {
 
     pub async fn step<A: DeserializeOwned>(
         &self,
-        snapshots: Vec<json::Value>,
+        snapshots: Vec<Snapshot>,
         time: ltl::Time,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();

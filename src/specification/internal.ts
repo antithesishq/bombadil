@@ -18,6 +18,7 @@ export type JSON =
   | { toJSON(): JSON };
 
 export class ExtractorCell<T extends JSON, S> implements Cell<T> {
+  public name: string | null = null;
   private snapshots = new Map<Time, T>();
   constructor(
     private runtime: Runtime<S>,
@@ -56,6 +57,11 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
     }
   }
 
+  named(name: string) {
+    this.name = name;
+    return this;
+  }
+
   run(state: S): T {
     return this.extract(state);
   }
@@ -91,11 +97,11 @@ export class Runtime<S> {
     this.extractors.push(cell);
   }
 
-  runExtractors(state: S): JSON[] {
+  runExtractors(state: S): { name: string | null; value: JSON }[] {
     return this.extractors.map((extractor) => {
       this.extractingDepth++;
       try {
-        return extractor.run(state);
+        return { name: extractor.name, value: extractor.run(state) };
       } finally {
         this.extractingDepth--;
       }
@@ -106,8 +112,8 @@ export class Runtime<S> {
     if (this.extractingDepth > 0) {
       throw new Error(
         "Cannot access cell.current from within an extractor. " +
-        "Extractors must only depend on the 'state' parameter. " +
-        "Use shared helper functions to avoid duplication.",
+          "Extractors must only depend on the 'state' parameter. " +
+          "Use shared helper functions to avoid duplication.",
       );
     }
   }
