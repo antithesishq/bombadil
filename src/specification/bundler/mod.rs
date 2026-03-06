@@ -47,6 +47,19 @@ pub struct Module {
     code: String,
 }
 
+fn module_key_to_relative_path(key: &ModuleKey, base: &Path) -> String {
+    match key {
+        ModuleKey::BrowserStub { specifier } => specifier.clone(),
+        ModuleKey::Embedded { path, .. } | ModuleKey::OnDisk { path, .. } => {
+            path.strip_prefix(base)
+                .ok()
+                .and_then(|p| p.to_str())
+                .map(|s| format!("./{}", s))
+                .unwrap_or_else(|| key.specifier().to_string())
+        }
+    }
+}
+
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path = path.as_ref();
     let canonical_path = path.canonicalize()?;
@@ -115,6 +128,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             resolver: &resolver,
             resolution_errors: Vec::new(),
             key: key.clone(),
+            base_path: &canonical_path,
         };
         traverse_mut(
             &mut rewriter,
@@ -214,7 +228,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     for module in &modules {
         bundle.push_str(&format!(
             "  modules[{:?}] = function(module, exports, require) {{\n",
-            module.key.specifier()
+            module_key_to_relative_path(&module.key, &canonical_path)
         ));
         for line in module.code.lines() {
             bundle.push_str("    ");
@@ -227,7 +241,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     if let Some(entry) = modules.first() {
         bundle.push_str(&format!(
             "  return require({:?});\n",
-            entry.key.specifier()
+            module_key_to_relative_path(&entry.key, &canonical_path)
         ));
     } else {
         bundle.push_str("  return {};\n");
@@ -258,6 +272,7 @@ struct RewriterState<'a> {
     resolver: &'a Resolver,
     key: ModuleKey,
     resolution_errors: Vec<String>,
+    base_path: &'a Path,
 }
 
 impl<'a, 'b> Traverse<'a, &'b mut RewriterState<'a>> for Rewriter
@@ -587,12 +602,14 @@ where
         }
     }
 
-    fn enter_expression(
+    fn exit_expression(
         &mut self,
         expr: &mut ast::Expression<'a>,
         ctx: &mut TraverseCtx<'a, &'b mut RewriterState<'a>>,
     ) {
-        // Handle require() calls in expressions
+        // Handle require() calls in expressions (e.g., in CommonJS files)
+        // We use __bombadilRequire for ESM transforms, so this only sees
+        // original require() calls from CommonJS source files
         if let ast::Expression::CallExpression(call) = expr
             && let ast::Expression::Identifier(ident) = &call.callee
             && ident.name == "require"
@@ -611,10 +628,11 @@ fn build_require_call<'a>(
     key: &ModuleKey,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
 ) -> ast::Expression<'a> {
-    let key_string = ctx.ast.allocator.alloc_str(key.specifier());
+    let relative_path = module_key_to_relative_path(key, ctx.state.base_path);
+    let key_string = ctx.ast.allocator.alloc_str(&relative_path);
     ctx.ast.expression_call(
         SPAN,
-        ctx.ast.expression_identifier(SPAN, "require"),
+        ctx.ast.expression_identifier(SPAN, "__bombadilRequire"),
         NONE,
         ctx.ast.vec1(ast::Argument::StringLiteral(
             ctx.ast
