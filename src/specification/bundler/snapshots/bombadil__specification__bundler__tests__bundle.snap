@@ -53,7 +53,7 @@ expression: bundle
   };
 
   modules["./file.txt"] = function(module, exports, require) {
-    module.exports.default = Buffer.from("7468697320697320612066696c65a", "hex");
+    module.exports.default = (new Uint8Array([116,104,105,115,32,105,115,32,97,32,102,105,108,101,10,])).buffer;
   };
 
   modules["./node_modules/test-lib/index.js"] = function(module, exports, require) {

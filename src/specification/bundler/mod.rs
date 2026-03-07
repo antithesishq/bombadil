@@ -267,12 +267,14 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
                 }
             }
             ModuleContents::File(contents) => {
+                // Boa doesn't yet support ArrayBuffer.fromBase64, so we'll have to use this
+                // less space-efficient encoding.
                 bundle
-                    .push_str(r#"    module.exports.default = Buffer.from(""#);
+                    .push_str("    module.exports.default = (new Uint8Array([");
                 for byte in contents {
-                    bundle.push_str(&format!("{:x}", byte));
+                    bundle.push_str(&format!("{},", byte));
                 }
-                bundle.push_str(r#"", "hex");"#);
+                bundle.push_str("])).buffer;");
                 bundle.push('\n');
             }
         }
