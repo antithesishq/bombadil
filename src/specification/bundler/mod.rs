@@ -714,7 +714,22 @@ where
         {
             let specifier = string_lit.value.as_str();
             if let Some(key) = resolve_import(specifier, ctx) {
-                ctx.state.imports.insert(key);
+                ctx.state.imports.insert(key.clone());
+
+                // Transform require() to __bombadilRequire() with resolved path
+                let relative_path =
+                    module_key_to_relative_path(&key, ctx.state.base_path);
+                let key_string = ctx.ast.allocator.alloc_str(&relative_path);
+
+                *expr = ctx.ast.expression_call(
+                    SPAN,
+                    ctx.ast.expression_identifier(SPAN, "__bombadilRequire"),
+                    NONE,
+                    ctx.ast.vec1(ast::Argument::StringLiteral(ctx.ast.alloc(
+                        ctx.ast.string_literal(SPAN, key_string, None),
+                    ))),
+                    false,
+                );
             }
         }
     }

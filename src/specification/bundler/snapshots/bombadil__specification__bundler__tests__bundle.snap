@@ -37,15 +37,18 @@ expression: bundle
     const { default: addFn, multiply, MAGIC_NUMBER } = __bombadilRequire("./node_modules/test-lib/index.js");
     const { default: file } = __bombadilRequire("./file.txt");
     const { default: data } = __bombadilRequire("./data.json");
+    const { default: nspell } = __bombadilRequire("./node_modules/nspell/index.js");
     const y = incr(x + z + bar.bar);
     const computed = multiply(addFn(1, 2), MAGIC_NUMBER);
     Object.assign(module.exports, __bombadilRequire("./other.ts"));
     const text = file;
     const jsonx = data.x;
+    const spell = nspell;
     module.exports.y = y;
     module.exports.computed = computed;
     module.exports.text = text;
     module.exports.jsonx = jsonx;
+    module.exports.spell = spell;
   };
 
   modules["./data.json"] = function(module, exports, require) {
@@ -56,16 +59,28 @@ expression: bundle
     module.exports.default = (new Uint8Array([116,104,105,115,32,105,115,32,97,32,102,105,108,101,10,])).buffer;
   };
 
+  modules["./node_modules/nspell/index.js"] = function(module, exports, require) {
+    module.exports.__esModule=true;var isBuffer = __bombadilRequire("./node_modules/is-buffer/index.js");
+    module.exports = function nspell(value) {
+    	return isBuffer(value) ? "is a buffer" : "not a buffer";
+    };
+  };
+
   modules["./node_modules/test-lib/index.js"] = function(module, exports, require) {
-    module.exports.__esModule=true;function multiply(a, b) {
+    module.exports.__esModule=true;const { double, PI } = __bombadilRequire("./node_modules/utils-lib/index.js");
+    function multiply(a, b) {
     	return a * b;
     }
-    const MAGIC_NUMBER = 42;
+    const MAGIC_NUMBER = double(21);
+    function getPi() {
+    	return PI;
+    }
     module.exports.default = function add(a, b) {
     	return a + b;
     };
     module.exports.multiply = multiply;
     module.exports.MAGIC_NUMBER = MAGIC_NUMBER;
+    module.exports.getPi = getPi;
   };
 
   modules["./other.ts"] = function(module, exports, require) {
@@ -92,6 +107,25 @@ expression: bundle
     const cyclic = x + 10;
     module.exports.incr = incr;
     module.exports.cyclic = cyclic;
+  };
+
+  modules["./node_modules/is-buffer/index.js"] = function(module, exports, require) {
+    module.exports.__esModule=true;module.exports = function isBuffer(obj) {
+    	return obj != null && obj.constructor != null && typeof obj.constructor.isBuffer === "function" && obj.constructor.isBuffer(obj);
+    };
+  };
+
+  modules["./node_modules/utils-lib/index.js"] = function(module, exports, require) {
+    module.exports.__esModule=true;function double(n) {
+    	return n * 2;
+    }
+    function square(n) {
+    	return n * n;
+    }
+    const PI = 3.14159;
+    module.exports.double = double;
+    module.exports.square = square;
+    module.exports.PI = PI;
   };
 
   modules["@antithesishq/bombadil"] = function(module, exports, require) {
