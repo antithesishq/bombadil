@@ -18,10 +18,22 @@ use oxc::{
 use oxc_traverse::{Traverse, TraverseCtx, traverse_mut};
 use serde_json as json;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportType {
+    Json,
+    Text,
+    Binary,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundlerError {
     ParseErrors(Vec<oxc::diagnostics::OxcDiagnostic>),
     SemanticErrors(Vec<oxc::diagnostics::OxcDiagnostic>),
+    ConflictingImportTypes {
+        module: String,
+        type1: ImportType,
+        type2: ImportType,
+    },
 }
 
 impl From<BundlerError> for anyhow::Error {
@@ -39,6 +51,28 @@ impl Display for BundlerError {
             BundlerError::SemanticErrors(errors) => {
                 write!(f, "Semantic errors: {:?}", errors)
             }
+            BundlerError::ConflictingImportTypes {
+                module,
+                type1,
+                type2,
+            } => {
+                write!(
+                    f,
+                    "Module '{}' imported with conflicting types: {:?} and \
+                     {:?}",
+                    module, type1, type2
+                )
+            }
+        }
+    }
+}
+
+impl Display for ImportType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportType::Json => write!(f, "json"),
+            ImportType::Text => write!(f, "text"),
+            ImportType::Binary => write!(f, "binary"),
         }
     }
 }
@@ -69,24 +103,15 @@ fn module_key_to_relative_path(key: &ModuleKey, base: &Path) -> String {
 pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path = path.as_ref();
     let canonical_path = path.canonicalize()?;
-    log::debug!(
-        "Bundler: path={:?}, canonical={:?}, specifier={}",
-        path,
-        canonical_path,
-        specifier
-    );
     let resolver = Resolver::new_with_cwd(canonical_path.clone());
     let allocator = Allocator::default();
 
     let mut modules = vec![];
     let mut keys_processed = BTreeSet::<ModuleKey>::new();
+    let mut import_types =
+        std::collections::BTreeMap::<ModuleKey, ImportType>::new();
     let mut queue = VecDeque::new();
 
-    log::debug!(
-        "Resolving entry: path={:?}, specifier={}",
-        canonical_path,
-        specifier
-    );
     queue.push_front(resolver.resolve(&canonical_path, specifier)?);
 
     while let Some(key) = queue.pop_front() {
@@ -111,17 +136,32 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let source_type = match SourceType::from_path(path) {
             Ok(source_type) => source_type,
             Err(_) => {
-                let contents = if let Some(extension) = path.extension()
-                    && extension.eq_ignore_ascii_case("json")
-                {
-                    let json_value: json::Value =
-                        json::from_slice(&key.contents()?)?;
-                    ModuleContents::Code(format!(
-                        "module.exports.__esModule=true;module.exports.default={};",
-                        json::to_string(&json_value)?
-                    ))
-                } else {
-                    ModuleContents::File(key.contents()?)
+                let import_type = import_types.get(&key).copied();
+                let raw_contents = key.contents()?;
+
+                let is_json_extension = path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("json"));
+
+                let contents = match (import_type, is_json_extension) {
+                    (Some(ImportType::Json), _) | (None, true) => {
+                        let json_value: json::Value =
+                            json::from_slice(&raw_contents)?;
+                        ModuleContents::Code(format!(
+                            "module.exports.__esModule=true;module.exports.default={};",
+                            json::to_string(&json_value)?
+                        ))
+                    }
+                    (Some(ImportType::Text), _) => {
+                        let text = String::from_utf8(raw_contents)?;
+                        ModuleContents::Code(format!(
+                            "module.exports.__esModule=true;module.exports.default={};",
+                            json::to_string(&text)?
+                        ))
+                    }
+                    (Some(ImportType::Binary), _) | (None, false) => {
+                        ModuleContents::File(raw_contents)
+                    }
                 };
 
                 modules.push(Module {
@@ -154,6 +194,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         let mut rewriter = Rewriter::default();
         let mut state = RewriterState {
             imports: BTreeSet::new(),
+            import_types: std::collections::BTreeMap::new(),
             export_statements: oxc::allocator::Vec::new_in(&allocator),
             resolver: &resolver,
             resolution_errors: Vec::new(),
@@ -181,6 +222,20 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         for import_canonical in state.imports {
             if !keys_processed.contains(&import_canonical) {
                 queue.push_back(import_canonical);
+            }
+        }
+
+        for (import_key, import_type) in state.import_types {
+            if let Some(existing_type) = import_types.get(&import_key) {
+                if *existing_type != import_type {
+                    bail!(BundlerError::ConflictingImportTypes {
+                        module: import_key.specifier().to_string(),
+                        type1: *existing_type,
+                        type2: import_type,
+                    });
+                }
+            } else {
+                import_types.insert(import_key, import_type);
             }
         }
 
@@ -311,6 +366,7 @@ struct Rewriter {}
 
 struct RewriterState<'a> {
     imports: BTreeSet<ModuleKey>,
+    import_types: std::collections::BTreeMap<ModuleKey, ImportType>,
     export_statements: oxc::allocator::Vec<'a, ast::Statement<'a>>,
     resolver: &'a Resolver,
     key: ModuleKey,
@@ -335,6 +391,27 @@ where
                     return;
                 };
                 ctx.state.imports.insert(key.clone());
+
+                if let Some(import_type) =
+                    extract_import_type(&import_declaration.with_clause)
+                {
+                    if let Some(existing_type) =
+                        ctx.state.import_types.get(&key)
+                    {
+                        if *existing_type != import_type {
+                            ctx.state.resolution_errors.push(format!(
+                                "Module '{}' imported with conflicting types: \
+                                 {:?} and {:?}",
+                                key.specifier(),
+                                existing_type,
+                                import_type
+                            ));
+                            return;
+                        }
+                    } else {
+                        ctx.state.import_types.insert(key.clone(), import_type);
+                    }
+                }
 
                 let require_call = build_require_call(&key, ctx);
 
@@ -419,6 +496,27 @@ where
                     return;
                 };
                 ctx.state.imports.insert(key.clone());
+
+                if let Some(import_type) =
+                    extract_import_type(&export_all_declaration.with_clause)
+                {
+                    if let Some(existing_type) =
+                        ctx.state.import_types.get(&key)
+                    {
+                        if *existing_type != import_type {
+                            ctx.state.resolution_errors.push(format!(
+                                "Module '{}' imported with conflicting types: \
+                                 {:?} and {:?}",
+                                key.specifier(),
+                                existing_type,
+                                import_type
+                            ));
+                            return;
+                        }
+                    } else {
+                        ctx.state.import_types.insert(key.clone(), import_type);
+                    }
+                }
 
                 let require_call = build_require_call(&key, ctx);
                 let module_exports = build_module_exports(ctx);
@@ -573,6 +671,29 @@ where
                             return;
                         };
                         ctx.state.imports.insert(key.clone());
+
+                        if let Some(import_type) = extract_import_type(
+                            &export_named_declaration.with_clause,
+                        ) {
+                            if let Some(existing_type) =
+                                ctx.state.import_types.get(&key)
+                            {
+                                if *existing_type != import_type {
+                                    ctx.state.resolution_errors.push(format!(
+                                        "Module '{}' imported with conflicting \
+                                         types: {:?} and {:?}",
+                                        key.specifier(),
+                                        existing_type,
+                                        import_type
+                                    ));
+                                    return;
+                                }
+                            } else {
+                                ctx.state
+                                    .import_types
+                                    .insert(key.clone(), import_type);
+                            }
+                        }
 
                         let require_call = build_require_call(&key, ctx);
 
@@ -785,6 +906,28 @@ fn build_module_exports_assignment<'a>(
     ctx.ast.statement_expression(SPAN, assignment)
 }
 
+fn extract_import_type<'a>(
+    with_clause: &Option<oxc::allocator::Box<'a, ast::WithClause<'a>>>,
+) -> Option<ImportType> {
+    with_clause.as_ref()?.with_entries.iter().find_map(|entry| {
+        let key_str = match &entry.key {
+            ast::ImportAttributeKey::Identifier(ident) => ident.name.as_str(),
+            ast::ImportAttributeKey::StringLiteral(lit) => lit.value.as_str(),
+        };
+
+        if key_str == "type" {
+            match entry.value.value.as_str() {
+                "json" => Some(ImportType::Json),
+                "text" => Some(ImportType::Text),
+                "binary" => Some(ImportType::Binary),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    })
+}
+
 fn resolve_import<'a>(
     source_specifier: &str,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
@@ -916,6 +1059,32 @@ export { foo, bar, baz };
         assert!(
             !bundle.contains(r#".named("baz")"#),
             "Should not add .named() to chained method calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_import_attributes() {
+        let bundle = bundle(
+            "src/specification/bundler/fixtures/snapshot",
+            "./import-attributes-test.ts",
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            bundle.contains(r#""this is a file\n""#),
+            "Text import should produce a string module export. Bundle: {}",
+            bundle
+        );
+
+        assert!(
+            bundle.contains(r#"{"x":123}"#),
+            "JSON import should produce parsed JSON module export"
+        );
+
+        assert!(
+            bundle.contains("new Uint8Array(["),
+            "Binary import should produce Uint8Array"
         );
     }
 }
