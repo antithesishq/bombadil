@@ -28,7 +28,10 @@ pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
         .map_err(|err| anyhow!(err))?
         .result;
     if let Some(exception) = returns.exception_details {
-        bail!("evaluate_function failed: {:?}", exception)
+        bail!(
+            "evaluate_function failed: {}",
+            format_exception_details(&exception)
+        )
     } else {
         match returns.result.value.clone() {
             Some(value) => json::from_value(value).map_err(|err| anyhow!(err)),
@@ -61,6 +64,48 @@ pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
             }
         }
     }
+}
+
+fn format_exception_details(details: &runtime::ExceptionDetails) -> String {
+    if let Some(description) = details
+        .exception
+        .as_ref()
+        .and_then(|obj| obj.description.as_deref())
+    {
+        return description.to_string();
+    }
+
+    if let Some(stack_trace) = &details.stack_trace {
+        let mut message = details.text.clone();
+        for frame in &stack_trace.call_frames {
+            let location = match &details.url {
+                Some(url) if !url.is_empty() => {
+                    format!(
+                        "{}:{}:{}",
+                        url, frame.line_number, frame.column_number
+                    )
+                }
+                _ => format!(
+                    "<anonymous>:{}:{}",
+                    frame.line_number, frame.column_number
+                ),
+            };
+            if frame.function_name.is_empty() {
+                message.push_str(&format!("\n    at {location}"));
+            } else {
+                message.push_str(&format!(
+                    "\n    at {} ({location})",
+                    frame.function_name
+                ));
+            }
+        }
+        return message;
+    }
+
+    format!(
+        "{}: line {}, column {}",
+        details.text, details.line_number, details.column_number
+    )
 }
 
 pub async fn evaluate_function_call_in_debugger<Output: DeserializeOwned>(

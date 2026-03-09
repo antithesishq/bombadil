@@ -496,6 +496,30 @@ export const time_is_reasonable = now(() => {
 }
 
 #[tokio::test]
+async fn test_extractor_exception_stack_trace() {
+    run_browser_test(
+        "extractor-exception",
+        Expect::Error {
+            substring: "\n    at throwingFunction",
+        },
+        Duration::from_secs(5),
+        Some(
+            r##"
+import { extract } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+function throwingFunction() {
+  throw new Error("extractor stack trace test");
+}
+
+const bad = extract((state) => throwingFunction());
+"##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_extractor_guard() {
     run_browser_test(
         "extractor-guard",
