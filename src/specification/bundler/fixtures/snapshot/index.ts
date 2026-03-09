@@ -1,3 +1,4 @@
+// @ts-nocheck
 import z, { x, foo as bar } from "./other.ts";
 import { incr } from "./subdirectory/shared.ts";
 import addFn, { multiply, MAGIC_NUMBER } from "test-lib";
