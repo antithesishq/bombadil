@@ -110,7 +110,7 @@ pub async fn instrument_js_coverage(
                 let body_instrumented = if event.resource_type
                     == network::ResourceType::Script
                 {
-                    let instrumented = if !config.instrument_files {
+                    if !config.instrument_files {
                         log::debug!(
                             "skipping script file (disabled): {}",
                             event.request.url
@@ -124,32 +124,7 @@ pub async fn instrument_js_coverage(
                             // we use this source type to let the parser decide.
                             SourceType::unambiguous(),
                         )?
-                    };
-
-                    // Write to /tmp/ for debugging
-                    if let Some(filename) =
-                        event.request.url.split('/').next_back()
-                    {
-                        let safe_filename =
-                            filename.replace(['?', '#', '&', '='], "_");
-                        let path = format!("/tmp/{}", safe_filename);
-                        if let Err(e) =
-                            tokio::fs::write(&path, &instrumented).await
-                        {
-                            log::debug!(
-                                "failed to write debug file to {}: {}",
-                                path,
-                                e
-                            );
-                        } else {
-                            log::debug!(
-                                "wrote instrumented script to {}",
-                                path
-                            );
-                        }
                     }
-
-                    instrumented
                 } else if is_html_document {
                     if config.instrument_inline {
                         instrumentation::html::instrument_inline_scripts(
