@@ -49,6 +49,7 @@ pub enum JsAction {
         distance: f64,
     },
     Reload,
+    Wait,
 }
 
 impl JsAction {
@@ -99,6 +100,7 @@ impl JsAction {
             JsAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown { origin, distance }
             }
+            JsAction::Wait => BrowserAction::Wait,
         })
     }
 }

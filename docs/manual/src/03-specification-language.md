@@ -246,6 +246,7 @@ type Action =
     | "Back"
     | "Forward"
     | "Reload"
+    | "Wait"
     | { Click: { name: string; content?: string; point: Point } }
     | { TypeText: { text: string; delayMillis: number } }
     | { PressKey: { code: number } }

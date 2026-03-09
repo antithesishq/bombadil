@@ -321,6 +321,7 @@ fn action_timeout(action: &BrowserAction) -> Duration {
         BrowserAction::PressKey { .. } => Duration::from_millis(50),
         BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
         BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
+        BrowserAction::Wait => Duration::from_millis(500),
     }
 }
 

@@ -520,6 +520,30 @@ const bad = extract((state) => throwingFunction());
 }
 
 #[tokio::test]
+async fn test_wait_action() {
+    run_browser_test(
+        "wait-action",
+        Expect::Success,
+        Duration::from_secs(3),
+        Some(
+            r#"
+import { actions, extract, always } from "@antithesishq/bombadil";
+
+export const waits = actions(() => ["Wait"]);
+
+const counterValue = extract((state) => {
+  const element = state.document.body.querySelector("\#counter");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+export const counterNeverChanges = always(() => counterValue.current === 0);
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_extractor_guard() {
     run_browser_test(
         "extractor-guard",

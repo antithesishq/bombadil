@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Wait Action</title>
+</head>
+<body>
+    <h1>Wait Action</h1>
+    <div id="counter">0</div>
+    <button id="increment">+</button>
+    <script>
+        let count = 0;
+        const counterElement = document.getElementById('counter');
+        document.getElementById('increment').addEventListener('click', () => {
+            count++;
+            counterElement.textContent = count;
+        });
+    </script>
+</body>
+</html>

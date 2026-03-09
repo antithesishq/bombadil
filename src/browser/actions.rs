@@ -34,6 +34,7 @@ pub enum BrowserAction {
         distance: f64,
     },
     Reload,
+    Wait,
 }
 
 impl BrowserAction {
@@ -76,6 +77,7 @@ impl BrowserAction {
             BrowserAction::Reload => {
                 page.reload().await?;
             }
+            BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
                 page.execute(
                     input::SynthesizeScrollGestureParams::builder()
