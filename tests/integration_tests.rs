@@ -323,7 +323,7 @@ export { back } from "@antithesishq/bombadil/defaults/actions";
 
 const contentType = extract((state) => state.document.contentType);
 
-export const navigates_back_from_non_html = eventually(
+export const navigatesBackFromNonHtml = eventually(
   now(() => contentType.current === "text/html")
     .and(next(
       now(() => contentType.current !== "text/html")
@@ -422,7 +422,7 @@ const inputValue = extract((state) => {
   return input ? input.value : "";
 });
 
-export const input_eventually_has_text = eventually(
+export const inputEventuallyHasText = eventually(
   () => inputValue.current.length > 0
 ).within(10, "seconds");
 "#,
@@ -483,7 +483,7 @@ export { clicks } from "@antithesishq/bombadil/defaults";
 const myTime = extract((state) => time.current);
 
 // Property: time is a reasonable value (after year 2020)
-export const time_is_reasonable = now(() => {
+export const timeIsReasonable = now(() => {
   const start = myTime.current;
   return eventually(() =>
       myTime.current > start
