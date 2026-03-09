@@ -32,7 +32,46 @@ export const myAction = ...;
 
 You may split up your specification into multiple modules and structure it the
 way you like, but the top-level specification you give to Bombadil must only
-export properties and action generators. 
+export properties and action generators.
+
+## Importing modules and files
+
+You can split your specification up into multiple modules and import them from
+the top level specification module:
+
+```typescript
+import { thing } from "./lib/thing.ts";
+```
+
+If you install packages from NPM or similar, you may import those too:
+
+```typescript
+import equal from "deep-equal";
+```
+
+The runtime is limited, so many existing packages might not work, e.g. if they
+import NodeJS packages.
+
+### Non-code files
+
+You can import JSON, text, or binary data. This is useful for bootstrapping
+tests with reference data, dictionaries, configuration, etc. Use ES import
+attributes to specify the type of import:
+
+```typescript
+import data from "./fixtures/data.json" with { type: "json" };
+import contents from "./wordlist.txt" with { type: "text" };
+import raw from "./snapshot.dat" with { type: "binary" };
+```
+
+When using `"text"`  you get a `string`, and when using `"binary"` you get
+`Uint8Array`.
+
+For JSON data, you can also just rely on the file extension:
+
+```typescript
+import data from "./fixtures/data.json";
+```
 
 ## Default properties and action generators
 
