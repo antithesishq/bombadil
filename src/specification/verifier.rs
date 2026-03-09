@@ -44,6 +44,16 @@ pub struct Specification {
     pub module_specifier: String,
 }
 
+fn format_console_args(args: &[JsValue]) -> String {
+    args.iter()
+        .map(|v| match v.as_string() {
+            Some(s) => s.to_std_string_escaped(),
+            None => v.display().to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl Verifier {
     pub fn new(bundle_code: &str) -> Result<Self> {
         let mut context = ContextBuilder::default()
@@ -78,7 +88,7 @@ impl Verifier {
                 .function(
                     NativeFunction::from_copy_closure(
                         |_this, args, _context| {
-                            log::info!("console.log: {:?}", args);
+                            log::info!("{}", format_console_args(args));
                             Ok(JsValue::undefined())
                         },
                     ),
@@ -88,7 +98,7 @@ impl Verifier {
                 .function(
                     NativeFunction::from_copy_closure(
                         |_this, args, _context| {
-                            log::warn!("console.warn: {:?}", args);
+                            log::warn!("{}", format_console_args(args));
                             Ok(JsValue::undefined())
                         },
                     ),
@@ -98,7 +108,7 @@ impl Verifier {
                 .function(
                     NativeFunction::from_copy_closure(
                         |_this, args, _context| {
-                            log::error!("console.error: {:?}", args);
+                            log::error!("{}", format_console_args(args));
                             Ok(JsValue::undefined())
                         },
                     ),
@@ -797,6 +807,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_format_console_args() {
+        assert_eq!(format_console_args(&[]), "");
+        assert_eq!(
+            format_console_args(&[JsValue::from(js_string!("hello"))]),
+            "hello"
+        );
+        assert_eq!(
+            format_console_args(&[
+                JsValue::from(js_string!("count:")),
+                JsValue::from(42),
+                JsValue::from(true),
+            ]),
+            "count: 42 true"
+        );
+        assert_eq!(format_console_args(&[JsValue::undefined()]), "undefined");
+        assert_eq!(format_console_args(&[JsValue::null()]), "null");
     }
 
     #[test]
