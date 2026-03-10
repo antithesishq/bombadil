@@ -1,5 +1,23 @@
 # The Bombadil Changelog
 
+## 0.3.2
+
+Major updates:
+
+* Bundle specification for execution in browser (#61)
+* Support importing non-code files (#63)
+* Name extractors automatically for better debugging experience (#62)
+* Add `Wait` action (effectively a no-op) (#65)
+* Support more key codes in `PressKey` action
+* Add llms.txt to GitHub Pages release artifacts (#60)
+* Make JS instrumentation configurable with CLI option (#59)
+
+Bug fixes and small improvements:
+
+* Pretty-print console log args in log output (#64)
+* Improve error message on dependent extractor use 
+* Fix link to contribution guide in the getting started page (#58)
+
 ## 0.3.1
 
 Bug fixes and small improvements:

@@ -1,6 +1,6 @@
 [package]
 name = "bombadil"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 exclude = []
 build = "src/build.rs"
