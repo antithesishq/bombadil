@@ -544,6 +544,38 @@ export const counterNeverChanges = always(() => counterValue.current === 0);
 }
 
 #[tokio::test]
+async fn test_double_click() {
+    run_browser_test(
+        "double-click",
+        Expect::Success,
+        Duration::from_secs(5),
+        Some(
+            r#"
+import { actions, extract, eventually } from "@antithesishq/bombadil";
+
+const counterValue = extract((state) => {
+  const element = state.document.body.querySelector("\#counter");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+export const doubleClicks = actions(() => [
+  {
+    DoubleClick: {
+      name: "double-click-target",
+      point: { x: 400, y: 300 },
+      delayMillis: 100,
+    },
+  },
+]);
+
+export const counterIncreases = eventually(() => counterValue.current > 0);
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_extractor_guard() {
     run_browser_test(
         "extractor-guard",

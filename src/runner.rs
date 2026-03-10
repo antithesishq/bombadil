@@ -310,6 +310,9 @@ fn action_timeout(action: &BrowserAction) -> Duration {
         BrowserAction::Forward => Duration::from_secs(2),
         BrowserAction::Reload => Duration::from_secs(2),
         BrowserAction::Click { .. } => Duration::from_millis(500),
+        BrowserAction::DoubleClick { delay_millis, .. } => {
+            Duration::from_millis(delay_millis.saturating_add(500))
+        }
         BrowserAction::TypeText {
             text, delay_millis, ..
         } => {

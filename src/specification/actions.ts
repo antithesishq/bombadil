@@ -21,6 +21,7 @@ export type Action =
   | "Reload"
   | "Wait"
   | { Click: { name: string; content?: string; point: Point } }
+  | { DoubleClick: { name: string; content?: string; point: Point; delayMillis: number } }
   | { TypeText: { text: string; delayMillis: number } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }

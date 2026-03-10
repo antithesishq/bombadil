@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Double Click Test</title>
+</head>
+<body>
+    <h1>Double Click Test</h1>
+    <div id="counter">0</div>
+    <button id="double-click-target">Double Click Me</button>
+    <script>
+        let doubleClickCount = 0;
+        const counterElement = document.getElementById('counter');
+        const button = document.getElementById('double-click-target');
+
+        button.addEventListener('dblclick', () => {
+            doubleClickCount++;
+            counterElement.textContent = doubleClickCount;
+        });
+    </script>
+</body>
+</html>
