@@ -146,24 +146,51 @@ pub async fn instrument_js_coverage(
                     );
                 };
 
-                page.execute(
-                    fetch::FulfillRequestParams::builder()
-                        .request_id(event.request_id.clone())
-                        .body(BASE64_STANDARD.encode(body_instrumented))
-                        .response_code(200)
-                        .response_header(fetch::HeaderEntry {
-                            name: "etag".to_string(),
-                            value: format!("{}", source_id.0),
-                        })
-                        // TODO: forward headers
-                        .build()
-                        .map_err(|error| {
-                            anyhow!(
-                                "failed building FulfillRequestParams: {}",
-                                error
-                            )
-                        })?,
-                )
+                // Exclude headers that are invalidated by instrumentation
+                // or connection-specific (hop-by-hop headers per HTTP
+                // spec)
+                let excluded_headers = [
+                    "content-length",
+                    "content-encoding",
+                    "transfer-encoding",
+                    "content-md5",
+                    "digest",
+                    "content-range",
+                    "connection",
+                    "keep-alive",
+                    "proxy-authenticate",
+                    "proxy-authorization",
+                    "te",
+                    "trailer",
+                    "upgrade",
+                    "etag",
+                ];
+
+                let mut builder = fetch::FulfillRequestParams::builder()
+                    .request_id(event.request_id.clone())
+                    .body(BASE64_STANDARD.encode(body_instrumented))
+                    .response_code(200)
+                    .response_header(fetch::HeaderEntry {
+                        name: "etag".to_string(),
+                        value: format!("{}", source_id.0),
+                    });
+
+                if let Some(headers) = &event.response_headers {
+                    for header in headers {
+                        let name_lower = header.name.to_lowercase();
+                        if !excluded_headers.contains(&name_lower.as_str()) {
+                            builder =
+                                builder.response_header(fetch::HeaderEntry {
+                                    name: header.name.clone(),
+                                    value: header.value.clone(),
+                                });
+                        }
+                    }
+                }
+
+                page.execute(builder.build().map_err(|error| {
+                    anyhow!("failed building FulfillRequestParams: {}", error)
+                })?)
                 .await
                 .context("failed fulfilling request")?;
                 log::debug!(

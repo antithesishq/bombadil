@@ -1,0 +1,18 @@
+---
+source: src/instrumentation/html.rs
+expression: output
+---
+<!DOCTYPE html><html><head></head><body>
+<script type="module">window.__bombadil__ = window.__bombadil__ || {
+    edges_previous: new Uint8Array(65536),
+    edges_current: new Uint8Array(65536),
+    previous: 0,
+};
+export function example(a, b, c) {
+	return a ? (__bombadil__.edges_current[(0x22c1feea839d4200 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x22c1feea839d4200 >> 1, b) : (__bombadil__.edges_current[(0x11b1b3220bdaeb00 ^ __bombadil__.previous) % 65536] += 1, __bombadil__.previous = 0x11b1b3220bdaeb00 >> 1, c);
+}
+console.log(example(true, 1, 2));
+</script>
+
+
+</body></html>

@@ -62,7 +62,9 @@ fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
                 .unwrap_or("".to_string());
 
             let is_inline_javascript = script_src.is_none()
-                && (script_type.is_empty() || script_type == "text/javascript");
+                && (script_type.is_empty()
+                    || script_type == "text/javascript"
+                    || script_type == "module");
 
             let source_type = if script_type == "module" {
                 SourceType::mjs()
@@ -164,6 +166,26 @@ mod tests {
         if (foo) {
             this_is_not_a_script();
         }
+        </script>
+        </body>
+        </html>
+        "# };
+
+        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_instrument_html_inline_script_module_type() {
+        let input = indoc! { r#"
+        <!DOCTYPE html>
+        <html>
+        <body>
+        <script type="module">
+        export function example(a, b, c) {
+            return a ? b : c;
+        }
+        console.log(example(true, 1, 2));
         </script>
         </body>
         </html>

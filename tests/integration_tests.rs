@@ -566,3 +566,53 @@ const bar = extract((state) => foo.current);
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_module_script() {
+    run_browser_test(
+        "module-script",
+        Expect::Success,
+        Duration::from_secs(5),
+        Some(
+            r##"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+const outputText = extract((state) => {
+  const output = state.document.querySelector("#output");
+  return output ? output.textContent : "";
+});
+
+export const moduleLoaded = now(() => {
+  return outputText.current === "ES module loaded successfully";
+});
+"##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_module_script_external() {
+    run_browser_test(
+        "module-script-external",
+        Expect::Success,
+        Duration::from_secs(5),
+        Some(
+            r##"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+const outputText = extract((state) => {
+  const output = state.document.querySelector("#output");
+  return output ? output.textContent : "";
+});
+
+export const moduleLoaded = now(() => {
+  return outputText.current === "External ES module loaded successfully";
+});
+"##,
+        ),
+    )
+    .await;
+}
