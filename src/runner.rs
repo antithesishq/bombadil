@@ -26,6 +26,7 @@ pub enum RunEvent {
     NewState {
         state: BrowserState,
         last_action: Option<BrowserAction>,
+        snapshots: Vec<Snapshot>,
         violations: Vec<PropertyViolation>,
     },
 }
@@ -158,7 +159,7 @@ impl Runner {
                                     value.value
                                 );
                             }
-                            let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots, state.timestamp).await?;
+                            let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots.clone(), state.timestamp).await?;
 
                             // Convert JsAction tree to BrowserAction tree
                             let action_tree = step_result.actions.try_map(&mut |js_action| {
@@ -200,6 +201,7 @@ impl Runner {
                             events.send(RunEvent::NewState {
                                 state,
                                 last_action,
+                                snapshots,
                                 violations,
                             })?;
                             if has_violations && options.stop_on_violation {

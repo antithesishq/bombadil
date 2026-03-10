@@ -6,6 +6,7 @@ use tokio::{fs::File, io::AsyncWriteExt};
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
+    specification::verifier::Snapshot,
     trace::{PropertyViolation, TraceEntry},
 };
 
@@ -40,6 +41,7 @@ impl TraceWriter {
         &mut self,
         last_action: Option<BrowserAction>,
         state: BrowserState,
+        snapshots: Vec<Snapshot>,
         violations: Vec<PropertyViolation>,
     ) -> Result<()> {
         let screenshot_path = self.screenshots_path.join(format!(
@@ -59,6 +61,7 @@ impl TraceWriter {
             hash_current: state.transition_hash,
             action: last_action,
             screenshot: screenshot_path,
+            snapshots,
             violations,
         };
 

@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::{
     browser::actions::BrowserAction,
-    specification::{ltl, render},
+    specification::{ltl, render, verifier::Snapshot},
 };
 
 pub mod writer;
@@ -18,6 +18,7 @@ pub struct TraceEntry {
     pub hash_current: Option<u64>,
     pub action: Option<BrowserAction>,
     pub screenshot: PathBuf,
+    pub snapshots: Vec<Snapshot>,
     pub violations: Vec<PropertyViolation>,
 }
 

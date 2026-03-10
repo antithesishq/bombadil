@@ -237,6 +237,7 @@ async fn test(
                 Ok(Some(bombadil::runner::RunEvent::NewState {
                     state,
                     last_action,
+                    snapshots,
                     violations,
                 })) => {
                     let has_violations = !violations.is_empty();
@@ -249,7 +250,9 @@ async fn test(
                         );
                     }
 
-                    writer.write(last_action, state, violations).await?;
+                    writer
+                        .write(last_action, state, snapshots, violations)
+                        .await?;
 
                     if has_violations && shared_options.exit_on_violation {
                         break Ok(Some(2));
