@@ -30,6 +30,13 @@ pub enum JsAction {
         point: Point,
     },
     #[serde(rename_all = "camelCase")]
+    DoubleClick {
+        name: String,
+        content: Option<String>,
+        point: Point,
+        delay_millis: f64,
+    },
+    #[serde(rename_all = "camelCase")]
     TypeText {
         text: String,
         delay_millis: f64,
@@ -70,6 +77,31 @@ impl JsAction {
                 content,
                 point,
             },
+            JsAction::DoubleClick {
+                name,
+                content,
+                point,
+                delay_millis,
+            } => {
+                if !delay_millis.is_finite() || delay_millis < 0.0 {
+                    bail!(
+                        "delayMillis must be a non-negative finite number, got {}",
+                        delay_millis
+                    );
+                }
+                if delay_millis > 1000.0 {
+                    bail!(
+                        "delayMillis must be at most 1000, got {}",
+                        delay_millis
+                    );
+                }
+                BrowserAction::DoubleClick {
+                    name,
+                    content,
+                    point,
+                    delay_millis: delay_millis as u64,
+                }
+            }
             JsAction::TypeText { text, delay_millis } => {
                 if !delay_millis.is_finite() || delay_millis < 0.0 {
                     bail!(

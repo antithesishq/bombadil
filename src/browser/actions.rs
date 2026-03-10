@@ -3,13 +3,13 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{input, page};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::browser::keys::key_name;
 use crate::geometry::Point;
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {
     Back,
     Forward,
@@ -17,6 +17,12 @@ pub enum BrowserAction {
         name: String,
         content: Option<String>,
         point: Point,
+    },
+    DoubleClick {
+        name: String,
+        content: Option<String>,
+        point: Point,
+        delay_millis: u64,
     },
     TypeText {
         text: String,
@@ -103,6 +109,15 @@ impl BrowserAction {
                 .await?;
             }
             BrowserAction::Click { point, .. } => {
+                page.click((*point).into()).await?;
+            }
+            BrowserAction::DoubleClick {
+                point,
+                delay_millis,
+                ..
+            } => {
+                page.click((*point).into()).await?;
+                sleep(Duration::from_millis(*delay_millis)).await;
                 page.click((*point).into()).await?;
             }
             BrowserAction::TypeText { text, delay_millis } => {
