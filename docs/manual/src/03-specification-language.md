@@ -287,6 +287,7 @@ type Action =
     | "Reload"
     | "Wait"
     | { Click: { name: string; content?: string; point: Point } }
+    | { DoubleClick: { name: string; content?: string; point: Point; delayMillis: number } }
     | { TypeText: { text: string; delayMillis: number } }
     | { PressKey: { code: number } }
     | { ScrollUp: { origin: Point; distance: number } }
@@ -303,8 +304,8 @@ const canvasCenter = extract((state) => {
     }
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
-        return { 
-            x: rect.left + rect.width / 2, 
+        return {
+            x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
         };
     }
@@ -315,6 +316,21 @@ const canvasCenter = extract((state) => {
 export const clickCanvas = actions(() => {
     const point = canvasCenter.current;
     return point ? [{ Click: { name: "canvas", point } }] : [];
+});
+```
+
+For double-click actions, specify the delay between clicks in milliseconds (0-1000ms):
+
+```typescript
+export const doubleClickCanvas = actions(() => {
+    const point = canvasCenter.current;
+    return point ? [{
+        DoubleClick: {
+            name: "canvas",
+            point,
+            delayMillis: 100,
+        }
+    }] : [];
 });
 ```
 
