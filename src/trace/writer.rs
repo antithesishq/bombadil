@@ -39,10 +39,10 @@ impl TraceWriter {
     }
     pub async fn write(
         &mut self,
-        last_action: Option<BrowserAction>,
-        state: BrowserState,
-        snapshots: Vec<Snapshot>,
-        violations: Vec<PropertyViolation>,
+        state: &BrowserState,
+        last_action: Option<&BrowserAction>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
     ) -> Result<()> {
         let screenshot_path = self.screenshots_path.join(format!(
             "{}.{}",
@@ -56,13 +56,13 @@ impl TraceWriter {
 
         let entry = TraceEntry {
             timestamp: state.timestamp,
-            url: state.url,
+            url: state.url.clone(),
             hash_previous: self.last_transition_hash,
             hash_current: state.transition_hash,
-            action: last_action,
+            action: last_action.cloned(),
             screenshot: screenshot_path,
-            snapshots,
-            violations,
+            snapshots: snapshots.to_vec(),
+            violations: violations.to_vec(),
         };
 
         self.last_transition_hash = state.transition_hash;
