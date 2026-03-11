@@ -272,7 +272,7 @@ impl Verifier {
 
     pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
-        snapshots: Vec<Snapshot>,
+        snapshots: &[Snapshot],
         time: ltl::Time,
     ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
@@ -472,7 +472,7 @@ mod tests {
 
         let result: StepResult<Snapshot> = verifier
             .step(
-                vec![Snapshot {
+                &[Snapshot {
                     name: None,
                     value: json::json!(false),
                 }],
@@ -505,7 +505,7 @@ mod tests {
 
         let result: StepResult<Snapshot> = verifier
             .step(
-                vec![
+                &[
                     Snapshot {
                         name: None,
                         value: json::json!(true),
@@ -544,7 +544,7 @@ mod tests {
 
         let result: StepResult<Snapshot> = verifier
             .step(
-                vec![
+                &[
                     Snapshot {
                         name: None,
                         value: json::json!(false),
@@ -583,7 +583,7 @@ mod tests {
 
         let result: StepResult<Snapshot> = verifier
             .step(
-                vec![
+                &[
                     Snapshot {
                         name: None,
                         value: json::json!(false),
@@ -625,7 +625,7 @@ mod tests {
             let time = time_at(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    vec![Snapshot {
+                    &[Snapshot {
                         name: None,
                         value: json::json!(i),
                     }],
@@ -675,7 +675,7 @@ mod tests {
             let time = time_at(0);
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    vec![Snapshot {
+                    &[Snapshot {
                         name: None,
                         value: json::json!(i),
                     }],
@@ -732,7 +732,7 @@ mod tests {
             let time = time_at(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    vec![Snapshot {
+                    &[Snapshot {
                         name: None,
                         value: json::json!(i),
                     }],
@@ -782,7 +782,7 @@ mod tests {
             let time = time_at(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    vec![Snapshot {
+                    &[Snapshot {
                         name: None,
                         value: json::json!(i),
                     }],
@@ -851,7 +851,7 @@ mod tests {
             let time = time_at(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    vec![Snapshot {
+                    &[Snapshot {
                         name: None,
                         value: json::json!(i),
                     }],
