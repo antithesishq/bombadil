@@ -38,6 +38,7 @@ The `docs/manual/.envrc` file automatically loads the `manual` shell when you `c
 **IMPORTANT:** After making any changes to Rust code, ALWAYS run:
 
 ```bash
+nix --extra-experimental-features 'nix-command flakes' develop --command cargo build
 nix --extra-experimental-features 'nix-command flakes' develop --command cargo clippy --fix --allow-dirty
 nix --extra-experimental-features 'nix-command flakes' develop --command cargo fmt
 ```
@@ -88,7 +89,7 @@ Use clear, descriptive names without needless abbreviations:
 - `specifier` not `spec`
 - `identifier` not `ident`
 
-Exception: `ctx` is acceptable for `TraverseCtx` parameters since it's used pervasively in oxc traversal code.
+Exception: `ctx` is acceptable for `TraverseCtx` parameters since it's used pervasively in oxc traversal code. Never use `ctx` outside `oxc` code.
 
 ## Comments
 
