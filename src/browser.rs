@@ -1043,7 +1043,23 @@ async fn capture_browser_state(
         .await?;
     let page = context.page.clone();
     spawn(async move {
-        let _ = page.evaluate_expression("void 0").await;
+        // Explicitly use main world execution context to ensure the debugger
+        // pauses in a frame where __bombadilRequire is available
+        if let Ok(Some(context)) = page.execution_context().await {
+            let _ = page
+                .execute(
+                    runtime::EvaluateParams::builder()
+                        .expression("void 0")
+                        .context_id(context)
+                        .await_promise(true)
+                        .build()
+                        .expect("failed to build EvaluateParams"),
+                )
+                .await;
+        } else {
+            // Fallback to evaluate_expression if no context available
+            let _ = page.evaluate_expression("void 0").await;
+        }
     });
 
     state.shared.generation = state.shared.generation.next();

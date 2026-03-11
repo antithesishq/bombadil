@@ -250,6 +250,27 @@ async fn run_extractors(
         "lastAction": json::to_value(last_action)?,
     });
 
+    // Ensure __bombadilRequire is available (wait for bundle script to execute
+    // after reload/navigation). Use async/await to avoid blocking the event loop.
+    state
+        .evaluate_function_call::<json::Value>(
+            r#"
+            async () => {
+                const start = Date.now();
+                const timeout = 5000;
+                while (typeof globalThis.__bombadilRequire !== 'function') {
+                    if (Date.now() - start > timeout) {
+                        throw new Error('__bombadilRequire not available after ' + timeout + 'ms');
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 10));
+                }
+                return true;
+            }
+            "#,
+            vec![],
+        )
+        .await?;
+
     // Update time cell in browser runtime before running extractors
     let timestamp_millis = state
         .timestamp
