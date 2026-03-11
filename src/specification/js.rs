@@ -411,7 +411,7 @@ impl Extractors {
 
     pub fn update_from_snapshots(
         &self,
-        snapshots: Vec<Snapshot>,
+        snapshots: &[Snapshot],
         time: SystemTime,
         context: &mut Context,
     ) -> Result<()> {

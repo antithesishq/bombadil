@@ -119,9 +119,9 @@ impl Runner {
                 Some(event) => match event {
                     BrowserEvent::StateChanged(state) => {
                         // Step formulas and collect violations.
-                        let snapshots =
-                            run_extractors(&state, &last_action).await?;
-                        for value in &snapshots {
+                        let snapshots: Arc<[Snapshot]> =
+                            run_extractors(&state, &last_action).await?.into();
+                        for value in snapshots.iter() {
                             log::debug!(
                                 "snapshot {}: {}",
                                 value.name.as_deref().unwrap_or("<unnamed>"),
