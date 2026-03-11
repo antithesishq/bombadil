@@ -8,15 +8,7 @@ Bombadil is a property-based testing tool for web UIs built by Antithesis. Users
 
 ## Build & Development
 
-All commands (cargo, esbuild, etc.) must be run via `nix develop --command`. Do not open an interactive shell. Wrap every command invocation like this:
-
-```bash
-nix --extra-experimental-features 'nix-command flakes' develop --command <cmd>
-```
-
-The `--extra-experimental-features 'nix-command flakes'` flag is required for all `nix` invocations.
-
-### Development Shells
+Agents should be run inside a Nix development shell so all tools are available. If not, prefix commands with `nix --extra-experimental-features 'nix-command flakes' develop --command`.
 
 There are two development shells:
 
@@ -25,22 +17,20 @@ There are two development shells:
 
 The `docs/manual/.envrc` file automatically loads the `manual` shell when you `cd` into that directory (requires direnv).
 
-**Build:** `nix --extra-experimental-features 'nix-command flakes' develop --command cargo build` (the build script in `src/build.rs` runs esbuild to compile `src/specification/**/*.ts` into `target/specification/`)
+**Build:** `cargo build` (the build script in `src/build.rs` runs esbuild to compile `src/specification/**/*.ts` into `target/specification/`)
 
-**Integration tests:** `nix --extra-experimental-features 'nix-command flakes' develop --command cargo test --test integration_tests` (limited to 2 concurrent tests; 120s timeout each)
+**Integration tests:** `cargo test --test integration_tests` (limited to 2 concurrent tests; 120s timeout each)
 
-**All checks via Nix:** `nix --extra-experimental-features 'nix-command flakes' flake check .` (runs clippy, fmt, tests)
-
-**Debug logging:** `nix --extra-experimental-features 'nix-command flakes' develop --command bash -c 'RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless'`
+**Debug logging:** `RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless`
 
 ## Code Quality
 
 **IMPORTANT:** After making any changes to Rust code, ALWAYS run:
 
 ```bash
-nix --extra-experimental-features 'nix-command flakes' develop --command cargo build
-nix --extra-experimental-features 'nix-command flakes' develop --command cargo clippy --fix --allow-dirty
-nix --extra-experimental-features 'nix-command flakes' develop --command cargo fmt
+cargo build
+cargo clippy --fix --allow-dirty
+cargo fmt
 ```
 
 This ensures code follows project conventions and passes CI checks.
