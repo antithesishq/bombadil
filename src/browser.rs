@@ -180,12 +180,20 @@ pub struct Browser {
     receiver: Receiver<BrowserEvent>,
     inner_events_sender: Sender<InnerEvent>,
     actions_sender: Sender<(BrowserAction, Timeout)>,
-    shutdown_sender: oneshot::Sender<()>,
-    done_receiver: oneshot::Receiver<()>,
-    browser: chromiumoxide::Browser,
+    shutdown_sender: Option<oneshot::Sender<()>>,
+    done_receiver: Option<oneshot::Receiver<()>>,
+    browser: Option<chromiumoxide::Browser>,
     page: Arc<Page>,
     origin: Url,
     go_to_origin_on_init: bool,
+}
+
+impl Drop for Browser {
+    fn drop(&mut self) {
+        if let Some(sender) = self.shutdown_sender.take() {
+            let _ = sender.send(());
+        }
+    }
 }
 
 impl Browser {
@@ -290,12 +298,12 @@ impl Browser {
         run_state_machine(context, events_all, done_sender);
 
         Ok(Browser {
-            browser,
+            browser: Some(browser),
             receiver,
             inner_events_sender,
             actions_sender,
-            shutdown_sender,
-            done_receiver,
+            shutdown_sender: Some(shutdown_sender),
+            done_receiver: Some(done_receiver),
             page,
             origin,
             go_to_origin_on_init: browser_options.create_target,
@@ -322,25 +330,25 @@ impl Browser {
         Ok(())
     }
 
-    pub async fn terminate(self) -> Result<()> {
-        let Browser {
-            shutdown_sender,
-            done_receiver,
-            browser,
-            ..
-        } = self;
-        if let Ok(()) = shutdown_sender.send(()) {
-            done_receiver.await?;
-        } else {
-            log::warn!(
-                "couldn't send shutdown signal and receive done signal, killing browser anyway..."
-            );
+    pub async fn terminate(mut self) -> Result<()> {
+        if let Some(sender) = self.shutdown_sender.take() {
+            if let Ok(()) = sender.send(()) {
+                if let Some(done_receiver) = self.done_receiver.take() {
+                    done_receiver.await?;
+                }
+            } else {
+                log::warn!(
+                    "couldn't send shutdown signal and receive done signal, killing browser anyway..."
+                );
+            }
         }
         // For some reason browser.close() logs an error about the websocket connection, so we rely
         // on drop (explicit here so that it's clear) cleaning up the Chrome process.
         //
         // Reported here: https://github.com/mattsse/chromiumoxide/issues/287
-        drop(browser);
+        if let Some(browser) = self.browser.take() {
+            drop(browser);
+        }
 
         Ok(())
     }
