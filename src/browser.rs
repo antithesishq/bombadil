@@ -83,7 +83,6 @@ enum InnerEvent {
     FrameRequestedNavigation(FrameId, ClientNavigationReason, String),
     FrameNavigated(FrameId, NavigationType),
     TargetDestroyed(TargetId),
-    NodeTreeModified(NodeModification),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Timeout),
     ActionApplied(Generation),
@@ -115,28 +114,6 @@ impl std::fmt::Display for Generation {
 }
 
 type Timeout = Duration;
-
-#[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum NodeModification {
-    ChildNodeInserted {
-        parent: dom::NodeId,
-        child: dom::Node,
-    },
-    ChildNodeCountUpdated {
-        parent: dom::NodeId,
-        count: u64,
-    },
-    ChildNodeRemoved {
-        parent: dom::NodeId,
-        child: dom::NodeId,
-    },
-    AttributeModified {
-        node: dom::NodeId,
-        name: String,
-        value: String,
-    },
-}
 
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
@@ -372,7 +349,23 @@ impl Browser {
 
     pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
         let _ = self.page.evaluate_on_new_document(script).await?;
-        let _ = self.page.evaluate(script).await?;
+
+        let main_execution_context_id = self
+            .page
+            .execution_context()
+            .await?
+            .ok_or(anyhow!("no execution context available"))?;
+        let _ = self
+            .page
+            .execute(
+                runtime::EvaluateParams::builder()
+                    .expression(script)
+                    .context_id(main_execution_context_id)
+                    .await_promise(true)
+                    .build()
+                    .expect("failed to build EvaluateParams"),
+            )
+            .await;
         Ok(())
     }
 }
@@ -495,66 +488,66 @@ async fn inner_events(
             .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone())),
     ) as InnerEventStream;
 
-    let events_node_inserted = Box::pin(
-        context
-            .page
-            .event_listener::<dom::EventChildNodeInserted>()
-            .await?
-            .map(|event| {
-                InnerEvent::NodeTreeModified(
-                    NodeModification::ChildNodeInserted {
-                        parent: event.parent_node_id,
-                        child: event.node.clone(),
-                    },
-                )
-            }),
-    ) as InnerEventStream;
+    // let events_node_inserted = Box::pin(
+    //     context
+    //         .page
+    //         .event_listener::<dom::EventChildNodeInserted>()
+    //         .await?
+    //         .map(|event| {
+    //             InnerEvent::NodeTreeModified(
+    //                 NodeModification::ChildNodeInserted {
+    //                     parent: event.parent_node_id,
+    //                     child: event.node.clone(),
+    //                 },
+    //             )
+    //         }),
+    // ) as InnerEventStream;
 
-    let events_node_count_updated = Box::pin(
-        context
-            .page
-            .event_listener::<dom::EventChildNodeCountUpdated>()
-            .await?
-            .map(|event| {
-                InnerEvent::NodeTreeModified(
-                    NodeModification::ChildNodeCountUpdated {
-                        parent: event.node_id,
-                        count: event.child_node_count as u64,
-                    },
-                )
-            }),
-    ) as InnerEventStream;
+    // let events_node_count_updated = Box::pin(
+    //     context
+    //         .page
+    //         .event_listener::<dom::EventChildNodeCountUpdated>()
+    //         .await?
+    //         .map(|event| {
+    //             InnerEvent::NodeTreeModified(
+    //                 NodeModification::ChildNodeCountUpdated {
+    //                     parent: event.node_id,
+    //                     count: event.child_node_count as u64,
+    //                 },
+    //             )
+    //         }),
+    // ) as InnerEventStream;
 
-    let events_node_removed = Box::pin(
-        context
-            .page
-            .event_listener::<dom::EventChildNodeRemoved>()
-            .await?
-            .map(|event| {
-                InnerEvent::NodeTreeModified(
-                    NodeModification::ChildNodeRemoved {
-                        parent: event.parent_node_id,
-                        child: event.node_id,
-                    },
-                )
-            }),
-    ) as InnerEventStream;
+    // let events_node_removed = Box::pin(
+    //     context
+    //         .page
+    //         .event_listener::<dom::EventChildNodeRemoved>()
+    //         .await?
+    //         .map(|event| {
+    //             InnerEvent::NodeTreeModified(
+    //                 NodeModification::ChildNodeRemoved {
+    //                     parent: event.parent_node_id,
+    //                     child: event.node_id,
+    //                 },
+    //             )
+    //         }),
+    // ) as InnerEventStream;
 
-    let events_attribute_modified = Box::pin(
-        context
-            .page
-            .event_listener::<dom::EventAttributeModified>()
-            .await?
-            .map(|event| {
-                InnerEvent::NodeTreeModified(
-                    NodeModification::AttributeModified {
-                        node: event.node_id,
-                        name: event.name.clone(),
-                        value: event.value.clone(),
-                    },
-                )
-            }),
-    ) as InnerEventStream;
+    // let events_attribute_modified = Box::pin(
+    //     context
+    //         .page
+    //         .event_listener::<dom::EventAttributeModified>()
+    //         .await?
+    //         .map(|event| {
+    //             InnerEvent::NodeTreeModified(
+    //                 NodeModification::AttributeModified {
+    //                     node: event.node_id,
+    //                     name: event.name.clone(),
+    //                     value: event.value.clone(),
+    //                 },
+    //             )
+    //         }),
+    // ) as InnerEventStream;
 
     let events_console = Box::pin(
         context
@@ -596,10 +589,10 @@ async fn inner_events(
         events_frame_requested_navigation,
         events_frame_navigated,
         events_target_destroyed,
-        events_node_inserted,
-        events_node_count_updated,
-        events_node_removed,
-        events_attribute_modified,
+        // events_node_inserted,
+        // events_node_count_updated,
+        // events_node_removed,
+        // events_attribute_modified,
         events_console,
         events_action_accepted,
     ])))
@@ -661,13 +654,6 @@ async fn process_event(
 ) -> Result<InnerState> {
     use InnerStateKind::*;
     Ok(match (state_current, event) {
-        (
-            state @ InnerState { kind: Running, .. },
-            InnerEvent::NodeTreeModified(modification),
-        ) => {
-            handle_node_modification(context, &modification).await?;
-            capture_browser_state(state, context).await?
-        }
         (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
@@ -690,10 +676,6 @@ async fn process_event(
                 );
                 capture_browser_state(state, context).await?
             }
-        }
-        (state, InnerEvent::NodeTreeModified(modification)) => {
-            handle_node_modification(context, &modification).await?;
-            state
         }
         (
             state,
@@ -799,7 +781,7 @@ async fn process_event(
         }
         (
             state @ InnerState {
-                kind: Loading | Navigating,
+                kind: Loading | Navigating | Pausing,
                 ..
             },
             InnerEvent::ActionAccepted(action, _),
@@ -1020,46 +1002,59 @@ async fn capture_browser_state(
 ) -> Result<InnerState> {
     log::debug!("pausing, going into next generation...");
 
+    let page = context.page.clone();
+    let main_execution_context_id = match page.execution_context().await? {
+        Some(ctx) => ctx,
+        None => {
+            log::debug!(
+                "no execution context available, skipping state capture"
+            );
+            return Ok(state);
+        }
+    };
+
     log::debug!("taking screenshot before pause");
     let format = ScreenshotFormat::Webp;
-    let screenshot = Screenshot {
-        data: context
-            .page
-            .screenshot(
-                ScreenshotParams::builder()
-                    .omit_background(true)
-                    .format(format)
-                    .build(),
-            )
-            .await
-            .context("take screenshot before pause")?,
-        format,
+    let screenshot_result = tokio::time::timeout(
+        Duration::from_secs(2),
+        context.page.screenshot(
+            ScreenshotParams::builder()
+                .omit_background(true)
+                .format(format)
+                .build(),
+        ),
+    )
+    .await;
+
+    let screenshot = match screenshot_result {
+        Ok(Ok(data)) => Screenshot { data, format },
+        Ok(Err(error)) => {
+            log::warn!("screenshot failed: {}, skipping state capture", error);
+            return Ok(state);
+        }
+        Err(_) => {
+            log::warn!("screenshot timed out, skipping state capture");
+            return Ok(state);
+        }
     };
     state.shared.screenshot = Some(screenshot);
 
-    context
-        .page
-        .execute(debugger::PauseParams::default())
-        .await?;
+    // context
+    //     .page
+    //     .execute(debugger::PauseParams::default())
+    //     .await?;
     let page = context.page.clone();
     spawn(async move {
-        // Explicitly use main world execution context to ensure the debugger
-        // pauses in a frame where __bombadilRequire is available
-        if let Ok(Some(context)) = page.execution_context().await {
-            let _ = page
-                .execute(
-                    runtime::EvaluateParams::builder()
-                        .expression("void 0")
-                        .context_id(context)
-                        .await_promise(true)
-                        .build()
-                        .expect("failed to build EvaluateParams"),
-                )
-                .await;
-        } else {
-            // Fallback to evaluate_expression if no context available
-            let _ = page.evaluate_expression("void 0").await;
-        }
+        let _ = page
+            .execute(
+                runtime::EvaluateParams::builder()
+                    .expression("debugger;0")
+                    .context_id(main_execution_context_id)
+                    .await_promise(false)
+                    .build()
+                    .expect("failed to build EvaluateParams"),
+            )
+            .await;
     });
 
     state.shared.generation = state.shared.generation.next();
@@ -1067,29 +1062,6 @@ async fn capture_browser_state(
         kind: InnerStateKind::Pausing,
         shared: state.shared,
     })
-}
-
-async fn handle_node_modification(
-    context: &BrowserContext,
-    modification: &NodeModification,
-) -> Result<()> {
-    match modification {
-        NodeModification::ChildNodeInserted { parent, .. } => {
-            context
-                .page
-                .execute(dom::RequestChildNodesParams::new(*parent))
-                .await?;
-        }
-        NodeModification::ChildNodeCountUpdated { parent, .. } => {
-            context
-                .page
-                .execute(dom::RequestChildNodesParams::new(*parent))
-                .await?;
-        }
-        NodeModification::ChildNodeRemoved { .. } => {}
-        NodeModification::AttributeModified { .. } => {}
-    }
-    Ok(())
 }
 
 fn receiver_to_stream<T: Clone + Send + 'static>(
