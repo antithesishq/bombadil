@@ -5,11 +5,17 @@ use std::{path::PathBuf, str::FromStr};
 use tempfile::TempDir;
 
 use bombadil::{
-    browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
+    browser::{
+        BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
+        actions::BrowserAction, state::BrowserState,
+    },
     instrumentation::InstrumentationConfig,
-    runner::{Runner, RunnerOptions},
-    specification::{render::render_violation, verifier::Specification},
-    trace::writer::TraceWriter,
+    runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
+    specification::{
+        render::render_violation,
+        verifier::{Snapshot, Specification},
+    },
+    trace::{PropertyViolation, writer::TraceWriter},
 };
 
 /// Property-based testing for web UIs
@@ -228,49 +234,48 @@ async fn test(
         debugger_options,
     )
     .await?;
-    let mut events = runner.start();
-    let mut writer = TraceWriter::initialize(output_path).await?;
 
-    let exit_code: anyhow::Result<Option<i32>> = async {
-        loop {
-            match events.next().await {
-                Ok(Some(bombadil::runner::RunEvent::NewState {
-                    state,
-                    last_action,
-                    snapshots,
-                    violations,
-                })) => {
-                    let has_violations = !violations.is_empty();
+    struct MainObserver {
+        writer: TraceWriter,
+        exit_on_violation: bool,
+    }
 
-                    for violation in &violations {
-                        log::error!(
-                            "violation of property `{}`:\n{}",
-                            violation.name,
-                            render_violation(&violation.violation)
-                        );
-                    }
+    impl RunObserver for MainObserver {
+        type StopValue = i32;
 
-                    writer
-                        .write(last_action, state, snapshots, violations)
-                        .await?;
-
-                    if has_violations && shared_options.exit_on_violation {
-                        break Ok(Some(2));
-                    }
-                }
-                Ok(None) => break Ok(None),
-                Err(err) => {
-                    eprintln!("next run event failure: {}", err);
-                    break Ok(Some(1));
-                }
+        async fn on_new_state(
+            &mut self,
+            state: &BrowserState,
+            last_action: Option<&BrowserAction>,
+            snapshots: &[Snapshot],
+            violations: &[PropertyViolation],
+        ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
+            for violation in violations {
+                log::error!(
+                    "violation of property `{}`:\n{}",
+                    violation.name,
+                    render_violation(&violation.violation)
+                );
             }
+
+            self.writer
+                .write(state, last_action, snapshots, violations)
+                .await?;
+
+            if !violations.is_empty() && self.exit_on_violation {
+                return Ok(ControlFlow::Stop(2));
+            }
+
+            Ok(ControlFlow::Continue)
         }
     }
-    .await;
 
-    events.shutdown().await?;
+    let mut observer = MainObserver {
+        writer: TraceWriter::initialize(output_path).await?,
+        exit_on_violation: shared_options.exit_on_violation,
+    };
 
-    if let Some(exit_code) = exit_code? {
+    if let Some(exit_code) = runner.run(&mut observer).await? {
         std::process::exit(exit_code);
     }
 

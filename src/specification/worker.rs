@@ -15,7 +15,7 @@ enum Command {
         reply: oneshot::Sender<Vec<String>>,
     },
     Step {
-        snapshots: Vec<Snapshot>,
+        snapshots: Arc<[Snapshot]>,
         time: ltl::Time,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
@@ -102,7 +102,7 @@ impl VerifierWorker {
                         reply,
                     } => {
                         let _ = reply.send(
-                            verifier.step::<json::Value>(snapshots, time).map(
+                            verifier.step::<json::Value>(&snapshots, time).map(
                                 |result| RawStepResult {
                                     properties: result
                                         .properties
@@ -143,7 +143,7 @@ impl VerifierWorker {
 
     pub async fn step<A: DeserializeOwned>(
         &self,
-        snapshots: Vec<Snapshot>,
+        snapshots: Arc<[Snapshot]>,
         time: ltl::Time,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();

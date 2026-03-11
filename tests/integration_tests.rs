@@ -12,7 +12,7 @@ use bombadil::{
         Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
-    runner::{RunEvent, Runner, RunnerOptions},
+    runner::{Runner, RunnerOptions},
     specification::{render::render_violation, verifier::Specification},
 };
 
@@ -147,33 +147,37 @@ async fn run_browser_test(
     .expect("run_test failed");
 
     log::info!("starting runner");
-    let mut events = runner.start();
 
-    let result = async {
-        loop {
-            match events.next().await {
-                Ok(Some(RunEvent::NewState { violations, .. })) => {
-                    if !violations.is_empty() {
-                        break Err(anyhow!(
-                            "violations:\n\n{}",
-                            violations
-                                .iter()
-                                .map(|violation| format!(
-                                    "{}:\n{}\n\n",
-                                    violation.name,
-                                    render_violation(&violation.violation)
-                                ))
-                                .collect::<String>()
-                        ));
-                    }
-                }
-                Ok(None) => break events.shutdown().await,
-                Err(err) => {
-                    log::error!("next event error: {}", err);
-                    break events.shutdown().await;
+    struct TestObserver {
+        collected_violations: Vec<String>,
+    }
+
+    impl bombadil::runner::RunObserver for TestObserver {
+        type StopValue = ();
+
+        async fn on_new_state(
+            &mut self,
+            _state: &bombadil::browser::state::BrowserState,
+            _last_action: Option<&bombadil::browser::actions::BrowserAction>,
+            _snapshots: &[bombadil::specification::verifier::Snapshot],
+            violations: &[bombadil::trace::PropertyViolation],
+        ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
+        {
+            if !violations.is_empty() {
+                for violation in violations {
+                    self.collected_violations.push(format!(
+                        "{}:\n{}\n\n",
+                        violation.name,
+                        render_violation(&violation.violation)
+                    ));
                 }
             }
+            Ok(bombadil::runner::ControlFlow::Continue)
         }
+    }
+
+    let mut observer = TestObserver {
+        collected_violations: Vec::new(),
     };
 
     enum Outcome {
@@ -195,11 +199,21 @@ async fn run_browser_test(
     }
 
     log::info!("starting timeout");
-    let outcome = match tokio::time::timeout(timeout, result).await {
-        Ok(Ok(())) => Outcome::Success,
-        Ok(Err(error)) => Outcome::Error(error),
-        Err(_elapsed) => Outcome::Timeout,
-    };
+    let outcome =
+        match tokio::time::timeout(timeout, runner.run(&mut observer)).await {
+            Ok(Ok(_)) => {
+                if observer.collected_violations.is_empty() {
+                    Outcome::Success
+                } else {
+                    Outcome::Error(anyhow!(
+                        "violations:\n\n{}",
+                        observer.collected_violations.join("")
+                    ))
+                }
+            }
+            Ok(Err(error)) => Outcome::Error(error),
+            Err(_elapsed) => Outcome::Timeout,
+        };
 
     log::info!("checking outcome");
     match (outcome, expect) {

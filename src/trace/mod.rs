@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::{borrow::Cow, path::Path, time::SystemTime};
 
 use serde::Serialize;
 use url::Url;
@@ -11,15 +11,15 @@ use crate::{
 pub mod writer;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TraceEntry {
+pub struct TraceEntry<'a> {
     pub timestamp: SystemTime,
-    pub url: Url,
+    pub url: Cow<'a, Url>,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
-    pub action: Option<BrowserAction>,
-    pub screenshot: PathBuf,
-    pub snapshots: Vec<Snapshot>,
-    pub violations: Vec<PropertyViolation>,
+    pub action: Option<Cow<'a, BrowserAction>>,
+    pub screenshot: Cow<'a, Path>,
+    pub snapshots: Cow<'a, [Snapshot]>,
+    pub violations: Cow<'a, [PropertyViolation]>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -10,8 +10,6 @@ use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, oneshot};
-use tokio::{select, spawn};
 
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
@@ -21,14 +19,24 @@ pub struct RunnerOptions {
     pub stop_on_violation: bool,
 }
 
-#[derive(Debug, Clone)]
-pub enum RunEvent {
-    NewState {
-        state: BrowserState,
-        last_action: Option<BrowserAction>,
-        snapshots: Vec<Snapshot>,
-        violations: Vec<PropertyViolation>,
-    },
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ControlFlow<T> {
+    Continue,
+    Stop(T),
+}
+
+pub trait RunObserver {
+    type StopValue;
+
+    fn on_new_state(
+        &mut self,
+        state: &BrowserState,
+        last_action: Option<&BrowserAction>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
+    ) -> impl std::future::Future<
+        Output = anyhow::Result<ControlFlow<Self::StopValue>>,
+    >;
 }
 
 pub struct Runner {
@@ -36,11 +44,6 @@ pub struct Runner {
     options: RunnerOptions,
     browser: Browser,
     verifier: Arc<VerifierWorker>,
-    events: broadcast::Sender<RunEvent>,
-    shutdown_sender: oneshot::Sender<()>,
-    shutdown_receiver: oneshot::Receiver<()>,
-    done_sender: oneshot::Sender<anyhow::Result<()>>,
-    done_receiver: oneshot::Receiver<anyhow::Result<()>>,
 }
 
 impl Runner {
@@ -51,10 +54,6 @@ impl Runner {
         browser_options: BrowserOptions,
         debugger_options: DebuggerOptions,
     ) -> anyhow::Result<Self> {
-        let (events, _) = broadcast::channel(16);
-        let (done_sender, done_receiver) = oneshot::channel();
-        let (shutdown_sender, shutdown_receiver) = oneshot::channel();
-
         let verifier = VerifierWorker::start(specification.clone()).await?;
 
         let browser =
@@ -72,189 +71,157 @@ impl Runner {
             options,
             browser,
             verifier,
-            events,
-            shutdown_sender,
-            shutdown_receiver,
-            done_sender,
-            done_receiver,
         })
     }
 
-    pub fn start(self) -> RunEvents {
-        let Runner {
-            origin,
-            options,
-            mut browser,
-            verifier,
-            events,
-            shutdown_sender,
-            shutdown_receiver,
-            done_sender,
-            done_receiver,
-        } = self;
+    pub async fn run<O: RunObserver>(
+        mut self,
+        observer: &mut O,
+    ) -> anyhow::Result<Option<O::StopValue>> {
+        log::info!("starting test of {}", self.origin);
 
-        log::info!("starting test of {}", origin);
-        let events_receiver = events.subscribe();
+        self.browser.initiate().await?;
+        log::debug!("browser initiated");
 
-        spawn(async move {
-            let run = async || {
-                browser.initiate().await?;
-                log::debug!("browser initiated");
-                Runner::run_test(
-                    &origin,
-                    options,
-                    &mut browser,
-                    verifier,
-                    events,
-                    shutdown_receiver,
-                )
-                .await
-            };
-            let result = run().await;
-            log::debug!("test finished");
+        let result = Runner::run_test(
+            &self.origin,
+            self.options,
+            &mut self.browser,
+            self.verifier,
+            observer,
+        )
+        .await;
 
-            browser
-                .terminate()
-                .await
-                .expect("browser failed to terminate");
+        log::debug!("test finished");
 
-            done_sender
-                .send(result)
-                .expect("couldn't send runner completion")
-        });
+        self.browser
+            .terminate()
+            .await
+            .expect("browser failed to terminate");
 
-        RunEvents {
-            events: events_receiver,
-            done: done_receiver,
-            shutdown: shutdown_sender,
-        }
+        result
     }
 
-    async fn run_test(
+    async fn run_test<O: RunObserver>(
         origin: &Url,
         options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
-        events: broadcast::Sender<RunEvent>,
-        mut shutdown: oneshot::Receiver<()>,
-    ) -> anyhow::Result<()> {
+        observer: &mut O,
+    ) -> anyhow::Result<Option<O::StopValue>> {
         let mut last_action: Option<BrowserAction> = None;
         let mut edges = [0u8; EDGE_MAP_SIZE];
 
         loop {
             let verifier = verifier.clone();
-            select! {
-                _ = &mut shutdown => {
-                    return Ok(())
-                },
-                event = browser.next_event() => match event {
-                    Some(event) => match event {
-                        BrowserEvent::StateChanged(state) => {
-                            // Step formulas and collect violations.
-                            let snapshots = run_extractors(&state, &last_action).await?;
-                            for value in &snapshots {
-                                log::debug!(
-                                    "snapshot {}: {}",
-                                    value.name.as_deref().unwrap_or("<unnamed>"),
-                                    value.value
-                                );
-                            }
-                            let step_result = verifier.step::<crate::specification::js::JsAction>(snapshots.clone(), state.timestamp).await?;
+            let event = browser.next_event().await;
+            match event {
+                Some(event) => match event {
+                    BrowserEvent::StateChanged(state) => {
+                        // Step formulas and collect violations.
+                        let snapshots: Arc<[Snapshot]> =
+                            run_extractors(&state, &last_action).await?.into();
+                        for value in snapshots.iter() {
+                            log::debug!(
+                                "snapshot {}: {}",
+                                value.name.as_deref().unwrap_or("<unnamed>"),
+                                value.value
+                            );
+                        }
+                        let step_result = verifier
+                            .step::<crate::specification::js::JsAction>(
+                                snapshots.clone(),
+                                state.timestamp,
+                            )
+                            .await?;
 
-                            // Convert JsAction tree to BrowserAction tree
-                            let action_tree = step_result.actions.try_map(&mut |js_action| {
+                        // Convert JsAction tree to BrowserAction tree
+                        let action_tree =
+                            step_result.actions.try_map(&mut |js_action| {
                                 js_action.to_browser_action()
                             })?;
 
-                            let mut violations = Vec::with_capacity(step_result.properties.len());
-                            let mut all_properties_definite = true;
-                            for (name, value) in step_result.properties {
-                                match value {
-                                    PropertyValue::False(violation) => {
-                                        violations.push(PropertyViolation{ name, violation });
-                                    }
-                                    PropertyValue::Residual => {
-                                        all_properties_definite = false;
-                                    }
-                                    PropertyValue::True => {
-                                        // Property is satisfied
-                                    }
+                        let mut violations =
+                            Vec::with_capacity(step_result.properties.len());
+                        let mut all_properties_definite = true;
+                        for (name, value) in step_result.properties {
+                            match value {
+                                PropertyValue::False(violation) => {
+                                    violations.push(PropertyViolation {
+                                        name,
+                                        violation,
+                                    });
+                                }
+                                PropertyValue::Residual => {
+                                    all_properties_definite = false;
+                                }
+                                PropertyValue::True => {
+                                    // Property is satisfied
                                 }
                             }
-                            let has_violations = !violations.is_empty();
+                        }
+                        let has_violations = !violations.is_empty();
 
-                            // Make sure we stay within origin.
-                            let action_tree = if !is_within_domain(&state.url, origin) {
-                                action_tree.filter(&|a| matches!(a, BrowserAction::Back))
+                        // Make sure we stay within origin.
+                        let action_tree =
+                            if !is_within_domain(&state.url, origin) {
+                                action_tree.filter(&|a| {
+                                    matches!(a, BrowserAction::Back)
+                                })
                             } else {
                                 action_tree
                             };
 
-                            // Update global edges.
-                            for (index, bucket) in &state.coverage.edges_new {
-                                edges[*index as usize] =
-                                    max(edges[*index as usize], *bucket);
-                            }
-                            log_coverage_stats_increment(&state.coverage);
-                            log_coverage_stats_total(&edges);
+                        // Update global edges.
+                        for (index, bucket) in &state.coverage.edges_new {
+                            edges[*index as usize] =
+                                max(edges[*index as usize], *bucket);
+                        }
+                        log_coverage_stats_increment(&state.coverage);
+                        log_coverage_stats_total(&edges);
 
-                            events.send(RunEvent::NewState {
-                                state,
-                                last_action,
-                                snapshots,
-                                violations,
+                        let control = observer
+                            .on_new_state(
+                                &state,
+                                last_action.as_ref(),
+                                &snapshots,
+                                &violations,
+                            )
+                            .await?;
+
+                        if let ControlFlow::Stop(value) = control {
+                            return Ok(Some(value));
+                        }
+
+                        if has_violations && options.stop_on_violation {
+                            return Ok(None);
+                        }
+                        if all_properties_definite {
+                            log::info!("all properties are definite, stopping");
+                            return Ok(None);
+                        }
+
+                        let action_tree =
+                            action_tree.prune().ok_or_else(|| {
+                                anyhow::anyhow!("no actions available")
                             })?;
-                            if has_violations && options.stop_on_violation {
-                                return Ok(())
-                            }
-                            if all_properties_definite {
-                                log::info!("all properties are definite, stopping");
-                                return Ok(())
-                            }
 
-                            let action_tree = action_tree.prune()
-                                .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
-
-                            let action = action_tree.pick(&mut rand::rng())?.clone();
-                            let timeout = action_timeout(&action);
-                            log::info!("picked action: {:?}", action);
-                            browser.apply(action.clone(), timeout)?;
-                            last_action = Some(action);
-                        }
-                        BrowserEvent::Error(error) => {
-                            anyhow::bail!("state machine error: {}", error)
-                        }
-                    },
-                    None => {
-                        anyhow::bail!("browser closed")
+                        let action =
+                            action_tree.pick(&mut rand::rng())?.clone();
+                        let timeout = action_timeout(&action);
+                        log::info!("picked action: {:?}", action);
+                        browser.apply(action.clone(), timeout)?;
+                        last_action = Some(action);
                     }
+                    BrowserEvent::Error(error) => {
+                        anyhow::bail!("state machine error: {}", error)
+                    }
+                },
+                None => {
+                    anyhow::bail!("browser closed")
                 }
             }
         }
-    }
-}
-
-pub struct RunEvents {
-    events: broadcast::Receiver<RunEvent>,
-    done: oneshot::Receiver<anyhow::Result<()>>,
-    shutdown: oneshot::Sender<()>,
-}
-
-impl RunEvents {
-    pub async fn next(&mut self) -> anyhow::Result<Option<RunEvent>> {
-        match self.events.recv().await {
-            Ok(event) => Ok(Some(event)),
-            Err(broadcast::error::RecvError::Closed) => Ok(None),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    /// Shuts down the runner, waiting for it to finish and clean up. Returns an Err when some
-    /// non-recoverable error occured, as opposed to test violations which are sent in trace events.
-    pub async fn shutdown(mut self) -> anyhow::Result<()> {
-        // If we can't send the signal, it means the receiver has already been dropped.
-        let _ = self.shutdown.send(());
-        (&mut self.done).await?
     }
 }
 
