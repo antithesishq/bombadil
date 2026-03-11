@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::UNIX_EPOCH};
+use std::{borrow::Cow, path::PathBuf, time::UNIX_EPOCH};
 
 use anyhow::Result;
 use serde_json as json;
@@ -56,13 +56,13 @@ impl TraceWriter {
 
         let entry = TraceEntry {
             timestamp: state.timestamp,
-            url: state.url.clone(),
+            url: Cow::Borrowed(&state.url),
             hash_previous: self.last_transition_hash,
             hash_current: state.transition_hash,
-            action: last_action.cloned(),
-            screenshot: screenshot_path,
-            snapshots: snapshots.to_vec(),
-            violations: violations.to_vec(),
+            action: last_action.map(Cow::Borrowed),
+            screenshot: Cow::Owned(screenshot_path),
+            snapshots: Cow::Borrowed(snapshots),
+            violations: Cow::Borrowed(violations),
         };
 
         self.last_transition_hash = state.transition_hash;
