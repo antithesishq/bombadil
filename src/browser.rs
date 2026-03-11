@@ -672,7 +672,10 @@ async fn process_event(
             if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
                 state
-            } else if matches!(state.kind, Navigating | Loading) {
+            } else if matches!(
+                state.kind,
+                Navigating | Loading | Paused | Pausing
+            ) {
                 log::debug!(
                     "skipping state capture during {:?} (reason: {:?})",
                     &state.kind,
