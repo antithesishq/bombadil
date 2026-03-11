@@ -5,11 +5,17 @@ use std::{path::PathBuf, str::FromStr};
 use tempfile::TempDir;
 
 use bombadil::{
-    browser::{BrowserOptions, DebuggerOptions, Emulation, LaunchOptions},
+    browser::{
+        BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
+        actions::BrowserAction, state::BrowserState,
+    },
     instrumentation::InstrumentationConfig,
-    runner::{Runner, RunnerOptions},
-    specification::{render::render_violation, verifier::Specification},
-    trace::writer::TraceWriter,
+    runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
+    specification::{
+        render::render_violation,
+        verifier::{Snapshot, Specification},
+    },
+    trace::{PropertyViolation, writer::TraceWriter},
 };
 
 /// Property-based testing for web UIs
@@ -234,17 +240,16 @@ async fn test(
         exit_on_violation: bool,
     }
 
-    impl bombadil::runner::RunObserver for MainObserver {
+    impl RunObserver for MainObserver {
         type StopValue = i32;
 
         async fn on_new_state(
             &mut self,
-            state: &bombadil::browser::state::BrowserState,
-            last_action: Option<&bombadil::browser::actions::BrowserAction>,
-            snapshots: &[bombadil::specification::verifier::Snapshot],
-            violations: &[bombadil::trace::PropertyViolation],
-        ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
-        {
+            state: &BrowserState,
+            last_action: Option<&BrowserAction>,
+            snapshots: &[Snapshot],
+            violations: &[PropertyViolation],
+        ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
             for violation in violations {
                 log::error!(
                     "violation of property `{}`:\n{}",
@@ -258,10 +263,10 @@ async fn test(
                 .await?;
 
             if !violations.is_empty() && self.exit_on_violation {
-                return Ok(bombadil::runner::ControlFlow::Stop(2));
+                return Ok(ControlFlow::Stop(2));
             }
 
-            Ok(bombadil::runner::ControlFlow::Continue)
+            Ok(ControlFlow::Continue)
         }
     }
 
