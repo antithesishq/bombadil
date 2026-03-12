@@ -1,6 +1,6 @@
 # Contributing
 
-## Developer Environment
+## Developer environment
 
 The blessed setup is using the Nix flake to get a shell.
 
@@ -10,7 +10,7 @@ nix develop
 direnv allow .
 ```
 
-### Documentation Shell
+### Documentation shell
 
 Documentation building requires a separate shell with Pandoc and TeXLive. This keeps the default development environment lighter.
 
@@ -28,18 +28,22 @@ Or run commands directly:
 nix develop '.#manual' --command make -C docs/manual pdf
 ```
 
-## Workspace Structure
+## Workspace structure
 
 The project is organized as a Cargo workspace under `lib/`:
 
 ```
 lib/
-├── bombadil/           # Core library (browser, runner, trace, specification, etc.)
-├── bombadil-cli/       # CLI binary (test commands, debug server)
-├── bombadil-debug-ui/  # Yew frontend (WASM debug UI)
-├── integration-tests/  # Integration tests with browser fixtures
-└── nix/                # Nix build infrastructure
+├── bombadil/           
+├── bombadil-cli/       
+├── bombadil-debug-ui/  
+├── integration-tests/  
+├── ...
+└── nix/                
 ```
+
+Most of these directories should be creates, but can be other stuff, like
+`lib/nix`.
 
 Build specific crates with `-p`:
 
@@ -53,7 +57,7 @@ cargo build -p bombadil-cli   # CLI binary (includes library)
 See debug logs:
 
 ```bash
-RUST_LOG=bombadil=debug cargo run -p bombadil-cli -- test https://example.com --headless
+RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless
 ```
 
 There's also [VSCode launch configs](development/launch.json) for debugging
@@ -65,18 +69,18 @@ in `.vscode/launch.json` and modify at will.
 Inspect a trace file with the debug UI:
 
 ```bash
-cargo run -p bombadil-cli -- debug /path/to/trace
+cargo run -- debug /path/to/trace
 ```
 
 To work on the debug UI frontend:
 
 ```bash
 cd lib/bombadil-debug-ui
-trunk build --dist ../../target/debug-ui
+trunk serve
 ```
 
-The CLI build script automatically rebuilds the debug UI when trunk is
-available. If trunk is not installed, a placeholder page is served instead.
+This only runs the frontend. Run the backend using the `debug` command in a
+separate tab.
 
 ## Running in podman
 
