@@ -9,7 +9,7 @@
 }:
 let
   version =
-    (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).package.version;
+    (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
 
   texliveBundle = texlive.combine {
     inherit (texlive)

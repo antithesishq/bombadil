@@ -72,7 +72,8 @@ async fn run_browser_test(
     setup();
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     log::info!("starting browser test");
-    let app = Router::new().fallback_service(ServeDir::new("./tests"));
+    let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
+    let app = Router::new().fallback_service(ServeDir::new(&test_dir));
     let app_other = app.clone();
 
     let (listener, listener_other, port) = loop {
@@ -355,7 +356,8 @@ export const navigatesBackFromNonHtml = eventually(
 #[tokio::test]
 async fn test_browser_lifecycle() {
     setup();
-    let app = Router::new().fallback_service(ServeDir::new("./tests"));
+    let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
+    let app = Router::new().fallback_service(ServeDir::new(&test_dir));
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

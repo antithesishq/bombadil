@@ -15,7 +15,7 @@
 }:
 let
   src = lib.cleanSourceWith {
-    src = ./..;
+    src = ../..;
     filter =
       path: type:
       (lib.hasSuffix ".ts" path)
@@ -38,6 +38,7 @@ let
     chmod -R +w $out
     sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
     sed -i '/^name = "bombadil"/{n;s/^version = .*/version = "0.0.0"/}' $out/Cargo.lock
+    sed -i '/^name = "integration-tests"/{n;s/^version = .*/version = "0.0.0"/}' $out/Cargo.lock
   '';
 
   commonArgs = {
@@ -45,6 +46,9 @@ let
     nativeBuildInputs = [
       esbuild
     ];
+    # Exclude the debug-ui crate from workspace builds since it
+    # targets wasm32 and is built by bombadil-cli's build script.
+    cargoExtraArgs = "--workspace --exclude bombadil-debug-ui";
   };
   depsArgs = commonArgs // {
     src = depsSrc;
@@ -61,6 +65,7 @@ in
       inherit cargoArtifacts;
       doCheck = false;
       pname = "bombadil";
+      cargoExtraArgs = "-p bombadil-cli";
       meta = {
         mainProgram = "bombadil";
         description = ''

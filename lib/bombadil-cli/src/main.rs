@@ -1,3 +1,5 @@
+mod debug_server;
+
 use ::url::Url;
 use anyhow::Result;
 use clap::{Args, Parser};
@@ -20,7 +22,7 @@ use bombadil::{
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
-#[command(version, about, long_about=None)]
+#[command(name = "bombadil", version, about, long_about=None)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -81,6 +83,17 @@ enum Command {
         /// of starting the test (this should probably be false if you test an Electron app)
         #[arg(long)]
         create_target: bool,
+    },
+    /// Launch the debug UI to inspect a trace file
+    Debug {
+        /// Path to trace.jsonl file or directory containing it
+        trace_path: PathBuf,
+        /// Port to bind the debug server to
+        #[arg(long, default_value_t = 1073)]
+        port: u16,
+        /// Skip auto-opening browser
+        #[arg(long, default_value_t = false)]
+        no_open: bool,
     },
 }
 
@@ -193,6 +206,11 @@ async fn main() -> Result<()> {
                 DebuggerOptions::External { remote_debugger };
             test(shared, browser_options, debugger_options).await
         }
+        Command::Debug {
+            trace_path,
+            port,
+            no_open,
+        } => debug_server::serve(trace_path, port, !no_open).await,
     }
 }
 

@@ -2,7 +2,9 @@ use glob::glob;
 use std::process::Command;
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/specification/**/*.ts");
+    // Watch the TypeScript source directory for changes.
+    // rerun-if-changed on a directory scans it recursively.
+    println!("cargo:rerun-if-changed=src/specification");
     build_specification_modules();
 }
 

@@ -17,20 +17,20 @@ There are two development shells:
 
 The `docs/manual/.envrc` file automatically loads the `manual` shell when you `cd` into that directory (requires direnv).
 
-**Build:** `cargo build` (the build script in `src/build.rs` runs esbuild to compile `src/specification/**/*.ts` into `target/specification/`)
+**Build:** `cargo build` (the build script in `lib/bombadil/build.rs` runs esbuild to compile TypeScript specs into `target/specification/`)
 
-**Integration tests:** `cargo test --test integration_tests` (limited to 2 concurrent tests; 120s timeout each)
+**Integration tests:** `cargo test -p integration-tests` (limited to 4 concurrent tests; 120s timeout each)
 
-**Debug logging:** `RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless`
+**Debug logging:** `RUST_LOG=bombadil=debug cargo run -p bombadil-cli -- test https://example.com --headless`
 
 ## Code Quality
 
 **IMPORTANT:** After making any changes to Rust code, ALWAYS run:
 
 ```bash
-cargo build
-cargo clippy --fix --allow-dirty
-cargo fmt
+cargo build --workspace --exclude bombadil-debug-ui
+cargo clippy --workspace --exclude bombadil-debug-ui --fix --allow-dirty
+cargo fmt --all
 ```
 
 This ensures code follows project conventions and passes CI checks.
@@ -39,23 +39,33 @@ This ensures code follows project conventions and passes CI checks.
 
 Rust backend + TypeScript specification layer, connected via the Boa JavaScript engine at runtime.
 
-### Core modules (`src/lib.rs`)
+### Workspace structure
 
-- **runner** (`src/runner.rs`) - Test orchestration loop. Drives the browser, invokes the verifier, publishes `RunEvent`s (state transitions, violations). The main entrypoint for a test run.
-- **browser** (`src/browser/`) - Chromium control via CDP (`chromiumoxide`). `state.rs` defines `BrowserState` snapshots (URL, title, console, exceptions, DOM). `actions.rs` defines `BrowserAction` (Click, TypeText, PressKey, Scroll, navigation). `instrumentation.rs` injects coverage tracking JS.
+The project is a Cargo workspace with crates under `lib/`:
+
+- **`lib/bombadil/`** - Core library (all modules below)
+- **`lib/bombadil-cli/`** - CLI binary (test commands, debug server)
+- **`lib/bombadil-debug-ui/`** - Yew WASM frontend for the debug UI
+- **`lib/integration-tests/`** - Integration tests with browser fixtures
+- **`lib/nix/`** - Nix build infrastructure
+
+### Core library modules (`lib/bombadil/src/lib.rs`)
+
+- **runner** (`runner.rs`) - Test orchestration loop. Drives the browser, invokes the verifier, publishes `RunEvent`s (state transitions, violations). The main entrypoint for a test run.
+- **browser** (`browser/`) - Chromium control via CDP (`chromiumoxide`). `state.rs` defines `BrowserState` snapshots (URL, title, console, exceptions, DOM). `actions.rs` defines `BrowserAction` (Click, TypeText, PressKey, Scroll, navigation). `instrumentation.rs` injects coverage tracking JS.
 - **specification** - Split between Rust and TypeScript:
   - `verifier.rs` - Loads spec files, runs Boa JS engine, evaluates properties, manages extractors.
   - `worker.rs` - Runs verifier in a separate OS thread with message passing.
   - `ltl.rs` - LTL formula evaluation engine (always, eventually, next, implies, etc.) with violation tracking.
   - TypeScript files (`index.ts`, `actions.ts`, `defaults.ts`, `internal.ts`) - User-facing API for defining properties, action generators, and extractors. Compiled to ESM by esbuild at build time, embedded via `include_dir`.
-- **tree** (`src/tree.rs`) - Weighted tree for random action selection. `pick()` traverses using RNG.
-- **instrumentation** (`src/instrumentation/`) - JS code coverage via edge maps using Oxc. `html.rs` instruments inline scripts.
-- **trace** (`src/trace/`) - JSONL trace writer with screenshots.
-- **url** (`src/url.rs`) - Domain boundary enforcement.
+- **tree** (`tree.rs`) - Weighted tree for random action selection. `pick()` traverses using RNG.
+- **instrumentation** (`instrumentation/`) - JS code coverage via edge maps using Oxc. `html.rs` instruments inline scripts.
+- **trace** (`trace/`) - JSONL trace writer with screenshots.
+- **url** (`url.rs`) - Domain boundary enforcement.
 
 ### Rust-TypeScript bridge
 
-1. `src/build.rs` compiles `.ts` files to `.js` ESM modules via esbuild at build time.
+1. `lib/bombadil/build.rs` compiles `.ts` files to `.js` ESM modules via esbuild at build time.
 2. At runtime, Boa engine loads the bundled JS modules.
 3. Rust exposes native functions (e.g., `__bombadil_random_bytes()`) to the JS environment.
 4. State snapshots are passed as JSON between layers.
@@ -105,4 +115,4 @@ let object_assign_call = ...;
 
 ## Testing
 
-Integration tests are in `tests/`. Each test scenario has an HTML fixture directory (e.g., `tests/links/`, `tests/console-error/`). Tests spawn local web servers (axum) and run Bombadil against them. Snapshot tests use `insta`. Property tests use `proptest`.
+Integration tests are in `lib/integration-tests/tests/`. Each test scenario has an HTML fixture directory (e.g., `tests/links/`, `tests/console-error/`). Tests spawn local web servers (axum) and run Bombadil against them. Snapshot tests use `insta`. Property tests use `proptest`.

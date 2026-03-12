@@ -6,7 +6,7 @@
   src,
 }:
 let
-  version = (builtins.fromTOML (builtins.readFile ../Cargo.toml)).package.version;
+  version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
 
   packageJson = writeText "package.json" (
     builtins.toJSON {
@@ -109,7 +109,7 @@ runCommand "bombadil-types-${version}"
     mkdir -p $out/dist
 
     tsc \
-      -p ${src}/src/specification/tsconfig.json \
+      -p ${src}/lib/bombadil/src/specification/tsconfig.json \
       --target es6 \
       --declaration \
       --emitDeclarationOnly \

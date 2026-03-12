@@ -5,6 +5,10 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     crane.url = "github:ipetkov/crane";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -18,6 +22,7 @@
       nixpkgs,
       flake-utils,
       crane,
+      rust-overlay,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -25,14 +30,17 @@
         pkgs = (
           import nixpkgs {
             inherit system;
-            overlays = [ ];
+            overlays = [ rust-overlay.overlays.default ];
           }
         );
-        craneLib = crane.mkLib pkgs;
+        rustToolchainWasm = pkgs.rust-bin.stable.latest.default.override {
+          targets = [ "wasm32-unknown-unknown" ];
+        };
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchainWasm;
         craneLibStatic = crane.mkLib pkgs.pkgsCross.musl64;
         craneLibAarch64 = crane.mkLib pkgs.pkgsCross.aarch64-multiplatform-musl;
-        bombadil = pkgs.callPackage ./nix/default.nix { inherit craneLib craneLibStatic; };
-        bombadilAarch64 = pkgs.callPackage ./nix/default.nix {
+        bombadil = pkgs.callPackage ./lib/nix/default.nix { inherit craneLib craneLibStatic; };
+        bombadilAarch64 = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib;
           craneLibStatic = craneLibAarch64;
           cargoTarget = "aarch64-unknown-linux-musl";
@@ -46,7 +54,7 @@
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           aarch64-linux = bombadilAarch64.bin;
-          docker = pkgs.callPackage ./nix/docker.nix { bombadil = self.packages.${system}.default; };
+          docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
         apps = {
@@ -70,17 +78,16 @@
             {
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
               inputsFrom = [ self.packages.${system}.default ];
+              # nativeBuildInputs takes priority over inputsFrom in
+              # PATH, so rustToolchainWasm shadows crane's toolchain.
+              nativeBuildInputs = [ rustToolchainWasm ];
               buildInputs =
                 with pkgs;
                 [
                   # Rust
-                  cargo
-                  rustc
                   rust-analyzer
-                  rustfmt
                   crate2nix
                   cargo-insta
-                  clippy
 
                   # Nix
                   nil
@@ -91,6 +98,10 @@
                   esbuild
                   bun
                   biome
+
+                  # WASM/Debug UI
+                  trunk
+                  wasm-bindgen-cli
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
