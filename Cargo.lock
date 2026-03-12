@@ -445,6 +445,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
+ "bombadil-debug-api",
  "clap",
  "env_logger",
  "include_dir",
@@ -459,9 +460,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bombadil-debug-api"
+version = "0.3.2"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bombadil-debug-ui"
 version = "0.1.0"
 dependencies = [
+ "bombadil-debug-api",
  "gloo-net 0.6.0",
  "serde",
  "serde_json",

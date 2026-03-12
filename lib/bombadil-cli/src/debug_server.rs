@@ -1,16 +1,11 @@
 use anyhow::Result;
 use axum::{Json, Router, response::IntoResponse, routing::get};
+use bombadil_debug_api::HelloResponse;
 use include_dir::{Dir, include_dir};
-use serde::Serialize;
 use std::path::PathBuf;
 
 static DEBUG_UI_ASSETS: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/../../target/debug-ui");
-
-#[derive(Serialize)]
-struct HelloResponse {
-    message: String,
-}
 
 pub async fn serve(
     trace_path: PathBuf,

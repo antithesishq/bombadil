@@ -43,8 +43,7 @@ fn build_debug_ui(dist_directory: &Path) {
         .env("CARGO_TARGET_DIR", &wasm_target_directory)
         .current_dir(debug_ui_directory);
 
-    let profile =
-        std::env::var("PROFILE").unwrap_or_default();
+    let profile = std::env::var("PROFILE").unwrap_or_default();
     if profile == "release" {
         command.arg("--release");
     }

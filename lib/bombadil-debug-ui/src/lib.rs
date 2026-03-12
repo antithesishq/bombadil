@@ -1,11 +1,6 @@
+use bombadil_debug_api::HelloResponse;
 use gloo_net::http::Request;
-use serde::Deserialize;
 use yew::prelude::*;
-
-#[derive(Deserialize)]
-struct HelloResponse {
-    message: String,
-}
 
 #[function_component(App)]
 fn app() -> Html {

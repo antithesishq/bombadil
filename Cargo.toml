@@ -2,6 +2,7 @@
 members = [
     "lib/bombadil",
     "lib/bombadil-cli",
+    "lib/bombadil-debug-api",
     "lib/bombadil-debug-ui",
     "lib/integration-tests",
 ]
