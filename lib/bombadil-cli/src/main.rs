@@ -1,3 +1,4 @@
+#[cfg(debug_assertions)]
 mod debug_server;
 
 use ::url::Url;
@@ -85,6 +86,7 @@ enum Command {
         create_target: bool,
     },
     /// Launch the debug UI to inspect a trace file
+    #[cfg(debug_assertions)]
     Debug {
         /// Path to trace.jsonl file or directory containing it
         trace_path: PathBuf,
@@ -206,6 +208,7 @@ async fn main() -> Result<()> {
                 DebuggerOptions::External { remote_debugger };
             test(shared, browser_options, debugger_options).await
         }
+        #[cfg(debug_assertions)]
         Command::Debug {
             trace_path,
             port,

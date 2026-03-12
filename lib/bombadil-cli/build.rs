@@ -9,6 +9,12 @@ fn main() {
     println!("cargo:rerun-if-changed=../bombadil-debug-ui/index.html");
     println!("cargo:rerun-if-changed=../bombadil-debug-ui/Trunk.toml");
 
+    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
+    if profile == "release" {
+        ensure_placeholder(dist_directory);
+        return;
+    }
+
     build_debug_ui(dist_directory);
 }
 
