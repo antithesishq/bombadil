@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::Stdio;
 
 fn main() {
     let dist_directory = Path::new("../../target/debug-ui");
@@ -41,6 +42,8 @@ fn build_debug_ui(dist_directory: &Path) {
         .arg("--dist")
         .arg(&dist_absolute)
         .env("CARGO_TARGET_DIR", &wasm_target_directory)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
         .current_dir(debug_ui_directory);
 
     let profile = std::env::var("PROFILE").unwrap_or_default();
@@ -48,24 +51,10 @@ fn build_debug_ui(dist_directory: &Path) {
         command.arg("--release");
     }
 
-    let status = command.status();
+    let status = command.status().expect("trunk command failed");
 
-    match status {
-        Ok(status) if status.success() => {}
-        Ok(_) => {
-            println!(
-                "cargo:warning=trunk build failed, \
-                 using placeholder"
-            );
-            ensure_placeholder(dist_directory);
-        }
-        Err(error) => {
-            println!(
-                "cargo:warning=trunk not found ({error}), \
-                 using placeholder"
-            );
-            ensure_placeholder(dist_directory);
-        }
+    if !status.success() {
+        panic!("cargo:warning=trunk build failed");
     }
 }
 
