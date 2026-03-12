@@ -102,6 +102,7 @@
                   # WASM/Debug UI
                   trunk
                   wasm-bindgen-cli
+                  binaryen
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime

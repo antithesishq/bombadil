@@ -33,7 +33,7 @@ fn app() -> Html {
     html! {
         <div>
             <h1>{"Bombadil Debug UI"}</h1>
-            <p>{(*message).clone()}</p>
+            <p>{"It says: "}{(*message).clone()}</p>
         </div>
     }
 }

@@ -34,14 +34,22 @@ fn build_debug_ui(dist_directory: &Path) {
         .expect("Failed to resolve workspace root")
         .join("target/debug-ui-wasm");
 
-    let status = std::process::Command::new("trunk")
+    let mut command = std::process::Command::new("trunk");
+    command
         .arg("build")
         .arg("--offline")
         .arg("--dist")
         .arg(&dist_absolute)
         .env("CARGO_TARGET_DIR", &wasm_target_directory)
-        .current_dir(debug_ui_directory)
-        .status();
+        .current_dir(debug_ui_directory);
+
+    let profile =
+        std::env::var("PROFILE").unwrap_or_default();
+    if profile == "release" {
+        command.arg("--release");
+    }
+
+    let status = command.status();
 
     match status {
         Ok(status) if status.success() => {}
