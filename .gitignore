@@ -5,4 +5,5 @@ lib/bombadil/target
 .envrc.local
 /.vscode
 .claude
+AGENTS.md
 CLAUDE.md
