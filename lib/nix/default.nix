@@ -29,6 +29,19 @@ let
       || (craneLib.filterCargoSources path type);
   };
 
+  # Workspace crate names, extracted from each member's Cargo.toml.
+  crateNames = lib.pipe (builtins.readDir ../../lib) [
+    (lib.filterAttrs (_: type: type == "directory"))
+    (dirs:
+      lib.filter
+        (name: builtins.pathExists (../../lib + "/${name}/Cargo.toml"))
+        (builtins.attrNames dirs))
+    (map (dir:
+      (builtins.fromTOML
+        (builtins.readFile (../../lib + "/${dir}/Cargo.toml"))
+      ).package.name))
+  ];
+
   # Source with a normalized version so that Bombadil version bumps don't
   # invalidate the deps derivation hash. This is especially useful when
   # doing releases so that GitHub Actions doesn't have to rebuild deps that
@@ -37,8 +50,9 @@ let
     cp -r ${src} $out
     chmod -R +w $out
     sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
-    sed -i '/^name = "bombadil"/{n;s/^version = .*/version = "0.0.0"/}' $out/Cargo.lock
-    sed -i '/^name = "integration-tests"/{n;s/^version = .*/version = "0.0.0"/}' $out/Cargo.lock
+    for crate in ${lib.concatStringsSep " " crateNames}; do
+      sed -i "/^name = \"$crate\"/{n;s/^version = .*/version = \"0.0.0\"/}" $out/Cargo.lock
+    done
   '';
 
   commonArgs = {
