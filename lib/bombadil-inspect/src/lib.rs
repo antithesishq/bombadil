@@ -29,8 +29,40 @@ fn app() -> Html {
         ("Click", Some("x: 600, y: 312")),
         ("Double-click", Some("x: 600, y: 312")),
         ("Back", None),
+        ("Click", Some("x: 600, y: 312")),
+        ("Double-click", Some("x: 600, y: 312")),
+        ("Back", None),
         ("Forward", None),
         ("Forward", None),
+        ("Scroll down", Some("840px")),
+        ("Click", Some("x: 600, y: 312")),
+        ("Reload", None),
+        ("Forward", None),
+        ("Forward", None),
+        ("Scroll down", Some("840px")),
+        ("Click", Some("x: 600, y: 312")),
+        ("Click", Some("x: 600, y: 312")),
+        ("Double-click", Some("x: 600, y: 312")),
+        ("Back", None),
+        ("Forward", None),
+        ("Forward", None),
+        ("Scroll down", Some("840px")),
+        ("Click", Some("x: 600, y: 312")),
+        ("Reload", None),
+        ("Reload", None),
+        ("Click", Some("x: 600, y: 312")),
+        ("Double-click", Some("x: 600, y: 312")),
+        ("Back", None),
+        ("Forward", None),
+        ("Forward", None),
+        ("Click", Some("x: 600, y: 312")),
+        ("Double-click", Some("x: 600, y: 312")),
+        ("Back", None),
+        ("Forward", None),
+        ("Forward", None),
+        ("Scroll down", Some("840px")),
+        ("Click", Some("x: 600, y: 312")),
+        ("Reload", None),
         ("Scroll down", Some("840px")),
         ("Click", Some("x: 600, y: 312")),
         ("Reload", None),
@@ -44,33 +76,28 @@ fn app() -> Html {
 
     html! {
         <main class="grid">
-            <header class="pane">
-                <h1>{"Bombadil Inspect"}</h1>
-                <nav>
-                    <h2>{"Status: "}</h2>
-                    <span>{(*message).clone()}</span>
-                </nav>
-            </header>
             <div class="pane history">
                 <h2>{"History"}</h2>
-                <ol>
-                {
-                    actions.iter().enumerate().map(|(i, (action, details))| {
-                        let li_class = if i == 0 { "current" }  else { "" };
-                        match details {
-                            Some(details) => html!{
-                                <li class={li_class}>
-                                    <details open={i == 0}>
-                                        <summary>{action}</summary>
-                                        {details}
-                                    </details>
-                                </li>
-                            },
-                            None => html!{<li class={li_class}>{action}</li>},
-                        }
-                    }).collect::<Html>()
-                }
-                </ol>
+                <div class="content">
+                    <ol>
+                    {
+                        actions.iter().enumerate().map(|(i, (action, details))| {
+                            let li_class = if i == 0 { "current" }  else { "" };
+                            match details {
+                                Some(details) => html!{
+                                    <li class={li_class}>
+                                        <details open={i == 0}>
+                                            <summary>{action}</summary>
+                                            {details}
+                                        </details>
+                                    </li>
+                                },
+                                None => html!{<li class={li_class}>{action}</li>},
+                            }
+                        }).collect::<Html>()
+                    }
+                    </ol>
+                </div>
             </div>
             <div class="pane state-before">
                 <h2>{"State before"}</h2>
@@ -152,28 +179,37 @@ fn app() -> Html {
                 </svg>
             </div>
             <div class="pane statistics">
-                <table>
-                    <thead>
-                        <tr>
-                            <th><h2>{"Statistics"}</h2></th>
-                            <td>{"New"}</td>
-                            <td>{"Total"}</td>
-                        </tr>
-                    </thead>
-                {
-                    statistics.iter().map(|(label, new, total)| {
-                        html!{
+                <h2>{"Statistics"}</h2>
+                <div class="content">
+                    <table>
+                        <thead>
                             <tr>
-                                <th>{label}</th>
-                                <td>{new}</td>
-                                <td>{total}</td>
+                                <th></th>
+                                <th class="right">{"New"}</th>
+                                <th class="right">{"Total"}</th>
                             </tr>
-                        }
-                    }).collect::<Html>()
-                }
-                </table>
+                        </thead>
+                    {
+                        statistics.iter().map(|(label, new, total)| {
+                            html!{
+                                <tr>
+                                    <td>{label}</td>
+                                    <td class="right numeric">{new}</td>
+                                    <td class="right numeric">{total}</td>
+                                </tr>
+                            }
+                        }).collect::<Html>()
+                    }
+                    </table>
+                </div>
             </div>
-            <div class="debug-grid" />
+            <footer class="pane">
+                <h1>{"Bombadil Inspect"}</h1>
+                <nav>
+                    <a href="/">{"Runs"}</a>
+                    <a href="/">{"Violations"}</a>
+                </nav>
+            </footer>
         </main>
     }
 }

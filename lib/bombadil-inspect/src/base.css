@@ -26,8 +26,7 @@ body {
   padding: 0;
   display: flex;
   width: 100%;
-  min-width: 80ch;
-  min-height: 100vh;
+  height: 100vh;
   background-color: var(--color-bg);
   color: var(--color-fg);
 }

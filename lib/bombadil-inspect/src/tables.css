@@ -6,16 +6,21 @@ table {
 }
 
 thead th, thead td {
-  padding: 0 0 var(--line-height);
 }
 
 th {
   padding: 0;
   text-align: left;
-  font-weight: normal;
+  font-weight: 600;
 }
 td {
   padding: 0;
+}
+td.numeric {
+  font-family: var(--font-family-code);
+}
+
+table .right {
   text-align: right;
 }
 

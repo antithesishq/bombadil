@@ -14,20 +14,19 @@
   --color-magenta-bright: #7B3B70;
   --color-cyan: #3B8992;
   --color-cyan-bright: #2B747C;
+  --color-white: #000000;
+  --color-white-bright: #B4BDC3;
+  
   --color-fg: var(--color-white);
   --color-fg-muted: var(--color-white-bright);
 
   --color-bg: #fff;
   --color-bg-muted: #fafafa;
-  --color-border: #888888;
-  --color-fg: #000000;
-  --color-fg-muted: #B4BDC3;
+  --color-border: var(--color-white-bright);
 
   --color-primary: var(--color-magenta);
   --color-secondary: var(--color-blue);
   --color-selection: #CBD9E3;
-
-  --border-radius: .125rem;
 }
 
 @media (prefers-color-scheme: dark) {
