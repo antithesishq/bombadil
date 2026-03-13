@@ -42,18 +42,24 @@ let
       ).package.name))
   ];
 
-  # Source with a normalized version so that Bombadil version bumps don't
-  # invalidate the deps derivation hash. This is especially useful when
-  # doing releases so that GitHub Actions doesn't have to rebuild deps that
-  # haven't changed.
-  depsSrc = runCommand "bombadil-deps-src" { } ''
-    cp -r ${src} $out
-    chmod -R +w $out
-    sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
-    for crate in ${lib.concatStringsSep " " crateNames}; do
-      sed -i "/^name = \"$crate\"/{n;s/^version = .*/version = \"0.0.0\"/}" $out/Cargo.lock
-    done
-  '';
+  # Minimal source for deps: only cargo metadata so that .ts/.html/etc.
+  # changes don't invalidate the deps derivation hash. Versions are also
+  # zeroed so that version bumps don't cause rebuilds.
+  depsSrc =
+    let
+      cargoOnly = lib.cleanSourceWith {
+        src = ../..;
+        filter = path: type: craneLib.filterCargoSources path type;
+      };
+    in
+    runCommand "bombadil-deps-src" { } ''
+      cp -r ${cargoOnly} $out
+      chmod -R +w $out
+      sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
+      for crate in ${lib.concatStringsSep " " crateNames}; do
+        sed -i "/^name = \"$crate\"/{n;s/^version = .*/version = \"0.0.0\"/}" $out/Cargo.lock
+      done
+    '';
 
   commonArgs = {
     inherit src;
@@ -68,6 +74,7 @@ let
     src = depsSrc;
     pname = "bombadil";
     version = "stable";
+    nativeBuildInputs = [ ];
   };
   cargoArtifacts = craneLib.buildDepsOnly depsArgs;
   cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
