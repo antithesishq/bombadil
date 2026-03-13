@@ -22,7 +22,7 @@
 
   --color-bg: #fff;
   --color-bg-muted: #fafafa;
-  --color-border: var(--color-white-bright);
+    --color-border: color-mix(in hsl, var(--color-bg), var(--color-fg));
 
   --color-primary: var(--color-magenta);
   --color-secondary: var(--color-blue);
@@ -31,8 +31,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-black: #1C1917;
-    --color-black-bright: #403833;
+    --color-black: #000000;
+    --color-black-bright: #333333;
     --color-red: #DE6E7C;
     --color-red-bright: #E8838F;
     --color-green: #819B69;
@@ -50,9 +50,9 @@
 
     --color-bg: var(--color-black);
     --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, #000 20%);
-    --color-border: color-mix(in hsl, var(--color-black), var(--color-black-bright));
-    --color-fg: var(--color-white);
-    --color-fg-muted: var(--color-white-bright);
+    --color-fg: #FF9F91;
+    --color-fg-muted: color-mix(in hsl, transparent 50%, var(--color-fg) 50%);
+    --color-border: var(--color-fg-muted);
 
     --color-selection: #3D4042;
   }

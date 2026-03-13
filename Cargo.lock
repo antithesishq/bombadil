@@ -478,6 +478,7 @@ name = "bombadil-inspect-api"
 version = "0.3.2"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]

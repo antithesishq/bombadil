@@ -33,7 +33,6 @@ main {
   background-color: var(--color-bg-muted);
   border-bottom: 1px solid var(--color-border);
   padding: .5rem .75rem;
-  font-size: .875rem;
 }
 .pane .content {
   padding: .5rem .75rem;
@@ -98,7 +97,6 @@ nav a:hover {
 
 .history .current {
   font-weight: 600;
-  color: var(--color-yellow);
 }
 
 @media (max-width: 480px) {
@@ -109,6 +107,15 @@ nav a:hover {
 
 @media (prefers-color-scheme: dark) {
   svg path, svg polyline {
-    stroke: #fff;
+    stroke: var(--color-fg);
   }
+}
+
+.todo {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+  align-items: center;
+  font-style: italic;
 }

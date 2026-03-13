@@ -1,9 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Inter:ital,wght@0,100..900;1,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
 
 :root {
   --font-size-base: 12px;
-  --font-family: "Inter", Arial, sans-serif;
-  --font-family-code: "IBM Plex Mono", monospace;
+  --font-family: "JetBrains Mono", monospace;
+  --font-family-code: "JetBrains Mono", monospace;
   --line-height-relative: 1.6;
   --line-height: 1.6rem;
 }
@@ -11,7 +11,7 @@
 h1, h2, h3, h4, h5, h6 {
   font-size: 1rem;
   font-family: var(--font-family);
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   margin: 0;
 }

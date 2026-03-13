@@ -1,19 +1,27 @@
-use bombadil_inspect_api::HelloResponse;
+use bombadil_inspect_api::TraceEntry;
 use gloo_net::http::Request;
 use yew::prelude::*;
 
 #[function_component(App)]
 fn app() -> Html {
+    let trace = use_state(|| None::<Vec<TraceEntry>>);
     let message = use_state(|| "Loading...".to_string());
 
     {
+        let trace = trace.clone();
         let message = message.clone();
         use_effect_with((), move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Request::get("/api/hello").send().await {
+                match Request::get("/api/trace").send().await {
                     Ok(response) => {
-                        match response.json::<HelloResponse>().await {
-                            Ok(data) => message.set(data.message),
+                        match response.json::<Vec<TraceEntry>>().await {
+                            Ok(entries) => {
+                                message.set(format!(
+                                    "Loaded {} trace entries",
+                                    entries.len()
+                                ));
+                                trace.set(Some(entries));
+                            }
                             Err(_) => message
                                 .set("Failed to parse response".to_string()),
                         }
@@ -101,11 +109,11 @@ fn app() -> Html {
             </div>
             <div class="pane state-before">
                 <h2>{"State before"}</h2>
-                <span>{"<TODO: screenshot>"}</span>
+                <div class="todo">{"TODO: screenshot"}</div>
             </div>
             <div class="pane state-after">
                 <h2>{"State after"}</h2>
-                <span>{"<TODO: screenshot>"}</span>
+                <div class="todo">{"TODO: screenshot"}</div>
             </div>
             <div class="pane state-space">
                 <h2>{"State space"}</h2>
@@ -194,8 +202,8 @@ fn app() -> Html {
                             html!{
                                 <tr>
                                     <td>{label}</td>
-                                    <td class="right numeric">{new}</td>
-                                    <td class="right numeric">{total}</td>
+                                    <td class="right">{new}</td>
+                                    <td class="right">{total}</td>
                                 </tr>
                             }
                         }).collect::<Html>()

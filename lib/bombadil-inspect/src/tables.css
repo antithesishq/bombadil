@@ -16,9 +16,6 @@ th {
 td {
   padding: 0;
 }
-td.numeric {
-  font-family: var(--font-family-code);
-}
 
 table .right {
   text-align: right;
@@ -36,3 +33,4 @@ tbody td {
 col {
   width: auto !important;
 }
+
