@@ -1,5 +1,5 @@
 {
-  description = "Browser testing on Antithesis";
+  description = "Property-based testing for web UIs";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
