@@ -36,7 +36,7 @@ The project is organized as a Cargo workspace under `lib/`:
 lib/
 ├── bombadil/           
 ├── bombadil-cli/       
-├── bombadil-debug-ui/  
+├── bombadil-inspect/
 ├── integration-tests/  
 ├── ...
 └── nix/                
@@ -64,22 +64,22 @@ There's also [VSCode launch configs](development/launch.json) for debugging
 with codelldb. These have only been tested from `nvim-dap`, though. Put that
 in `.vscode/launch.json` and modify at will.
 
-### Debug UI
+### Bombadil Inspect
 
-Inspect a trace file with the debug UI:
+Inspect a trace file with Bombadil Inspect:
 
 ```bash
-cargo run -- debug /path/to/trace
+cargo run -- inspect /path/to/trace
 ```
 
-To work on the debug UI frontend:
+To work on the Inspect frontend:
 
 ```bash
-cd lib/bombadil-debug-ui
+cd lib/bombadil-inspect
 trunk serve
 ```
 
-This only runs the frontend. Run the backend using the `debug` command in a
+This only runs the frontend. Run the backend using the `inspect` command in a
 separate tab.
 
 ## Running in podman

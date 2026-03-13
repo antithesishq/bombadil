@@ -1,4 +1,4 @@
-use bombadil_debug_api::HelloResponse;
+use bombadil_inspect_api::HelloResponse;
 use gloo_net::http::Request;
 use yew::prelude::*;
 
@@ -27,7 +27,7 @@ fn app() -> Html {
 
     html! {
         <div>
-            <h1>{"Bombadil Debug UI"}</h1>
+            <h1>{"Bombadil Inspect"}</h1>
             <p>{"It says: "}{(*message).clone()}</p>
         </div>
     }

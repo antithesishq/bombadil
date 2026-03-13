@@ -1,11 +1,11 @@
 use anyhow::Result;
 use axum::{Json, Router, response::IntoResponse, routing::get};
-use bombadil_debug_api::HelloResponse;
+use bombadil_inspect_api::HelloResponse;
 use include_dir::{Dir, include_dir};
 use std::path::PathBuf;
 
-static DEBUG_UI_ASSETS: Dir =
-    include_dir!("$CARGO_MANIFEST_DIR/../../target/debug-ui");
+static INSPECT_ASSETS: Dir =
+    include_dir!("$CARGO_MANIFEST_DIR/../../target/inspect");
 
 pub async fn serve(
     trace_path: PathBuf,
@@ -22,7 +22,7 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&address).await?;
     let url = format!("http://{}", address);
 
-    log::info!("Debug UI available at {}", url);
+    log::info!("Bombadil Inspect available at {}", url);
 
     if open_browser && let Err(error) = open::that(&url) {
         log::warn!("Failed to open browser: {}", error);
@@ -39,7 +39,7 @@ async fn hello_handler() -> Json<HelloResponse> {
 }
 
 async fn serve_index() -> axum::response::Html<&'static str> {
-    let html = DEBUG_UI_ASSETS
+    let html = INSPECT_ASSETS
         .get_file("index.html")
         .expect("index.html not found in embedded assets")
         .contents_utf8()
@@ -49,7 +49,7 @@ async fn serve_index() -> axum::response::Html<&'static str> {
 
 async fn serve_assets(uri: axum::http::Uri) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/');
-    if let Some(file) = DEBUG_UI_ASSETS.get_file(path) {
+    if let Some(file) = INSPECT_ASSETS.get_file(path) {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
         (
             [(axum::http::header::CONTENT_TYPE, mime.as_ref())],

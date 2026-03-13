@@ -2,8 +2,8 @@
 members = [
     "lib/bombadil",
     "lib/bombadil-cli",
-    "lib/bombadil-debug-api",
-    "lib/bombadil-debug-ui",
+    "lib/bombadil-inspect-api",
+    "lib/bombadil-inspect",
     "lib/integration-tests",
 ]
 resolver = "2"

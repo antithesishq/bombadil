@@ -1,5 +1,5 @@
 #[cfg(debug_assertions)]
-mod debug_server;
+mod inspect_server;
 
 use ::url::Url;
 use anyhow::Result;
@@ -85,12 +85,12 @@ enum Command {
         #[arg(long)]
         create_target: bool,
     },
-    /// Launch the debug UI to inspect a trace file
+    /// Launch Bombadil Inspect to inspect a trace file
     #[cfg(debug_assertions)]
-    Debug {
+    Inspect {
         /// Path to trace.jsonl file or directory containing it
         trace_path: PathBuf,
-        /// Port to bind the debug server to
+        /// Port to bind the inspect server to
         #[arg(long, default_value_t = 1073)]
         port: u16,
         /// Skip auto-opening browser
@@ -209,11 +209,11 @@ async fn main() -> Result<()> {
             test(shared, browser_options, debugger_options).await
         }
         #[cfg(debug_assertions)]
-        Command::Debug {
+        Command::Inspect {
             trace_path,
             port,
             no_open,
-        } => debug_server::serve(trace_path, port, !no_open).await,
+        } => inspect_server::serve(trace_path, port, !no_open).await,
     }
 }
 

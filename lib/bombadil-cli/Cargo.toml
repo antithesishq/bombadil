@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 bombadil = { path = "../bombadil" }
-bombadil-debug-api = { path = "../bombadil-debug-api" }
+bombadil-inspect-api = { path = "../bombadil-inspect-api" }
 anyhow = "1.0"
 axum = "0.8.8"
 clap = { version = "4.5.46", features = ["derive"] }

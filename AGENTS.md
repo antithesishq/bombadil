@@ -28,8 +28,8 @@ The `docs/manual/.envrc` file automatically loads the `manual` shell when you `c
 **IMPORTANT:** After making any changes to Rust code, ALWAYS run:
 
 ```bash
-cargo build --workspace --exclude bombadil-debug-ui
-cargo clippy --workspace --exclude bombadil-debug-ui --fix --allow-dirty
+cargo build --workspace --exclude bombadil-inspect
+cargo clippy --workspace --exclude bombadil-inspect --fix --allow-dirty
 cargo fmt --all
 ```
 
@@ -44,8 +44,8 @@ Rust backend + TypeScript specification layer, connected via the Boa JavaScript 
 The project is a Cargo workspace with crates under `lib/`:
 
 - **`lib/bombadil/`** - Core library (all modules below)
-- **`lib/bombadil-cli/`** - CLI binary (test commands, debug server)
-- **`lib/bombadil-debug-ui/`** - Yew WASM frontend for the debug UI
+- **`lib/bombadil-cli/`** - CLI binary (test commands, inspect server)
+- **`lib/bombadil-inspect/`** - Yew WASM frontend for Bombadil Inspect
 - **`lib/integration-tests/`** - Integration tests with browser fixtures
 - **`lib/nix/`** - Nix build infrastructure
 

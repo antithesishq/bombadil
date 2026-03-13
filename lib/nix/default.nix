@@ -60,9 +60,9 @@ let
     nativeBuildInputs = [
       esbuild
     ];
-    # Exclude the debug-ui crate from workspace builds since it
+    # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
-    cargoExtraArgs = "--workspace --exclude bombadil-debug-ui";
+    cargoExtraArgs = "--workspace --exclude bombadil-inspect";
   };
   depsArgs = commonArgs // {
     src = depsSrc;

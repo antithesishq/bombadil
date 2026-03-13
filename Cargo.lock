@@ -445,7 +445,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
- "bombadil-debug-api",
+ "bombadil-inspect-api",
  "clap",
  "env_logger",
  "include_dir",
@@ -460,17 +460,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "bombadil-debug-api"
-version = "0.3.2"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "bombadil-debug-ui"
+name = "bombadil-inspect"
 version = "0.1.0"
 dependencies = [
- "bombadil-debug-api",
+ "bombadil-inspect-api",
  "gloo-net 0.6.0",
  "serde",
  "serde_json",
@@ -478,6 +471,13 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "yew",
+]
+
+[[package]]
+name = "bombadil-inspect-api"
+version = "0.3.2"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

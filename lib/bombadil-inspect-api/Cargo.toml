@@ -1,5 +1,5 @@
 [package]
-name = "bombadil-debug-api"
+name = "bombadil-inspect-api"
 version.workspace = true
 edition.workspace = true
 

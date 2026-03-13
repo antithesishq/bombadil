@@ -99,7 +99,7 @@
                   bun
                   biome
 
-                  # WASM/Debug UI
+                  # WASM/Inspect UI
                   trunk
                   wasm-bindgen-cli
                   binaryen
