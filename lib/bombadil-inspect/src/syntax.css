@@ -1,0 +1,76 @@
+/* Syntax highlighting overrides */
+
+code span.kw,
+code span.cf,
+code span.pp,
+code span.im {
+  font-weight: 600;
+}
+
+code span.at,
+code span.dt {
+  text-decoration: none;
+  font-style: italic;
+}
+
+code span.co {
+  color: var(--color-fg-muted);
+}
+
+code span.st, code span.ss {
+  color: var(--color-primary);
+}
+
+code span.dv {
+  color: var(--color-secondary);
+}
+
+/* Bash prompt styling */
+.bash .ex:first-child {
+  user-select: none;
+  color: var(--color-fg-muted);
+}
+
+
+.code-block nav {
+  display: flex;
+  justify-content: flex-end;
+  border: 1px solid var(--color-border);
+  border-top-left-radius: var(--border-radius);
+  border-top-right-radius: var(--border-radius);
+  background-color: var(--color-bg-muted);
+}
+.code-block nav > * {
+  border: none;
+  border-left: 1px solid var(--color-border);
+  border-radius: 0;
+  background: none;
+  padding: 0.25rem 0.75rem;
+  font-size: .875em;
+  font-family: var(--font-family-headings);
+  text-transform: uppercase;
+}
+.code-block nav > button:hover {
+  background: color-mix(in hsl, var(--color-primary) 20%, transparent);
+}
+
+.code-block .icon {
+  margin-right: 1ch;
+  width: 2ch;
+}
+.code-block .icon.copied {
+  color: var(--color-green);
+}
+.code-block pre {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-top: none;
+}
+.code-block .name {
+  color: var(--color-fg-muted);
+}
+
+details .code-block nav,
+details .code-block pre {
+  background-color: var(--color-bg);
+}

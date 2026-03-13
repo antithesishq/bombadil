@@ -34,7 +34,7 @@ pub async fn serve(
 
 async fn hello_handler() -> Json<HelloResponse> {
     Json(HelloResponse {
-        message: "Hello from Bombadil!".to_string(),
+        message: "Connected".to_string(),
     })
 }
 

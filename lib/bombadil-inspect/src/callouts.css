@@ -1,0 +1,60 @@
+/* Admonitions */
+.callout {
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  background-color: var(--color-bg-muted);
+  border-radius: var(--border-radius);
+}
+
+.callout > :first-child {
+  margin-top: 0;
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+.callout:before {
+  display: block;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.callout-note {
+  border-left-color: var(--color-blue);
+}
+
+.callout-note:before {
+  content: "NOTE";
+  color: var(--color-blue);
+}
+
+.callout-warning {
+  border-left-color: var(--color-yellow);
+}
+
+.callout-warning:before {
+  color: var(--color-yellow);
+  content: "WARNING";
+}
+
+.callout-tip {
+  border-left-color: var(--color-cyan);
+}
+
+.callout-tip:before {
+  content: "TIP";
+  color: var(--color-cyan);
+}
+
+.callout-important {
+  border-left-color: var(--color-red);
+}
+
+.callout-important:before {
+  content: "IMPORTANT";
+  color: var(--color-red);
+}

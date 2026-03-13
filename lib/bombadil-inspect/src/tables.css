@@ -1,0 +1,33 @@
+/* Tables */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0;
+}
+
+thead th, thead td {
+  padding: 0 0 var(--line-height);
+}
+
+th {
+  padding: 0;
+  text-align: left;
+  font-weight: normal;
+}
+td {
+  padding: 0;
+  text-align: right;
+}
+
+tr th, tr td {
+}
+
+tbody td {
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  background-color: var(--color-bg-muted);
+}
+
+col {
+  width: auto !important;
+}

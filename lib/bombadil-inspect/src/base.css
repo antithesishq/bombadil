@@ -1,0 +1,40 @@
+* {
+  box-sizing: border-box;
+}
+
+::selection, ::-moz-selection {
+    background: var(--color-selection);
+    color: var(--color-fg);
+    text-shadow: none;
+}
+
+:focus {
+  outline: 2px solid;
+  border-radius: .var(--border-radius);
+  outline-color: var(--color-secondary);
+  z-index: 1;
+}
+
+html {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-relative);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  width: 100%;
+  min-width: 80ch;
+  min-height: 100vh;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+hr {
+  background-color: var(--color-fg);
+  height: 1px;
+  border: 0;
+  margin: 1rem 0;
+}
