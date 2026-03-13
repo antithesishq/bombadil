@@ -8,8 +8,7 @@
   esbuild,
 }:
 let
-  version =
-    (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
+  version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
 
   texliveBundle = texlive.combine {
     inherit (texlive)

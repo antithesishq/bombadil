@@ -32,14 +32,11 @@ let
   # Workspace crate names, extracted from each member's Cargo.toml.
   crateNames = lib.pipe (builtins.readDir ../../lib) [
     (lib.filterAttrs (_: type: type == "directory"))
-    (dirs:
-      lib.filter
-        (name: builtins.pathExists (../../lib + "/${name}/Cargo.toml"))
-        (builtins.attrNames dirs))
-    (map (dir:
-      (builtins.fromTOML
-        (builtins.readFile (../../lib + "/${dir}/Cargo.toml"))
-      ).package.name))
+    (
+      dirs:
+      lib.filter (name: builtins.pathExists (../../lib + "/${name}/Cargo.toml")) (builtins.attrNames dirs)
+    )
+    (map (dir: (builtins.fromTOML (builtins.readFile (../../lib + "/${dir}/Cargo.toml"))).package.name))
   ];
 
   # Minimal source for deps: only cargo metadata so that .ts/.html/etc.
