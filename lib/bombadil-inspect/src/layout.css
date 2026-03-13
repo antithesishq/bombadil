@@ -96,7 +96,10 @@ nav a:hover {
 }
 
 .history .current {
-  font-weight: 600;
+  background-image: radial-gradient(color-mix(in hsl, transparent 80%, var(--color-fg) 20%) 1px, transparent 0);
+  background-size: 2px 2px;
+  background-position: 0 0;
+  font-weight: 800;
 }
 
 @media (max-width: 480px) {
