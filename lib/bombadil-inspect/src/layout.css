@@ -32,10 +32,10 @@ main {
 .pane h2 {
   background-color: var(--color-bg-muted);
   border-bottom: 1px solid var(--color-border);
-  padding: .5rem .75rem;
+  padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 .pane .content {
-  padding: .5rem .75rem;
+  padding: var(--spacing-vertical) var(--spacing-horizontal);
   overflow-y: auto;
 }
 
@@ -46,7 +46,7 @@ footer.pane {
   display: flex;
   flex-direction: row;
   justify-content: space-between;
-  padding: .5rem .75rem;
+  padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 
 footer.pane h1 {

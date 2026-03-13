@@ -6,6 +6,9 @@
   --font-family-code: "JetBrains Mono", monospace;
   --line-height-relative: 1.6;
   --line-height: 1.6rem;
+
+  --spacing-vertical: .8rem;
+  --spacing-horizontal: 1ch;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -20,13 +23,30 @@ p, ul, ol, details, pre {
   margin: 0;
 }
 
-ul, ol {
-  padding: 0 0 0 2rem;
-}
-
 li {
   margin: 0;
   padding: 0;
+}
+
+ul {
+  padding: 0 0 0 2rem;
+}
+
+ol {
+  padding: 0;
+  list-style-type: none;
+  counter-reset: item;
+}
+
+ol li {
+  display: flex;
+  flex-direction: row;
+  gap: 1ch;
+}
+ol li:before {
+    content: counters(item, ".") ". ";
+    counter-increment: item;
+    font-weight: var(--font-weight-medium);
 }
 
 a {

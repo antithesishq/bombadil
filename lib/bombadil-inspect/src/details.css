@@ -2,6 +2,9 @@
 details {
   margin: 0;
 }
+li details {
+  flex: 1 1 auto;
+}
 summary {
   display: flex;
   justify-content: space-between;
