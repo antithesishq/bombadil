@@ -294,18 +294,18 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                     ("Forward", None)
                 }
                 bombadil_inspect_api::BrowserAction::Click {
-                    name,
-                    content,
-                    point,
+                    point, ..
                 } => ("Click", Some(vec![("Position", format_point(point))])),
                 bombadil_inspect_api::BrowserAction::DoubleClick {
-                    name,
-                    content,
                     point,
                     delay_millis,
+                    ..
                 } => (
                     "Double-click",
-                    Some(vec![("Position", format_point(point))]),
+                    Some(vec![
+                        ("Position", format_point(point)),
+                        ("Delay", format!("{}ms", delay_millis)),
+                    ]),
                 ),
                 bombadil_inspect_api::BrowserAction::TypeText {
                     text,
