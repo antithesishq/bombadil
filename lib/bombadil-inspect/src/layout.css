@@ -78,6 +78,13 @@ header.pane h1 {
     flex: 1 1 auto;
     background: var(--color-bg-muted);
     overflow: hidden;
+    background-color: var(--color-bg);
+    background-image:
+        linear-gradient(to right, var(--color-bg-muted) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--color-bg-muted) 1px, transparent 1px);
+    background-size: 1ch 1ch;
+    background-position: -1px -1px;
+    padding: 3ch;
 }
 
 .screenshot img {
