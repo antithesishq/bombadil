@@ -35,18 +35,11 @@ impl ContainTransform {
             offset_y: (container_height - natural_height * scale) / 2.0,
         }
     }
-
-    fn apply(&self, point: &Point) -> Point {
-        Point {
-            x: point.x * self.scale + self.offset_x,
-            y: point.y * self.scale + self.offset_y,
-        }
-    }
 }
 
 #[function_component(App)]
 fn app() -> Html {
-    let selected_index = use_state_eq(|| 0usize);
+    let selected_index = use_state_eq(|| 1usize);
     let trace = use_state(|| None::<Vec<TraceEntry>>);
     {
         let trace = trace.clone();
@@ -372,8 +365,8 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
     html! {
         <li class={li_class} role="button" onclick={on_click}>
             <header>
-                <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
                 <div class="action-name">{action_name}</div>
+                <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
             </header>
             {if let Some(details) = details && props.is_current {
                 html!(
