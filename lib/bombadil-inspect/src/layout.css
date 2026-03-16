@@ -126,6 +126,11 @@ ol li:before {
 .history table th {
     vertical-align: top;
     padding-right: 1ch;
+    padding-bottom: calc(var(--line-height) / 2);
+}
+
+.history table tr:last-child th {
+    padding-bottom: 0;
 }
 
 .history table td {

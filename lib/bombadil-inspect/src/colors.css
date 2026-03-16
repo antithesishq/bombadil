@@ -49,7 +49,7 @@
         --color-white-bright: #888F94;
 
         --color-bg: var(--color-black);
-        --color-bg-muted: color-mix(in srgb, var(--color-fg) 3%, var(--color-bg));
+        --color-bg-muted: color-mix(in srgb, var(--color-fg) 8%, var(--color-bg));
         --color-fg: #FF9F91;
         --color-fg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-fg));
         --color-border: color-mix(in srgb, var(--color-bg) 70%, var(--color-fg));
