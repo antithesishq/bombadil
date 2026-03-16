@@ -76,6 +76,9 @@ header.pane h1 {
 
 .screenshot {
     flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: var(--color-bg-muted);
     overflow: hidden;
     background-color: var(--color-bg);
@@ -87,11 +90,28 @@ header.pane h1 {
     padding: 3ch;
 }
 
-.screenshot img {
+.screenshot .img-container {
+    position: relative;
+    border: 1px solid var(--color-border);
+}
+
+.screenshot .img-container img {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: contain;
+}
+
+.img-container svg.annotation {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+
+.img-container:hover svg.annotation {
+    opacity: 0;
 }
 
 footer.pane {
@@ -163,43 +183,43 @@ ol li:before {
 
 @media (max-width: 768px) {}
 
-svg path,
-svg polyline {
+.timeline path,
+.timeline polyline {
     stroke: var(--color-fg);
     fill: none;
 }
 
-svg text {
+.timeline text {
     fill: var(--color-fg);
     font-size: 0.5rem;
 }
 
-svg .border {
+.timeline .border {
     stroke: var(--color-fg-muted);
     stroke-width: .5;
 }
 
-svg .events circle {
+.timeline .events circle {
     fill: var(--color-red);
     stroke: var(--color-red-bright);
     stroke-width: .5;
     r: .25rem;
 }
 
-svg .label {
+.timeline .label {
     text-anchor: middle;
     dominant-baseline: middle;
     text-transform: uppercase;
     font-weight: 500;
 }
 
-svg .time text {
+.timeline .time text {
     text-anchor: middle;
     dominant-baseline: middle;
     font-size: .5rem;
 }
 
-svg .cursor {}
+.timeline .cursor {}
 
 .todo {
     display: flex;
