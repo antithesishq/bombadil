@@ -1,5 +1,5 @@
 :root {
-  --highlight-bg: 0% 0% / 2px 2px radial-gradient(color-mix(in hsl, transparent 85%, var(--color-fg)) 1px, transparent 0);
+  --highlight-bg: 0% 0% / 2px 2px radial-gradient(color-mix(in srgb, transparent 85%, var(--color-fg)) 1px, transparent);
 }
 main {
   display: flex;
@@ -78,34 +78,8 @@ footer.pane {
   flex-direction: column;
   justify-content: space-between;
   padding: 0;
-}
 
-.timeline {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  border-bottom: 1px solid var(--color-border);
-}
-.timeline:last-child {
-  border-bottom: none;
-}
-.timeline header {
-  position: absolute;
-  top: var(--spacing-vertical);
-  left: var(--spacing-horizontal);
-}
-.timeline h2 {
-  font-size: .75rem;
-}
-.timeline {
-  flex: 1 1 auto;
-  width: 100%;
-  padding: var(--spacing-vertical) var(--spacing-horizontal);
-}
-
-.heap {
-}
-.cpu {
+  background: var(--color-bg-muted);
 }
 
 .history .content {
@@ -127,21 +101,38 @@ footer.pane {
 
 svg path, svg polyline {
   stroke: var(--color-fg);
-}
-svg circle {
-  fill: var(--color-fg);
+  fill: none;
 }
 svg text {
   fill: var(--color-fg);
-  text-anchor: middle;
-  dominant-baseline: middle;
   font-size: 0.5rem;
 }
-svg text.start {
-  text-anchor: start;
+svg .border {
+  stroke: var(--color-fg-muted);
+  stroke-width: .5;
 }
-svg text.end {
-  text-anchor: end;
+
+svg .events circle {
+  radius: .5rem;
+  fill: none;
+  stroke: var(--color-fg);
+  r: .125rem;
+}
+
+svg .label {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+svg .time text {
+  text-anchor: middle;
+  dominant-baseline: middle;
+  font-size: .5rem;
+}
+
+svg .cursor {
 }
 
 .todo {
