@@ -84,6 +84,13 @@ fn app() -> Html {
 
     html! {
         <main class="grid">
+            <header class="pane">
+                <h1>{"Bombadil Inspect"}</h1>
+                <nav>
+                    <a href="/">{"Runs"}</a>
+                    <a href="/">{"Violations"}</a>
+                </nav>
+            </header>
             <div class="pane history">
                 <h2>{"History"}</h2>
                 <div class="content">
@@ -211,13 +218,6 @@ fn app() -> Html {
                     </table>
                 </div>
             </div>
-            <footer class="pane">
-                <h1>{"Bombadil Inspect"}</h1>
-                <nav>
-                    <a href="/">{"Runs"}</a>
-                    <a href="/">{"Violations"}</a>
-                </nav>
-            </footer>
         </main>
     }
 }
