@@ -90,7 +90,6 @@ footer.pane {
 }
 .history .current {
   background: var(--highlight-bg);
-  font-weight: 800;
 }
 
 @media (max-width: 480px) {
@@ -113,10 +112,10 @@ svg .border {
 }
 
 svg .events circle {
-  radius: .5rem;
-  fill: none;
-  stroke: var(--color-fg);
-  r: .125rem;
+  fill: var(--color-red);
+  stroke: var(--color-red-bright);
+  stroke-width: .5;
+  r: .25rem;
 }
 
 svg .label {

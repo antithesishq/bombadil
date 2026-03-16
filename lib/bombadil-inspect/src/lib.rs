@@ -201,8 +201,7 @@ fn app() -> Html {
                             />
                             <polyline
                             fill="none"
-                            stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
                             0,28
                             40,28
@@ -247,8 +246,7 @@ fn app() -> Html {
                         <g transform="translate(12, 30)">
                             <path
                             fill="none"
-                            stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             d="M 0,16
                             L 15,14 25,15 40,12
                             C 60,6 70,4 100,4
