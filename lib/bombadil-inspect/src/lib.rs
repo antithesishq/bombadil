@@ -126,7 +126,7 @@ fn app() -> Html {
                         <polyline
                         fill="none"
                         stroke="#000"
-                        stroke-width=".5"
+                        stroke-width="1"
                         points="
                         0,28
                         40,28
@@ -168,7 +168,7 @@ fn app() -> Html {
                         <path
                         fill="none"
                         stroke="#000"
-                        stroke-width=".5"
+                        stroke-width="1"
                         d="M 0,16
                         L 15,14 25,15 40,12
                         C 60,6 70,4 100,4
@@ -188,69 +188,72 @@ fn app() -> Html {
                     </svg>
                 </div>
                 <div class="timeline events">
-                    <header><h2>{"Events"}</h2></header>
                     <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg" >
                         <g>
-                            <circle r="2" cx="50" cy="15" fill="#000" />
-                            <circle r="2" cx="180" cy="15" fill="#000" />
-                            <circle r="2" cx="520" cy="13" fill="#000" />
-                            <circle r="2" cx="520" cy="17" fill="#000" />
+                            <text x="50" y="8" font-size="8px">{"✗"}</text>
+                            <text x="180" y="8" font-size="8px">{"✗"}</text>
+                            <text x="520" y="8" font-size="8px">{"✗"}</text>
                         </g>
-                        <g>
+                        <g transform="translate(0, 16)">
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            0,29
-                            600,29
+                            0,0
+                            600,0
                             "
                             />
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            0,29
-                            0,25
+                            0,4
+                            0,0
                             "
                             />
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            599.5,29
-                            599.5,25
+                            599.5,4
+                            599.5,0
                             "
                             />
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            150,29
-                            150,27
+                            150,2
+                            150,0
                             "
                             />
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            300,29
-                            300,25
+                            300,4
+                            300,0
                             "
                             />
                             <polyline
                             fill="none"
                             stroke="#000"
-                            stroke-width="1"
+                            stroke-width=".5"
                             points="
-                            450,29
-                            450,27
+                            450,2
+                            450,0
                             "
                             />
+                        </g>
+                        <g transform="translate(0, 25)">
+                            <text class="start" x="0" y="0" font-size="8px">{"00:00"}</text>
+                            <text x="300" y="0" font-size="8px">{"02:43"}</text>
+                            <text class="end" x="600" y="0" font-size="8px">{"05:26"}</text>
                         </g>
                     </svg>
                 </div>
