@@ -102,6 +102,7 @@ ol li:before {
     display: flex;
     flex-direction: column;
     padding: var(--spacing-vertical) var(--spacing-horizontal);
+    cursor: pointer;
 }
 
 .history header {

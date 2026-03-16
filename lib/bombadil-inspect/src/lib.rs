@@ -13,6 +13,7 @@ use yew::prelude::*;
 
 #[function_component(App)]
 fn app() -> Html {
+    let selected_index = use_state_eq(|| 0usize);
     let trace = use_state(|| None::<Vec<TraceEntry>>);
     {
         let trace = trace.clone();
@@ -54,7 +55,17 @@ fn app() -> Html {
                         if let Some(trace) = trace.as_ref() && !trace.is_empty() {
                             let test_start = trace.first().expect("no first trace entry").timestamp;
                             trace.iter().enumerate().map(|(i, entry)| {
-                                html!(<HistoryEntry entry={Rc::new(entry.clone())} is_current={i == 9} test_start={test_start} />)
+                                let selected_index = selected_index.clone();
+                                html!(
+                                    <HistoryEntry
+                                        entry={Rc::new(entry.clone())}
+                                        is_current={i == *selected_index}
+                                            test_start={test_start}
+                                            index={i}
+                                            on_select={Callback::from(move |index| {
+                                                selected_index.set(index)
+                                            })} />
+                                )
                             }).collect::<Html>()
                         } else {
                             html!()
@@ -237,7 +248,9 @@ fn dither_pattern() -> Html {
 struct HistoryEntryProps {
     pub test_start: SystemTime,
     pub entry: Rc<TraceEntry>,
+    pub index: usize,
     pub is_current: bool,
+    pub on_select: Callback<usize>,
 }
 
 fn format_point(point: &Point) -> String {
@@ -329,8 +342,13 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
         .timestamp
         .duration_since(props.test_start)
         .unwrap_or_default();
+
+    let index: usize = props.index;
+    let on_select = props.on_select.clone();
+    let on_click = move |_| on_select.emit(index);
+
     html! {
-        <li class={li_class} role="button">
+        <li class={li_class} role="button" onclick={on_click}>
             <header>
                 <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
                 <div class="action-name">{action_name}</div>
