@@ -53,18 +53,6 @@ header.pane h1 {
   font-weight: normal;
   text-transform: none;
 }
-header.pane nav {
-  display: flex;
-  flex-direction: row;
-  gap: 1ch;
-}
-
-nav a {
-  text-decoration: none;
-}
-nav a:hover {
-  text-decoration: underline;
-}
 
 .pane.history {
   grid-row: 2 / 6;
@@ -95,8 +83,14 @@ nav a:hover {
   grid-column: 3;
 }
 
+.history .content {
+  padding: 0;
+}
+.history li {
+  padding: 0 var(--spacing-horizontal);
+}
 .history .current {
-  background-image: radial-gradient(color-mix(in hsl, transparent 80%, var(--color-fg) 20%) 1px, transparent 0);
+  background-image: radial-gradient(color-mix(in hsl, transparent 85%, var(--color-fg)) 1px, transparent 0);
   background-size: 2px 2px;
   background-position: 0 0;
   font-weight: 800;

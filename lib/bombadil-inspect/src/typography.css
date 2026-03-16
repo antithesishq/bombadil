@@ -5,10 +5,10 @@
   --font-family: "JetBrains Mono", monospace;
   --font-family-code: "JetBrains Mono", monospace;
   --line-height-relative: 1.6;
-  --line-height: 1.6rem;
+  --line-height: 1.3rem;
 
-  --spacing-vertical: .8rem;
-  --spacing-horizontal: 1ch;
+  --spacing-vertical: .4rem;
+  --spacing-horizontal: .5ch;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -26,6 +26,7 @@ p, ul, ol, details, pre {
 li {
   margin: 0;
   padding: 0;
+  line-height: var(--line-height);
 }
 
 ul {

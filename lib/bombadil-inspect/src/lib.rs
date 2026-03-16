@@ -86,10 +86,7 @@ fn app() -> Html {
         <main class="grid">
             <header class="pane">
                 <h1>{"Bombadil Inspect"}</h1>
-                <nav>
-                    <a href="/">{"Runs"}</a>
-                    <a href="/">{"Violations"}</a>
-                </nav>
+                <span class="status">{"● Live"}</span>
             </header>
             <div class="pane history">
                 <h2>{"History"}</h2>
