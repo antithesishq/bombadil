@@ -22,7 +22,7 @@
 
   --color-bg: #fff;
   --color-bg-muted: #fafafa;
-    --color-border: color-mix(in hsl, var(--color-bg), var(--color-fg));
+  --color-border: color-mix(in hsl, var(--color-bg) 90%, var(--color-fg) 10%);
 
   --color-primary: var(--color-magenta);
   --color-secondary: var(--color-blue);
@@ -51,8 +51,8 @@
     --color-bg: var(--color-black);
     --color-bg-muted: color-mix(in hsl, var(--color-black) 80%, #000 20%);
     --color-fg: #FF9F91;
-    --color-fg-muted: color-mix(in hsl, transparent 50%, var(--color-fg) 50%);
-    --color-border: var(--color-fg-muted);
+    --color-fg-muted: color-mix(in hsl, transparent 50%, var(--color-fg));
+    --color-border: color-mix(in hsl, transparent 70%, var(--color-fg));
 
     --color-selection: #3D4042;
   }

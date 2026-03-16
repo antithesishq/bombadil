@@ -120,51 +120,51 @@ fn app() -> Html {
                 <div class="todo">{"TODO: screenshot"}</div>
             </div>
                 <footer class="pane">
-                <div class="heap">
+                <div class="timeline heap">
                     <header><h2>{"Heap"}</h2></header>
-                    <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
-                    <polyline
-                    fill="none"
-                    stroke="#000"
-                    stroke-width=".5"
-                    points="
-                    0,28
-                    40,28
-                    40,26
-                    90,26
-                    90,23
-                    120,23
-                    120,22
-                    180,22
-                    180,19
-                    200,19
-                    200,17
-                    260,17
-                    260,14
-                    280,14
-                    280,11
-                    330,11
-                    330,8
-                    350,8
-                    350,9
-                    400,9
-                    400,7
-                    430,7
-                    430,5
-                    460,5
-                    460,4
-                    510,4
-                    510,5
-                    540,5
-                    540,3
-                    600,3
-                    "
-                    />
+                    <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg">
+                        <polyline
+                        fill="none"
+                        stroke="#000"
+                        stroke-width=".5"
+                        points="
+                        0,28
+                        40,28
+                        40,26
+                        90,26
+                        90,23
+                        120,23
+                        120,22
+                        180,22
+                        180,19
+                        200,19
+                        200,17
+                        260,17
+                        260,14
+                        280,14
+                        280,11
+                        330,11
+                        330,8
+                        350,8
+                        350,9
+                        400,9
+                        400,7
+                        430,7
+                        430,5
+                        460,5
+                        460,4
+                        510,4
+                        510,5
+                        540,5
+                        540,3
+                        600,3
+                        "
+                        />
                     </svg>
-                    </div>
-                    <div class="cpu">
-                        <header><h2>{"CPU"}</h2></header>
-                        <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+                </div>
+                <div class="timeline cpu">
+                    <header><h2>{"CPU"}</h2></header>
+                    <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg">
                         <path
                         fill="none"
                         stroke="#000"
@@ -185,6 +185,73 @@ fn app() -> Html {
                         L 540,21 548,19 555,21
                         C 570,25 580,26 600,24"
                         />
+                    </svg>
+                </div>
+                <div class="timeline events">
+                    <header><h2>{"Events"}</h2></header>
+                    <svg viewBox="0 0 600 30" xmlns="http://www.w3.org/2000/svg" >
+                        <g>
+                            <circle r="2" cx="50" cy="15" fill="#000" />
+                            <circle r="2" cx="180" cy="15" fill="#000" />
+                            <circle r="2" cx="520" cy="13" fill="#000" />
+                            <circle r="2" cx="520" cy="17" fill="#000" />
+                        </g>
+                        <g>
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            0,29
+                            600,29
+                            "
+                            />
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            0,29
+                            0,25
+                            "
+                            />
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            599.5,29
+                            599.5,25
+                            "
+                            />
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            150,29
+                            150,27
+                            "
+                            />
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            300,29
+                            300,25
+                            "
+                            />
+                            <polyline
+                            fill="none"
+                            stroke="#000"
+                            stroke-width="1"
+                            points="
+                            450,29
+                            450,27
+                            "
+                            />
+                        </g>
                     </svg>
                 </div>
             </footer>

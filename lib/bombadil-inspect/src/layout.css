@@ -80,12 +80,15 @@ footer.pane {
   padding: 0;
 }
 
-.heap, .cpu {
+.timeline {
   display: flex;
-  align-items: stretch;
-  gap: 1ch;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--color-border);
 }
-.heap header, .cpu header {
+.timeline:last-child {
+  border-bottom: none;
+}
+.timeline header {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -94,15 +97,17 @@ footer.pane {
   height: calc(4 * var(--line-height));
   background: var(--highlight-bg);
 }
-.heap h2, .cpu h2 {
+.timeline h2 {
   flex: 0 0 auto;
-  font-weight: normal;
+  font-weight: 500;
+  font-size: .75rem;
   transform: rotate(270deg);
 }
-.heap svg, .cpu svg {
+.timeline {
   flex: 1 1 auto;
   width: 100%;
 }
+
 .heap {
 }
 .cpu {
@@ -128,6 +133,9 @@ footer.pane {
 @media (prefers-color-scheme: dark) {
   svg path, svg polyline {
     stroke: var(--color-fg);
+  }
+  svg circle {
+    fill: var(--color-fg);
   }
 }
 
