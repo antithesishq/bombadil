@@ -5,9 +5,9 @@
   --font-family: "JetBrains Mono", monospace;
   --font-family-code: "JetBrains Mono", monospace;
   --line-height-relative: 1.6;
-  --line-height: 1.3rem;
+  --line-height: 1.2rem;
 
-  --spacing-vertical: .4rem;
+  --spacing-vertical: calc(var(--line-height) / 4);
   --spacing-horizontal: .5ch;
 }
 
