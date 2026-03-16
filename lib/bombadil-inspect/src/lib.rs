@@ -1,4 +1,6 @@
 use std::rc::Rc;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use bombadil_browser_keys::key_name;
 use bombadil_inspect_api::Point;
@@ -12,7 +14,6 @@ use yew::prelude::*;
 #[function_component(App)]
 fn app() -> Html {
     let trace = use_state(|| None::<Vec<TraceEntry>>);
-
     {
         let trace = trace.clone();
         use_effect_with((), move |_| {
@@ -39,49 +40,6 @@ fn app() -> Html {
         });
     }
 
-    // let actions = [
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Double-click", Some("x: 600, y: 312")),
-    //     ("Back", None),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Double-click", Some("x: 600, y: 312")),
-    //     ("Back", None),
-    //     ("Forward", None),
-    //     ("Forward", None),
-    //     ("Scroll down", Some("840px")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Reload", None),
-    //     ("Forward", None),
-    //     ("Forward", None),
-    //     ("Scroll down", Some("840px")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Double-click", Some("x: 600, y: 312")),
-    //     ("Back", None),
-    //     ("Forward", None),
-    //     ("Forward", None),
-    //     ("Scroll down", Some("840px")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Reload", None),
-    //     ("Reload", None),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Double-click", Some("x: 600, y: 312")),
-    //     ("Back", None),
-    //     ("Forward", None),
-    //     ("Forward", None),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Double-click", Some("x: 600, y: 312")),
-    //     ("Back", None),
-    //     ("Forward", None),
-    //     ("Forward", None),
-    //     ("Scroll down", Some("840px")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Reload", None),
-    //     ("Scroll down", Some("840px")),
-    //     ("Click", Some("x: 600, y: 312")),
-    //     ("Reload", None),
-    // ];
-
     html! {
         <main class="grid">
             <header class="pane">
@@ -93,9 +51,10 @@ fn app() -> Html {
                 <div class="content">
                     <ol>
                     {
-                        if let Some(trace) = trace.as_ref() {
+                        if let Some(trace) = trace.as_ref() && !trace.is_empty() {
+                            let test_start = trace.first().expect("no first trace entry").timestamp;
                             trace.iter().enumerate().map(|(i, entry)| {
-                                html!(<HistoryEntry entry={Rc::new(entry.clone())} is_current={i == 9} />)
+                                html!(<HistoryEntry entry={Rc::new(entry.clone())} is_current={i == 9} test_start={test_start} />)
                             }).collect::<Html>()
                         } else {
                             html!()
@@ -276,12 +235,25 @@ fn dither_pattern() -> Html {
 
 #[derive(PartialEq, Properties)]
 struct HistoryEntryProps {
+    pub test_start: SystemTime,
     pub entry: Rc<TraceEntry>,
     pub is_current: bool,
 }
 
 fn format_point(point: &Point) -> String {
     format!("{:.1}, {:.1}", point.x, point.y)
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
 
 #[component]
@@ -352,12 +324,20 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
             None => return html! {},
         };
     let li_class = if props.is_current { "current" } else { "" };
-    match details {
-        Some(details) => html! {
-            <li class={li_class}>
-                <details open={props.is_current}>
-                    <summary>{action_name}</summary>
-                    <table>
+    let duration_since_start = props
+        .entry
+        .timestamp
+        .duration_since(props.test_start)
+        .unwrap_or_default();
+    html! {
+        <li class={li_class} role="button">
+            <header>
+                <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
+                <div class="action-name">{action_name}</div>
+            </header>
+            {if let Some(details) = details && props.is_current {
+                html!(
+                    <table class="details">
                     {details.iter().map(|(name, value)| {
                         html!(
                             <tr>
@@ -367,10 +347,10 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                         )
                     }).collect::<Html>()}
                     </table>
-                </details>
-            </li>
-        },
-        None => html! {<li class={li_class}>{action_name}</li>},
+
+                )
+            } else { Html::default() }}
+        </li>
     }
 }
 

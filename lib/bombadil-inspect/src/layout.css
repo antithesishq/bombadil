@@ -64,16 +64,6 @@ header.pane h1 {
     grid-column: 1;
 }
 
-.pane.history table th {
-    vertical-align: top;
-    padding-right: 1ch;
-}
-
-.pane.history table td {
-    vertical-align: top;
-    text-align: right;
-}
-
 .pane.state-before {
     grid-row: 2;
     grid-column: 2;
@@ -100,13 +90,48 @@ footer.pane {
     padding: 0;
 }
 
+.history ol {
+    list-style-type: none;
+}
+
+ol li:before {
+    display: none;
+}
+
 .history li {
+    display: flex;
+    flex-direction: column;
     padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+
+.history header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1ch;
+}
+
+.history header time {
+    color: var(--color-fg-muted);
 }
 
 .history .current {
     background: var(--highlight-bg);
 }
+
+.history table {
+    margin: var(--line-height) 0;
+}
+
+.history table th {
+    vertical-align: top;
+    padding-right: 1ch;
+}
+
+.history table td {
+    vertical-align: top;
+    text-align: right;
+}
+
 
 @media (max-width: 480px) {}
 
