@@ -76,11 +76,15 @@ fn app() -> Html {
             </div>
             <div class="pane state-before">
                 <h2>{"State before"}</h2>
-                <div class="todo">{"TODO: screenshot"}</div>
+                {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
+                    html!(<Screenshot entry={Rc::new(entry.clone())} />)
+                } else {Html::default()}}
             </div>
             <div class="pane state-after">
                 <h2>{"State after"}</h2>
-                <div class="todo">{"TODO: screenshot"}</div>
+                {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
+                    html!(<Screenshot entry={Rc::new(entry.clone())} />)
+                } else {Html::default()}}
             </div>
                 <footer class="pane">
                     <svg viewBox="0 0 624 76" xmlns="http://www.w3.org/2000/svg" >
@@ -253,22 +257,6 @@ struct HistoryEntryProps {
     pub on_select: Callback<usize>,
 }
 
-fn format_point(point: &Point) -> String {
-    format!("{:.1}, {:.1}", point.x, point.y)
-}
-
-fn format_duration(duration: Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-    if hours > 0 {
-        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-    } else {
-        format!("{:02}:{:02}", minutes, seconds)
-    }
-}
-
 #[component]
 fn HistoryEntry(props: &HistoryEntryProps) -> Html {
     let (action_name, details): (&str, Option<Vec<(&str, String)>>) =
@@ -369,6 +357,36 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                 )
             } else { Html::default() }}
         </li>
+    }
+}
+
+#[derive(PartialEq, Properties)]
+struct ScreenshotProps {
+    pub entry: Rc<TraceEntry>,
+}
+
+#[component]
+fn Screenshot(props: &ScreenshotProps) -> Html {
+    html!(
+        <div class="screenshot">
+            <img src={props.entry.screenshot.clone()} />
+        </div>
+    )
+}
+
+fn format_point(point: &Point) -> String {
+    format!("{:.1}, {:.1}", point.x, point.y)
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
     }
 }
 
