@@ -1,0 +1,8 @@
+[package]
+name = "bombadil-browser-keys"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "bombadil_browser_keys"
+path = "src/lib.rs"

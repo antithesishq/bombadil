@@ -1,86 +1,86 @@
+use std::rc::Rc;
+
+use bombadil_browser_keys::key_name;
+use bombadil_inspect_api::Point;
 use bombadil_inspect_api::TraceEntry;
+use gloo_console::{error, log};
 use gloo_net::http::Request;
+use wasm_bindgen_futures::spawn_local;
+use yew::component;
 use yew::prelude::*;
 
 #[function_component(App)]
 fn app() -> Html {
     let trace = use_state(|| None::<Vec<TraceEntry>>);
-    let message = use_state(|| "Loading...".to_string());
 
     {
         let trace = trace.clone();
-        let message = message.clone();
         use_effect_with((), move |_| {
-            wasm_bindgen_futures::spawn_local(async move {
+            spawn_local(async move {
                 match Request::get("/api/trace").send().await {
                     Ok(response) => {
                         match response.json::<Vec<TraceEntry>>().await {
                             Ok(entries) => {
-                                message.set(format!(
-                                    "Loaded {} trace entries",
-                                    entries.len()
-                                ));
+                                log!("Loaded trace entries:", entries.len());
                                 trace.set(Some(entries));
                             }
-                            Err(_) => message
-                                .set("Failed to parse response".to_string()),
+                            Err(error) => {
+                                error!(
+                                    "Failed to parse response: ",
+                                    error.to_string()
+                                )
+                            }
                         }
                     }
-                    Err(_) => message.set("Failed to fetch".to_string()),
+                    Err(error) => error!("Failed to fetch:", error.to_string()),
                 }
             });
             || ()
         });
     }
 
-    let actions = [
-        ("Click", Some("x: 600, y: 312")),
-        ("Double-click", Some("x: 600, y: 312")),
-        ("Back", None),
-        ("Click", Some("x: 600, y: 312")),
-        ("Double-click", Some("x: 600, y: 312")),
-        ("Back", None),
-        ("Forward", None),
-        ("Forward", None),
-        ("Scroll down", Some("840px")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Reload", None),
-        ("Forward", None),
-        ("Forward", None),
-        ("Scroll down", Some("840px")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Double-click", Some("x: 600, y: 312")),
-        ("Back", None),
-        ("Forward", None),
-        ("Forward", None),
-        ("Scroll down", Some("840px")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Reload", None),
-        ("Reload", None),
-        ("Click", Some("x: 600, y: 312")),
-        ("Double-click", Some("x: 600, y: 312")),
-        ("Back", None),
-        ("Forward", None),
-        ("Forward", None),
-        ("Click", Some("x: 600, y: 312")),
-        ("Double-click", Some("x: 600, y: 312")),
-        ("Back", None),
-        ("Forward", None),
-        ("Forward", None),
-        ("Scroll down", Some("840px")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Reload", None),
-        ("Scroll down", Some("840px")),
-        ("Click", Some("x: 600, y: 312")),
-        ("Reload", None),
-    ];
-
-    let statistics = [
-        ("States seen", 201, 1321),
-        ("Edges covered", 165, 893),
-        ("Violations", 0, 1),
-    ];
+    // let actions = [
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Double-click", Some("x: 600, y: 312")),
+    //     ("Back", None),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Double-click", Some("x: 600, y: 312")),
+    //     ("Back", None),
+    //     ("Forward", None),
+    //     ("Forward", None),
+    //     ("Scroll down", Some("840px")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Reload", None),
+    //     ("Forward", None),
+    //     ("Forward", None),
+    //     ("Scroll down", Some("840px")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Double-click", Some("x: 600, y: 312")),
+    //     ("Back", None),
+    //     ("Forward", None),
+    //     ("Forward", None),
+    //     ("Scroll down", Some("840px")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Reload", None),
+    //     ("Reload", None),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Double-click", Some("x: 600, y: 312")),
+    //     ("Back", None),
+    //     ("Forward", None),
+    //     ("Forward", None),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Double-click", Some("x: 600, y: 312")),
+    //     ("Back", None),
+    //     ("Forward", None),
+    //     ("Forward", None),
+    //     ("Scroll down", Some("840px")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Reload", None),
+    //     ("Scroll down", Some("840px")),
+    //     ("Click", Some("x: 600, y: 312")),
+    //     ("Reload", None),
+    // ];
 
     html! {
         <main class="grid">
@@ -93,20 +93,13 @@ fn app() -> Html {
                 <div class="content">
                     <ol>
                     {
-                        actions.iter().enumerate().map(|(i, (action, details))| {
-                            let li_class = if i == 9 { "current" }  else { "" };
-                            match details {
-                                Some(details) => html!{
-                                    <li class={li_class}>
-                                        <details open={i == 9}>
-                                            <summary>{action}</summary>
-                                            {details}
-                                        </details>
-                                    </li>
-                                },
-                                None => html!{<li class={li_class}>{action}</li>},
-                            }
-                        }).collect::<Html>()
+                        if let Some(trace) = trace.as_ref() {
+                            trace.iter().enumerate().map(|(i, entry)| {
+                                html!(<HistoryEntry entry={Rc::new(entry.clone())} is_current={i == 9} />)
+                            }).collect::<Html>()
+                        } else {
+                            html!()
+                        }
                     }
                     </ol>
                 </div>
@@ -122,9 +115,7 @@ fn app() -> Html {
                 <footer class="pane">
                     <svg viewBox="0 0 624 76" xmlns="http://www.w3.org/2000/svg" >
                         <defs>
-                          <pattern id="dither" width="1" height="1" patternUnits="userSpaceOnUse">
-                            <circle cx="0.5" cy="0.5" r="0.5" fill="currentColor" opacity="0.25" />
-                          </pattern>
+                            <DitherPattern />
                         </defs>
 
                         // Timeline
@@ -271,6 +262,115 @@ fn app() -> Html {
                     </svg>
             </footer>
         </main>
+    }
+}
+
+#[function_component(DitherPattern)]
+fn dither_pattern() -> Html {
+    html!(
+        <pattern id="dither" width="1" height="1" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.5" fill="currentColor" opacity="0.5" />
+        </pattern>
+    )
+}
+
+#[derive(PartialEq, Properties)]
+struct HistoryEntryProps {
+    pub entry: Rc<TraceEntry>,
+    pub is_current: bool,
+}
+
+fn format_point(point: &Point) -> String {
+    format!("{:.1}, {:.1}", point.x, point.y)
+}
+
+#[component]
+fn HistoryEntry(props: &HistoryEntryProps) -> Html {
+    let (action_name, details): (&str, Option<Vec<(&str, String)>>) =
+        match &props.entry.action {
+            Some(action) => match action {
+                bombadil_inspect_api::BrowserAction::Back => ("Back", None),
+                bombadil_inspect_api::BrowserAction::Forward => {
+                    ("Forward", None)
+                }
+                bombadil_inspect_api::BrowserAction::Click {
+                    name,
+                    content,
+                    point,
+                } => ("Click", Some(vec![("Position", format_point(point))])),
+                bombadil_inspect_api::BrowserAction::DoubleClick {
+                    name,
+                    content,
+                    point,
+                    delay_millis,
+                } => (
+                    "Double-click",
+                    Some(vec![("Position", format_point(point))]),
+                ),
+                bombadil_inspect_api::BrowserAction::TypeText {
+                    text,
+                    delay_millis,
+                } => (
+                    "Type",
+                    Some(vec![
+                        ("Text", text.clone()),
+                        ("Delay", format!("{}ms", delay_millis)),
+                    ]),
+                ),
+                bombadil_inspect_api::BrowserAction::PressKey {
+                    code, ..
+                } => (
+                    "Press key",
+                    Some(vec![(
+                        "Key",
+                        key_name(*code).unwrap_or("Unknown").to_string(),
+                    )]),
+                ),
+                bombadil_inspect_api::BrowserAction::ScrollUp {
+                    origin,
+                    distance,
+                } => (
+                    "Scroll up",
+                    Some(vec![
+                        ("Origin", format_point(origin)),
+                        ("Distance", format!("{}px", distance)),
+                    ]),
+                ),
+                bombadil_inspect_api::BrowserAction::ScrollDown {
+                    origin,
+                    distance,
+                } => (
+                    "Scroll down",
+                    Some(vec![
+                        ("Origin", format_point(origin)),
+                        ("Distance", format!("{}px", distance)),
+                    ]),
+                ),
+                bombadil_inspect_api::BrowserAction::Reload => ("Reload", None),
+                bombadil_inspect_api::BrowserAction::Wait => ("Wait", None),
+            },
+            None => return html! {},
+        };
+    let li_class = if props.is_current { "current" } else { "" };
+    match details {
+        Some(details) => html! {
+            <li class={li_class}>
+                <details open={props.is_current}>
+                    <summary>{action_name}</summary>
+                    <table>
+                    {details.iter().map(|(name, value)| {
+                        html!(
+                            <tr>
+                                <th>{name}</th>
+                                <td>{value}</td>
+                            </tr>
+                        )
+                    }).collect::<Html>()}
+                    </table>
+                </details>
+            </li>
+        },
+        None => html! {<li class={li_class}>{action_name}</li>},
     }
 }
 
