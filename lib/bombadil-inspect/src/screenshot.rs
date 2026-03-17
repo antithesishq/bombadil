@@ -4,9 +4,10 @@ use bombadil_inspect_api::BrowserAction;
 use bombadil_inspect_api::Point;
 use bombadil_inspect_api::TraceEntry;
 use wasm_bindgen::JsCast;
-use wasm_bindgen::closure::Closure;
 use yew::component;
 use yew::prelude::*;
+
+use crate::container_size::use_container_size;
 
 #[derive(PartialEq, Properties)]
 pub struct ScreenshotProps {
@@ -17,42 +18,8 @@ pub struct ScreenshotProps {
 
 #[component]
 pub fn Screenshot(props: &ScreenshotProps) -> Html {
-    let container_ref = use_node_ref();
-    let container_size = use_state(|| None::<(f64, f64)>);
     let natural_size = use_state(|| None::<(f64, f64)>);
-
-    {
-        let container_ref = container_ref.clone();
-        let container_size = container_size.clone();
-        use_effect_with((), move |_| {
-            let state =
-                container_ref.cast::<web_sys::Element>().map(|element| {
-                    let closure = Closure::<dyn FnMut(js_sys::Array)>::new(
-                        move |entries: js_sys::Array| {
-                            if let Some(entry) = entries
-                                .get(0)
-                                .dyn_ref::<web_sys::ResizeObserverEntry>(
-                            ) {
-                                let rect = entry.content_rect();
-                                container_size
-                                    .set(Some((rect.width(), rect.height())));
-                            }
-                        },
-                    );
-                    let observer = web_sys::ResizeObserver::new(
-                        closure.as_ref().unchecked_ref(),
-                    )
-                    .unwrap();
-                    observer.observe(&element);
-                    (observer, closure)
-                });
-            move || {
-                if let Some((observer, _closure)) = state {
-                    observer.disconnect();
-                }
-            }
-        });
-    }
+    let (container_ref, container_size) = use_container_size();
 
     let on_load = {
         let natural_size = natural_size.clone();
@@ -69,7 +36,7 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
         })
     };
 
-    let (inner_style, overlay) = match (*container_size, *natural_size) {
+    let (inner_style, overlay) = match (container_size, *natural_size) {
         (Some((cw, ch)), Some((nw, nh))) => {
             let transform = ContainTransform::new(cw, ch, nw, nh);
             let w = nw * transform.scale;
