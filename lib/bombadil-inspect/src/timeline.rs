@@ -190,7 +190,7 @@ pub fn LineChart(props: &LineChartProps) -> Html {
     }
 
     let padding_left = 18.0;
-    let padding_right = 30.0;
+    let padding_right = 32.0;
     let spacing_ticks = 4.0;
     let line_width = props.width - padding_left - padding_right;
 
