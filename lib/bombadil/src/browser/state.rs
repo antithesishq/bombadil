@@ -5,7 +5,10 @@ use anyhow::Result;
 use chromiumoxide::{
     Page,
     cdp::{
-        browser_protocol::page::{self, CaptureScreenshotFormat},
+        browser_protocol::{
+            page::{self, CaptureScreenshotFormat},
+            performance,
+        },
         js_protocol::debugger::CallFrameId,
     },
 };
@@ -33,6 +36,7 @@ pub struct BrowserState {
     pub transition_hash: Option<u64>,
     pub coverage: Coverage,
     pub screenshot: Screenshot,
+    pub resources: Resources,
 }
 
 pub type EdgeIndex = u32;
@@ -138,6 +142,51 @@ impl std::fmt::Debug for Screenshot {
             .field("format", &self.format)
             .field("data", &format_args!("[{} bytes]", self.data.len()))
             .finish()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Resources {
+    pub js_heap_used: u64,
+    pub js_heap_total: u64,
+    pub dom_nodes: u64,
+    pub documents: u64,
+    pub js_event_listeners: u64,
+    pub layout_objects: u64,
+    pub timestamp: f64,
+    pub thread_time: f64,
+    pub task_duration: f64,
+    pub script_duration: f64,
+}
+
+impl Resources {
+    pub fn from_metrics(metrics: Vec<performance::Metric>) -> Self {
+        use std::collections::BTreeMap;
+        let map: BTreeMap<String, f64> =
+            metrics.into_iter().map(|m| (m.name, m.value)).collect();
+        let get = |name: &str| -> f64 { map.get(name).copied().unwrap_or(0.0) };
+        Self {
+            js_heap_used: get("JSHeapUsedSize") as u64,
+            js_heap_total: get("JSHeapTotalSize") as u64,
+            dom_nodes: get("Nodes") as u64,
+            documents: get("Documents") as u64,
+            js_event_listeners: get("JSEventListeners") as u64,
+            layout_objects: get("LayoutObjects") as u64,
+            timestamp: get("Timestamp"),
+            thread_time: get("ThreadTime"),
+            task_duration: get("TaskDuration"),
+            script_duration: get("ScriptDuration"),
+        }
+    }
+
+    /// Main-thread CPU utilization between two snapshots, as 0.0–1.0.
+    pub fn cpu_utilization(&self, previous: &Resources) -> f64 {
+        let wall = self.timestamp - previous.timestamp;
+        if wall <= 0.0 {
+            return 0.0;
+        }
+        let cpu = self.thread_time - previous.thread_time;
+        (cpu / wall).clamp(0.0, 1.0)
     }
 }
 
@@ -306,6 +355,13 @@ impl BrowserState {
             None => None,
         };
 
+        let performance_metrics = page
+            .execute(performance::GetMetricsParams {})
+            .await?
+            .metrics
+            .clone();
+        let resources = Resources::from_metrics(performance_metrics);
+
         log::trace!("BrowserState::current: done");
         Ok(BrowserState {
             timestamp: SystemTime::now(),
@@ -320,6 +376,7 @@ impl BrowserState {
             coverage: Coverage { edges_new },
             transition_hash,
             screenshot,
+            resources,
         })
     }
 
