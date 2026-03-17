@@ -212,14 +212,25 @@ footer.pane {
     fill: none;
 }
 
-.timeline .label {
+.timeline text {
     fill: var(--color-fg);
+}
+
+.timeline .label {
     font-size: .75rem;
 }
 
 .timeline .tick-label {
-    dominant-baseline: middle;
     font-size: .75rem;
+    fill: var(--color-fg-muted);
+}
+
+.timeline .tick-label.min {
+    dominant-baseline: alphabetic;
+}
+
+.timeline .tick-label.max {
+    dominant-baseline: hanging;
 }
 
 .timeline .border {

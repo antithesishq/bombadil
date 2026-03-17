@@ -56,7 +56,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
 
     let component_inner = if let Some((width, height)) = container_size {
         let panel_count = 3;
-        let padding_y = 18.0;
+        let padding_y = 6.0;
         let panel_height = (height - padding_y) / panel_count as f64;
         html!(
             <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
@@ -122,7 +122,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 //     </g>
                 // </g>
 
-                <g transform="translate(0, 6)">
+                <g transform={format!("translate(0, {})", padding_y)}>
                     <LineChart
                         name="Heap"
                         width={width}
@@ -141,34 +141,6 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         y_max={1.0}
                         />
                 </g>
-
-                // CPU
-                // <g transform="translate(6, 45)">
-                //     <g transform="rotate(270 0 0)">
-                //         <text class="label">{"CPU"}</text>
-                //     </g>
-                // </g>
-                // <g transform="translate(12, 30)">
-                //     <path
-                //     fill="none"
-                //     stroke-width=".5"
-                //     d="M 0,16
-                // L 15,14 25,15 40,12
-                // C 60,6 70,4 100,4
-                // L 115,5 125,3 135,5
-                // C 155,9 165,13 185,17
-                // L 195,19 205,17 215,20
-                // C 235,25 255,27 280,26
-                // L 290,25 300,27 310,25
-                // C 330,20 340,15 360,11
-                // L 370,9 380,10 390,8
-                // C 410,4 430,3 455,5
-                // L 465,6 475,4 485,5
-                // C 500,10 510,15 530,19
-                // L 540,21 548,19 555,21
-                // C 570,25 580,26 600,24"
-                //     />
-                // </g>
 
                 <g transform="translate(112, 0)">
                     <rect class="cursor" x="0" y="0" width="12" height={height.to_string()} fill="url(#dither)" />
@@ -218,7 +190,8 @@ pub fn LineChart(props: &LineChartProps) -> Html {
     }
 
     let padding_left = 18.0;
-    let padding_right = 24.0;
+    let padding_right = 30.0;
+    let spacing_ticks = 4.0;
     let line_width = props.width - padding_left - padding_right;
 
     let points = {
@@ -239,11 +212,11 @@ pub fn LineChart(props: &LineChartProps) -> Html {
                     <text class="label">{props.name.clone()}</text>
                 </g>
             </g>
-            <g transform={format!("translate({left}, {top})", left=line_width + padding_left + 2.0, top=0)}>
-                <text class="tick-label">{props.print_y.emit(y_max)}</text>
+            <g transform={format!("translate({left}, {top})", left=line_width + padding_left + spacing_ticks, top=0)}>
+                <text class="tick-label max">{props.print_y.emit(y_max)}</text>
             </g>
-            <g transform={format!("translate({left}, {top})", left=line_width + padding_left + 2.0, top=props.height)}>
-                <text class="tick-label">{props.print_y.emit(0.0)}</text>
+            <g transform={format!("translate({left}, {top})", left=line_width + padding_left + spacing_ticks, top=props.height)}>
+                <text class="tick-label min">{props.print_y.emit(0.0)}</text>
             </g>
             <g transform={format!("translate({left}, 0)", left=padding_left)}>
                 <polyline
