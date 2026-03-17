@@ -11,10 +11,12 @@ use wasm_bindgen_futures::spawn_local;
 use yew::component;
 use yew::prelude::*;
 
+use crate::duration::format_duration;
 use crate::screenshot::Screenshot;
 use crate::timeline::Timeline;
 
 mod container_size;
+mod duration;
 mod screenshot;
 mod timeline;
 
@@ -96,6 +98,7 @@ fn app() -> Html {
             </div>
                 <footer class="pane">
                 {if let Some(ref trace) = *trace {
+                    // TODO: this should be part of test metadata
                     let test_start = trace.first().expect("no first trace entry").timestamp;
                     html!(<Timeline entries={trace.clone()} test_start={test_start} />)
                 } else {Html::default()}}
@@ -218,18 +221,6 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
 
 fn format_point(point: &Point) -> String {
     format!("{:.1}, {:.1}", point.x, point.y)
-}
-
-fn format_duration(duration: Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-    if hours > 0 {
-        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-    } else {
-        format!("{:02}:{:02}", minutes, seconds)
-    }
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
