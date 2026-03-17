@@ -16,7 +16,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
     let (container_ref, container_size) = use_container_size();
     let component_inner = if let Some((width, height)) = container_size {
         html!(
-            <svg class="timeline" viewBox={"0 0 624 76"} xmlns="http://www.w3.org/2000/svg" >
+            <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
                 <defs>
                     <DitherPattern />
                 </defs>
