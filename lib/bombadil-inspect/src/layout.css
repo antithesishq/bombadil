@@ -200,11 +200,12 @@ footer.pane {
     text-align: right;
 }
 
+.timeline {
+    width: 100%;
+    height: 100%;
+}
 
-@media (max-width: 480px) {}
-
-@media (max-width: 768px) {}
-
+.timeline path,
 .timeline path,
 .timeline polyline {
     stroke: var(--color-fg);
@@ -213,7 +214,7 @@ footer.pane {
 
 .timeline text {
     fill: var(--color-fg);
-    font-size: 0.5rem;
+    font-size: .75rem;
 }
 
 .timeline .border {
@@ -243,11 +244,6 @@ footer.pane {
 
 .timeline .cursor {}
 
-.todo {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    justify-content: center;
-    align-items: center;
-    font-style: italic;
-}
+@media (max-width: 480px) {}
+
+@media (max-width: 768px) {}

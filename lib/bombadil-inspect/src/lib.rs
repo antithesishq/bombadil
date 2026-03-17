@@ -96,7 +96,8 @@ fn app() -> Html {
             </div>
                 <footer class="pane">
                 {if let Some(ref trace) = *trace {
-                    html!(<Timeline entries={trace.clone()} />)
+                    let test_start = trace.first().expect("no first trace entry").timestamp;
+                    html!(<Timeline entries={trace.clone()} test_start={test_start} />)
                 } else {Html::default()}}
                 </footer>
         </main>
