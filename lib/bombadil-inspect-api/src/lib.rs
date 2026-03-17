@@ -12,6 +12,21 @@ pub struct TraceEntry {
     pub screenshot: String,
     pub snapshots: Vec<Snapshot>,
     pub violations: Vec<PropertyViolation>,
+    pub resources: Resources,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Resources {
+    pub js_heap_used: u64,
+    pub js_heap_total: u64,
+    pub dom_nodes: u64,
+    pub documents: u64,
+    pub js_event_listeners: u64,
+    pub layout_objects: u64,
+    pub timestamp: f64,
+    pub thread_time: f64,
+    pub task_duration: f64,
+    pub script_duration: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
