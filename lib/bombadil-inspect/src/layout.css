@@ -212,8 +212,13 @@ footer.pane {
     fill: none;
 }
 
-.timeline text {
+.timeline .label {
     fill: var(--color-fg);
+    font-size: .75rem;
+}
+
+.timeline .tick-label {
+    dominant-baseline: middle;
     font-size: .75rem;
 }
 
