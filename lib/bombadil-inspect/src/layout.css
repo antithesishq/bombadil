@@ -1,7 +1,3 @@
-:root {
-    --highlight-bg: 0% 0% / 2px 2px radial-gradient(color-mix(in srgb, transparent 90%, var(--color-fg)) .75px, transparent);
-}
-
 main {
     display: flex;
     flex-direction: column;
@@ -64,6 +60,7 @@ header.pane h1 {
     grid-column: 1;
     min-width: 28ch;
     max-width: 48ch;
+    background-color: var(--color-bg-muted);
 }
 
 .pane.state-before {
@@ -137,17 +134,24 @@ footer.pane {
 }
 
 .history li {
+    position: relative;
     display: grid;
     grid-template-rows: auto auto;
     grid-template-columns: auto 1fr auto;
     width: 100%;
     cursor: pointer;
     gap: 0;
+    overflow: hidden;
 }
 
-.history li.current {
-    background: var(--highlight-bg);
-    background-color: var(--color-bg-muted);
+.history li.current {}
+
+.history .background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
 }
 
 .history li:first-child.current {

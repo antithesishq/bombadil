@@ -9,6 +9,7 @@ use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::duration::format_duration;
+use crate::svg::{DitherPattern, ViolationPattern};
 
 const SPACING_LEFT: f64 = 24.0;
 const SPACING_RIGHT: f64 = 32.0;
@@ -257,24 +258,6 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
         }
         </g>
     </g>
-    )
-}
-
-#[component]
-fn DitherPattern() -> Html {
-    html!(
-        <pattern id="dither" width="1" height="1" patternUnits="userSpaceOnUse">
-                <circle cx="1" cy="1" r=".5" opacity="0.2" fill="currentColor" />
-        </pattern>
-    )
-}
-
-#[component]
-fn ViolationPattern() -> Html {
-    html!(
-        <pattern id="violation" width="1" height="2" patternUnits="userSpaceOnUse">
-            <rect width="1" height="1" opacity="0.2" />
-        </pattern>
     )
 }
 

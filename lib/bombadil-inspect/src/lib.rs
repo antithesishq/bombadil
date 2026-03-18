@@ -10,13 +10,16 @@ use wasm_bindgen_futures::spawn_local;
 use yew::component;
 use yew::prelude::*;
 
+use crate::container_size::use_container_size;
 use crate::duration::format_duration;
 use crate::screenshot::Screenshot;
+use crate::svg::DitherPattern;
 use crate::timeline::Timeline;
 
 mod container_size;
 mod duration;
 mod screenshot;
+mod svg;
 mod timeline;
 
 #[function_component(App)]
@@ -117,6 +120,8 @@ struct HistoryEntryProps {
 
 #[component]
 fn HistoryEntry(props: &HistoryEntryProps) -> Html {
+    let (container_ref, container_size) = use_container_size();
+
     let (action_header, details): (Html, Option<Vec<(&str, String)>>) =
         match &props.entry.action {
             Some(action) => match action {
@@ -243,7 +248,19 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
     let on_click = move |_| on_select.emit(index);
 
     html! {
-        <li class={li_class} role="button" onclick={on_click}>
+        <li class={li_class} role="button" onclick={on_click} ref={container_ref}>
+            {
+                if props.is_current && let Some((width, height)) = container_size {
+                    html!(
+                        <svg class="background">
+                            <DitherPattern />
+                            <rect width={width.to_string()} height={height.to_string()} fill="url(#dither)" />
+                        </svg>
+                    )
+                } else {
+                    html!()
+                }
+            }
             <header>
                 <div class="action-header">{action_header}</div>
                 <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
