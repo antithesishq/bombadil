@@ -1,5 +1,5 @@
 :root {
-    --highlight-bg: 0% 0% / 2px 2px radial-gradient(color-mix(in srgb, transparent 85%, var(--color-fg)) 1px, transparent);
+    --highlight-bg: 0% 0% / 2px 2px radial-gradient(color-mix(in srgb, transparent 90%, var(--color-fg)) .75px, transparent);
 }
 
 main {
@@ -140,7 +140,7 @@ footer.pane {
     display: grid;
     grid-template-rows: auto auto;
     grid-template-columns: auto 1fr auto;
-    padding: var(--spacing-vertical) var(--spacing-horizontal);
+    width: 100%;
     cursor: pointer;
     gap: 0;
 }
@@ -161,6 +161,7 @@ footer.pane {
 
 .history li:before {
     color: var(--color-fg-muted);
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 
 .history header {
@@ -168,11 +169,40 @@ footer.pane {
     display: flex;
     justify-content: space-between;
     gap: 1ch;
-    margin-left: 1ch;
+    overflow: hidden;
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 
 .history header time {
+    flex: 0 0 auto;
     color: var(--color-fg-muted);
+}
+
+.history .action-header {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 1ch;
+    overflow: hidden;
+}
+
+.history .action-name {
+    flex: 0 0 auto;
+    overflow: hidden;
+    font-weight: 500;
+}
+
+.history .element-tag {
+    flex: 0 1 auto;
+    display: flex;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.history .element-name {
+    flex: 1 1 auto;
+    text-transform: lowercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .history table {
@@ -185,9 +215,12 @@ footer.pane {
 .history table th,
 .history table td {
     padding-top: var(--spacing-vertical);
+    border-top: 1px solid var(--color-border);
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 
 .history table th {
+    font-weight: normal;
     vertical-align: top;
 }
 

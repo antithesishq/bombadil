@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use std::time::Duration;
 use std::time::SystemTime;
 
 use bombadil_browser_keys::key_name;
@@ -118,32 +117,70 @@ struct HistoryEntryProps {
 
 #[component]
 fn HistoryEntry(props: &HistoryEntryProps) -> Html {
-    let (action_name, details): (&str, Option<Vec<(&str, String)>>) =
+    let (action_header, details): (Html, Option<Vec<(&str, String)>>) =
         match &props.entry.action {
             Some(action) => match action {
-                bombadil_inspect_api::BrowserAction::Back => ("Back", None),
+                bombadil_inspect_api::BrowserAction::Back => {
+                    (html!(<span class="action-name">{"Back"}</span>), None)
+                }
                 bombadil_inspect_api::BrowserAction::Forward => {
-                    ("Forward", None)
+                    (html!(<span class="action-name">{"Forward"}</span>), None)
                 }
                 bombadil_inspect_api::BrowserAction::Click {
-                    point, ..
-                } => ("Click", Some(vec![("Position", format_point(point))])),
+                    point,
+                    name,
+                    content,
+                } => (
+                    html!(
+                        <>
+                            <span class="action-name">{"Click"}</span>
+                            <span class="element-tag">
+                                {"<"}<span class="element-name">{name}</span>{" />"}
+                            </span>
+                        </>
+                    ),
+                    Some(vec![
+                        ("Position", format_point(point)),
+                        (
+                            "Content",
+                            format!(
+                                "{:?}",
+                                content.clone().unwrap_or("".into())
+                            ),
+                        ),
+                    ]),
+                ),
                 bombadil_inspect_api::BrowserAction::DoubleClick {
                     point,
                     delay_millis,
-                    ..
+                    name,
+                    content,
                 } => (
-                    "Double-click",
+                    html!(
+                        <>
+                            <span class="action-name">{"Double-click"}</span>
+                            <span class="element-tag">
+                                {"<"}<span class="element-name">{name}</span>{" />"}
+                            </span>
+                        </>
+                    ),
                     Some(vec![
                         ("Position", format_point(point)),
                         ("Delay", format!("{}ms", delay_millis)),
+                        (
+                            "Content",
+                            format!(
+                                "{:?}",
+                                content.clone().unwrap_or("".into())
+                            ),
+                        ),
                     ]),
                 ),
                 bombadil_inspect_api::BrowserAction::TypeText {
                     text,
                     delay_millis,
                 } => (
-                    "Type",
+                    html!(<span class="action-name">{"Type"}</span>),
                     Some(vec![
                         ("Text", text.clone()),
                         ("Delay", format!("{}ms", delay_millis)),
@@ -152,17 +189,19 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                 bombadil_inspect_api::BrowserAction::PressKey {
                     code, ..
                 } => (
-                    "Press key",
-                    Some(vec![(
-                        "Key",
-                        key_name(*code).unwrap_or("Unknown").to_string(),
-                    )]),
+                    html!(
+                        <>
+                            <span class="action-name">{"Press"}</span>
+                            <span>{key_name(*code).unwrap_or("Unknown")}</span>
+                        </>
+                    ),
+                    Some(vec![("Code", code.to_string())]),
                 ),
                 bombadil_inspect_api::BrowserAction::ScrollUp {
                     origin,
                     distance,
                 } => (
-                    "Scroll up",
+                    html!(<span class="action-name">{"Scroll up"}</span>),
                     Some(vec![
                         ("Origin", format_point(origin)),
                         ("Distance", format!("{}px", distance)),
@@ -172,14 +211,18 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                     origin,
                     distance,
                 } => (
-                    "Scroll down",
+                    html!(<span class="action-name">{"Scroll down"}</span>),
                     Some(vec![
                         ("Origin", format_point(origin)),
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::Reload => ("Reload", None),
-                bombadil_inspect_api::BrowserAction::Wait => ("Wait", None),
+                bombadil_inspect_api::BrowserAction::Reload => {
+                    (html!(<span class="action-name">{"Reload"}</span>), None)
+                }
+                bombadil_inspect_api::BrowserAction::Wait => {
+                    (html!(<span class="action-name">{"Wait"}</span>), None)
+                }
             },
             None => return html! {},
         };
@@ -197,7 +240,7 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
     html! {
         <li class={li_class} role="button" onclick={on_click}>
             <header>
-                <div class="action-name">{action_name}</div>
+                <div class="action-header">{action_header}</div>
                 <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
             </header>
             {if let Some(details) = details && props.is_current {
