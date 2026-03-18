@@ -14,7 +14,13 @@ use crate::duration::format_duration;
 const SPACING_LEFT: f64 = 18.0;
 const SPACING_RIGHT: f64 = 32.0;
 const SPACING_Y: f64 = 6.0;
-const VIOLATIONS_HEIGHT: f64 = 18.0;
+const TIMESCALE_VIOLATIONS_HEIGHT: f64 = 20.0;
+const TIMESCALE_TICK_HEIGHT: f64 = 4.0;
+const TIMESCALE_TEXT_HEIGHT: f64 = 9.0;
+const TIMESCALE_AXIS_HEIGHT: f64 =
+    TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT;
+const TIMESCALE_HEIGHT: f64 =
+    TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_AXIS_HEIGHT;
 
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
@@ -69,9 +75,16 @@ pub fn Timeline(props: &TimelineProps) -> Html {
         Callback::from(move |y: f64| format!("{:.0}%", y * 100.0));
 
     let component_inner = if let Some((width, height)) = container_size {
-        let panel_count = 3;
-        let spacing_y_total = SPACING_Y * ((panel_count + 1) as f64);
-        let panel_height = (height - spacing_y_total) / panel_count as f64;
+        let chart_count = 2;
+        let spacing_y_total = SPACING_Y * ((chart_count + 2) as f64);
+        let chart_height =
+            (height - spacing_y_total - TIMESCALE_HEIGHT) / chart_count as f64;
+        assert_eq!(
+            (spacing_y_total
+                + chart_height * chart_count as f64
+                + TIMESCALE_HEIGHT) as u64,
+            height as u64
+        );
         html!(
             <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
                 <defs>
@@ -82,32 +95,32 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                     <LineChart
                         name="Heap"
                         width={width}
-                        height={panel_height}
+                        height={chart_height}
                         series={series_heap}
                         print_y={print_y_bytes} />
                 </g>
 
-                <g transform={format!("translate(0, {})", SPACING_Y * 2.0 + panel_height)}>
+                <g transform={format!("translate(0, {})", SPACING_Y * 2.0 + chart_height)}>
                     <LineChart
                         name="CPU"
                         width={width}
-                        height={panel_height}
+                        height={chart_height}
                         series={series_cpu}
                         print_y={print_y_percent}
                         y_max={1.0}
                         />
                 </g>
 
-                <g transform={format!("translate(0, {})", SPACING_Y * 3.0 + panel_height * 2.0)}>
+                <g transform={format!("translate(0, {})", SPACING_Y * 3.0 + chart_height * 2.0)}>
                 <Timescale
                     width={width}
-                    height={panel_height}
+                    height={TIMESCALE_HEIGHT}
                     series={series_violations}
                     />
                 </g>
 
                 <g transform="translate(112, 0)">
-                    <rect class="cursor" x="0" y="0" width="12" height={(panel_height * 2.0 + SPACING_Y * 3.0 + VIOLATIONS_HEIGHT).to_string()} fill="url(#dither)" />
+                    <rect class="cursor" x="0" y="0" width="12" height={height.to_string()} fill="url(#dither)" />
                 </g>
             </svg>
         )
@@ -200,7 +213,6 @@ pub struct TimescaleProps {
 
 #[component]
 pub fn Timescale(props: &TimescaleProps) -> Html {
-    let tick_height = 4.0;
     let scale_width = props.width - SPACING_LEFT - SPACING_RIGHT;
 
     let x_max = if let Some(x) =
@@ -213,26 +225,34 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
     html!(
     <g class="timescale" transform={format!("translate({SPACING_LEFT}, 0)")}>
         <g>
-            <polyline class="border" points={format!(" 0,{top} {right},{top} ", top=VIOLATIONS_HEIGHT, right=scale_width)} />
+            <polyline class="border" points={format!(" 0,{top} {right},{top} ", top=TIMESCALE_VIOLATIONS_HEIGHT, right=scale_width)} />
             {
                 [0.0, 0.25, 0.5, 0.75, 1.0].iter().map(|tick| {
                     let x = tick * scale_width;
                     html!(
                         <>
-                            <polyline class="border" points={format!(" {x},{top} {x},{bottom} ", top=VIOLATIONS_HEIGHT, bottom=VIOLATIONS_HEIGHT + tick_height)} />
+                            <polyline class="border" points={format!(" {x},{top} {x},{bottom} ", top=TIMESCALE_VIOLATIONS_HEIGHT, bottom=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT)} />
                             // TODO: pass in Durations rather than f64 for time
-                            <text class="time-label" x={format!("{x}")} y={format!("{top}", top=VIOLATIONS_HEIGHT+tick_height * 2.0)}>{format_duration(Duration::from_millis((x_max * tick) as u64))}</text>
+                            <text class="time-label" x={format!("{x}")} y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>{format_duration(Duration::from_millis((x_max * tick) as u64))}</text>
                         </>
                     )
                 }).collect::<Html>()
             }
         </g>
-        <g class="violations">
+        <g>
         {
-            props.series.iter().map(|(x, _violation)| {
-                html!(
-                    <circle cx={format!("{}", x / x_max)} cy={format!("{}", VIOLATIONS_HEIGHT / 2.0)} />
-                )
+            props.series.iter().map(|(x, violations)| {
+                if violations.is_empty() {
+                    html!()
+                } else {
+                    html!(
+                        <g class="violation" transform={format!("translate({}, {})", (x / x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
+                            <title>{format!("{} violations", violations.len())}</title>
+                            <circle cx="0" cy="0" />
+                            <text x="0" y="0">{violations.len()}</text>
+                        </g>
+                    )
+                }
             }).collect::<Html>()
         }
         </g>

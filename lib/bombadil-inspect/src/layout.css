@@ -260,19 +260,27 @@ footer.pane {
 
 .timeline .time-label {
     text-anchor: middle;
-    dominant-baseline: hanging;
+    dominant-baseline: middle;
     font-size: .75rem;
 }
 
 .timeline .cursor {}
 
-.timescale .violation {
-    background: repeating-linear-gradient(to bottom,
-            transparent 0px,
-            transparent 2px,
-            rgba(255, 0, 0, 0.3) 2px,
-            rgba(255, 0, 0, 0.3) 4px);
-    background-color: rgba(255, 0, 0, 0.15);
+.timescale .violation {}
+
+.timescale .violation circle {
+    fill: var(--color-bg);
+    stroke: var(--color-fg);
+    stroke-width: 1;
+    r: calc(var(--line-height) * 0.375);
+}
+
+.timescale .violation text {
+    fill: var(--color-fg);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-size: .75rem;
+    font-weight: bold;
 }
 
 @media (max-width: 480px) {}
