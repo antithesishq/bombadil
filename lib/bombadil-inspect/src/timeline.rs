@@ -144,15 +144,24 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                     />
                 </g>
 
-                <g transform={format!("translate({SPACING_LEFT}, 0)")}>
-                    <rect class="cursor"
-                        x={((time_before / x_max) * axis_x_width).to_string()}
-                        y="0"
-                        width={(((time_after - time_before) / x_max) * axis_x_width).to_string()}
-                        height={height.to_string()}
-                        fill="url(#dither)"
-                        />
-                </g>
+                {
+                    {
+                        let width = ((time_after - time_before) / x_max) * axis_x_width;
+                        html!(
+                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
+                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
+                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
+                                <rect
+                                    x="0"
+                                    y="0"
+                                    width={width.to_string()}
+                                    height={height.to_string()}
+                                    fill="url(#dither)"
+                                    />
+                            </g>
+                        )
+                    }
+                }
             </svg>
         )
     } else {
