@@ -4,14 +4,13 @@ use std::time::SystemTime;
 
 use bombadil_inspect_api::PropertyViolation;
 use bombadil_inspect_api::TraceEntry;
-use gloo_console::log;
 use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::duration::format_duration;
 
-const SPACING_LEFT: f64 = 18.0;
+const SPACING_LEFT: f64 = 24.0;
 const SPACING_RIGHT: f64 = 32.0;
 const SPACING_Y: f64 = 6.0;
 const TIMESCALE_VIOLATIONS_HEIGHT: f64 = 20.0;
@@ -89,6 +88,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
                 <defs>
                     <DitherPattern />
+                    <ViolationPattern />
                 </defs>
 
                 <g transform={format!("translate(0, {})", SPACING_Y)}>
@@ -247,9 +247,9 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                 } else {
                     html!(
                         <g class="violation" transform={format!("translate({}, {})", (x / x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
-                            <title>{format!("{} violations", violations.len())}</title>
-                            <circle cx="0" cy="0" />
-                            <text x="0" y="0">{violations.len()}</text>
+                            <title>{format!("{} violations in state", violations.len())}</title>
+                            <rect x="-6" y="-6" width="12" height="12" fill="url(#violation)" />
+                            <text x="0" y="0">{"!"}</text>
                         </g>
                     )
                 }
@@ -264,7 +264,16 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
 fn DitherPattern() -> Html {
     html!(
         <pattern id="dither" width="1" height="1" patternUnits="userSpaceOnUse">
-            <circle cx="1" cy="1" r="0.5" fill="currentColor" opacity="0.5" />
+                <circle cx="1" cy="1" r=".5" opacity="0.2" fill="currentColor" />
+        </pattern>
+    )
+}
+
+#[component]
+fn ViolationPattern() -> Html {
+    html!(
+        <pattern id="violation" width="1" height="2" patternUnits="userSpaceOnUse">
+            <rect width="1" height="1" opacity="0.2" />
         </pattern>
     )
 }

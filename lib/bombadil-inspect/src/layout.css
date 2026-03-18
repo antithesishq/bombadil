@@ -217,7 +217,7 @@ footer.pane {
 }
 
 .timeline .label {
-    font-size: .75rem;
+    font-size: .875rem;
 }
 
 .timeline .tick-label {
@@ -261,26 +261,28 @@ footer.pane {
 .timeline .time-label {
     text-anchor: middle;
     dominant-baseline: middle;
-    font-size: .75rem;
+    font-size: .875rem;
 }
 
 .timeline .cursor {}
 
 .timescale .violation {}
 
-.timescale .violation circle {
-    fill: var(--color-bg);
-    stroke: var(--color-fg);
+.timescale .violation rect {
+    stroke: var(--color-red);
     stroke-width: 1;
-    r: calc(var(--line-height) * 0.375);
 }
 
 .timescale .violation text {
-    fill: var(--color-fg);
+    fill: var(--color-red);
     text-anchor: middle;
     dominant-baseline: middle;
     font-size: .75rem;
     font-weight: bold;
+}
+
+svg pattern#violation rect {
+    fill: var(--color-red);
 }
 
 @media (max-width: 480px) {}
