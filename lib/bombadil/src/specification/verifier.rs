@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
-use crate::specification::ltl::{Evaluator, Formula, Residual, Violation};
+use crate::specification::ltl::{Evaluator, Formula, Residual};
 use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
@@ -21,6 +21,7 @@ use serde_json as json;
 pub struct StepResult<A> {
     pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
     pub actions: Tree<A>,
+    pub has_pending: bool,
 }
 
 pub struct Verifier {
@@ -308,10 +309,8 @@ impl Verifier {
                 PropertyState::Residual(residual) => {
                     evaluator.step(residual, time)?
                 }
-                PropertyState::DefinitelyTrue => ltl::Value::True,
-                PropertyState::DefinitelyFalse(violation) => {
-                    ltl::Value::False(violation.clone())
-                }
+                PropertyState::DefinitelyTrue
+                | PropertyState::DefinitelyFalse => continue,
             };
             result_properties.push((
                 property.name.clone(),
@@ -320,10 +319,12 @@ impl Verifier {
                         property.state = PropertyState::DefinitelyTrue;
                         ltl::Value::True
                     }
-                    ltl::Value::False(violation) => {
-                        property.state =
-                            PropertyState::DefinitelyFalse(violation.clone());
-                        ltl::Value::False(violation)
+                    ltl::Value::False(violation, continuation) => {
+                        property.state = match continuation {
+                            Some(residual) => PropertyState::Residual(residual),
+                            None => PropertyState::DefinitelyFalse,
+                        };
+                        ltl::Value::False(violation, None)
                     }
                     ltl::Value::Residual(residual) => {
                         property.state =
@@ -343,9 +344,17 @@ impl Verifier {
             branches: generator_branches,
         };
 
+        let has_pending = self.properties.values().any(|p| {
+            matches!(
+                &p.state,
+                PropertyState::Initial(_) | PropertyState::Residual(_)
+            )
+        });
+
         Ok(StepResult {
             properties: result_properties,
             actions: action_tree,
+            has_pending,
         })
     }
 }
@@ -364,7 +373,7 @@ enum PropertyState {
     Initial(Formula<RuntimeFunction>),
     Residual(Residual<RuntimeFunction>),
     DefinitelyTrue,
-    DefinitelyFalse(Violation<RuntimeFunction>),
+    DefinitelyFalse,
 }
 
 #[derive(Debug, Clone)]
@@ -689,11 +698,14 @@ mod tests {
             if i == 100 {
                 assert!(matches!(
                     value,
-                    ltl::Value::False(Violation::Always {
-                        violation: _,
-                        subformula: _,
-                        ..
-                    })
+                    ltl::Value::False(
+                        ltl::Violation::Always {
+                            violation: _,
+                            subformula: _,
+                            ..
+                        },
+                        _
+                    )
                 ))
             } else {
                 match value {
@@ -707,6 +719,26 @@ mod tests {
                 }
             }
         }
+
+        // After the violation at i=100, the property should reset to
+        // Residual when given a passing value.
+        let time = time_at(0);
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(0),
+                }],
+                time,
+            )
+            .unwrap();
+        let (name, value) = result.properties.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(
+            matches!(value, ltl::Value::Residual(_)),
+            "expected Residual after reset, got: {:?}",
+            value,
+        );
     }
 
     #[test]
@@ -740,21 +772,28 @@ mod tests {
                 )
                 .unwrap();
 
-            let (name, value) = result.properties.first().unwrap();
-            assert_eq!(*name, "my_prop");
+            if let Some((name, value)) = result.properties.first() {
+                assert_eq!(*name, "my_prop");
 
-            if i < 4 {
-                match value {
-                    ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
-                            Some(StopDefault::True) => {}
-                            _ => panic!("should have a true stop default"),
+                if i < 4 {
+                    match value {
+                        ltl::Value::Residual(residual) => {
+                            match stop_default(residual, time) {
+                                Some(StopDefault::True) => {}
+                                _ => {
+                                    panic!("should have a true stop default")
+                                }
+                            }
+                        }
+                        other => {
+                            panic!("should be residual but was: {:?}", other)
                         }
                     }
-                    other => panic!("should be residual but was: {:?}", other),
+                } else {
+                    assert!(matches!(value, ltl::Value::True));
                 }
             } else {
-                assert!(matches!(value, ltl::Value::True));
+                assert!(i > 4, "property should still be pending at i={}", i);
             }
         }
     }
@@ -859,22 +898,255 @@ mod tests {
                 )
                 .unwrap();
 
-            let (name, value) = result.properties.first().unwrap();
-            assert_eq!(*name, "my_prop");
+            if let Some((name, value)) = result.properties.first() {
+                assert_eq!(*name, "my_prop");
 
-            if i < 4 {
-                match value {
-                    ltl::Value::Residual(residual) => {
-                        match stop_default(residual, time) {
-                            Some(StopDefault::False(_)) => {}
-                            _ => panic!("should have a false stop default"),
+                if i < 4 {
+                    match value {
+                        ltl::Value::Residual(residual) => {
+                            match stop_default(residual, time) {
+                                Some(StopDefault::False(_)) => {}
+                                _ => {
+                                    panic!("should have a false stop default")
+                                }
+                            }
+                        }
+                        other => {
+                            panic!("should be residual but was: {:?}", other)
                         }
                     }
-                    other => panic!("should be residual but was: {:?}", other),
+                } else {
+                    assert!(matches!(value, ltl::Value::False(_, _)));
                 }
             } else {
-                assert!(matches!(value, ltl::Value::False(_)));
+                assert!(i > 4, "property should still be pending at i={}", i);
             }
         }
+    }
+
+    #[test]
+    fn test_always_resets_after_violation() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
+            const foo = extract((state) => state.foo);
+
+            export const my_prop = always(() => foo.current < 5);
+            "#,
+        );
+
+        let time_at = |i: u64| {
+            SystemTime::UNIX_EPOCH
+                .checked_add(Duration::from_millis(i))
+                .unwrap()
+        };
+
+        // Steps 0-4: Residual (passing)
+        for i in 0..5 {
+            let result: StepResult<Snapshot> = verifier
+                .step(
+                    &[Snapshot {
+                        name: None,
+                        value: json::json!(i),
+                    }],
+                    time_at(0),
+                )
+                .unwrap();
+            let (_, value) = result.properties.first().unwrap();
+            assert!(
+                matches!(value, ltl::Value::Residual(_)),
+                "expected Residual at i={}, got: {:?}",
+                i,
+                value,
+            );
+        }
+
+        // Step with value 5: False (violation)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(5),
+                }],
+                time_at(0),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::False(_, _)),
+            "expected False at value=5, got: {:?}",
+            value,
+        );
+
+        // Step with value 0: should reset to Residual (not repeat False)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(0),
+                }],
+                time_at(0),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::Residual(_)),
+            "expected Residual after reset, got: {:?}",
+            value,
+        );
+
+        // Step with value 5 again: should produce a new False
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(5),
+                }],
+                time_at(0),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::False(_, _)),
+            "expected new False at value=5, got: {:?}",
+            value,
+        );
+    }
+
+    #[test]
+    fn test_now_false_is_terminal() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, now, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
+            const foo = extract((state) => state.foo);
+
+            export const my_prop = now(() => foo.current);
+            "#,
+        );
+
+        let time = SystemTime::UNIX_EPOCH;
+
+        // First step: False (no continuation)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(false),
+                }],
+                time,
+            )
+            .unwrap();
+        let (name, value) = result.properties.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(
+            matches!(value, ltl::Value::False(_, None)),
+            "expected terminal False, got: {:?}",
+            value,
+        );
+
+        // Subsequent step: property is settled, no result emitted
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(true),
+                }],
+                time,
+            )
+            .unwrap();
+        assert!(
+            result.properties.is_empty(),
+            "expected no properties after terminal False, got: {:?}",
+            result.properties,
+        );
+        assert!(!result.has_pending);
+    }
+
+    #[test]
+    fn test_always_bounded_continues_after_violation() {
+        let mut verifier = verifier(
+            r#"
+            import { extract, always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
+            const foo = extract((state) => state.foo);
+
+            export const my_prop = always(() => foo.current < 10).within(5, "milliseconds");
+            "#,
+        );
+
+        let time_at = |i: u64| {
+            SystemTime::UNIX_EPOCH
+                .checked_add(Duration::from_millis(i))
+                .unwrap()
+        };
+
+        // At time 0, value 0: Residual
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(0),
+                }],
+                time_at(0),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(matches!(value, ltl::Value::Residual(_)));
+
+        // At time 3ms, value 10: fails the always, but has continuation
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(10),
+                }],
+                time_at(3),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::False(_, _)),
+            "expected False at time 3ms, got: {:?}",
+            value,
+        );
+
+        // At time 4ms, value 0: should be Residual (reset via continuation)
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(0),
+                }],
+                time_at(4),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::Residual(_)),
+            "expected Residual at time 4ms after reset, got: {:?}",
+            value,
+        );
+
+        // At time 6ms (past the 5ms bound): should resolve to True
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    name: None,
+                    value: json::json!(0),
+                }],
+                time_at(6),
+            )
+            .unwrap();
+        let (_, value) = result.properties.first().unwrap();
+        assert!(
+            matches!(value, ltl::Value::True),
+            "expected True past the bound, got: {:?}",
+            value,
+        );
     }
 }

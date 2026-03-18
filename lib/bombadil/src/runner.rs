@@ -143,7 +143,6 @@ impl Runner {
 
                         let mut violations =
                             Vec::with_capacity(step_result.properties.len());
-                        let mut all_properties_definite = true;
                         for (name, value) in step_result.properties {
                             match value {
                                 PropertyValue::False(violation) => {
@@ -152,12 +151,8 @@ impl Runner {
                                         violation,
                                     });
                                 }
-                                PropertyValue::Residual => {
-                                    all_properties_definite = false;
-                                }
-                                PropertyValue::True => {
-                                    // Property is satisfied
-                                }
+                                PropertyValue::Residual
+                                | PropertyValue::True => {}
                             }
                         }
                         let has_violations = !violations.is_empty();
@@ -196,7 +191,7 @@ impl Runner {
                         if has_violations && options.stop_on_violation {
                             return Ok(None);
                         }
-                        if all_properties_definite {
+                        if !step_result.has_pending {
                             log::info!("all properties are definite, stopping");
                             return Ok(None);
                         }
