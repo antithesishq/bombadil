@@ -180,10 +180,15 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                     text,
                     delay_millis,
                 } => (
-                    html!(<span class="action-name">{"Type"}</span>),
+                    html!(
+                        <>
+                            <span class="action-name">{"Type"}</span>
+                            <span class="text">{format!("{text:?}")}</span>
+                        </>
+                    ),
                     Some(vec![
-                        ("Text", text.clone()),
-                        ("Delay", format!("{}ms", delay_millis)),
+                        ("Text", format!("{text:?}")),
+                        ("Delay", delay_millis.to_string()),
                     ]),
                 ),
                 bombadil_inspect_api::BrowserAction::PressKey {

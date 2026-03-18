@@ -197,6 +197,7 @@ footer.pane {
     overflow: hidden;
 }
 
+.history .text,
 .history .element-name {
     flex: 1 1 auto;
     text-transform: lowercase;
