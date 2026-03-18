@@ -102,7 +102,7 @@ fn app() -> Html {
                 {if let Some(ref trace) = *trace {
                     // TODO: this should be part of test metadata
                     let test_start = trace.first().expect("no first trace entry").timestamp;
-                    html!(<Timeline entries={trace.clone()} test_start={test_start} />)
+                    html!(<Timeline entries={trace.clone()} test_start={test_start} selected_index={*selected_index} />)
                 } else {Html::default()}}
                 </footer>
         </main>

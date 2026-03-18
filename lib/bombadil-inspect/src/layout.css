@@ -300,7 +300,10 @@ footer.pane {
     font-size: .875rem;
 }
 
-.timeline .cursor {}
+.timeline .cursor {
+    stroke-width: 1;
+    stroke: var(--color-fg-muted);
+}
 
 .timescale .violation {}
 

@@ -26,6 +26,7 @@ const TIMESCALE_HEIGHT: f64 =
 pub struct TimelineProps {
     pub entries: Rc<[TraceEntry]>,
     pub test_start: SystemTime,
+    pub selected_index: usize,
 }
 
 #[component]
@@ -65,10 +66,28 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             series_violations.push((x, entry.violations.clone().into()));
         }
     };
+
     let series_heap: Series = series_heap.into();
     let series_cpu: Series = series_cpu.into();
     let series_violations: Series<Rc<[PropertyViolation]>> =
         series_violations.into();
+
+    let (time_before, time_after) = {
+        match (
+            &series_heap.get(props.selected_index - 1),
+            &series_heap.get(props.selected_index),
+        ) {
+            (Some((before, _)), Some((after, _))) => (*before, *after),
+            _ => return html!(),
+        }
+    };
+    let x_max = if let Some(x) =
+        *(&series_heap.iter().map(|(x, _)| *x).reduce(f64::max))
+    {
+        x
+    } else {
+        return html!();
+    };
 
     let print_y_bytes = Callback::from(move |y: f64| format_bytes(y as u64));
     let print_y_percent =
@@ -85,6 +104,8 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 + TIMESCALE_HEIGHT) as u64,
             height as u64
         );
+        let axis_x_width = width - SPACING_LEFT - SPACING_RIGHT;
+
         html!(
             <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
                 <defs>
@@ -98,6 +119,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         width={width}
                         height={chart_height}
                         series={series_heap}
+                        x_max={x_max}
                         print_y={print_y_bytes} />
                 </g>
 
@@ -108,6 +130,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         height={chart_height}
                         series={series_cpu}
                         print_y={print_y_percent}
+                        x_max={x_max}
                         y_max={1.0}
                         />
                 </g>
@@ -117,11 +140,18 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                     width={width}
                     height={TIMESCALE_HEIGHT}
                     series={series_violations}
+                    x_max={x_max}
                     />
                 </g>
 
-                <g transform="translate(112, 0)">
-                    <rect class="cursor" x="0" y="0" width="12" height={height.to_string()} fill="url(#dither)" />
+                <g transform={format!("translate({SPACING_LEFT}, 0)")}>
+                    <rect class="cursor"
+                        x={((time_before / x_max) * axis_x_width).to_string()}
+                        y="0"
+                        width={(((time_after - time_before) / x_max) * axis_x_width).to_string()}
+                        height={height.to_string()}
+                        fill="url(#dither)"
+                        />
                 </g>
             </svg>
         )
@@ -145,20 +175,20 @@ pub struct LineChartProps {
     width: f64,
     height: f64,
     print_y: Callback<f64, String>,
+    x_max: f64,
     #[prop_or_default]
     y_max: Option<f64>,
 }
 
 #[component]
 pub fn LineChart(props: &LineChartProps) -> Html {
-    let (x_max, mut y_max) = if let Some((x, y)) = props
+    let mut y_max = if let Some(y) = props
         .series
         .iter()
-        .copied()
-        .reduce(|(acc_x, acc_y), (x, y)| {
-            (f64::max(acc_x, x), f64::max(acc_y, y))
-        }) {
-        (x, y)
+        .map(|(_, y)| *y)
+        .reduce(|acc, y| f64::max(acc, y))
+    {
+        y
     } else {
         return html!();
     };
@@ -173,7 +203,7 @@ pub fn LineChart(props: &LineChartProps) -> Html {
     let points = {
         let mut points = vec![];
         for (x, y) in props.series.iter() {
-            let x = (x / x_max) * line_width;
+            let x = (x / props.x_max) * line_width;
             let y = props.height - ((y / y_max) * props.height);
             points.push(format!("{x},{y}"))
         }
@@ -210,19 +240,12 @@ pub struct TimescaleProps {
     series: Series<Rc<[PropertyViolation]>>,
     width: f64,
     height: f64,
+    x_max: f64,
 }
 
 #[component]
 pub fn Timescale(props: &TimescaleProps) -> Html {
     let scale_width = props.width - SPACING_LEFT - SPACING_RIGHT;
-
-    let x_max = if let Some(x) =
-        props.series.iter().map(|(x, _)| *x).reduce(f64::max)
-    {
-        x
-    } else {
-        return html!();
-    };
     html!(
     <g class="timescale" transform={format!("translate({SPACING_LEFT}, 0)")}>
         <g>
@@ -234,7 +257,7 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                         <>
                             <polyline class="border" points={format!(" {x},{top} {x},{bottom} ", top=TIMESCALE_VIOLATIONS_HEIGHT, bottom=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT)} />
                             // TODO: pass in Durations rather than f64 for time
-                            <text class="time-label" x={format!("{x}")} y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>{format_duration(Duration::from_millis((x_max * tick) as u64))}</text>
+                            <text class="time-label" x={format!("{x}")} y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>{format_duration(Duration::from_millis((props.x_max * tick) as u64))}</text>
                         </>
                     )
                 }).collect::<Html>()
@@ -247,7 +270,7 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                     html!()
                 } else {
                     html!(
-                        <g class="violation" transform={format!("translate({}, {})", (x / x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
+                        <g class="violation" transform={format!("translate({}, {})", (x / props.x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
                             <title>{format!("{} violations in state", violations.len())}</title>
                             <rect x="-6" y="-6" width="12" height="12" fill="url(#violation)" />
                             <text x="0" y="0">{"!"}</text>
