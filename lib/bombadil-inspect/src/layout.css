@@ -147,8 +147,7 @@ footer.pane {
 
 .history li.current {
     background: var(--highlight-bg);
-    border-top: 1px solid var(--color-border);
-    border-bottom: 1px solid var(--color-border);
+    background-color: var(--color-bg-muted);
 }
 
 .history li:first-child.current {
@@ -215,7 +214,6 @@ footer.pane {
 .history table th,
 .history table td {
     padding-top: var(--spacing-vertical);
-    border-top: 1px solid var(--color-border);
     padding: var(--spacing-vertical) var(--spacing-horizontal);
 }
 
