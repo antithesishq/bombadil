@@ -1,8 +1,8 @@
 # Specification language
 
 To extend Bombadil with domain-specific knowledge, you write specifications.
-These are plain TypeScript or JavaScript modules using the library provided by
-Bombadil, exporting *properties* and *action generators*.
+These are plain TypeScript or JavaScript [modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules) that use the library provided by
+Bombadil to export *properties* and *action generators*.
 
 Here's how you run Bombadil with a custom specification:
 
@@ -67,7 +67,7 @@ import raw from "./snapshot.dat" with { type: "binary" };
 When using `"text"`  you get a `string`, and when using `"binary"` you get
 `Uint8Array`.
 
-For JSON data, you can also just rely on the file extension:
+For JSON data, you can also just use the file extension:
 
 ```typescript
 import data from "./fixtures/data.json";
