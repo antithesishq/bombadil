@@ -166,7 +166,9 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 xmlns="http://www.w3.org/2000/svg"
                 onmousedown={on_mouse_down}
                 onmousemove={on_mouse_move}
-                onmouseup={on_mouse_up}>
+                onmouseleave={on_mouse_up.clone()}
+                onmouseup={on_mouse_up}
+            >
                 <defs>
                     <DitherPattern />
                     <ViolationPattern />
