@@ -56,7 +56,7 @@ fn app() -> Html {
         <main class="grid">
             <header class="pane">
                 <h1>{"Bombadil Inspect"}</h1>
-                <span class="status">{"● Live"}</span>
+                <span class="status"></span>
             </header>
             <div class="pane history">
                 <h2>{"History"}</h2>
@@ -102,7 +102,11 @@ fn app() -> Html {
                 {if let Some(ref trace) = *trace {
                     // TODO: this should be part of test metadata
                     let test_start = trace.first().expect("no first trace entry").timestamp;
-                    html!(<Timeline entries={trace.clone()} test_start={test_start} selected_index={*selected_index} />)
+                    let on_select = {
+                        let selected_index = selected_index.clone();
+                        Callback::from(move |index| selected_index.set(index))
+                    };
+                    html!(<Timeline entries={trace.clone()} test_start={test_start} selected_index={*selected_index} on_select={on_select} />)
                 } else {Html::default()}}
                 </footer>
         </main>

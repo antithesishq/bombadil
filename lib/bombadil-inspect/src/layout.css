@@ -320,6 +320,10 @@ footer.pane {
     font-weight: bold;
 }
 
+svg {
+  user-select: none;
+}
+
 svg pattern#violation rect {
     fill: var(--color-red);
 }

@@ -27,11 +27,13 @@ pub struct TimelineProps {
     pub entries: Rc<[TraceEntry]>,
     pub test_start: SystemTime,
     pub selected_index: usize,
+    pub on_select: Callback<usize>,
 }
 
 #[component]
 pub fn Timeline(props: &TimelineProps) -> Html {
     let (container_ref, container_size) = use_container_size();
+    let is_mouse_down = use_mut_ref(|| false);
 
     let mut series_heap = Vec::with_capacity(props.entries.len());
     let mut series_cpu = Vec::with_capacity(props.entries.len());
@@ -72,22 +74,31 @@ pub fn Timeline(props: &TimelineProps) -> Html {
     let series_violations: Series<Rc<[PropertyViolation]>> =
         series_violations.into();
 
+    let series_index_and_time: Rc<[(usize, f64)]> = series_heap
+        .iter()
+        .map(|(x, _)| x)
+        .copied()
+        .enumerate()
+        .collect();
+
     let (time_before, time_after) = {
-        match (
-            &series_heap.get(props.selected_index - 1),
-            &series_heap.get(props.selected_index),
-        ) {
-            (Some((before, _)), Some((after, _))) => (*before, *after),
-            _ => return html!(),
+        if props.selected_index > 0
+            && let (Some((_, before)), Some((_, after))) = (
+                &series_index_and_time.get(props.selected_index - 1),
+                &series_index_and_time.get(props.selected_index),
+            )
+        {
+            (*before, *after)
+        } else {
+            return html!();
         }
     };
-    let x_max = if let Some(x) =
-        *(&series_heap.iter().map(|(x, _)| *x).reduce(f64::max))
-    {
-        x
-    } else {
-        return html!();
-    };
+    let x_max =
+        if let Some(x) = series_heap.iter().map(|(x, _)| *x).reduce(f64::max) {
+            x
+        } else {
+            return html!();
+        };
 
     let print_y_bytes = Callback::from(move |y: f64| format_bytes(y as u64));
     let print_y_percent =
@@ -106,8 +117,56 @@ pub fn Timeline(props: &TimelineProps) -> Html {
         );
         let axis_x_width = width - SPACING_LEFT - SPACING_RIGHT;
 
+        let series_index_and_time = series_index_and_time.clone();
+        let on_select = props.on_select.clone();
+        let select_at_x = Callback::from(move |x: u64| {
+            let click_x_axis = ((x
+                .clamp(SPACING_LEFT as u64, (width - SPACING_RIGHT) as u64)
+                .saturating_sub(SPACING_LEFT as u64)
+                as f64)
+                / axis_x_width)
+                * x_max;
+
+            for (index, time) in series_index_and_time.iter() {
+                if click_x_axis < *time {
+                    on_select.emit(*index);
+                    return;
+                }
+            }
+            on_select.emit(series_index_and_time.len() - 1);
+        });
+        let on_mouse_down = {
+            let select_at_x = select_at_x.clone();
+            let is_mouse_down = is_mouse_down.clone();
+            Callback::from(move |event: MouseEvent| {
+                *is_mouse_down.borrow_mut() = true;
+                select_at_x.emit(event.client_x() as u64);
+            })
+        };
+        let on_mouse_move = {
+            let select_at_x = select_at_x.clone();
+            let is_mouse_down = is_mouse_down.clone();
+            Callback::from(move |event: MouseEvent| {
+                if *is_mouse_down.borrow() {
+                    select_at_x.emit(event.client_x() as u64);
+                }
+            })
+        };
+        let on_mouse_up = {
+            let is_mouse_down = is_mouse_down.clone();
+            Callback::from(move |_: MouseEvent| {
+                *is_mouse_down.borrow_mut() = false;
+            })
+        };
+
         html!(
-            <svg class="timeline" viewBox={format!("0 0 {width} {height}")} xmlns="http://www.w3.org/2000/svg" >
+            <svg
+                class="timeline"
+                viewBox={format!("0 0 {width} {height}")}
+                xmlns="http://www.w3.org/2000/svg"
+                onmousedown={on_mouse_down}
+                onmousemove={on_mouse_move}
+                onmouseup={on_mouse_up}>
                 <defs>
                     <DitherPattern />
                     <ViolationPattern />
@@ -191,11 +250,8 @@ pub struct LineChartProps {
 
 #[component]
 pub fn LineChart(props: &LineChartProps) -> Html {
-    let mut y_max = if let Some(y) = props
-        .series
-        .iter()
-        .map(|(_, y)| *y)
-        .reduce(|acc, y| f64::max(acc, y))
+    let mut y_max = if let Some(y) =
+        props.series.iter().map(|(_, y)| *y).reduce(f64::max)
     {
         y
     } else {
