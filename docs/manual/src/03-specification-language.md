@@ -360,7 +360,7 @@ properties. Each example is a self-contained specification file.
 
 ### Invariant: max notification count
 
-This is a simple one checking that there are never more than five notifications
+This is a simple property checking that there are never more than five notifications
 shown.
 
 ```typescript
@@ -423,11 +423,11 @@ export const errorDisappears = always(
 
 ### Contextful guarantee: notification includes past value
 
-This example uses an outer thunk to force a cell value (`nameEntered`) at every
-state, and then closes over that value with the inner thunk passed to
-`eventually`. The property checks that if there's a non-blank name entered, and
+This property checks that if there's a non-blank name entered, and
 it is submitted, then eventually there will be a notification that includes the
-name.
+name. This example uses an outer thunk to force a cell value (`nameEntered`) at every
+state, and then closes over that value with the inner thunk passed to
+`eventually`. 
 
 ```typescript
 import { extract, always, now, next, eventually } from "@antithesishq/bombadil";
@@ -496,7 +496,7 @@ export const counterStateMachine =
 ```
 
 If this specification exports the `reload` action, the `unchanged` property
-becomes relevant[^stuttering]. Unless this application stored the state of the counter
+becomes relevant.[^stuttering] Unless this application stored the state of the counter
 somehow, reloading the page would clear the counter, which this property
 would catch as a violation.
 
