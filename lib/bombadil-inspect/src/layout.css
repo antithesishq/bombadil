@@ -199,9 +199,9 @@ footer.pane {
     text-overflow: ellipsis;
 }
 
-.history .current:before,
-.history .current time,
-.history .current {
+.history .selected:before,
+.history .selected time,
+.history .selected {
   color: var(--color-selected);
 }
 

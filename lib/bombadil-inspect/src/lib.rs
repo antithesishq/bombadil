@@ -70,7 +70,7 @@ fn app() -> Html {
                                 html!(
                                     <HistoryEntry
                                         entry={Rc::new(entry.clone())}
-                                        is_current={i == *selected_index}
+                                        is_selected={i == *selected_index}
                                             test_start={test_start}
                                             index={i}
                                             on_select={Callback::from(move |index| {
@@ -118,7 +118,7 @@ struct HistoryEntryProps {
     pub test_start: SystemTime,
     pub entry: Rc<TraceEntry>,
     pub index: usize,
-    pub is_current: bool,
+    pub is_selected: bool,
     pub on_select: Callback<usize>,
 }
 
@@ -240,7 +240,7 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
             },
             None => return html! {},
         };
-    let li_class = if props.is_current { "current" } else { "" };
+    let li_class = if props.is_selected { "selected" } else { "" };
     let duration_since_start = props
         .entry
         .timestamp
@@ -254,7 +254,7 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
     html! {
         <li class={li_class} role="button" onclick={on_click} ref={container_ref}>
             {
-                if props.is_current && let Some((width, height)) = container_size {
+                if props.is_selected && let Some((width, height)) = container_size {
                     html!(
                         <svg class="background" xmlns="http://www.w3.org/2000/svg">
                             <DitherPattern />
@@ -269,7 +269,7 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
                 <div class="action-header">{action_header}</div>
                 <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
             </header>
-            {if let Some(details) = details && props.is_current {
+            {if let Some(details) = details && props.is_selected {
                 html!(
                     <table class="details">
                     {details.iter().map(|(name, value)| {
