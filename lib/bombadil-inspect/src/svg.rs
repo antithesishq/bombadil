@@ -4,7 +4,7 @@ use yew::{Html, component, html};
 pub fn DitherPattern() -> Html {
     html!(
         <pattern id="dither" width="1.5" height="1.5" patternUnits="userSpaceOnUse">
-                <circle cx="1" cy="1" r=".5" opacity="0.2" fill="currentColor" />
+                <circle cx="1" cy="1" r=".5" opacity="0.4" />
         </pattern>
     )
 }

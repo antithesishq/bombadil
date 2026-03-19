@@ -144,22 +144,12 @@ footer.pane {
     overflow: hidden;
 }
 
-.history li.current {}
-
 .history .background {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
-}
-
-.history li:first-child.current {
-    border-top: none;
-}
-
-.history li:last-child.current {
-    border-bottom: none;
 }
 
 .history li:before {
@@ -207,6 +197,12 @@ footer.pane {
     text-transform: lowercase;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.history .current:before,
+.history .current time,
+.history .current {
+  color: var(--color-selected);
 }
 
 .history table {
@@ -274,13 +270,6 @@ footer.pane {
     stroke-width: .5;
 }
 
-.timeline .events circle {
-    fill: var(--color-red);
-    stroke: var(--color-red-bright);
-    stroke-width: .5;
-    r: .25rem;
-}
-
 .timeline .label {
     text-anchor: middle;
     dominant-baseline: middle;
@@ -301,19 +290,21 @@ footer.pane {
 }
 
 .timeline .cursor line {
-    stroke: var(--color-fg-muted);
+    stroke: var(--color-selected);
     stroke-width: 1;
+    color: var(--color-selected);
 }
 
 .timescale .violation {}
 
 .timescale .violation rect {
-    stroke: var(--color-red);
+    fill: var(--color-bg);
+    stroke: var(--color-danger);
     stroke-width: 1;
 }
 
 .timescale .violation text {
-    fill: var(--color-red);
+    fill: var(--color-danger);
     text-anchor: middle;
     dominant-baseline: middle;
     font-size: .75rem;
@@ -325,7 +316,10 @@ svg {
 }
 
 svg pattern#violation rect {
-    fill: var(--color-red);
+    fill: var(--color-danger);
+}
+svg pattern#dither circle {
+    fill: var(--color-selected);
 }
 
 @media (max-width: 480px) {}

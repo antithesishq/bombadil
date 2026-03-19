@@ -1,6 +1,6 @@
 :root {
-    --color-red: #ff543b;
-    --color-red-bright: #ff6a54;
+    --color-danger: #ff543b;
+    --color-selected: #5d55ea;
 
     --color-fg: #000000;
     --color-fg-muted: #444444;
@@ -9,15 +9,13 @@
     --color-bg-muted: color-mix(in srgb, var(--color-fg) 3%, var(--color-bg));
     --color-border: color-mix(in srgb, var(--color-bg) 80%, var(--color-fg));
 
-    --color-primary: var(--color-magenta);
-    --color-secondary: var(--color-blue);
     --color-selection: #CBD9E3;
 }
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-red: #ff644e;
-        --color-red-bright: #ff7966;
+        --color-danger: #ff644e;
+        --color-selected: #b693ff;
 
         --color-bg: #000000;
         --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, var(--color-bg));

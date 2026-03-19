@@ -171,6 +171,24 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                     <DitherPattern />
                     <ViolationPattern />
                 </defs>
+                {
+                    {
+                        let width = ((time_after - time_before) / x_max) * axis_x_width;
+                        html!(
+                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
+                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
+                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
+                                <rect
+                                    x="0"
+                                    y="0"
+                                    width={width.to_string()}
+                                    height={height.to_string()}
+                                    fill="url(#dither)"
+                                    />
+                            </g>
+                        )
+                    }
+                }
 
                 <g transform={format!("translate(0, {})", SPACING_Y)}>
                     <LineChart
@@ -195,32 +213,14 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 </g>
 
                 <g transform={format!("translate(0, {})", SPACING_Y * 3.0 + chart_height * 2.0)}>
-                <Timescale
-                    width={width}
-                    height={TIMESCALE_HEIGHT}
-                    series={series_violations}
-                    x_max={x_max}
-                    />
+                    <Timescale
+                        width={width}
+                        height={TIMESCALE_HEIGHT}
+                        series={series_violations}
+                        x_max={x_max}
+                        />
                 </g>
 
-                {
-                    {
-                        let width = ((time_after - time_before) / x_max) * axis_x_width;
-                        html!(
-                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
-                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
-                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
-                                <rect
-                                    x="0"
-                                    y="0"
-                                    width={width.to_string()}
-                                    height={height.to_string()}
-                                    fill="url(#dither)"
-                                    />
-                            </g>
-                        )
-                    }
-                }
             </svg>
         )
     } else {
