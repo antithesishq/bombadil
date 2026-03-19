@@ -256,7 +256,7 @@ fn HistoryEntry(props: &HistoryEntryProps) -> Html {
             {
                 if props.is_current && let Some((width, height)) = container_size {
                     html!(
-                        <svg class="background">
+                        <svg class="background" xmlns="http://www.w3.org/2000/svg">
                             <DitherPattern />
                             <rect width={width.to_string()} height={height.to_string()} fill="url(#dither)" />
                         </svg>
