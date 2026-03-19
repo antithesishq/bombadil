@@ -14,8 +14,8 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-danger: #ff644e;
-        --color-selected: #b693ff;
+        --color-danger: #d78ff1;
+        --color-selected: #e3f8c6;
 
         --color-bg: #000000;
         --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, var(--color-bg));
