@@ -40,7 +40,7 @@
     --color-fg-muted: var(--color-gray-3);
 
     --color-bg: #fcfbf9;
-    --color-bg-muted: color-mix(in srgb, var(--color-bg) 40%, var(--color-gray-1));
+    --color-bg-muted: color-mix(in srgb, var(--color-bg) 60%, var(--color-gray-1));
     --color-border: var(--color-gray-2);
 
     --color-overlay: #000;
