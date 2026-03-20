@@ -208,6 +208,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 {
                     {
                         let width = ((time_after - time_before) / x_max) * axis_x_width;
+                        let height = height - TIMESCALE_AXIS_HEIGHT - SPACING_Y;
                         html!(
                             <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
                                 <line x1="0" y1="0" x2="0" y2={height.to_string()} />
