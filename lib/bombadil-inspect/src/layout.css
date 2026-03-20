@@ -11,7 +11,7 @@ main {
 
 .grid {
     display: grid;
-    grid-template-rows: auto 1fr minmax(calc(var(--line-height) * 4), 20%) minmax(15%, calc(var(--line-height) * 8));
+    grid-template-rows: auto 1fr auto minmax(15%, calc(var(--line-height) * 8));
     grid-template-columns: 1fr 2fr 2fr;
     background-color: var(--color-border);
     gap: 1px;

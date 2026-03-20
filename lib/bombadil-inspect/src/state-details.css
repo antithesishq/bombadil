@@ -1,4 +1,6 @@
-.state-details {}
+.state-details {
+  max-height: 30vh;
+}
 
 .state-details .content {
   padding: 0;
@@ -6,8 +8,6 @@
 
 .state-details summary {
   padding: var(--spacing-vertical) var(--spacing-horizontal);
-  background-color: var(--color-bg-muted);
-  border-bottom: 1px solid var(--color-border);
   text-transform: uppercase;
 }
 
