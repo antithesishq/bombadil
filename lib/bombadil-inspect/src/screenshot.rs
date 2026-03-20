@@ -63,15 +63,15 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
                                      a{r},{r} 0 1,0 -{d2r},0Z",
                                     x - r,
                                 )}
-                                fill="black"
-                                opacity="0.25"
+                                fill="var(--color-overlay)"
+                                opacity="0.5"
                             />
                             <circle
                                 cx={x.to_string()}
                                 cy={y.to_string()}
                                 r={r.to_string()}
                                 fill="none"
-                                stroke="var(--color-fg)"
+                                stroke="var(--color-selected)"
                                 stroke-width="3"
                             />
                         </svg>

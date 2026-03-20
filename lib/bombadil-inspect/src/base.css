@@ -4,7 +4,7 @@
 
 ::selection,
 ::-moz-selection {
-    background: var(--color-selection);
+    background: var(--color-text-selection);
     color: var(--color-fg);
     text-shadow: none;
 }

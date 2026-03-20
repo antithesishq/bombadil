@@ -307,7 +307,7 @@ footer.pane {
     fill: var(--color-danger-inverted);
     text-anchor: middle;
     dominant-baseline: middle;
-    font-size: .75rem;
+    font-size: .875rem;
     font-weight: 800;
 }
 

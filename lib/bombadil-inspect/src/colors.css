@@ -1,30 +1,67 @@
+/* Palette */
 :root {
-    --color-danger: #d78ff1;
-    --color-danger-inverted: #3f0b40;
-    --color-selected: color-mix(in srgb, #18c198 80%, var(--color-fg));
+    --color-heritage-purple: #D78FF1;
+    --color-purple-2: #E4B6F4;
+    --color-purple-3: #EBCAF5;
 
-    --color-fg: #000000;
-    --color-fg-muted: #444444;
+    --color-anti-white: #FCFBF9;
 
-    --color-bg: #fff;
-    --color-bg-muted: color-mix(in srgb, var(--color-fg) 3%, var(--color-bg));
-    --color-border: color-mix(in srgb, var(--color-bg) 80%, var(--color-fg));
+    --color-gray-1: #E5E2E3;
+    --color-gray-2: #CEC9CD;
+    --color-gray-3: #726674;
 
-    --color-selection: #CBD9E3;
+    --color-plum: #250B30;
+    --color-plum-2: #310834;
+    --color-plum-3: #3F0B40;
+
+    --color-true-magenta: #C029BA;
+    --color-true-magenta-40: #E4A7E0;
+    --color-true-magenta-15: #F1D7F2;
+
+    --color-tangerine: #FF9F91;
+    --color-tangerine-40: #FDD6CF;
+    --color-tangerine-15: #FEEDE7;
+
+    --color-kelly: #18C198;
+    --color-kelly-40: #A1E4D2;
+    --color-kelly-15: #D5F4EB;
+
+    --color-citron: #BDF479;
+    --color-citron-40: #E3F8C6;
+    --color-citron-15: #F4FCE6;
 }
 
+/* Light mode */
+:root {
+    --color-danger: var(--color-heritage-purple);
+    --color-danger-inverted: var(--color-plum-3);
+    --color-selected: color-mix(in srgb, var(--color-kelly) 80%, var(--color-fg));
+
+    --color-fg: var(--color-plum);
+    --color-fg-muted: var(--color-gray-3);
+
+    --color-bg: #fcfbf9;
+    --color-bg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-gray-1));
+    --color-border: var(--color-gray-1);
+
+    --color-overlay: #000;
+    --color-text-selection: var(--color-kelly);
+}
+
+/* Dark mode */
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-danger: #3f0b40;
-        --color-danger-inverted: #d78ff1;
+        --color-danger: var(--color-plum-3);
+        --color-danger-inverted: var(--color-heritage-purple);
         --color-selected: #a1e4d2;
 
-        --color-bg: #000000;
-        --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, var(--color-bg));
+        --color-bg: color-mix(in srgb, var(--color-fg) 6%, #000000);
+        --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, #000000);
         --color-fg: #FF9F91;
         --color-fg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-fg));
         --color-border: color-mix(in srgb, var(--color-bg) 70%, var(--color-fg));
 
-        --color-selection: #3D4042;
+        --color-overlay: var(--color-bg);
+        --color-text-selection: color-mix(in srgb, var(--color-bg) 50%, var(--color-selected));
     }
 }

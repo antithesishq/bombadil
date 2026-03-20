@@ -14,7 +14,7 @@ use crate::svg::{DitherPattern, ViolationPattern};
 const SPACING_LEFT: f64 = 24.0;
 const SPACING_RIGHT: f64 = 32.0;
 const SPACING_Y: f64 = 6.0;
-const TIMESCALE_VIOLATIONS_HEIGHT: f64 = 20.0;
+const TIMESCALE_VIOLATIONS_HEIGHT: f64 = 22.0;
 const TIMESCALE_TICK_HEIGHT: f64 = 4.0;
 const TIMESCALE_TEXT_HEIGHT: f64 = 9.0;
 const TIMESCALE_AXIS_HEIGHT: f64 =
@@ -339,7 +339,7 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                     html!(
                         <g class="violation" transform={format!("translate({}, {})", (x / props.x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
                             <title>{format!("{} violations in state", violations.len())}</title>
-                            <rect x="-6" y="-6" width="12" height="12" fill="url(#violation)" />
+                            <rect x="-7" y="-7" width="14" height="14" fill="url(#violation)" />
                             <text x="0" y="0">{"!"}</text>
                         </g>
                     )
