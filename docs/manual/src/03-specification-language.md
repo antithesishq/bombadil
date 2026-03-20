@@ -367,12 +367,12 @@ shown.
 import { extract, always } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) => 
+const notificationCount = extract((state) => 
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const max_notifications_shown = always(() =>
-    notification_count.current <= 5,
+    notificationCount.current <= 5,
 );
 ```
 
@@ -387,14 +387,14 @@ time value to look up older values.
 import { extract, always, now, time } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) =>
+const notificationCount = extract((state) =>
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const constantNotificationCount = now(() => {
     const start = time.current;
     return always(() => 
-        notification_count.current === notification_count.at(start),
+        notificationCount.current === notification_count.at(start),
     );
 });
 ```
