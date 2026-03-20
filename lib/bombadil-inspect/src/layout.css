@@ -202,7 +202,7 @@ footer.pane {
 .history .selected:before,
 .history .selected time,
 .history .selected {
-  color: var(--color-selected);
+    color: var(--color-selected);
 }
 
 .history table {
@@ -298,26 +298,27 @@ footer.pane {
 .timescale .violation {}
 
 .timescale .violation rect {
-    fill: var(--color-bg);
-    stroke: var(--color-danger);
+    fill: var(--color-danger);
+    stroke: var(--color-danger-inverted);
     stroke-width: 1;
 }
 
 .timescale .violation text {
-    fill: var(--color-danger);
+    fill: var(--color-danger-inverted);
     text-anchor: middle;
     dominant-baseline: middle;
     font-size: .75rem;
-    font-weight: bold;
+    font-weight: 800;
 }
 
 svg {
-  user-select: none;
+    user-select: none;
 }
 
 svg pattern#violation rect {
     fill: var(--color-danger);
 }
+
 svg pattern#dither circle {
     fill: var(--color-selected);
 }

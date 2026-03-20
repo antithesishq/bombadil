@@ -1,6 +1,7 @@
 :root {
-    --color-danger: #ff543b;
-    --color-selected: #5d55ea;
+    --color-danger: #d78ff1;
+    --color-danger-inverted: #3f0b40;
+    --color-selected: color-mix(in srgb, #18c198 80%, var(--color-fg));
 
     --color-fg: #000000;
     --color-fg-muted: #444444;
@@ -14,8 +15,9 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-danger: #d78ff1;
-        --color-selected: #e3f8c6;
+        --color-danger: #3f0b40;
+        --color-danger-inverted: #d78ff1;
+        --color-selected: #a1e4d2;
 
         --color-bg: #000000;
         --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, var(--color-bg));
