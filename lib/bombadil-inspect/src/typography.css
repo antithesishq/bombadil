@@ -78,10 +78,6 @@ pre {
     background-color: var(--color-bg-muted);
 }
 
-code {
-    font-size: .9em;
-}
-
 kbd {
     display: inline-block;
     padding: .25em .375em;

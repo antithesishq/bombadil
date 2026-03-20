@@ -91,15 +91,19 @@ fn app() -> Html {
             <div class="pane state-details before">
                 <div class="content">
                     {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
-                        html!(<StateDetails entry={Rc::new(entry.clone())} />)
-                    } else {Html::default()}}
+                        // TODO: this should be part of test metadata
+                        let test_start = trace.first().expect("no first trace entry").timestamp;
+                        html!(<StateDetails entry={Rc::new(entry.clone())} test_start={test_start} />)
+                    } else { Html::default() }}
                 </div>
             </div>
 
             <div class="pane state-details after">
                 <div class="content">
                     {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
-                        html!(<StateDetails entry={Rc::new(entry.clone())} />)
+                        // TODO: this should be part of test metadata
+                        let test_start = trace.first().expect("no first trace entry").timestamp;
+                        html!(<StateDetails entry={Rc::new(entry.clone())} test_start={test_start} />)
                     } else {Html::default()}}
                 </div>
             </div>

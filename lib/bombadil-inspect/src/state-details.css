@@ -20,3 +20,12 @@
   font-weight: 500;
   vertical-align: top;
 }
+
+details[open]::details-content {
+  padding: var(--spacing-vertical) calc(var(--spacing-horizontal) * 2);
+  overflow-x: auto;
+}
+
+.state-details pre {
+  margin: var(--line-height) 0;
+}
