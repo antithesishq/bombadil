@@ -53,8 +53,8 @@ fn app() -> Html {
                 <h1>{"Bombadil Inspect"}</h1>
                 <span class="status"></span>
             </header>
-            <div class="pane history">
-                <h2>{"History"}</h2>
+            <div class="pane actions">
+                <h2>{"Actions"}</h2>
                 <div class="content">
                 {
                     if let Some(trace) = trace.as_ref() && !trace.is_empty() {
