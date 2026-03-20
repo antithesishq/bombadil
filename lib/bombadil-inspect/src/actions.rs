@@ -179,7 +179,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
     let on_click = move |_| on_select.emit(index);
 
     html! {
-        <li class={li_class} role="button" onclick={on_click} ref={container_ref}>
+        <li class={li_class} role="button" tabindex="0" onclick={on_click} ref={container_ref}>
             {
                 if props.is_selected && let Some((width, height)) = container_size {
                     html!(

@@ -11,7 +11,7 @@ main {
 
 .grid {
     display: grid;
-    grid-template-rows: auto 1fr minmax(15%, calc(var(--line-height) * 8));
+    grid-template-rows: auto 1fr minmax(calc(var(--line-height) * 4), 20%) minmax(15%, calc(var(--line-height) * 8));
     grid-template-columns: 1fr 2fr 2fr;
     background-color: var(--color-border);
     gap: 1px;
@@ -56,19 +56,29 @@ header.pane h1 {
     font-weight: normal;
 }
 
-.pane.history {
-    grid-row: 2;
+.pane.actions {
+    grid-row: 2 / 4;
     grid-column: 1;
     min-width: 28ch;
 }
 
-.pane.state-before {
+.pane.state-screenshot.before {
     grid-row: 2;
     grid-column: 2;
 }
 
-.pane.state-after {
+.pane.state-screenshot.after {
     grid-row: 2;
+    grid-column: 3;
+}
+
+.pane.state-details.before {
+    grid-row: 3;
+    grid-column: 2;
+}
+
+.pane.state-details.after {
+    grid-row: 3;
     grid-column: 3;
 }
 
@@ -112,7 +122,7 @@ header.pane h1 {
 }
 
 footer.pane {
-    grid-row: 3;
+    grid-row: 4;
     grid-column: 1 / -1;
 
     display: flex;

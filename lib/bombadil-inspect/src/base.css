@@ -12,7 +12,7 @@
 :focus {
     outline: 2px solid;
     border-radius: var(--border-radius);
-    outline-color: var(--color-secondary);
+    outline-color: var(--color-selected);
     z-index: 1;
 }
 

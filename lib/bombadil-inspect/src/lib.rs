@@ -8,12 +8,14 @@ use yew::prelude::*;
 
 use crate::actions::ActionsList;
 use crate::screenshot::Screenshot;
+use crate::state_details::StateDetails;
 use crate::timeline::Timeline;
 
 mod actions;
 mod container_size;
 mod duration;
 mod screenshot;
+mod state_details;
 mod svg;
 mod timeline;
 
@@ -70,20 +72,39 @@ fn app() -> Html {
                 }
                 </div>
             </div>
-            <div class="pane state-before">
+
+            <div class="pane state-screenshot before">
                 <h2>{"State before"}</h2>
                 {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
                     let action = trace.get(*selected_index).and_then(|e| e.action.clone()).map(Rc::new);
                     html!(<Screenshot entry={Rc::new(entry.clone())} action={action} />)
                 } else {Html::default()}}
             </div>
-            <div class="pane state-after">
+
+            <div class="pane state-screenshot after">
                 <h2>{"State after"}</h2>
                 {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
                     html!(<Screenshot entry={Rc::new(entry.clone())} />)
                 } else {Html::default()}}
             </div>
-                <footer class="pane">
+
+            <div class="pane state-details before">
+                <div class="content">
+                    {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
+                        html!(<StateDetails entry={Rc::new(entry.clone())} />)
+                    } else {Html::default()}}
+                </div>
+            </div>
+
+            <div class="pane state-details after">
+                <div class="content">
+                    {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
+                        html!(<StateDetails entry={Rc::new(entry.clone())} />)
+                    } else {Html::default()}}
+                </div>
+            </div>
+
+            <footer class="pane">
                 {if let Some(ref trace) = *trace {
                     // TODO: this should be part of test metadata
                     let test_start = trace.first().expect("no first trace entry").timestamp;
@@ -93,7 +114,7 @@ fn app() -> Html {
                     };
                     html!(<Timeline entries={trace.clone()} test_start={test_start} selected_index={*selected_index} on_select={on_select} />)
                 } else {Html::default()}}
-                </footer>
+            </footer>
         </main>
     }
 }

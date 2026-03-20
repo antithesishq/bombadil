@@ -3,7 +3,7 @@
 /* Firefox */
 * {
   scrollbar-width: auto;
-  scrollbar-color: var(--color-border) var(--color-bg);
+  scrollbar-color: var(--color-border) var(--color-bg-muted);
 }
 
 /* Chrome, Edge, Safari */
