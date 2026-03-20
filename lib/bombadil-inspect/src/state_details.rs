@@ -10,7 +10,9 @@ use serde_json as json;
 use yew::component;
 use yew::prelude::*;
 
+use crate::container_size::use_container_size;
 use crate::duration::format_duration;
+use crate::svg::ViolationPattern;
 
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
@@ -20,10 +22,25 @@ pub struct StateDetailsProps {
 
 #[component]
 pub fn StateDetails(props: &StateDetailsProps) -> Html {
+    let (container_ref, container_size) = use_container_size();
     html!(
         <>
-            <details open={true}>
-                <summary>{format!("Violations ({})", props.entry.violations.len())}</summary>
+            <details open={true} ref={container_ref} class={if props.entry.violations.is_empty() {""} else {"has-violations"}}>
+                {
+                    if !props.entry.violations.is_empty() && let Some((width, height)) = container_size {
+                        html!(
+                            <svg class="background" xmlns="http://www.w3.org/2000/svg">
+                                <ViolationPattern />
+                                <rect width={width.to_string()} height={height.to_string()} fill="url(#violation)" />
+                            </svg>
+                        )
+                    } else {
+                        html!()
+                    }
+                }
+                <summary>
+                {format!("Violations ({})", props.entry.violations.len())}
+                </summary>
                 <ol>
                 {
                     props

@@ -6,9 +6,28 @@
   padding: 0;
 }
 
+.state-details details {
+  position: relative;
+}
+
+.state-details .has-violations {
+  color: var(--color-danger);
+}
+.state-details details .background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: calc(var(--line-height) * 1.5);
+    zindex: -1;
+}
+
 .state-details summary {
   padding: var(--spacing-vertical) var(--spacing-horizontal);
   text-transform: uppercase;
+  zindex: 1;
 }
 
 .state-details table th,
@@ -24,6 +43,7 @@
 details[open]::details-content {
   padding: var(--spacing-vertical) calc(var(--spacing-horizontal) * 2);
   overflow-x: auto;
+  zindex: 1;
 }
 
 .state-details pre {

@@ -33,7 +33,7 @@
 
 /* Light mode */
 :root {
-    --color-danger: var(--color-true-magenta);
+    --color-danger: color-mix(in srgb, var(--color-true-magenta) 50%, var(--color-plum-3));
     --color-selected: color-mix(in srgb, var(--color-kelly) 80%, var(--color-fg));
 
     --color-fg: color-mix(in srgb, var(--color-gray-3) 10%, #000000);
