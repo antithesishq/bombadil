@@ -173,24 +173,6 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                     <DitherPattern />
                     <ViolationPattern />
                 </defs>
-                {
-                    {
-                        let width = ((time_after - time_before) / x_max) * axis_x_width;
-                        html!(
-                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
-                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
-                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
-                                <rect
-                                    x="0"
-                                    y="0"
-                                    width={width.to_string()}
-                                    height={height.to_string()}
-                                    fill="url(#dither)"
-                                    />
-                            </g>
-                        )
-                    }
-                }
 
                 <g transform={format!("translate(0, {})", SPACING_Y)}>
                     <LineChart
@@ -222,6 +204,25 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         x_max={x_max}
                         />
                 </g>
+
+                {
+                    {
+                        let width = ((time_after - time_before) / x_max) * axis_x_width;
+                        html!(
+                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
+                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
+                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
+                                <rect
+                                    x="0"
+                                    y="0"
+                                    width={width.to_string()}
+                                    height={height.to_string()}
+                                    fill="url(#dither)"
+                                    />
+                            </g>
+                        )
+                    }
+                }
 
             </svg>
         )
@@ -279,6 +280,7 @@ pub fn LineChart(props: &LineChartProps) -> Html {
 
     html!(
         <g class="line-chart">
+            <rect x={SPACING_LEFT.to_string()} y="0" width={line_width.to_string()} height={props.height.to_string()} class="background" />
             <polyline class="border" points={format!("{left},0 {left},{bottom} {right},{bottom} {right},0 {left},0", bottom=props.height, right=line_width + SPACING_LEFT, left=SPACING_LEFT)} />
             <g transform={format!("translate({left}, {top})", left=SPACING_LEFT / 2.0, top=props.height / 2.0)}>
                 <g transform="rotate(270 0 0)">
@@ -339,8 +341,9 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                     html!(
                         <g class="violation" transform={format!("translate({}, {})", (x / props.x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
                             <title>{format!("{} violations in state", violations.len())}</title>
-                            <rect x="-7" y="-7" width="14" height="14" fill="url(#violation)" />
-                            <text x="0" y="0">{"!"}</text>
+                            <rect x="-7" y="-7" width="14" height="14" class="background" />
+                            <rect x="-7" y="-7" width="14" height="14" fill="url(#violation)" class="pattern" />
+                            <text x="0" y="0" class="icon">{"!"}</text>
                         </g>
                     )
                 }

@@ -13,7 +13,7 @@ pub fn DitherPattern() -> Html {
 pub fn ViolationPattern() -> Html {
     html!(
         <pattern id="violation" width="1" height="2" patternUnits="userSpaceOnUse">
-            <rect width="1" height="1" opacity="0.2" />
+            <rect width="1" height="1" opacity="0.3" />
         </pattern>
     )
 }
