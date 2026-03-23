@@ -124,9 +124,9 @@ bombadil test https://en.wikipedia.org --output-path my-test
 
 This will run until you shut it down using <kbd>CTRL</kbd>+<kbd>C</kbd>. Any
 property violations will be logged as errors, and with the `--output-path`
-option you get a JSONL file to inspect afterwards.
+option you will get a JSONL file to inspect afterwards.
 
-Find the URLs with violations (assuming you have `jq` installed):
+In the JSONL file, find the URLs with violations (assuming you have `jq` installed):
 
 ```bash
 jq -r 'select(.violations != []) | .url' my-test/trace.jsonl
@@ -137,6 +137,6 @@ Bombadil runs and produces results.
 
 
 ::: {.callout .callout-note}
-Bombadil doesn't yet produce a human-readable test report, so this
-requires some `jq` trickery. Stay tuned, better UIs are on their way! 
+Bombadil doesn't yet produce a human-readable test report so while this test
+requires some `jq` trickery, stay tuned --- better UIs are on their way! 
 :::
