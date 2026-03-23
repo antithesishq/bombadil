@@ -33,8 +33,8 @@
 
 /* Light mode */
 :root {
-    --color-danger: color-mix(in srgb, var(--color-true-magenta) 50%, var(--color-plum-3));
-    --color-selected: color-mix(in srgb, var(--color-kelly) 80%, var(--color-fg));
+    --color-danger: #d92d42;
+    --color-selected: color-mix(in srgb, var(--color-tangerine) 50%, var(--color-fg));
 
     --color-fg: color-mix(in srgb, var(--color-gray-3) 10%, #000000);
     --color-fg-muted: var(--color-gray-3);
@@ -50,7 +50,7 @@
 /* Dark mode */
 @media (prefers-color-scheme: dark) {
     :root {
-        --color-danger: var(--color-heritage-purple);
+        --color-danger: #f6384f;
         --color-selected: #a1e4d2;
 
         --color-bg: color-mix(in srgb, var(--color-fg) 6%, #000000);

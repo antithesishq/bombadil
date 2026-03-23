@@ -21,13 +21,11 @@
     bottom: 0;
     width: 100%;
     height: calc(var(--line-height) * 1.5);
-    zindex: -1;
 }
 
 .state-details summary {
   padding: var(--spacing-vertical) var(--spacing-horizontal);
   text-transform: uppercase;
-  zindex: 1;
 }
 
 .state-details table th,
