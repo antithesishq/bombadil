@@ -143,7 +143,3 @@ svg pattern#violation rect {
 svg pattern#dither circle {
     fill: var(--color-selected);
 }
-
-@media (max-width: 480px) {}
-
-@media (max-width: 768px) {}

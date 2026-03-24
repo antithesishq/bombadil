@@ -37,31 +37,40 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
     };
 
     let (inner_style, overlay) = match (container_size, *natural_size) {
-        (Some((cw, ch)), Some((nw, nh))) => {
-            let transform = ContainTransform::new(cw, ch, nw, nh);
-            let w = nw * transform.scale;
-            let h = nh * transform.scale;
-            let style = format!("width: {w}px; height: {h}px;");
+        (
+            Some((container_width, container_height)),
+            Some((natural_width, natural_height)),
+        ) => {
+            let transform = ContainTransform::new(
+                container_width,
+                container_height,
+                natural_width,
+                natural_height,
+            );
+            let width = natural_width * transform.scale;
+            let height = natural_height * transform.scale;
+            let style = format!("width: {width}px; height: {height}px;");
             let overlay = props
                 .action
                 .as_deref()
                 .and_then(action_point)
                 .map(|point| {
-                    let dpr = 2.0;
-                    let x = point.x * dpr * transform.scale;
-                    let y = point.y * dpr * transform.scale;
-                    let r = 20.0_f64;
-                    let d2r = 2.0 * r;
+                    // TODO: this needs to be part of test metadata
+                    let device_scale_factor = 2.0;
+                    let x = point.x * device_scale_factor * transform.scale;
+                    let y = point.y * device_scale_factor * transform.scale;
+                    let radius = 20.0_f64;
+                    let diameter = 2.0 * radius;
                     html!(
                         <svg class="annotation">
                             <path
                                 fill-rule="evenodd"
                                 d={format!(
-                                    "M0,0H{w}V{h}H0Z \
+                                    "M0,0H{width}V{height}H0Z \
                                      M{},{y} \
-                                     a{r},{r} 0 1,0 {d2r},0 \
-                                     a{r},{r} 0 1,0 -{d2r},0Z",
-                                    x - r,
+                                     a{radius},{radius} 0 1,0 {diameter},0 \
+                                     a{radius},{radius} 0 1,0 -{diameter},0Z",
+                                    x - radius,
                                 )}
                                 fill="var(--color-overlay)"
                                 opacity="0.5"
@@ -69,7 +78,7 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
                             <circle
                                 cx={x.to_string()}
                                 cy={y.to_string()}
-                                r={r.to_string()}
+                                r={radius.to_string()}
                                 fill="none"
                                 stroke="var(--color-selected)"
                                 stroke-width="3"
