@@ -1,0 +1,121 @@
+.actions .content {
+    padding: 0;
+}
+
+.actions ol {
+    list-style-type: none;
+}
+
+.actions li {
+  margin: 0;
+}
+
+.actions .background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+}
+
+.actions li:before {
+  display: none;
+}
+.actions li button:before {
+    content: counters(item, ".") ". ";
+    counter-increment: item;
+    color: var(--color-fg-muted);
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+.actions li button {
+  border: none;
+  background: none;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-template-columns: auto 1fr auto;
+  width: 100%;
+  cursor: pointer;
+  gap: 0;
+  overflow: hidden;
+}
+
+.actions header {
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: space-between;
+    gap: 1ch;
+    overflow: hidden;
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+
+.actions header time {
+    flex: 0 0 auto;
+    color: var(--color-fg-muted);
+}
+
+.actions .action-header {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 1ch;
+    overflow: hidden;
+}
+
+.actions .action-name {
+    flex: 0 0 auto;
+    overflow: hidden;
+    font-weight: 500;
+}
+
+.actions .element-tag {
+    flex: 0 1 auto;
+    display: flex;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.actions .text,
+.actions .element-name {
+    flex: 0 1 auto;
+    text-transform: lowercase;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.actions .selected:before,
+.actions .selected time,
+.actions .selected {
+    color: var(--color-selected);
+}
+
+.actions table {
+    grid-row: 2;
+    grid-column: 1/4;
+    margin: 0;
+    overflow: hidden;
+}
+
+.actions table th,
+.actions table td {
+    padding-top: var(--spacing-vertical);
+    padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+
+.actions table th {
+    font-weight: normal;
+    vertical-align: top;
+}
+
+.actions table tr:last-child th {
+    padding-bottom: 0;
+}
+
+.actions table td {
+    vertical-align: top;
+    text-align: right;
+}

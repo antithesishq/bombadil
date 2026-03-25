@@ -6,8 +6,8 @@ use chromiumoxide::cdp::browser_protocol::{input, page};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
-use crate::browser::keys::key_name;
 use crate::geometry::Point;
+use bombadil_browser_keys::key_name;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {

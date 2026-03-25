@@ -4,7 +4,7 @@ use serde::Serialize;
 use url::Url;
 
 use crate::{
-    browser::actions::BrowserAction,
+    browser::{actions::BrowserAction, state::Resources},
     specification::{ltl, render, verifier::Snapshot},
 };
 
@@ -20,6 +20,7 @@ pub struct TraceEntry<'a> {
     pub screenshot: Cow<'a, Path>,
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
+    pub resources: Cow<'a, Resources>,
 }
 
 #[derive(Debug, Clone, Serialize)]
