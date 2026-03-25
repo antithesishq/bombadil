@@ -103,16 +103,16 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
     time: Time,
     mode: ValueEqMode,
 ) {
-    match (value_left, value_right) {
+    match (&value_left, &value_right) {
         (Value::True, Value::True) => {}
-        (Value::False(left), Value::False(right)) => {
+        (Value::False(left, _), Value::False(right, _)) => {
             if mode == ValueEqMode::Strict {
                 assert_eq!(left, right);
             }
         }
         (Value::Residual(left), Value::Residual(right)) => {
-            let default_left = stop_default(&left, time);
-            let default_right = stop_default(&right, time);
+            let default_left = stop_default(left, time);
+            let default_right = stop_default(right, time);
             match mode {
                 ValueEqMode::Strict => assert_eq!(default_left, default_right),
                 ValueEqMode::UpToViolations => {
@@ -131,6 +131,16 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
             }
         }
         (left, right) => panic!("\n{:?}\n\n!=\n\n{:?}\n", left, right),
+    }
+}
+
+fn next_residual<Function: Clone>(
+    value: &Value<Function>,
+) -> Option<Residual<Function>> {
+    match value {
+        Value::Residual(r) => Some(r.clone()),
+        Value::False(_, Some(c)) => Some(c.clone()),
+        _ => None,
     }
 }
 
@@ -175,13 +185,15 @@ fn check_equivalence(
         *current.borrow_mut() += 1;
         time = time.checked_add(Duration::from_millis(1)).unwrap();
 
-        if let Value::Residual(left) = &value_left
-            && let Value::Residual(right) = &value_right
-        {
-            value_left = evaluator.step(left, time).unwrap();
-            value_right = evaluator.step(right, time).unwrap();
-        } else {
-            break;
+        let next_left = next_residual(&value_left);
+        let next_right = next_residual(&value_right);
+
+        match (next_left, next_right) {
+            (Some(left), Some(right)) => {
+                value_left = evaluator.step(&left, time).unwrap();
+                value_right = evaluator.step(&right, time).unwrap();
+            }
+            _ => break,
         }
     }
 

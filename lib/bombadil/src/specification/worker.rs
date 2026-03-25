@@ -24,12 +24,14 @@ enum Command {
 struct RawStepResult {
     properties: Vec<(String, PropertyValue)>,
     actions: Tree<json::Value>,
+    has_pending: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct StepResult<A> {
     pub properties: Vec<(String, PropertyValue)>,
     pub actions: Tree<A>,
+    pub has_pending: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -43,7 +45,7 @@ impl From<&ltl::Value<RuntimeFunction>> for PropertyValue {
     fn from(value: &ltl::Value<RuntimeFunction>) -> Self {
         match value {
             ltl::Value::True => PropertyValue::True,
-            ltl::Value::False(violation) => {
+            ltl::Value::False(violation, _) => {
                 PropertyValue::False(violation.with_pretty_functions())
             }
             ltl::Value::Residual(_) => PropertyValue::Residual,
@@ -115,6 +117,7 @@ impl VerifierWorker {
                                         })
                                         .collect(),
                                     actions: result.actions,
+                                    has_pending: result.has_pending,
                                 },
                             ),
                         );
@@ -169,6 +172,7 @@ impl VerifierWorker {
         Ok(StepResult {
             properties: result.properties,
             actions,
+            has_pending: result.has_pending,
         })
     }
 }
