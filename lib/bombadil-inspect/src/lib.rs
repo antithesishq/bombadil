@@ -16,7 +16,6 @@ mod container_size;
 mod duration;
 mod screenshot;
 mod state_details;
-mod svg;
 mod timeline;
 
 #[function_component(App)]
@@ -51,10 +50,23 @@ fn app() -> Html {
 
     html! {
         <main class="grid">
+
+            <svg width="0" height="0" aria-hidden="true" focusable="false">
+              <defs>
+                <pattern id="dither" width="1.5" height="1.5" patternUnits="userSpaceOnUse">
+                        <circle cx="1" cy="1" r=".5" opacity="0.4" />
+                </pattern>
+                <pattern id="violation" width="1" height="2" patternUnits="userSpaceOnUse">
+                    <rect width="1" height="1" opacity="0.3" />
+                </pattern>
+              </defs>
+            </svg>
+
             <header class="pane">
                 <h1>{"Bombadil Inspect"}</h1>
                 <span class="status"></span>
             </header>
+
             <div class="pane actions">
                 <h2>{"Actions"}</h2>
                 <div class="content">

@@ -5,7 +5,6 @@
 }
 
 .timeline path,
-.timeline path,
 .timeline polyline {
     stroke: var(--color-fg);
     fill: none;

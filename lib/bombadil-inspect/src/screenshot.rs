@@ -98,6 +98,7 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
                 <img
                     src={props.entry.screenshot.clone()}
                     onload={on_load}
+                    alt="Screenshot"
                 />
                 {overlay}
             </div>

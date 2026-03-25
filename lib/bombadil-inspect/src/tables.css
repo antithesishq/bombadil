@@ -19,9 +19,6 @@ table .right {
     text-align: right;
 }
 
-tr th,
-tr td {}
-
 tbody td {
     border-left: 1px solid var(--color-border);
     border-right: 1px solid var(--color-border);

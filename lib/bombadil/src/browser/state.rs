@@ -160,10 +160,12 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub fn from_metrics(metrics: Vec<performance::Metric>) -> Self {
+    pub fn from_metrics(metrics: &[performance::Metric]) -> Self {
         use std::collections::BTreeMap;
-        let map: BTreeMap<String, f64> =
-            metrics.into_iter().map(|m| (m.name, m.value)).collect();
+        let map: BTreeMap<&str, f64> = metrics
+            .into_iter()
+            .map(|m| (m.name.as_str(), m.value))
+            .collect();
         let get = |name: &str| -> f64 { map.get(name).copied().unwrap_or(0.0) };
         Self {
             js_heap_used: get("JSHeapUsedSize") as u64,
@@ -355,11 +357,10 @@ impl BrowserState {
             None => None,
         };
 
-        let performance_metrics = page
+        let performance_metrics = &page
             .execute(performance::GetMetricsParams {})
             .await?
-            .metrics
-            .clone();
+            .metrics;
         let resources = Resources::from_metrics(performance_metrics);
 
         log::trace!("BrowserState::current: done");

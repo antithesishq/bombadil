@@ -57,7 +57,6 @@ ol li {
 ol li:before {
     content: counters(item, ".") ". ";
     counter-increment: item;
-    font-weight: var(--font-weight-medium);
 }
 
 a {
@@ -74,7 +73,6 @@ pre {
     padding: 1rem;
     overflow-x: auto;
     border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
     background-color: var(--color-bg-muted);
 }
 
@@ -83,7 +81,6 @@ kbd {
     padding: .25em .375em;
     line-height: 1;
     border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
     background-color: var(--color-bg-muted);
     font-size: .75em;
     font-family: var(--font-family-code);

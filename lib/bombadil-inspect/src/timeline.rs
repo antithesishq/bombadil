@@ -9,7 +9,6 @@ use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::duration::format_duration;
-use crate::svg::{DitherPattern, ViolationPattern};
 
 const SPACING_LEFT: f64 = 24.0;
 const SPACING_RIGHT: f64 = 32.0;
@@ -93,12 +92,14 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             return html!();
         }
     };
-    let x_max =
-        if let Some(x) = series_heap.iter().map(|(x, _)| *x).reduce(f64::max) {
-            x
-        } else {
-            return html!();
-        };
+    let x_max = if let Some(x) =
+        series_heap.iter().map(|(x, _)| *x).reduce(f64::max)
+        && x > 0.0
+    {
+        x
+    } else {
+        return html!();
+    };
 
     let print_y_bytes = Callback::from(move |y: f64| format_bytes(y as u64));
     let print_y_percent =
@@ -169,11 +170,6 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                 onmouseleave={on_mouse_up.clone()}
                 onmouseup={on_mouse_up}
             >
-                <defs>
-                    <DitherPattern />
-                    <ViolationPattern />
-                </defs>
-
                 <g transform={format!("translate(0, {})", SPACING_Y)}>
                     <LineChart
                         name="Heap"
@@ -256,6 +252,7 @@ pub struct LineChartProps {
 pub fn LineChart(props: &LineChartProps) -> Html {
     let mut y_max = if let Some(y) =
         props.series.iter().map(|(_, y)| *y).reduce(f64::max)
+        && y > 0.0
     {
         y
     } else {
@@ -355,25 +352,25 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
     )
 }
 
-fn format_bytes(bytes: u64) -> String {
+fn format_bytes(size: u64) -> String {
     const G: f64 = 1_073_741_824.0;
     const M: f64 = 1_048_576.0;
     const K: f64 = 1_024.0;
 
-    let b = bytes as f64;
-    let (val, suffix) = if b >= G {
-        (b / G, "G")
-    } else if b >= M {
-        (b / M, "M")
-    } else if b >= K {
-        (b / K, "K")
+    let size_float = size as f64;
+    let (val, suffix) = if size_float >= G {
+        (size_float / G, "G")
+    } else if size_float >= M {
+        (size_float / M, "M")
+    } else if size_float >= K {
+        (size_float / K, "K")
     } else {
-        return format!("{bytes}B");
+        return format!("{size}B");
     };
 
     if val >= 10.0 {
-        format!("{}{}", val as u64, suffix)
+        format!("{:.0}{}", val as u64, suffix)
     } else {
-        format!(".{}{}", (val * 10.0) as u64 % 10, suffix)
+        format!(".{:.1}{}", (val * 10.0) as u64 % 10, suffix)
     }
 }

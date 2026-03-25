@@ -59,6 +59,9 @@ async fn trace_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<TraceEntry>>, axum::http::StatusCode> {
     let trace_file = state.trace_directory.join("trace.jsonl");
+    // TODO: this should be streamed line-by-line over a websocket or SSE
+    // rather than loaded into memory and sent as JSON. OK for now, but
+    // worth revisiting when we do "live inspect mode".
     let content =
         tokio::fs::read_to_string(&trace_file)
             .await

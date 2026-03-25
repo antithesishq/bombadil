@@ -12,7 +12,6 @@ use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::duration::format_duration;
-use crate::svg::ViolationPattern;
 
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
@@ -30,7 +29,6 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                     if !props.entry.violations.is_empty() && let Some((width, height)) = container_size {
                         html!(
                             <svg class="background" xmlns="http://www.w3.org/2000/svg">
-                                <ViolationPattern />
                                 <rect width={width.to_string()} height={height.to_string()} fill="url(#violation)" />
                             </svg>
                         )
@@ -60,7 +58,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .entry
                         .snapshots
                         .iter()
-                        .map(|snapshot| html!(<tr><th>{snapshot.name.clone()}</th><td>{json::to_string_pretty(&snapshot.value).unwrap_or("invalid json".into())}</td></tr>))
+                        .map(|snapshot| html!(<tr><th>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</th><td>{json::to_string_pretty(&snapshot.value).unwrap_or("invalid json".into())}</td></tr>))
                         .collect::<Html>()
                 }
                 </table>

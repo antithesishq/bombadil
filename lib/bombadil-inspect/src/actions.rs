@@ -9,7 +9,6 @@ use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::duration::format_duration;
-use crate::svg::DitherPattern;
 
 #[derive(PartialEq, Properties)]
 pub struct ActionsListProps {
@@ -179,38 +178,39 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
     let on_click = move |_| on_select.emit(index);
 
     html! {
-        <li class={li_class} role="button" tabindex="0" onclick={on_click} ref={container_ref}>
-            {
-                if props.is_selected && let Some((width, height)) = container_size {
-                    html!(
-                        <svg class="background" xmlns="http://www.w3.org/2000/svg">
-                            <DitherPattern />
-                            <rect width={width.to_string()} height={height.to_string()} fill="url(#dither)" />
-                        </svg>
-                    )
-                } else {
-                    html!()
-                }
-            }
-            <header>
-                <div class="action-header">{action_header}</div>
-                <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
-            </header>
-            {if let Some(details) = details && props.is_selected {
-                html!(
-                    <table class="details">
-                    {details.iter().map(|(name, value)| {
+        <li class={li_class}>
+            <button onclick={on_click} ref={container_ref}>
+                {
+                    if props.is_selected && let Some((width, height)) = container_size {
                         html!(
-                            <tr>
-                                <th>{name}</th>
-                                <td>{value}</td>
-                            </tr>
+                            <svg class="background" xmlns="http://www.w3.org/2000/svg">
+                                <rect width={width.to_string()} height={height.to_string()} fill="url(#dither)" />
+                            </svg>
                         )
-                    }).collect::<Html>()}
-                    </table>
+                    } else {
+                        html!()
+                    }
+                }
+                <header>
+                    <div class="action-header">{action_header}</div>
+                    <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
+                </header>
+                {if let Some(details) = details && props.is_selected {
+                    html!(
+                        <table class="details">
+                        {details.iter().map(|(name, value)| {
+                            html!(
+                                <tr>
+                                    <th>{name}</th>
+                                    <td>{value}</td>
+                                </tr>
+                            )
+                        }).collect::<Html>()}
+                        </table>
 
-                )
-            } else { Html::default() }}
+                    )
+                } else { Html::default() }}
+            </button>
         </li>
     }
 }

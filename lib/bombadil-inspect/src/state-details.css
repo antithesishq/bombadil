@@ -41,7 +41,6 @@
 details[open]::details-content {
   padding: var(--spacing-vertical) calc(var(--spacing-horizontal) * 2);
   overflow-x: auto;
-  zindex: 1;
 }
 
 .state-details pre {

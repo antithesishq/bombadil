@@ -7,14 +7,7 @@
 }
 
 .actions li {
-    position: relative;
-    display: grid;
-    grid-template-rows: auto auto;
-    grid-template-columns: auto 1fr auto;
-    width: 100%;
-    cursor: pointer;
-    gap: 0;
-    overflow: hidden;
+  margin: 0;
 }
 
 .actions .background {
@@ -27,8 +20,29 @@
 }
 
 .actions li:before {
+  display: none;
+}
+.actions li button:before {
+    content: counters(item, ".") ". ";
+    counter-increment: item;
     color: var(--color-fg-muted);
     padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+.actions li button {
+  border: none;
+  background: none;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto;
+  grid-template-columns: auto 1fr auto;
+  width: 100%;
+  cursor: pointer;
+  gap: 0;
+  overflow: hidden;
 }
 
 .actions header {
@@ -67,7 +81,7 @@
 
 .actions .text,
 .actions .element-name {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     text-transform: lowercase;
     overflow: hidden;
     text-overflow: ellipsis;
