@@ -1,0 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+:root {
+    --font-size-base: 12px;
+    --font-family: "JetBrains Mono", monospace;
+    --font-family-code: "JetBrains Mono", monospace;
+    --line-height-relative: 1.4;
+    --line-height: 1.4rem;
+
+    --spacing-vertical: calc(var(--line-height) / 4);
+    --spacing-horizontal: .5ch;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-size: 1rem;
+    font-family: var(--font-family);
+    font-weight: 700;
+    text-transform: uppercase;
+    margin: 0;
+}
+
+p,
+ul,
+ol,
+details,
+pre {
+    margin: 0;
+}
+
+li {
+    margin: 0;
+    padding: 0;
+    line-height: var(--line-height);
+}
+
+ul {
+    padding: 0 0 0 2rem;
+}
+
+ol {
+    padding: 0;
+    list-style-type: none;
+    counter-reset: item;
+}
+
+ol li {
+    display: flex;
+    flex-direction: row;
+    gap: 1ch;
+}
+
+ol li:before {
+    content: counters(item, ".") ". ";
+    counter-increment: item;
+}
+
+a {
+    color: inherit;
+    text-decoration: underline;
+}
+
+pre,
+code {
+    font-family: var(--font-family-code);
+}
+
+pre {
+    padding: 1rem;
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-bg-muted);
+}
+
+kbd {
+    display: inline-block;
+    padding: .25em .375em;
+    line-height: 1;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-bg-muted);
+    font-size: .75em;
+    font-family: var(--font-family-code);
+    font-weight: 600;
+    text-transform: uppercase;
+}
