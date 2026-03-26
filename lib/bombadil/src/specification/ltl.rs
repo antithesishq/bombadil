@@ -5,8 +5,18 @@ use bit_set::BitSet;
 use serde::Serialize;
 
 /// A set of extractor indices that were accessed during thunk evaluation.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExtractorSet(BitSet);
+
+impl Serialize for ExtractorSet {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        let indices: Vec<usize> = self.0.iter().collect();
+        indices.serialize(serializer)
+    }
+}
 
 impl ExtractorSet {
     pub fn insert(&mut self, index: usize) {

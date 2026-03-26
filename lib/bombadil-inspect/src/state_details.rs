@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use bombadil_inspect_api::EventuallyViolation;
 use bombadil_inspect_api::Formula;
 use bombadil_inspect_api::PropertyViolation;
+use bombadil_inspect_api::Snapshot;
 use bombadil_inspect_api::TraceEntry;
 use bombadil_inspect_api::Violation;
 use serde_json as json;
@@ -16,6 +17,7 @@ use crate::duration::format_duration;
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
     pub entry: Rc<TraceEntry>,
+    pub trace: Rc<[TraceEntry]>,
     pub test_start: SystemTime,
 }
 
@@ -45,7 +47,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .entry
                         .violations
                         .iter()
-                        .map(|violation| html!(<li>{render_violation(violation, props.test_start)}</li>))
+                        .map(|violation| html!(<li>{render_violation(violation, props.test_start, &props.trace)}</li>))
                         .collect::<Html>()
                 }
                 </ol>
@@ -70,11 +72,12 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
 fn render_violation(
     violation: &PropertyViolation,
     test_start: SystemTime,
+    trace: &[TraceEntry],
 ) -> Html {
     html!(
         <div class="violation">
             <strong>{&violation.name}{": "}</strong>
-            {render_violation_inner(&violation.violation, test_start)}
+            {render_violation_inner(&violation.violation, test_start, trace)}
         </div>
     )
 }
@@ -82,26 +85,37 @@ fn render_violation(
 fn render_violation_inner(
     violation: &Violation,
     test_start: SystemTime,
+    trace: &[TraceEntry],
 ) -> Html {
     match violation {
         Violation::False {
-            time: _, condition, ..
+            snapshot_references,
+            condition,
+            ..
         } => {
-            html!(<pre><code>{format!("!({})", condition)}</code></pre>)
+            if snapshot_references.is_empty() {
+                html!(<pre><code>{condition}</code></pre>)
+            } else {
+                html!(
+                    <span class="violation-false">
+                        {render_snapshot_values(snapshot_references, trace)}
+                    </span>
+                )
+            }
         }
         Violation::Eventually { subformula, reason } => {
             let reason_text = match reason {
                 EventuallyViolation::TimedOut(time) => {
-                    format!("timed out at {}: ", format_time(time, test_start))
+                    format!(" (timed out at {})", format_time(time, test_start),)
                 }
                 EventuallyViolation::TestEnded => {
-                    "failed at test end: ".to_string()
+                    " (never occurred)".to_string()
                 }
             };
             html!(
                 <div class="violation-eventually">
-                    <span>{reason_text}</span>
                     {render_formula(subformula)}
+                    <span>{reason_text}</span>
                 </div>
             )
         }
@@ -123,9 +137,9 @@ fn render_violation_inner(
                     }</span>
                     {render_formula(subformula)}
                     <span>{
-                        format!("but at {}", format_time(time, test_start))
+                        format!("but at {},", format_time(time, test_start))
                     }</span>
-                    {render_violation_inner(violation, test_start)}
+                    {render_violation_inner(violation, test_start, trace)}
                 </span>
             )
         }
@@ -148,43 +162,132 @@ fn render_violation_inner(
                     }</span>
                     {render_formula(subformula)}
                     <span>{
-                        format!("but at {}", format_time(time, test_start))
+                        format!("but at {},", format_time(time, test_start))
                     }</span>
-                    {render_violation_inner(violation, test_start)}
+                    {render_violation_inner(violation, test_start, trace)}
                 </span>
             )
         }
         Violation::And { left, right } => {
             html!(
                 <div class="violation-and">
-                    {render_violation_inner(left, test_start)}
+                    {render_violation_inner(left, test_start, trace)}
                     <span class="keyword">{"and"}</span>
-                    {render_violation_inner(right, test_start)}
+                    {render_violation_inner(right, test_start, trace)}
                 </div>
             )
         }
         Violation::Or { left, right } => {
             html!(
                 <div class="violation-or">
-                    {render_violation_inner(left, test_start)}
+                    {render_violation_inner(left, test_start, trace)}
                     <span class="keyword">{"or"}</span>
-                    {render_violation_inner(right, test_start)}
+                    {render_violation_inner(right, test_start, trace)}
                 </div>
             )
         }
         Violation::Implies {
             left,
             right,
-            antecedent_snapshot_references: _,
+            antecedent_snapshot_references,
         } => {
             html!(
                 <div class="violation-implies">
-                    {render_violation_inner(right, test_start)}
-                    <span class="keyword">{"since"}</span>
                     {render_formula(left)}
+                    <span class="keyword">{" implies"}</span>
+                    {
+                        if !antecedent_snapshot_references.is_empty() {
+                            html!(
+                                <span class="antecedent-context">
+                                    {" (was true"}
+                                    {render_snapshot_inline(
+                                        antecedent_snapshot_references,
+                                        trace,
+                                    )}
+                                    {")"}
+                                </span>
+                            )
+                        } else {
+                            html!()
+                        }
+                    }
+                    {":"}
+                    {render_violation_inner(right, test_start, trace)}
                 </div>
             )
         }
+    }
+}
+
+fn render_snapshot_values(
+    references: &[(usize, Vec<usize>)],
+    trace: &[TraceEntry],
+) -> Html {
+    let items: Vec<Html> = collect_snapshot_items(references, trace);
+    html!(
+        <span class="snapshot-values">
+            { for items.into_iter() }
+        </span>
+    )
+}
+
+fn render_snapshot_inline(
+    references: &[(usize, Vec<usize>)],
+    trace: &[TraceEntry],
+) -> Html {
+    let items: Vec<Html> = collect_snapshot_items(references, trace);
+    if items.is_empty() {
+        return html!();
+    }
+    html!(
+        <span class="snapshot-inline">
+            {" with "}
+            { for items.into_iter() }
+        </span>
+    )
+}
+
+fn collect_snapshot_items(
+    references: &[(usize, Vec<usize>)],
+    trace: &[TraceEntry],
+) -> Vec<Html> {
+    let mut items = Vec::new();
+    for (state_index, extractor_indices) in references {
+        if let Some(entry) = trace.get(*state_index) {
+            for &extractor_index in extractor_indices {
+                if let Some(snapshot) = entry.snapshots.get(extractor_index) {
+                    if !items.is_empty() {
+                        items.push(html!(<span>{", "}</span>));
+                    }
+                    let name = snapshot_name(snapshot, extractor_index);
+                    items.push(html!(
+                        <code class="snapshot-ref">
+                            {format!(
+                                "{} = {}",
+                                name,
+                                format_json_value(&snapshot.value),
+                            )}
+                        </code>
+                    ));
+                }
+            }
+        }
+    }
+    items
+}
+
+fn snapshot_name(snapshot: &Snapshot, extractor_index: usize) -> String {
+    snapshot
+        .name
+        .as_deref()
+        .map(String::from)
+        .unwrap_or_else(|| format!("extractor[{}]", extractor_index))
+}
+
+fn format_json_value(value: &json::Value) -> String {
+    match value {
+        json::Value::String(s) => format!("{:?}", s),
+        other => other.to_string(),
     }
 }
 
