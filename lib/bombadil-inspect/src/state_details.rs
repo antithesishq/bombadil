@@ -60,12 +60,19 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .entry
                         .snapshots
                         .iter()
-                        .map(|snapshot| html!(
-                            <>
-                                <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
-                                <dd>{render_json(&snapshot.value)}</dd>
-                            </>
-                        ))
+                        .map(|snapshot| {
+                            let class = if is_json_scalar(&snapshot.value) {
+                                "json-entry scalar"
+                            } else {
+                                "json-entry"
+                            };
+                            html!(
+                                <div class={class}>
+                                    <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
+                                    <dd>{render_json(&snapshot.value)}</dd>
+                                </div>
+                            )
+                        })
                         .collect::<Html>()
                 }
                 </dl>
@@ -272,11 +279,16 @@ fn collect_snapshot_items(
             for &extractor_index in extractor_indices {
                 if let Some(snapshot) = entry.snapshots.get(extractor_index) {
                     let name = snapshot_name(snapshot, extractor_index);
+                    let class = if is_json_scalar(&snapshot.value) {
+                        "json-entry scalar"
+                    } else {
+                        "json-entry"
+                    };
                     items.push(html!(
-                        <>
+                        <div class={class}>
                             <dt>{name}</dt>
                             <dd>{render_json(&snapshot.value)}</dd>
-                        </>
+                        </div>
                     ));
                 }
             }
@@ -297,6 +309,10 @@ fn is_printable(s: &str) -> bool {
     s.chars().all(|c| !c.is_control() || c == '\n' || c == '\t')
 }
 
+fn is_json_scalar(value: &json::Value) -> bool {
+    !matches!(value, json::Value::Array(_) | json::Value::Object(_))
+}
+
 fn render_json(value: &json::Value) -> Html {
     match value {
         json::Value::Array(items) => {
@@ -309,17 +325,24 @@ fn render_json(value: &json::Value) -> Html {
         json::Value::Object(map) => {
             html!(
                 <dl class="json-object">
-                    { for map.iter().map(|(key, val)| html!(
-                        <>
-                            <dt>{key}</dt>
-                            <dd>{render_json(val)}</dd>
-                        </>
-                    )) }
+                    { for map.iter().map(|(key, val)| {
+                        let class = if is_json_scalar(val) {
+                            "json-entry scalar"
+                        } else {
+                            "json-entry"
+                        };
+                        html!(
+                            <div class={class}>
+                                <dt>{key}</dt>
+                                <dd>{render_json(val)}</dd>
+                            </div>
+                        )
+                    }) }
                 </dl>
             )
         }
         json::Value::String(s) if is_printable(s) => {
-            html!(<pre class="json-string">{s}</pre>)
+            html!(<span class="json-string">{s}</span>)
         }
         other => {
             html!(<code class="json-literal">{other.to_string()}</code>)

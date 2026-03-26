@@ -256,7 +256,7 @@ fn write_json_value(
             for item in items {
                 writeln!(f)?;
                 write_indent(f, depth)?;
-                write!(f, "- ")?;
+                write!(f, "-")?;
                 write_json_value(f, item, depth + 1)?;
             }
         }
