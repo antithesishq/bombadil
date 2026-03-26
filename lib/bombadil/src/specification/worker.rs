@@ -17,6 +17,7 @@ enum Command {
     Step {
         snapshots: Arc<[Snapshot]>,
         time: ltl::Time,
+        state_index: usize,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
 }
@@ -44,7 +45,7 @@ pub enum PropertyValue {
 impl From<&ltl::Value<RuntimeFunction>> for PropertyValue {
     fn from(value: &ltl::Value<RuntimeFunction>) -> Self {
         match value {
-            ltl::Value::True => PropertyValue::True,
+            ltl::Value::True(_) => PropertyValue::True,
             ltl::Value::False(violation, _) => {
                 PropertyValue::False(violation.with_pretty_functions())
             }
@@ -101,11 +102,17 @@ impl VerifierWorker {
                     Command::Step {
                         snapshots,
                         time,
+                        state_index,
                         reply,
                     } => {
                         let _ = reply.send(
-                            verifier.step::<json::Value>(&snapshots, time).map(
-                                |result| RawStepResult {
+                            verifier
+                                .step::<json::Value>(
+                                    &snapshots,
+                                    time,
+                                    state_index,
+                                )
+                                .map(|result| RawStepResult {
                                     properties: result
                                         .properties
                                         .iter()
@@ -118,8 +125,7 @@ impl VerifierWorker {
                                         .collect(),
                                     actions: result.actions,
                                     has_pending: result.has_pending,
-                                },
-                            ),
+                                }),
                         );
                     }
                 }
@@ -148,6 +154,7 @@ impl VerifierWorker {
         &self,
         snapshots: Arc<[Snapshot]>,
         time: ltl::Time,
+        state_index: usize,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
@@ -155,6 +162,7 @@ impl VerifierWorker {
                 reply: reply_tx,
                 snapshots,
                 time,
+                state_index,
             })
             .await
             .map_err(|_| WorkerError::WorkerGone)?;

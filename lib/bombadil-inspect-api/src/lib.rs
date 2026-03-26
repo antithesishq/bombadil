@@ -86,6 +86,8 @@ pub enum Violation {
     False {
         time: SystemTime,
         condition: String,
+        #[serde(default)]
+        snapshot_references: Vec<(usize, Vec<usize>)>,
     },
     Eventually {
         subformula: Box<Formula>,
@@ -109,6 +111,8 @@ pub enum Violation {
     Implies {
         left: Formula,
         right: Box<Violation>,
+        #[serde(default)]
+        antecedent_snapshot_references: Vec<(usize, Vec<usize>)>,
     },
 }
 

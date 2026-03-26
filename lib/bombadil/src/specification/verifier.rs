@@ -275,6 +275,7 @@ impl Verifier {
         &mut self,
         snapshots: &[Snapshot],
         time: ltl::Time,
+        state_index: usize,
     ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
             snapshots,
@@ -284,22 +285,56 @@ impl Verifier {
         let mut result_properties = Vec::with_capacity(self.properties.len());
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
+        let runtime_obj = self.bombadil_exports.runtime.clone();
+        let start_tracking = runtime_obj
+            .get(js_string!("startTracking"), &mut self.context)?
+            .as_callable()
+            .ok_or(SpecificationError::OtherError(
+                "startTracking is not callable".to_string(),
+            ))?;
+        let stop_tracking = runtime_obj
+            .get(js_string!("stopTracking"), &mut self.context)?
+            .as_callable()
+            .ok_or(SpecificationError::OtherError(
+                "stopTracking is not callable".to_string(),
+            ))?;
+
         let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
                                   negated: bool|
-         -> Result<Formula<RuntimeFunction>> {
+         -> Result<(
+            Formula<RuntimeFunction>,
+            ltl::ExtractorSet,
+        )> {
+            start_tracking.call(
+                &JsValue::from(runtime_obj.clone()),
+                &[],
+                context,
+            )?;
             let value =
                 function.object.call(&JsValue::undefined(), &[], context)?;
+            let accesses_js = stop_tracking.call(
+                &JsValue::from(runtime_obj.clone()),
+                &[],
+                context,
+            )?;
+            let accessed = crate::specification::js::js_value_to_extractor_set(
+                &accesses_js,
+                context,
+            )?;
             let syntax =
                 Syntax::from_value(&value, &self.bombadil_exports, context)?;
-            Ok((if negated {
-                Syntax::Not(Box::new(syntax))
-            } else {
-                syntax
-            })
-            .nnf())
+            Ok((
+                (if negated {
+                    Syntax::Not(Box::new(syntax))
+                } else {
+                    syntax
+                })
+                .nnf(),
+                accessed,
+            ))
         };
-        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+        let mut evaluator = Evaluator::new(&mut evaluate_thunk, state_index);
 
         for property in self.properties.values_mut() {
             let value = match &property.state {
@@ -315,9 +350,9 @@ impl Verifier {
             result_properties.push((
                 property.name.clone(),
                 match value {
-                    ltl::Value::True => {
+                    ltl::Value::True(_) => {
                         property.state = PropertyState::DefinitelyTrue;
-                        ltl::Value::True
+                        ltl::Value::True(vec![])
                     }
                     ltl::Value::False(violation, continuation) => {
                         property.state = match continuation {
@@ -486,12 +521,13 @@ mod tests {
                     value: json::json!(false),
                 }],
                 time,
+                0,
             )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -525,12 +561,13 @@ mod tests {
                     },
                 ],
                 time,
+                0,
             )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -564,12 +601,13 @@ mod tests {
                     },
                 ],
                 time,
+                0,
             )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -603,12 +641,13 @@ mod tests {
                     },
                 ],
                 time,
+                0,
             )
             .unwrap();
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -639,6 +678,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
+                    0,
                 )
                 .unwrap();
 
@@ -646,7 +686,7 @@ mod tests {
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
-                assert!(matches!(value, ltl::Value::True));
+                assert!(matches!(value, ltl::Value::True(_)));
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
@@ -689,6 +729,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
+                    0,
                 )
                 .unwrap();
 
@@ -730,6 +771,7 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time,
+                0,
             )
             .unwrap();
         let (name, value) = result.properties.first().unwrap();
@@ -769,6 +811,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
+                    0,
                 )
                 .unwrap();
 
@@ -790,7 +833,7 @@ mod tests {
                         }
                     }
                 } else {
-                    assert!(matches!(value, ltl::Value::True));
+                    assert!(matches!(value, ltl::Value::True(_)));
                 }
             } else {
                 assert!(i > 4, "property should still be pending at i={}", i);
@@ -826,6 +869,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
+                    0,
                 )
                 .unwrap();
 
@@ -833,7 +877,7 @@ mod tests {
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
-                assert!(matches!(value, ltl::Value::True));
+                assert!(matches!(value, ltl::Value::True(_)));
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
@@ -895,6 +939,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
+                    0,
                 )
                 .unwrap();
 
@@ -952,6 +997,7 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time_at(0),
+                    0,
                 )
                 .unwrap();
             let (_, value) = result.properties.first().unwrap();
@@ -971,6 +1017,7 @@ mod tests {
                     value: json::json!(5),
                 }],
                 time_at(0),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -988,6 +1035,7 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(0),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1005,6 +1053,7 @@ mod tests {
                     value: json::json!(5),
                 }],
                 time_at(0),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1038,6 +1087,7 @@ mod tests {
                     value: json::json!(false),
                 }],
                 time,
+                0,
             )
             .unwrap();
         let (name, value) = result.properties.first().unwrap();
@@ -1056,6 +1106,7 @@ mod tests {
                     value: json::json!(true),
                 }],
                 time,
+                0,
             )
             .unwrap();
         assert!(
@@ -1093,6 +1144,7 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(0),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1106,6 +1158,7 @@ mod tests {
                     value: json::json!(10),
                 }],
                 time_at(3),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1123,6 +1176,7 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(4),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1140,11 +1194,12 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(6),
+                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
         assert!(
-            matches!(value, ltl::Value::True),
+            matches!(value, ltl::Value::True(_)),
             "expected True past the bound, got: {:?}",
             value,
         );

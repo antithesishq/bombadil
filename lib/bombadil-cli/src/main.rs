@@ -259,6 +259,7 @@ async fn test(
     struct MainObserver {
         writer: TraceWriter,
         exit_on_violation: bool,
+        trace_snapshots: Vec<Vec<Snapshot>>,
     }
 
     impl RunObserver for MainObserver {
@@ -271,11 +272,16 @@ async fn test(
             snapshots: &[Snapshot],
             violations: &[PropertyViolation],
         ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
+            self.trace_snapshots.push(snapshots.to_vec());
+
             for violation in violations {
                 log::error!(
                     "violation of property `{}`:\n{}",
                     violation.name,
-                    render_violation(&violation.violation)
+                    render_violation(
+                        &violation.violation,
+                        &self.trace_snapshots
+                    )
                 );
             }
 
@@ -294,6 +300,7 @@ async fn test(
     let mut observer = MainObserver {
         writer: TraceWriter::initialize(output_path).await?,
         exit_on_violation: shared_options.exit_on_violation,
+        trace_snapshots: Vec::new(),
     };
 
     if let Some(exit_code) = runner.run(&mut observer).await? {

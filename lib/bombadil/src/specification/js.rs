@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use boa_engine::{
-    Context, JsObject, JsValue, Module, js_string, property::PropertyKey,
+    Context, JsObject, JsValue, Module, js_string, object::builtins::JsArray,
+    property::PropertyKey,
 };
 
 use serde::{Deserialize, Serialize};
@@ -386,6 +387,27 @@ pub fn module_exports(
         exports.insert(key, value);
     }
     Ok(exports)
+}
+
+pub fn js_value_to_extractor_set(
+    value: &JsValue,
+    context: &mut Context,
+) -> Result<crate::specification::ltl::ExtractorSet> {
+    use crate::specification::ltl::ExtractorSet;
+    let mut set = ExtractorSet::default();
+    if let Some(object) = value.as_object() {
+        let array = JsArray::from_object(object)?;
+        let length = array.length(context)?;
+        for i in 0..length {
+            let element = array.at(i as i64, context)?;
+            let index =
+                element.as_number().ok_or(SpecificationError::OtherError(
+                    "extractor index is not a number".to_string(),
+                ))? as usize;
+            set.insert(index);
+        }
+    }
+    Ok(set)
 }
 
 pub struct Extractors {

@@ -12,9 +12,9 @@ pub fn stop_default<Function: Clone>(
 ) -> Option<StopDefault<Function>> {
     use Residual::*;
     match residual {
-        True => Some(StopDefault::True),
+        True(_) => Some(StopDefault::True),
         False(violation) => Some(StopDefault::False(violation.clone())),
-        Derived(_, leaning) => match leaning {
+        Derived(_, leaning, _) => match leaning {
             Leaning::AssumeFalse(violation) => {
                 Some(StopDefault::False(violation.clone()))
             }
@@ -97,6 +97,7 @@ fn stop_implies_default<Function: Clone>(
         (True, False(violation)) => False(Violation::Implies {
             left: left_formula.clone(),
             right: Box::new(violation.clone()),
+            antecedent_snapshot_references: vec![],
         }),
         (True, True) => True,
     }

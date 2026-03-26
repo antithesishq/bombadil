@@ -151,6 +151,7 @@ async fn run_browser_test(
 
     struct TestObserver {
         collected_violations: Vec<String>,
+        trace_snapshots: Vec<Vec<bombadil::specification::verifier::Snapshot>>,
     }
 
     impl bombadil::runner::RunObserver for TestObserver {
@@ -160,16 +161,20 @@ async fn run_browser_test(
             &mut self,
             _state: &bombadil::browser::state::BrowserState,
             _last_action: Option<&bombadil::browser::actions::BrowserAction>,
-            _snapshots: &[bombadil::specification::verifier::Snapshot],
+            snapshots: &[bombadil::specification::verifier::Snapshot],
             violations: &[bombadil::trace::PropertyViolation],
         ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
         {
+            self.trace_snapshots.push(snapshots.to_vec());
             if !violations.is_empty() {
                 for violation in violations {
                     self.collected_violations.push(format!(
                         "{}:\n{}\n\n",
                         violation.name,
-                        render_violation(&violation.violation)
+                        render_violation(
+                            &violation.violation,
+                            &self.trace_snapshots
+                        )
                     ));
                 }
             }
@@ -179,6 +184,7 @@ async fn run_browser_test(
 
     let mut observer = TestObserver {
         collected_violations: Vec::new(),
+        trace_snapshots: Vec::new(),
     };
 
     enum Outcome {
@@ -635,6 +641,34 @@ export const moduleLoaded = now(() => {
   return outputText.current === "ES module loaded successfully";
 });
 "##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_snapshot_references_in_violation() {
+    run_browser_test(
+        "snapshot-references",
+        Expect::Error {
+            substring: "pageValue = 1",
+        },
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        Some(
+            r#"
+import { extract, always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+const pageValue = extract((state) => {
+  return parseInt(
+    state.document.querySelector("\#value")?.textContent ?? "0", 10
+  );
+});
+
+export const valueShouldStayZero = always(
+  () => pageValue.current === 0
+);
+"#,
         ),
     )
     .await;

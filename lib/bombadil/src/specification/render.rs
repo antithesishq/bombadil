@@ -1,57 +1,101 @@
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
+use serde_json as json;
 
 use crate::specification::{
     js::RuntimeFunction,
-    ltl::{EventuallyViolation, Formula, Time, Violation},
+    ltl::{EventuallyViolation, Formula, SnapshotReferences, Time, Violation},
+    verifier::Snapshot,
 };
 
-pub fn render_violation(violation: &Violation<PrettyFunction>) -> String {
-    format!("{}", RenderedViolation(violation))
+pub fn render_violation(
+    violation: &Violation<PrettyFunction>,
+    trace: &[Vec<Snapshot>],
+) -> String {
+    format!("{}", RenderedViolation { violation, trace })
 }
 
-struct RenderedViolation<'a>(&'a Violation<PrettyFunction>);
+struct RenderedViolation<'a> {
+    violation: &'a Violation<PrettyFunction>,
+    trace: &'a [Vec<Snapshot>],
+}
 
 impl<'a> std::fmt::Display for RenderedViolation<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
-            Violation::False { condition, .. } => {
-                write!(f, "!({})", condition)?;
+        match self.violation {
+            Violation::False {
+                condition,
+                snapshot_references,
+                ..
+            } => {
+                if snapshot_references.is_empty() {
+                    write!(f, "{}", condition)?;
+                } else {
+                    render_snapshot_values(f, snapshot_references, self.trace)?;
+                }
             }
             Violation::Eventually { subformula, reason } => {
+                write!(f, "{}", RenderedFormula((*subformula).as_ref()))?;
                 match reason {
                     EventuallyViolation::TimedOut(time) => {
-                        write!(f, "timed out at {}ms: ", time_to_ms(time))?
+                        write!(f, " (timed out at {}ms)", time_to_ms(time))?;
                     }
                     EventuallyViolation::TestEnded => {
-                        write!(f, "failed at test end: ")?
+                        write!(f, " (never occurred)")?;
                     }
                 }
-                write!(f, "{}", RenderedFormula((*subformula).as_ref()))?;
             }
             Violation::And { left, right } => {
                 write!(
                     f,
                     "{}\n\nand\n\n{}",
-                    RenderedViolation(left),
-                    RenderedViolation(right),
+                    RenderedViolation {
+                        violation: left,
+                        trace: self.trace
+                    },
+                    RenderedViolation {
+                        violation: right,
+                        trace: self.trace
+                    },
                 )?;
             }
             Violation::Or { left, right } => {
                 write!(
                     f,
                     "{} or {}",
-                    RenderedViolation(left),
-                    RenderedViolation(right),
+                    RenderedViolation {
+                        violation: left,
+                        trace: self.trace
+                    },
+                    RenderedViolation {
+                        violation: right,
+                        trace: self.trace
+                    },
                 )?;
             }
-            Violation::Implies { left, right } => {
+            Violation::Implies {
+                left,
+                right,
+                antecedent_snapshot_references,
+            } => {
+                write!(f, "{} implies", RenderedFormula(left))?;
+                if !antecedent_snapshot_references.is_empty() {
+                    write!(f, " (was true")?;
+                    render_snapshot_inline(
+                        f,
+                        antecedent_snapshot_references,
+                        self.trace,
+                    )?;
+                    write!(f, ")")?;
+                }
                 write!(
                     f,
-                    "{} since {}",
-                    RenderedViolation(right),
-                    RenderedFormula(left),
+                    ":\n\n{}",
+                    RenderedViolation {
+                        violation: right,
+                        trace: self.trace
+                    },
                 )?;
             }
             Violation::Always {
@@ -63,11 +107,16 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms, it should always be the case that\n\n{}\n\nbut at {}ms\n\n{}",
+                    "as of {}ms, it should always be the case that:\n\n\
+                     {}\n\n\
+                     but at {}ms, {}",
                     time_to_ms(start),
                     RenderedFormula((*subformula).as_ref()),
                     time_to_ms(time),
-                    RenderedViolation(violation),
+                    RenderedViolation {
+                        violation,
+                        trace: self.trace
+                    },
                 )?;
             }
             Violation::Always {
@@ -79,16 +128,89 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms and until {}ms, it should alwaays be the case that\n\n{}\n\nbut at {}ms\n\n{}",
+                    "as of {}ms and until {}ms, \
+                     it should always be the case that:\n\n\
+                     {}\n\n\
+                     but at {}ms, {}",
                     time_to_ms(start),
                     time_to_ms(end),
                     RenderedFormula((*subformula).as_ref()),
                     time_to_ms(time),
-                    RenderedViolation(violation),
+                    RenderedViolation {
+                        violation,
+                        trace: self.trace
+                    },
                 )?;
             }
         };
         Ok(())
+    }
+}
+
+fn render_snapshot_values(
+    f: &mut std::fmt::Formatter<'_>,
+    references: &SnapshotReferences,
+    trace: &[Vec<Snapshot>],
+) -> std::fmt::Result {
+    let mut first = true;
+    for (state_index, extractor_set) in references {
+        if let Some(snapshots) = trace.get(*state_index) {
+            for extractor_index in extractor_set.iter() {
+                if let Some(snapshot) = snapshots.get(extractor_index) {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    let fallback = format!("extractor[{}]", extractor_index);
+                    let name = snapshot.name.as_deref().unwrap_or(&fallback);
+                    write!(
+                        f,
+                        "{} = {}",
+                        name,
+                        format_json_value(&snapshot.value),
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn render_snapshot_inline(
+    f: &mut std::fmt::Formatter<'_>,
+    references: &SnapshotReferences,
+    trace: &[Vec<Snapshot>],
+) -> std::fmt::Result {
+    let mut first = true;
+    for (state_index, extractor_set) in references {
+        if let Some(snapshots) = trace.get(*state_index) {
+            for extractor_index in extractor_set.iter() {
+                if let Some(snapshot) = snapshots.get(extractor_index) {
+                    if first {
+                        write!(f, " with ")?;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    let fallback = format!("extractor[{}]", extractor_index);
+                    let name = snapshot.name.as_deref().unwrap_or(&fallback);
+                    write!(
+                        f,
+                        "{} = {}",
+                        name,
+                        format_json_value(&snapshot.value),
+                    )?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn format_json_value(value: &json::Value) -> String {
+    match value {
+        json::Value::String(s) => format!("{:?}", s),
+        other => other.to_string(),
     }
 }
 

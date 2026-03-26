@@ -1,5 +1,5 @@
 ---
-source: src/specification/bundler/mod.rs
+source: lib/bombadil/src/specification/bundler/mod.rs
 expression: bundle
 ---
 (function() {
@@ -371,15 +371,17 @@ expression: bundle
     	constructor(runtime, extract) {
     		this.runtime = runtime;
     		this.extract = extract;
-    		runtime.registerExtractor(this);
+    		this.index = runtime.registerExtractor(this);
     	}
     	name = null;
+    	index;
     	snapshots = /* @__PURE__ */ new Map();
     	update(snapshot, time2) {
     		this.snapshots.set(time2, snapshot);
     	}
     	get current() {
     		this.runtime.checkNotExtracting();
+    		this.runtime.recordAccess(this.index);
     		const value = this.snapshots.get(time.current);
     		if (value === void 0) {
     			throw new Error(`no cell value available in current state (this is a bug in the runtime)`);
@@ -388,6 +390,7 @@ expression: bundle
     		}
     	}
     	at(other) {
+    		this.runtime.recordAccess(this.index);
     		if (other < time.current) {
     			const value = this.snapshots.get(other);
     			if (value === void 0) {
@@ -428,8 +431,25 @@ expression: bundle
     class Runtime {
     	extractors = [];
     	extractingDepth = 0;
+    	tracking = false;
+    	accesses = /* @__PURE__ */ new Set();
     	registerExtractor(cell) {
+    		const index = this.extractors.length;
     		this.extractors.push(cell);
+    		return index;
+    	}
+    	startTracking() {
+    		this.tracking = true;
+    		this.accesses.clear();
+    	}
+    	stopTracking() {
+    		this.tracking = false;
+    		const result = Array.from(this.accesses);
+    		this.accesses.clear();
+    		return result;
+    	}
+    	recordAccess(index) {
+    		if (this.tracking) this.accesses.add(index);
     	}
     	runExtractors(state) {
     		return this.extractors.map((extractor) => {

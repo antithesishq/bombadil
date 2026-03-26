@@ -104,7 +104,7 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
     mode: ValueEqMode,
 ) {
     match (&value_left, &value_right) {
-        (Value::True, Value::True) => {}
+        (Value::True(_), Value::True(_)) => {}
         (Value::False(left, _), Value::False(right, _)) => {
             if mode == ValueEqMode::Strict {
                 assert_eq!(left, right);
@@ -160,10 +160,13 @@ fn check_equivalence(
                 Variable::Y => state.y,
             };
             let value = if negated { !value } else { value };
-            Ok(Formula::Pure {
-                value,
-                pretty: format!("{}", value),
-            })
+            Ok((
+                Formula::Pure {
+                    value,
+                    pretty: format!("{}", value),
+                },
+                ExtractorSet::default(),
+            ))
         }
         Thunk::Subformula(syntax) => {
             let syntax = if negated {
@@ -171,19 +174,20 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok(syntax.nnf())
+            Ok((syntax.nnf(), ExtractorSet::default()))
         }
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk, 0);
 
     let mut time = UNIX_EPOCH;
 
     let mut value_left = evaluator.evaluate(&formula_left, time).unwrap();
     let mut value_right = evaluator.evaluate(&formula_right, time).unwrap();
 
-    for _ in 1..trace.len() {
+    for i in 1..trace.len() {
         *current.borrow_mut() += 1;
         time = time.checked_add(Duration::from_millis(1)).unwrap();
+        evaluator.state_index = i;
 
         let next_left = next_residual(&value_left);
         let next_right = next_residual(&value_right);

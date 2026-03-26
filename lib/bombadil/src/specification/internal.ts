@@ -19,12 +19,13 @@ export type JSON =
 
 export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   public name: string | null = null;
+  public readonly index: number;
   private snapshots = new Map<Time, T>();
   constructor(
     private runtime: Runtime<S>,
     private extract: (state: S) => T,
   ) {
-    runtime.registerExtractor(this);
+    this.index = runtime.registerExtractor(this);
   }
 
   update(snapshot: T, time: Time): void {
@@ -33,6 +34,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
 
   get current(): T {
     this.runtime.checkNotExtracting();
+    this.runtime.recordAccess(this.index);
     const value = this.snapshots.get(time.current);
     if (value === undefined) {
       throw new Error(
@@ -44,6 +46,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 
   at(other: Time): T {
+    this.runtime.recordAccess(this.index);
     if (other < time.current) {
       const value = this.snapshots.get(other);
       if (value === undefined) {
@@ -92,9 +95,29 @@ export const time: Cell<Time> = new TimeCell();
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
   private extractingDepth: number = 0;
+  private tracking = false;
+  private accesses = new Set<number>();
 
-  registerExtractor(cell: ExtractorCell<any, S>) {
+  registerExtractor(cell: ExtractorCell<any, S>): number {
+    const index = this.extractors.length;
     this.extractors.push(cell);
+    return index;
+  }
+
+  startTracking(): void {
+    this.tracking = true;
+    this.accesses.clear();
+  }
+
+  stopTracking(): number[] {
+    this.tracking = false;
+    const result = Array.from(this.accesses);
+    this.accesses.clear();
+    return result;
+  }
+
+  recordAccess(index: number): void {
+    if (this.tracking) this.accesses.add(index);
   }
 
   runExtractors(state: S): { name: string | null; value: JSON }[] {

@@ -84,7 +84,9 @@ fn render_violation_inner(
     test_start: SystemTime,
 ) -> Html {
     match violation {
-        Violation::False { time: _, condition } => {
+        Violation::False {
+            time: _, condition, ..
+        } => {
             html!(<pre><code>{format!("!({})", condition)}</code></pre>)
         }
         Violation::Eventually { subformula, reason } => {
@@ -170,7 +172,11 @@ fn render_violation_inner(
                 </div>
             )
         }
-        Violation::Implies { left, right } => {
+        Violation::Implies {
+            left,
+            right,
+            antecedent_snapshot_references: _,
+        } => {
             html!(
                 <div class="violation-implies">
                     {render_violation_inner(right, test_start)}
