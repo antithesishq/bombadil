@@ -42,19 +42,19 @@ ul {
     padding: 0 0 0 2rem;
 }
 
-ol {
+ol.numbered {
     padding: 0;
     list-style-type: none;
     counter-reset: item;
 }
 
-ol li {
+ol.numbered > li {
     display: flex;
     flex-direction: row;
     gap: 1ch;
 }
 
-ol li:before {
+ol.numbered > li:before {
     content: counters(item, ".") ". ";
     counter-increment: item;
 }

@@ -22,7 +22,7 @@ pub fn ActionsList(props: &ActionsListProps) -> Html {
     let test_start =
         props.trace.first().expect("no first trace entry").timestamp;
     html!(
-        <ol>
+        <ol class="numbered">
         {
             props.trace.iter().enumerate().map(|(i, entry)| {
                 html!(

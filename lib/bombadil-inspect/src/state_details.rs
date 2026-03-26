@@ -41,7 +41,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 <summary>
                 {format!("Violations ({})", props.entry.violations.len())}
                 </summary>
-                <ol>
+                <ol class="numbered">
                 {
                     props
                         .entry
@@ -54,16 +54,21 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
             </details>
             <details open={true}>
                 <summary>{"Snapshots"}</summary>
-                <table>
+                <dl class="snapshots">
                 {
                     props
                         .entry
                         .snapshots
                         .iter()
-                        .map(|snapshot| html!(<tr><th>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</th><td>{json::to_string_pretty(&snapshot.value).unwrap_or("invalid json".into())}</td></tr>))
+                        .map(|snapshot| html!(
+                            <>
+                                <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
+                                <dd>{render_json(&snapshot.value)}</dd>
+                            </>
+                        ))
                         .collect::<Html>()
                 }
-                </table>
+                </dl>
             </details>
         </>
     )
@@ -76,7 +81,7 @@ fn render_violation(
 ) -> Html {
     html!(
         <div class="violation">
-            <strong>{&violation.name}{": "}</strong>
+            <div class="violation-name">{&violation.name}{":"}</div>
             {render_violation_inner(&violation.violation, test_start, trace)}
         </div>
     )
@@ -96,27 +101,26 @@ fn render_violation_inner(
             if snapshot_references.is_empty() {
                 html!(<pre><code>{condition}</code></pre>)
             } else {
-                html!(
-                    <span class="violation-false">
-                        {render_snapshot_values(snapshot_references, trace)}
-                    </span>
-                )
+                render_snapshot_values(snapshot_references, trace)
             }
         }
         Violation::Eventually { subformula, reason } => {
             let reason_text = match reason {
                 EventuallyViolation::TimedOut(time) => {
-                    format!(" (timed out at {})", format_time(time, test_start),)
+                    format!(
+                        "(timed out at {})",
+                        format_time(time, test_start),
+                    )
                 }
                 EventuallyViolation::TestEnded => {
-                    " (never occurred)".to_string()
+                    "(never occurred)".to_string()
                 }
             };
             html!(
-                <div class="violation-eventually">
+                <>
                     {render_formula(subformula)}
                     <span>{reason_text}</span>
-                </div>
+                </>
             )
         }
         Violation::Always {
@@ -127,7 +131,7 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <span class="violation-always">
+                <>
                     <span>{
                         format!(
                             "as of {}, it should always \
@@ -137,10 +141,10 @@ fn render_violation_inner(
                     }</span>
                     {render_formula(subformula)}
                     <span>{
-                        format!("but at {},", format_time(time, test_start))
+                        format!("but at {}:", format_time(time, test_start))
                     }</span>
                     {render_violation_inner(violation, test_start, trace)}
-                </span>
+                </>
             )
         }
         Violation::Always {
@@ -151,7 +155,7 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <span class="violation-always">
+                <>
                     <span>{
                         format!(
                             "as of {} and until {}, it \
@@ -162,28 +166,28 @@ fn render_violation_inner(
                     }</span>
                     {render_formula(subformula)}
                     <span>{
-                        format!("but at {},", format_time(time, test_start))
+                        format!("but at {}:", format_time(time, test_start))
                     }</span>
                     {render_violation_inner(violation, test_start, trace)}
-                </span>
+                </>
             )
         }
         Violation::And { left, right } => {
             html!(
-                <div class="violation-and">
+                <>
                     {render_violation_inner(left, test_start, trace)}
                     <span class="keyword">{"and"}</span>
                     {render_violation_inner(right, test_start, trace)}
-                </div>
+                </>
             )
         }
         Violation::Or { left, right } => {
             html!(
-                <div class="violation-or">
+                <>
                     {render_violation_inner(left, test_start, trace)}
                     <span class="keyword">{"or"}</span>
                     {render_violation_inner(right, test_start, trace)}
-                </div>
+                </>
             )
         }
         Violation::Implies {
@@ -192,28 +196,30 @@ fn render_violation_inner(
             antecedent_snapshot_references,
         } => {
             html!(
-                <div class="violation-implies">
-                    {render_formula(left)}
-                    <span class="keyword">{" implies"}</span>
-                    {
-                        if !antecedent_snapshot_references.is_empty() {
-                            html!(
-                                <span class="antecedent-context">
-                                    {" (was true"}
-                                    {render_snapshot_inline(
-                                        antecedent_snapshot_references,
-                                        trace,
-                                    )}
-                                    {")"}
-                                </span>
-                            )
-                        } else {
-                            html!()
+                <>
+                    <span>
+                        {render_formula(left)}
+                        <span class="keyword">{" implies"}</span>
+                        {
+                            if !antecedent_snapshot_references.is_empty() {
+                                html!(
+                                    <span class="antecedent-context">
+                                        {" (was true"}
+                                        {render_snapshot_inline(
+                                            antecedent_snapshot_references,
+                                            trace,
+                                        )}
+                                        {")"}
+                                    </span>
+                                )
+                            } else {
+                                html!()
+                            }
                         }
-                    }
-                    {":"}
+                        {":"}
+                    </span>
                     {render_violation_inner(right, test_start, trace)}
-                </div>
+                </>
             )
         }
     }
@@ -223,11 +229,11 @@ fn render_snapshot_values(
     references: &[(usize, Vec<usize>)],
     trace: &[TraceEntry],
 ) -> Html {
-    let items: Vec<Html> = collect_snapshot_items(references, trace);
+    let items = collect_snapshot_items(references, trace);
     html!(
-        <span class="snapshot-values">
+        <dl class="snapshot-values">
             { for items.into_iter() }
-        </span>
+        </dl>
     )
 }
 
@@ -235,14 +241,16 @@ fn render_snapshot_inline(
     references: &[(usize, Vec<usize>)],
     trace: &[TraceEntry],
 ) -> Html {
-    let items: Vec<Html> = collect_snapshot_items(references, trace);
+    let items = collect_snapshot_items(references, trace);
     if items.is_empty() {
         return html!();
     }
     html!(
         <span class="snapshot-inline">
             {" with "}
-            { for items.into_iter() }
+            <dl class="snapshot-values inline">
+                { for items.into_iter() }
+            </dl>
         </span>
     )
 }
@@ -256,18 +264,12 @@ fn collect_snapshot_items(
         if let Some(entry) = trace.get(*state_index) {
             for &extractor_index in extractor_indices {
                 if let Some(snapshot) = entry.snapshots.get(extractor_index) {
-                    if !items.is_empty() {
-                        items.push(html!(<span>{", "}</span>));
-                    }
                     let name = snapshot_name(snapshot, extractor_index);
                     items.push(html!(
-                        <code class="snapshot-ref">
-                            {format!(
-                                "{} = {}",
-                                name,
-                                format_json_value(&snapshot.value),
-                            )}
-                        </code>
+                        <>
+                            <dt>{name}</dt>
+                            <dd>{render_json(&snapshot.value)}</dd>
+                        </>
                     ));
                 }
             }
@@ -284,10 +286,37 @@ fn snapshot_name(snapshot: &Snapshot, extractor_index: usize) -> String {
         .unwrap_or_else(|| format!("extractor[{}]", extractor_index))
 }
 
-fn format_json_value(value: &json::Value) -> String {
+fn is_printable(s: &str) -> bool {
+    s.chars().all(|c| !c.is_control() || c == '\n' || c == '\t')
+}
+
+fn render_json(value: &json::Value) -> Html {
     match value {
-        json::Value::String(s) => format!("{:?}", s),
-        other => other.to_string(),
+        json::Value::Array(items) => {
+            html!(
+                <ul class="json-array">
+                    { for items.iter().map(|item| html!(<li>{render_json(item)}</li>)) }
+                </ul>
+            )
+        }
+        json::Value::Object(map) => {
+            html!(
+                <dl class="json-object">
+                    { for map.iter().map(|(key, val)| html!(
+                        <>
+                            <dt>{key}</dt>
+                            <dd>{render_json(val)}</dd>
+                        </>
+                    )) }
+                </dl>
+            )
+        }
+        json::Value::String(s) if is_printable(s) => {
+            html!(<span class="json-string">{s}</span>)
+        }
+        other => {
+            html!(<code class="json-literal">{other.to_string()}</code>)
+        }
     }
 }
 
