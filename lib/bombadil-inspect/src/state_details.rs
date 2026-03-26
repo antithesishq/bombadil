@@ -108,17 +108,20 @@ fn render_violation_inner(
             let reason_text = match reason {
                 EventuallyViolation::TimedOut(time) => {
                     format!(
-                        "(timed out at {})",
+                        "(which timed out at {})",
                         format_time(time, test_start),
                     )
                 }
                 EventuallyViolation::TestEnded => {
-                    "(never occurred)".to_string()
+                    "(which never occurred)".to_string()
                 }
             };
             html!(
                 <>
-                    {render_formula(subformula)}
+                    <span>
+                        <span class="keyword">{"eventually "}</span>
+                        {render_formula(subformula)}
+                    </span>
                     <span>{reason_text}</span>
                 </>
             )
@@ -198,25 +201,26 @@ fn render_violation_inner(
             html!(
                 <>
                     <span>
-                        {render_formula(left)}
-                        <span class="keyword">{" implies"}</span>
                         {
                             if !antecedent_snapshot_references.is_empty() {
                                 html!(
-                                    <span class="antecedent-context">
-                                        {" (was true"}
+                                    <>
                                         {render_snapshot_inline(
                                             antecedent_snapshot_references,
                                             trace,
                                         )}
-                                        {")"}
-                                    </span>
+                                        {", implying:"}
+                                    </>
                                 )
                             } else {
-                                html!()
+                                html!(
+                                    <>
+                                        {render_formula(left)}
+                                        <span class="keyword">{" implies:"}</span>
+                                    </>
+                                )
                             }
                         }
-                        {":"}
                     </span>
                     {render_violation_inner(right, test_start, trace)}
                 </>
@@ -247,7 +251,6 @@ fn render_snapshot_inline(
     }
     html!(
         <span class="snapshot-inline">
-            {" with "}
             <dl class="snapshot-values inline">
                 { for items.into_iter() }
             </dl>
@@ -341,9 +344,8 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-and">
                     {render_formula(left)}
-                    <code>{".and("}</code>
+                    <span class="keyword">{" and "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
@@ -351,9 +353,8 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-or">
                     {render_formula(left)}
-                    <code>{".or("}</code>
+                    <span class="keyword">{" or "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
@@ -361,64 +362,54 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-implies">
                     {render_formula(left)}
-                    <code>{".implies("}</code>
+                    <span class="keyword">{" implies "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Next(formula) => {
             html!(
                 <span class="formula-next">
-                    <code>{"next("}</code>
+                    <span class="keyword">{"next "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Always(formula, None) => {
             html!(
                 <span class="formula-always">
-                    <code>{"always("}</code>
+                    <span class="keyword">{"always "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Always(formula, Some(bound)) => {
             html!(
                 <span class="formula-always">
-                    <code>{"always("}</code>
+                    <span class="keyword">{"always "}</span>
                     {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
-                        )
-                    }</code>
+                    <span class="keyword">{
+                        format!(" within {}ms", bound.as_millis())
+                    }</span>
                 </span>
             )
         }
         Formula::Eventually(formula, None) => {
             html!(
                 <span class="formula-eventually">
-                    <code>{"eventually("}</code>
+                    <span class="keyword">{"eventually "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Eventually(formula, Some(bound)) => {
             html!(
                 <span class="formula-eventually">
-                    <code>{"eventually("}</code>
+                    <span class="keyword">{"eventually "}</span>
                     {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
-                        )
-                    }</code>
+                    <span class="keyword">{
+                        format!(" within {}ms", bound.as_millis())
+                    }</span>
                 </span>
             )
         }
