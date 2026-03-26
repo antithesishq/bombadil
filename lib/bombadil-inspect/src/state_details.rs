@@ -40,7 +40,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 <summary>
                 {format!("Violations ({})", props.entry.violations.len())}
                 </summary>
-                <ol class="numbered">
+                <ol>
                 {
                     props
                         .entry
