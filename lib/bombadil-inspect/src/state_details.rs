@@ -17,7 +17,6 @@ use crate::duration::format_duration;
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
     pub entry: Rc<TraceEntry>,
-    pub trace: Rc<[TraceEntry]>,
     pub test_start: SystemTime,
 }
 
@@ -47,7 +46,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .entry
                         .violations
                         .iter()
-                        .map(|violation| html!(<li>{render_violation(violation, props.test_start, &props.trace)}</li>))
+                        .map(|violation| html!(<li>{render_violation(violation, props.test_start)}</li>))
                         .collect::<Html>()
                 }
                 </ol>
@@ -84,12 +83,11 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
 fn render_violation(
     violation: &PropertyViolation,
     test_start: SystemTime,
-    trace: &[TraceEntry],
 ) -> Html {
     html!(
         <div class="violation">
             <div class="violation-name">{&violation.name}{":"}</div>
-            {render_violation_inner(&violation.violation, test_start, trace)}
+            {render_violation_inner(&violation.violation, test_start)}
         </div>
     )
 }
@@ -97,7 +95,6 @@ fn render_violation(
 fn render_violation_inner(
     violation: &Violation,
     test_start: SystemTime,
-    trace: &[TraceEntry],
 ) -> Html {
     match violation {
         Violation::False {
@@ -108,7 +105,7 @@ fn render_violation_inner(
             if snapshot_references.is_empty() {
                 html!(<pre><code>{condition}</code></pre>)
             } else {
-                render_snapshot_values(snapshot_references, trace)
+                render_snapshot_values(snapshot_references)
             }
         }
         Violation::Eventually { subformula, reason } => {
@@ -156,7 +153,7 @@ fn render_violation_inner(
                         <time>{format_time(time, test_start)}</time>
                         {":"}
                     </span>
-                    {render_violation_inner(violation, test_start, trace)}
+                    {render_violation_inner(violation, test_start)}
                 </>
             )
         }
@@ -182,25 +179,25 @@ fn render_violation_inner(
                         <time>{format_time(time, test_start)}</time>
                         {":"}
                     </span>
-                    {render_violation_inner(violation, test_start, trace)}
+                    {render_violation_inner(violation, test_start)}
                 </>
             )
         }
         Violation::And { left, right } => {
             html!(
                 <>
-                    {render_violation_inner(left, test_start, trace)}
+                    {render_violation_inner(left, test_start)}
                     <span class="keyword">{"and"}</span>
-                    {render_violation_inner(right, test_start, trace)}
+                    {render_violation_inner(right, test_start)}
                 </>
             )
         }
         Violation::Or { left, right } => {
             html!(
                 <>
-                    {render_violation_inner(left, test_start, trace)}
+                    {render_violation_inner(left, test_start)}
                     <span class="keyword">{"or"}</span>
-                    {render_violation_inner(right, test_start, trace)}
+                    {render_violation_inner(right, test_start)}
                 </>
             )
         }
@@ -218,7 +215,6 @@ fn render_violation_inner(
                                     <>
                                         {render_snapshot_inline(
                                             antecedent_snapshot_references,
-                                            trace,
                                         )}
                                         {", implying:"}
                                     </>
@@ -233,18 +229,15 @@ fn render_violation_inner(
                             }
                         }
                     </span>
-                    {render_violation_inner(right, test_start, trace)}
+                    {render_violation_inner(right, test_start)}
                 </>
             )
         }
     }
 }
 
-fn render_snapshot_values(
-    references: &[(usize, Vec<usize>)],
-    trace: &[TraceEntry],
-) -> Html {
-    let items = collect_snapshot_items(references, trace);
+fn render_snapshot_values(references: &[Snapshot]) -> Html {
+    let items = collect_snapshot_items(references);
     html!(
         <dl class="snapshot-values">
             { for items.into_iter() }
@@ -252,11 +245,8 @@ fn render_snapshot_values(
     )
 }
 
-fn render_snapshot_inline(
-    references: &[(usize, Vec<usize>)],
-    trace: &[TraceEntry],
-) -> Html {
-    let items = collect_snapshot_items(references, trace);
+fn render_snapshot_inline(references: &[Snapshot]) -> Html {
+    let items = collect_snapshot_items(references);
     if items.is_empty() {
         return html!();
     }
@@ -269,40 +259,31 @@ fn render_snapshot_inline(
     )
 }
 
-fn collect_snapshot_items(
-    references: &[(usize, Vec<usize>)],
-    trace: &[TraceEntry],
-) -> Vec<Html> {
+fn collect_snapshot_items(references: &[Snapshot]) -> Vec<Html> {
     let mut items = Vec::new();
-    for (state_index, extractor_indices) in references {
-        if let Some(entry) = trace.get(*state_index) {
-            for &extractor_index in extractor_indices {
-                if let Some(snapshot) = entry.snapshots.get(extractor_index) {
-                    let name = snapshot_name(snapshot, extractor_index);
-                    let class = if is_json_scalar(&snapshot.value) {
-                        "json-entry scalar"
-                    } else {
-                        "json-entry"
-                    };
-                    items.push(html!(
-                        <div class={class}>
-                            <dt>{name}</dt>
-                            <dd>{render_json(&snapshot.value)}</dd>
-                        </div>
-                    ));
-                }
-            }
-        }
+    for (i, snapshot) in references.iter().enumerate() {
+        let name = snapshot_name(snapshot, i);
+        let class = if is_json_scalar(&snapshot.value) {
+            "json-entry scalar"
+        } else {
+            "json-entry"
+        };
+        items.push(html!(
+            <div class={class}>
+                <dt>{name}</dt>
+                <dd>{render_json(&snapshot.value)}</dd>
+            </div>
+        ));
     }
     items
 }
 
-fn snapshot_name(snapshot: &Snapshot, extractor_index: usize) -> String {
+fn snapshot_name(snapshot: &Snapshot, index: usize) -> String {
     snapshot
         .name
         .as_deref()
         .map(String::from)
-        .unwrap_or_else(|| format!("extractor[{}]", extractor_index))
+        .unwrap_or_else(|| format!("extractor[{}]", index))
 }
 
 fn is_printable(s: &str) -> bool {

@@ -1,44 +1,9 @@
 use std::time::{Duration, SystemTime};
 
 use crate::specification::result::{Result, SpecificationError};
+use crate::specification::verifier::Snapshot;
 use bit_set::BitSet;
 use serde::Serialize;
-
-/// A set of extractor indices that were accessed during thunk evaluation.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct ExtractorSet(BitSet);
-
-impl Serialize for ExtractorSet {
-    fn serialize<S: serde::Serializer>(
-        &self,
-        serializer: S,
-    ) -> std::result::Result<S::Ok, S::Error> {
-        let indices: Vec<usize> = self.0.iter().collect();
-        indices.serialize(serializer)
-    }
-}
-
-impl ExtractorSet {
-    pub fn insert(&mut self, index: usize) {
-        self.0.insert(index);
-    }
-    pub fn contains(&self, index: usize) -> bool {
-        self.0.contains(index)
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-    pub fn iter(&self) -> bit_set::Iter<'_, u32> {
-        self.0.iter()
-    }
-    pub fn union_with(&mut self, other: &Self) {
-        self.0.union_with(&other.0);
-    }
-}
-
-/// References to snapshots that contributed to a violation or evaluation.
-/// Each entry is (state_index, set_of_extractor_indices).
-pub type SnapshotReferences = Vec<(usize, ExtractorSet)>;
 
 fn combine_options<T: Clone>(
     left: Option<T>,
@@ -118,7 +83,7 @@ pub type Time = SystemTime;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
-    True(SnapshotReferences),
+    True(Vec<Snapshot>),
     False(Violation<Function>, Option<Residual<Function>>),
     Residual(Residual<Function>),
 }
@@ -128,7 +93,7 @@ pub enum Violation<Function> {
     False {
         time: Time,
         condition: String,
-        snapshot_references: SnapshotReferences,
+        snapshot_references: Vec<Snapshot>,
     },
     Eventually {
         subformula: Box<Formula<Function>>,
@@ -152,7 +117,7 @@ pub enum Violation<Function> {
     Implies {
         left: Formula<Function>,
         right: Box<Violation<Function>>,
-        antecedent_snapshot_references: SnapshotReferences,
+        antecedent_snapshot_references: Vec<Snapshot>,
     },
 }
 
@@ -233,9 +198,9 @@ pub enum Leaning<Function> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Residual<Function> {
-    True(SnapshotReferences),
+    True(Vec<Snapshot>),
     False(Violation<Function>),
-    Derived(Derived<Function>, Leaning<Function>, SnapshotReferences),
+    Derived(Derived<Function>, Leaning<Function>, Vec<Snapshot>),
     And {
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
@@ -287,21 +252,21 @@ pub type EvaluateThunk<'a, Function> =
     &'a mut dyn FnMut(
         &'_ Function,
         bool,
-    ) -> Result<(Formula<Function>, ExtractorSet)>;
+    ) -> Result<(Formula<Function>, BitSet)>;
 
 pub struct Evaluator<'a, Function> {
     evaluate_thunk: EvaluateThunk<'a, Function>,
-    pub state_index: usize,
+    pub snapshots: &'a [Snapshot],
 }
 
 impl<'a, Function: Clone> Evaluator<'a, Function> {
     pub fn new(
         evaluate_thunk: EvaluateThunk<'a, Function>,
-        state_index: usize,
+        snapshots: &'a [Snapshot],
     ) -> Self {
         Evaluator {
             evaluate_thunk,
-            state_index,
+            snapshots,
         }
     }
 
@@ -330,7 +295,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 if !accessed.is_empty() {
                     attach_snapshot_references(
                         &mut value,
-                        self.state_index,
+                        self.snapshots,
                         accessed,
                     );
                 }
@@ -888,12 +853,19 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
 fn attach_snapshot_references<F>(
     value: &mut Value<F>,
-    state_index: usize,
-    accessed: ExtractorSet,
+    snapshots: &[Snapshot],
+    accessed: BitSet,
 ) {
+    let resolved: Vec<Snapshot> = accessed
+        .iter()
+        .filter_map(|i| snapshots.get(i).cloned())
+        .collect();
+    if resolved.is_empty() {
+        return;
+    }
     match value {
         Value::True(references) => {
-            references.push((state_index, accessed));
+            references.extend(resolved);
         }
         Value::False(violation, _) => {
             if let Violation::False {
@@ -901,7 +873,7 @@ fn attach_snapshot_references<F>(
                 ..
             } = violation
             {
-                snapshot_references.push((state_index, accessed));
+                snapshot_references.extend(resolved);
             }
         }
         Value::Residual(_) => {}

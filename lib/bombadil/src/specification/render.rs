@@ -5,20 +5,18 @@ use serde_json as json;
 
 use crate::specification::{
     js::RuntimeFunction,
-    ltl::{EventuallyViolation, Formula, SnapshotReferences, Time, Violation},
+    ltl::{EventuallyViolation, Formula, Time, Violation},
     verifier::Snapshot,
 };
 
 pub fn render_violation(
     violation: &Violation<PrettyFunction>,
-    trace: &[Vec<Snapshot>],
     test_start: SystemTime,
 ) -> String {
     format!(
         "{}",
         RenderedViolation {
             violation,
-            trace,
             test_start,
         }
     )
@@ -26,7 +24,6 @@ pub fn render_violation(
 
 struct RenderedViolation<'a> {
     violation: &'a Violation<PrettyFunction>,
-    trace: &'a [Vec<Snapshot>],
     test_start: SystemTime,
 }
 
@@ -41,7 +38,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                 if snapshot_references.is_empty() {
                     write!(f, "{}", condition)?;
                 } else {
-                    render_snapshot_values(f, snapshot_references, self.trace)?;
+                    render_snapshot_values(f, snapshot_references)?;
                 }
             }
             Violation::Eventually { subformula, reason } => {
@@ -69,12 +66,10 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "{}\n\nand\n\n{}",
                     RenderedViolation {
                         violation: left,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                 )?;
@@ -85,12 +80,10 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "{} or {}",
                     RenderedViolation {
                         violation: left,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                 )?;
@@ -101,11 +94,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                 antecedent_snapshot_references,
             } => {
                 if !antecedent_snapshot_references.is_empty() {
-                    render_snapshot_inline(
-                        f,
-                        antecedent_snapshot_references,
-                        self.trace,
-                    )?;
+                    render_snapshot_inline(f, antecedent_snapshot_references)?;
                     write!(f, ", implying:")?;
                 } else {
                     write!(f, "{} implies:", RenderedFormula(left))?;
@@ -115,7 +104,6 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "\n\n{}",
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                 )?;
@@ -138,7 +126,6 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     format_time(time, self.test_start),
                     RenderedViolation {
                         violation,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                 )?;
@@ -162,7 +149,6 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     format_time(time, self.test_start),
                     RenderedViolation {
                         violation,
-                        trace: self.trace,
                         test_start: self.test_start,
                     },
                 )?;
@@ -174,50 +160,36 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
 
 fn render_snapshot_values(
     f: &mut std::fmt::Formatter<'_>,
-    references: &SnapshotReferences,
-    trace: &[Vec<Snapshot>],
+    references: &[Snapshot],
 ) -> std::fmt::Result {
     let mut first = true;
-    for (state_index, extractor_set) in references {
-        if let Some(snapshots) = trace.get(*state_index) {
-            for extractor_index in extractor_set.iter() {
-                if let Some(snapshot) = snapshots.get(extractor_index) {
-                    if !first {
-                        writeln!(f)?;
-                    }
-                    first = false;
-                    let fallback = format!("extractor[{}]", extractor_index);
-                    let name = snapshot.name.as_deref().unwrap_or(&fallback);
-                    write!(f, "{} =", name)?;
-                    write_json_value(f, &snapshot.value, 1)?;
-                }
-            }
+    for (i, snapshot) in references.iter().enumerate() {
+        if !first {
+            writeln!(f)?;
         }
+        first = false;
+        let fallback = format!("extractor[{}]", i);
+        let name = snapshot.name.as_deref().unwrap_or(&fallback);
+        write!(f, "{} =", name)?;
+        write_json_value(f, &snapshot.value, 1)?;
     }
     Ok(())
 }
 
 fn render_snapshot_inline(
     f: &mut std::fmt::Formatter<'_>,
-    references: &SnapshotReferences,
-    trace: &[Vec<Snapshot>],
+    references: &[Snapshot],
 ) -> std::fmt::Result {
     let mut first = true;
-    for (state_index, extractor_set) in references {
-        if let Some(snapshots) = trace.get(*state_index) {
-            for extractor_index in extractor_set.iter() {
-                if let Some(snapshot) = snapshots.get(extractor_index) {
-                    if !first {
-                        write!(f, ", ")?;
-                    }
-                    first = false;
-                    let fallback = format!("extractor[{}]", extractor_index);
-                    let name = snapshot.name.as_deref().unwrap_or(&fallback);
-                    write!(f, "{} = ", name)?;
-                    write_json_scalar(f, &snapshot.value)?;
-                }
-            }
+    for (i, snapshot) in references.iter().enumerate() {
+        if !first {
+            write!(f, ", ")?;
         }
+        first = false;
+        let fallback = format!("extractor[{}]", i);
+        let name = snapshot.name.as_deref().unwrap_or(&fallback);
+        write!(f, "{} = ", name)?;
+        write_json_scalar(f, &snapshot.value)?;
     }
     Ok(())
 }
@@ -387,7 +359,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::specification::ltl::ExtractorSet;
 
     fn pretty(s: &str) -> PrettyFunction {
         PrettyFunction(s.to_string())
@@ -404,14 +375,6 @@ mod tests {
 
     fn time_at(seconds: u64) -> Time {
         SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
-    }
-
-    fn extractor_set(indices: &[usize]) -> ExtractorSet {
-        let mut set = ExtractorSet::default();
-        for &i in indices {
-            set.insert(i);
-        }
-        set
     }
 
     #[test]
@@ -433,34 +396,14 @@ mod tests {
                     subformula: Box::new(thunk("y == 20")),
                     reason: EventuallyViolation::TestEnded,
                 }),
-                antecedent_snapshot_references: vec![(1, extractor_set(&[0]))],
+                antecedent_snapshot_references: vec![Snapshot {
+                    name: Some("x".into()),
+                    value: json::json!(11),
+                }],
             }),
         };
 
-        let trace = vec![
-            vec![
-                Snapshot {
-                    name: Some("x".into()),
-                    value: json::json!(5),
-                },
-                Snapshot {
-                    name: Some("y".into()),
-                    value: json::json!(0),
-                },
-            ],
-            vec![
-                Snapshot {
-                    name: Some("x".into()),
-                    value: json::json!(11),
-                },
-                Snapshot {
-                    name: Some("y".into()),
-                    value: json::json!(0),
-                },
-            ],
-        ];
-
-        let rendered = render_violation(&violation, &trace, TEST_START);
+        let rendered = render_violation(&violation, TEST_START);
         assert_eq!(
             rendered,
             "\
@@ -489,26 +432,14 @@ eventually y == 20 (which never occurred)"
             violation: Box::new(Violation::False {
                 time: time_at(305),
                 condition: "count.current <= 5".into(),
-                snapshot_references: vec![(2, extractor_set(&[0]))],
+                snapshot_references: vec![Snapshot {
+                    name: Some("count".into()),
+                    value: json::json!(6),
+                }],
             }),
         };
 
-        let trace = vec![
-            vec![Snapshot {
-                name: Some("count".into()),
-                value: json::json!(0),
-            }],
-            vec![Snapshot {
-                name: Some("count".into()),
-                value: json::json!(3),
-            }],
-            vec![Snapshot {
-                name: Some("count".into()),
-                value: json::json!(6),
-            }],
-        ];
-
-        let rendered = render_violation(&violation, &trace, TEST_START);
+        let rendered = render_violation(&violation, TEST_START);
         assert_eq!(
             rendered,
             "\

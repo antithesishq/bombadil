@@ -111,7 +111,6 @@ impl Runner {
     ) -> anyhow::Result<Option<O::StopValue>> {
         let mut last_action: Option<BrowserAction> = None;
         let mut edges = [0u8; EDGE_MAP_SIZE];
-        let mut state_index: usize = 0;
 
         loop {
             let verifier = verifier.clone();
@@ -133,10 +132,8 @@ impl Runner {
                             .step::<crate::specification::js::JsAction>(
                                 snapshots.clone(),
                                 state.timestamp,
-                                state_index,
                             )
                             .await?;
-                        state_index += 1;
 
                         // Convert JsAction tree to BrowserAction tree
                         let action_tree =

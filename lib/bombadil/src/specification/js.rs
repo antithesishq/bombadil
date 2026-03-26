@@ -392,9 +392,9 @@ pub fn module_exports(
 pub fn js_value_to_extractor_set(
     value: &JsValue,
     context: &mut Context,
-) -> Result<crate::specification::ltl::ExtractorSet> {
-    use crate::specification::ltl::ExtractorSet;
-    let mut set = ExtractorSet::default();
+) -> Result<bit_set::BitSet> {
+    use bit_set::BitSet;
+    let mut set = BitSet::default();
     if let Some(object) = value.as_object() {
         let array = JsArray::from_object(object)?;
         let length = array.length(context)?;

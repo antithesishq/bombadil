@@ -259,7 +259,6 @@ async fn test(
     struct MainObserver {
         writer: TraceWriter,
         exit_on_violation: bool,
-        trace_snapshots: Vec<Vec<Snapshot>>,
         test_start: Option<std::time::SystemTime>,
     }
 
@@ -274,17 +273,12 @@ async fn test(
             violations: &[PropertyViolation],
         ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
             let test_start = *self.test_start.get_or_insert(state.timestamp);
-            self.trace_snapshots.push(snapshots.to_vec());
 
             for violation in violations {
                 log::error!(
                     "violation of property `{}`:\n{}",
                     violation.name,
-                    render_violation(
-                        &violation.violation,
-                        &self.trace_snapshots,
-                        test_start,
-                    )
+                    render_violation(&violation.violation, test_start,)
                 );
             }
 
@@ -303,7 +297,6 @@ async fn test(
     let mut observer = MainObserver {
         writer: TraceWriter::initialize(output_path).await?,
         exit_on_violation: shared_options.exit_on_violation,
-        trace_snapshots: Vec::new(),
         test_start: None,
     };
 

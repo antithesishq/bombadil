@@ -7,6 +7,7 @@ use crate::specification::{
     ltl::*,
     stop::{StopDefault, stop_default},
 };
+use bit_set::BitSet;
 use proptest::prelude::*;
 
 use crate::specification::syntax::Syntax;
@@ -165,7 +166,7 @@ fn check_equivalence(
                     value,
                     pretty: format!("{}", value),
                 },
-                ExtractorSet::default(),
+                BitSet::default(),
             ))
         }
         Thunk::Subformula(syntax) => {
@@ -174,20 +175,19 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok((syntax.nnf(), ExtractorSet::default()))
+            Ok((syntax.nnf(), BitSet::default()))
         }
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk, 0);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk, &[]);
 
     let mut time = UNIX_EPOCH;
 
     let mut value_left = evaluator.evaluate(&formula_left, time).unwrap();
     let mut value_right = evaluator.evaluate(&formula_right, time).unwrap();
 
-    for i in 1..trace.len() {
+    for _ in 1..trace.len() {
         *current.borrow_mut() += 1;
         time = time.checked_add(Duration::from_millis(1)).unwrap();
-        evaluator.state_index = i;
 
         let next_left = next_residual(&value_left);
         let next_right = next_residual(&value_right);

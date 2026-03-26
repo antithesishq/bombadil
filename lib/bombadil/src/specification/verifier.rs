@@ -6,6 +6,7 @@ use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
+use bit_set::BitSet;
 use boa_engine::{
     Context, JsString, NativeFunction, Source,
     context::ContextBuilder,
@@ -32,7 +33,7 @@ pub struct Verifier {
     extractors: Extractors,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub name: Option<String>,
     pub value: json::Value,
@@ -275,7 +276,6 @@ impl Verifier {
         &mut self,
         snapshots: &[Snapshot],
         time: ltl::Time,
-        state_index: usize,
     ) -> Result<StepResult<A>> {
         self.extractors.update_from_snapshots(
             snapshots,
@@ -304,7 +304,7 @@ impl Verifier {
                                   negated: bool|
          -> Result<(
             Formula<RuntimeFunction>,
-            ltl::ExtractorSet,
+            BitSet,
         )> {
             start_tracking.call(
                 &JsValue::from(runtime_obj.clone()),
@@ -334,7 +334,7 @@ impl Verifier {
                 accessed,
             ))
         };
-        let mut evaluator = Evaluator::new(&mut evaluate_thunk, state_index);
+        let mut evaluator = Evaluator::new(&mut evaluate_thunk, snapshots);
 
         for property in self.properties.values_mut() {
             let value = match &property.state {
@@ -521,7 +521,6 @@ mod tests {
                     value: json::json!(false),
                 }],
                 time,
-                0,
             )
             .unwrap();
 
@@ -561,7 +560,6 @@ mod tests {
                     },
                 ],
                 time,
-                0,
             )
             .unwrap();
 
@@ -601,7 +599,6 @@ mod tests {
                     },
                 ],
                 time,
-                0,
             )
             .unwrap();
 
@@ -641,7 +638,6 @@ mod tests {
                     },
                 ],
                 time,
-                0,
             )
             .unwrap();
 
@@ -678,7 +674,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
-                    0,
                 )
                 .unwrap();
 
@@ -729,7 +724,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
-                    0,
                 )
                 .unwrap();
 
@@ -771,7 +765,6 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time,
-                0,
             )
             .unwrap();
         let (name, value) = result.properties.first().unwrap();
@@ -811,7 +804,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
-                    0,
                 )
                 .unwrap();
 
@@ -869,7 +861,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
-                    0,
                 )
                 .unwrap();
 
@@ -939,7 +930,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time,
-                    0,
                 )
                 .unwrap();
 
@@ -997,7 +987,6 @@ mod tests {
                         value: json::json!(i),
                     }],
                     time_at(0),
-                    0,
                 )
                 .unwrap();
             let (_, value) = result.properties.first().unwrap();
@@ -1017,7 +1006,6 @@ mod tests {
                     value: json::json!(5),
                 }],
                 time_at(0),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1035,7 +1023,6 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(0),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1053,7 +1040,6 @@ mod tests {
                     value: json::json!(5),
                 }],
                 time_at(0),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1087,7 +1073,6 @@ mod tests {
                     value: json::json!(false),
                 }],
                 time,
-                0,
             )
             .unwrap();
         let (name, value) = result.properties.first().unwrap();
@@ -1106,7 +1091,6 @@ mod tests {
                     value: json::json!(true),
                 }],
                 time,
-                0,
             )
             .unwrap();
         assert!(
@@ -1144,7 +1128,6 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(0),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1158,7 +1141,6 @@ mod tests {
                     value: json::json!(10),
                 }],
                 time_at(3),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1176,7 +1158,6 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(4),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1194,7 +1175,6 @@ mod tests {
                     value: json::json!(0),
                 }],
                 time_at(6),
-                0,
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();

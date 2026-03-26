@@ -151,7 +151,6 @@ async fn run_browser_test(
 
     struct TestObserver {
         collected_violations: Vec<String>,
-        trace_snapshots: Vec<Vec<bombadil::specification::verifier::Snapshot>>,
         test_start: Option<std::time::SystemTime>,
     }
 
@@ -162,22 +161,17 @@ async fn run_browser_test(
             &mut self,
             state: &bombadil::browser::state::BrowserState,
             _last_action: Option<&bombadil::browser::actions::BrowserAction>,
-            snapshots: &[bombadil::specification::verifier::Snapshot],
+            _snapshots: &[bombadil::specification::verifier::Snapshot],
             violations: &[bombadil::trace::PropertyViolation],
         ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
         {
             let test_start = *self.test_start.get_or_insert(state.timestamp);
-            self.trace_snapshots.push(snapshots.to_vec());
             if !violations.is_empty() {
                 for violation in violations {
                     self.collected_violations.push(format!(
                         "{}:\n{}\n\n",
                         violation.name,
-                        render_violation(
-                            &violation.violation,
-                            &self.trace_snapshots,
-                            test_start,
-                        )
+                        render_violation(&violation.violation, test_start,)
                     ));
                 }
             }
@@ -187,7 +181,6 @@ async fn run_browser_test(
 
     let mut observer = TestObserver {
         collected_violations: Vec::new(),
-        trace_snapshots: Vec::new(),
         test_start: None,
     };
 
