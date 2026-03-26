@@ -319,7 +319,7 @@ fn render_json(value: &json::Value) -> Html {
             )
         }
         json::Value::String(s) if is_printable(s) => {
-            html!(<span class="json-string">{s}</span>)
+            html!(<pre class="json-string">{s}</pre>)
         }
         other => {
             html!(<code class="json-literal">{other.to_string()}</code>)

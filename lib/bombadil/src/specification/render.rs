@@ -1,4 +1,4 @@
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 use serde_json as json;
@@ -12,13 +12,22 @@ use crate::specification::{
 pub fn render_violation(
     violation: &Violation<PrettyFunction>,
     trace: &[Vec<Snapshot>],
+    test_start: SystemTime,
 ) -> String {
-    format!("{}", RenderedViolation { violation, trace })
+    format!(
+        "{}",
+        RenderedViolation {
+            violation,
+            trace,
+            test_start,
+        }
+    )
 }
 
 struct RenderedViolation<'a> {
     violation: &'a Violation<PrettyFunction>,
     trace: &'a [Vec<Snapshot>],
+    test_start: SystemTime,
 }
 
 impl<'a> std::fmt::Display for RenderedViolation<'a> {
@@ -45,8 +54,8 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     EventuallyViolation::TimedOut(time) => {
                         write!(
                             f,
-                            " (which timed out at {}ms)",
-                            time_to_ms(time)
+                            " (which timed out at {})",
+                            format_time(time, self.test_start)
                         )?;
                     }
                     EventuallyViolation::TestEnded => {
@@ -60,11 +69,13 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "{}\n\nand\n\n{}",
                     RenderedViolation {
                         violation: left,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                 )?;
             }
@@ -74,11 +85,13 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "{} or {}",
                     RenderedViolation {
                         violation: left,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                 )?;
             }
@@ -102,7 +115,8 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                     "\n\n{}",
                     RenderedViolation {
                         violation: right,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                 )?;
             }
@@ -115,15 +129,17 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms, it should always be the case that:\n\n\
+                    "as of {}, it should always be the case \
+                     that:\n\n\
                      {}\n\n\
-                     but at {}ms:\n\n{}",
-                    time_to_ms(start),
+                     but at {}:\n\n{}",
+                    format_time(start, self.test_start),
                     RenderedFormula((*subformula).as_ref()),
-                    time_to_ms(time),
+                    format_time(time, self.test_start),
                     RenderedViolation {
                         violation,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                 )?;
             }
@@ -136,17 +152,18 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             } => {
                 write!(
                     f,
-                    "as of {}ms and until {}ms, \
+                    "as of {} and until {}, \
                      it should always be the case that:\n\n\
                      {}\n\n\
-                     but at {}ms:\n\n{}",
-                    time_to_ms(start),
-                    time_to_ms(end),
+                     but at {}:\n\n{}",
+                    format_time(start, self.test_start),
+                    format_time(end, self.test_start),
                     RenderedFormula((*subformula).as_ref()),
-                    time_to_ms(time),
+                    format_time(time, self.test_start),
                     RenderedViolation {
                         violation,
-                        trace: self.trace
+                        trace: self.trace,
+                        test_start: self.test_start,
                     },
                 )?;
             }
@@ -325,10 +342,23 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
     }
 }
 
-fn time_to_ms(time: &Time) -> u128 {
-    time.duration_since(UNIX_EPOCH)
-        .expect("timestamp millisecond conversion failed")
-        .as_millis()
+fn format_time(time: &Time, test_start: SystemTime) -> String {
+    format_duration(
+        time.duration_since(test_start)
+            .expect("timestamp millisecond conversion failed"),
+    )
+}
+
+fn format_duration(duration: Duration) -> String {
+    let total_secs = duration.as_secs();
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -370,8 +400,10 @@ mod tests {
         }
     }
 
-    fn time_at(ms: u64) -> Time {
-        UNIX_EPOCH + Duration::from_millis(ms)
+    const TEST_START: SystemTime = SystemTime::UNIX_EPOCH;
+
+    fn time_at(seconds: u64) -> Time {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
     }
 
     fn extractor_set(indices: &[usize]) -> ExtractorSet {
@@ -392,9 +424,9 @@ mod tests {
                 Box::new(thunk("x > 10")),
                 Box::new(Formula::Eventually(Box::new(thunk("y == 20")), None)),
             )),
-            start: time_at(100),
+            start: time_at(60),
             end: None,
-            time: time_at(500),
+            time: time_at(120),
             violation: Box::new(Violation::Implies {
                 left: thunk("x > 10"),
                 right: Box::new(Violation::Eventually {
@@ -428,15 +460,15 @@ mod tests {
             ],
         ];
 
-        let rendered = render_violation(&violation, &trace);
+        let rendered = render_violation(&violation, &trace, TEST_START);
         assert_eq!(
             rendered,
             "\
-as of 100ms, it should always be the case that:
+as of 01:00, it should always be the case that:
 
 x > 10 implies eventually y == 20
 
-but at 500ms:
+but at 02:00:
 
 x = 11, implying:
 
@@ -453,9 +485,9 @@ eventually y == 20 (which never occurred)"
             subformula: Box::new(thunk("count.current <= 5")),
             start: time_at(0),
             end: None,
-            time: time_at(300),
+            time: time_at(305),
             violation: Box::new(Violation::False {
-                time: time_at(300),
+                time: time_at(305),
                 condition: "count.current <= 5".into(),
                 snapshot_references: vec![(2, extractor_set(&[0]))],
             }),
@@ -476,15 +508,15 @@ eventually y == 20 (which never occurred)"
             }],
         ];
 
-        let rendered = render_violation(&violation, &trace);
+        let rendered = render_violation(&violation, &trace, TEST_START);
         assert_eq!(
             rendered,
             "\
-as of 0ms, it should always be the case that:
+as of 00:00, it should always be the case that:
 
 count.current <= 5
 
-but at 300ms:
+but at 05:05:
 
 count = 6"
         );
