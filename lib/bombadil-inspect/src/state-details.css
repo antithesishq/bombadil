@@ -34,7 +34,7 @@
 }
 
 .state-details table th {
-  font-weight: 500;
+  font-weight: bold;
   vertical-align: top;
 }
 
@@ -58,6 +58,7 @@ details[open]::details-content {
   padding: 0;
   border: none;
   background: none;
+  font-style: italic;
 }
 
 .state-details dl {
@@ -66,7 +67,7 @@ details[open]::details-content {
 }
 
 .state-details dl dt {
-  font-weight: 500;
+  font-weight: bold;
 }
 
 .state-details dl.snapshots > dt::after,
@@ -95,6 +96,10 @@ details[open]::details-content {
 
 .state-details dl.inline dt::after {
   content: " = ";
+}
+
+.state-details time {
+  font-weight: bold;
 }
 
 .json-array {

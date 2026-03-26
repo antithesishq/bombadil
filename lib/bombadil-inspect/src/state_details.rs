@@ -52,7 +52,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 }
                 </ol>
             </details>
-            <details open={true}>
+            <details>
                 <summary>{"Snapshots"}</summary>
                 <dl class="snapshots">
                 {
@@ -105,15 +105,18 @@ fn render_violation_inner(
             }
         }
         Violation::Eventually { subformula, reason } => {
-            let reason_text = match reason {
+            let reason_html = match reason {
                 EventuallyViolation::TimedOut(time) => {
-                    format!(
-                        "(which timed out at {})",
-                        format_time(time, test_start),
+                    html!(
+                        <>
+                            {"(which timed out at "}
+                            <time>{format_time(time, test_start)}</time>
+                            {")"}
+                        </>
                     )
                 }
                 EventuallyViolation::TestEnded => {
-                    "(which never occurred)".to_string()
+                    html!({ "(which never occurred)" })
                 }
             };
             html!(
@@ -122,7 +125,7 @@ fn render_violation_inner(
                         <span class="keyword">{"eventually "}</span>
                         {render_formula(subformula)}
                     </span>
-                    <span>{reason_text}</span>
+                    <span>{reason_html}</span>
                 </>
             )
         }
@@ -135,17 +138,17 @@ fn render_violation_inner(
         } => {
             html!(
                 <>
-                    <span>{
-                        format!(
-                            "as of {}, it should always \
-                             be the case that",
-                            format_time(start, test_start),
-                        )
-                    }</span>
+                    <span>
+                        {"as of "}
+                        <time>{format_time(start, test_start)}</time>
+                        {", it should always be the case that:"}
+                    </span>
                     {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}:", format_time(time, test_start))
-                    }</span>
+                    <span>
+                        {"but at "}
+                        <time>{format_time(time, test_start)}</time>
+                        {":"}
+                    </span>
                     {render_violation_inner(violation, test_start, trace)}
                 </>
             )
@@ -159,18 +162,19 @@ fn render_violation_inner(
         } => {
             html!(
                 <>
-                    <span>{
-                        format!(
-                            "as of {} and until {}, it \
-                             should always be the case that",
-                            format_time(start, test_start),
-                            format_time(end, test_start),
-                        )
-                    }</span>
+                    <span>
+                        {"as of "}
+                        <time>{format_time(start, test_start)}</time>
+                        {" and until "}
+                        <time>{format_time(end, test_start)}</time>
+                        {", it should always be the case that:"}
+                    </span>
                     {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}:", format_time(time, test_start))
-                    }</span>
+                    <span>
+                        {"but at "}
+                        <time>{format_time(time, test_start)}</time>
+                        {":"}
+                    </span>
                     {render_violation_inner(violation, test_start, trace)}
                 </>
             )
