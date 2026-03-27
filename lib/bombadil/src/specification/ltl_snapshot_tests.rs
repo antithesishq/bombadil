@@ -1,10 +1,15 @@
-use std::time::{Duration, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, UNIX_EPOCH},
+};
 
 use bit_set::BitSet;
+use proptest::prelude::*;
 
 use crate::specification::{
     ltl::*,
     stop::{StopDefault, stop_default},
+    syntax::Syntax,
     verifier::Snapshot,
 };
 
@@ -404,6 +409,197 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         }
         other => {
             panic!("expected StopDefault::False(Implies), got: {:?}", other)
+        }
+    }
+}
+
+// Property: for non-temporal formulas, the snapshots in a True result exactly equal the
+// "truth-contributing" thunks — those whose true evaluation was necessary for the formula to be
+// true. This is computed by an independent oracle that doesn't share any code with the evaluator.
+
+fn variable_index(variable: &Variable) -> usize {
+    match variable {
+        Variable::X => 0,
+        Variable::Y => 1,
+        Variable::Z => 2,
+    }
+}
+
+fn prop_variable() -> BoxedStrategy<Variable> {
+    prop_oneof![Just(Variable::X), Just(Variable::Y)].boxed()
+}
+
+fn nontemporal_syntax() -> BoxedStrategy<Syntax<Variable>> {
+    let leaf = prop_oneof![
+        any::<bool>().prop_map(|value| Syntax::Pure {
+            value,
+            pretty: format!("{}", value)
+        }),
+        prop_variable().prop_map(Syntax::Thunk),
+    ]
+    .boxed();
+
+    leaf.prop_recursive(8, 256, 10, |inner| {
+        prop_oneof![
+            inner.clone().prop_map(|s| Syntax::Not(Box::new(s))),
+            (inner.clone(), inner.clone())
+                .prop_map(|(l, r)| Syntax::And(Box::new(l), Box::new(r))),
+            (inner.clone(), inner.clone())
+                .prop_map(|(l, r)| Syntax::Or(Box::new(l), Box::new(r))),
+            (inner.clone(), inner.clone())
+                .prop_map(|(l, r)| Syntax::Implies(Box::new(l), Box::new(r))),
+        ]
+    })
+    .boxed()
+}
+
+/// Recursively compute which thunk indices contributed to a formula being true. Returns
+/// `Some(indices)` when the formula is true, `None` when false.
+fn truth_contributing(
+    formula: &Formula<Variable>,
+    state_x: bool,
+    state_y: bool,
+) -> Option<BTreeSet<usize>> {
+    match formula {
+        Formula::Pure { value, .. } => {
+            if *value {
+                Some(BTreeSet::new())
+            } else {
+                None
+            }
+        }
+        Formula::Thunk { function, negated } => {
+            let raw = match function {
+                Variable::X => state_x,
+                Variable::Y => state_y,
+                Variable::Z => unreachable!(),
+            };
+            let value = if *negated { !raw } else { raw };
+            if value {
+                Some(BTreeSet::from([variable_index(function)]))
+            } else {
+                None
+            }
+        }
+        Formula::And(left, right) => {
+            let l = truth_contributing(left, state_x, state_y);
+            let r = truth_contributing(right, state_x, state_y);
+            match (l, r) {
+                (Some(mut a), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                _ => None,
+            }
+        }
+        Formula::Or(left, right) => {
+            let l = truth_contributing(left, state_x, state_y);
+            let r = truth_contributing(right, state_x, state_y);
+            match (l, r) {
+                (Some(mut a), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                (some @ Some(_), None) | (None, some @ Some(_)) => some,
+                (None, None) => None,
+            }
+        }
+        Formula::Implies(left, right) => {
+            let l = truth_contributing(left, state_x, state_y);
+            let r = truth_contributing(right, state_x, state_y);
+            match (l, r) {
+                (None, _) => Some(BTreeSet::new()),
+                (Some(mut a), Some(b)) => {
+                    a.extend(b);
+                    Some(a)
+                }
+                (Some(_), None) => None,
+            }
+        }
+        _ => unreachable!("non-temporal formulas only"),
+    }
+}
+
+fn actual_snapshot_indices(value: &Value<Variable>) -> BTreeSet<usize> {
+    match value {
+        Value::True(snapshots) => snapshots
+            .iter()
+            .filter_map(|s| s.name.as_ref())
+            .map(|name| match name.as_str() {
+                "x_val" => 0,
+                "y_val" => 1,
+                _ => panic!("unexpected snapshot: {}", name),
+            })
+            .collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
+proptest! {
+    #[test]
+    fn test_true_snapshots_equal_truth_contributing(
+        syntax in nontemporal_syntax(),
+        state_x in any::<bool>(),
+        state_y in any::<bool>(),
+    ) {
+        let formula = syntax.nnf();
+        let expected = truth_contributing(&formula, state_x, state_y);
+
+        let snapshots = vec![
+            snapshot("x_val", serde_json::json!(1)),
+            snapshot("y_val", serde_json::json!(2)),
+        ];
+        let mut evaluate_thunk = |variable: &Variable, negated: bool| {
+            let raw = match variable {
+                Variable::X => state_x,
+                Variable::Y => state_y,
+                Variable::Z => unreachable!(),
+            };
+            let value = if negated { !raw } else { raw };
+            let mut accessed = BitSet::new();
+            accessed.insert(variable_index(variable));
+            Ok((
+                Formula::Pure {
+                    value,
+                    pretty: format!("{:?}={}", variable, value),
+                },
+                accessed,
+            ))
+        };
+        let mut evaluator =
+            Evaluator::new(&mut evaluate_thunk, &snapshots);
+        let value = evaluator.evaluate(&formula, UNIX_EPOCH).unwrap();
+
+        match (&expected, &value) {
+            (Some(expected_indices), Value::True(_)) => {
+                let actual = actual_snapshot_indices(&value);
+                prop_assert_eq!(
+                    expected_indices, &actual,
+                    "formula: {:?}, x={}, y={}",
+                    syntax, state_x, state_y,
+                );
+            }
+            (None, Value::False(_, _)) => {}
+            (Some(_), Value::False(_, _)) => {
+                prop_assert!(
+                    false,
+                    "oracle=true, evaluator=false: {:?}, x={}, y={}",
+                    syntax, state_x, state_y,
+                );
+            }
+            (None, Value::True(_)) => {
+                prop_assert!(
+                    false,
+                    "oracle=false, evaluator=true: {:?}, x={}, y={}",
+                    syntax, state_x, state_y,
+                );
+            }
+            (_, Value::Residual(_)) => {
+                prop_assert!(
+                    false,
+                    "non-temporal formula produced Residual",
+                );
+            }
         }
     }
 }
