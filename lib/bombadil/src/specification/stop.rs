@@ -97,7 +97,7 @@ fn stop_implies_default<Function: Clone>(
         (True, False(violation)) => False(Violation::Implies {
             left: left_formula.clone(),
             right: Box::new(violation.clone()),
-            antecedent_snapshot_references: vec![],
+            antecedent_snapshots: vec![],
         }),
         (True, True) => True,
     }

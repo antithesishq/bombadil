@@ -93,7 +93,7 @@ pub enum Violation<Function> {
     False {
         time: Time,
         condition: String,
-        snapshot_references: Vec<Snapshot>,
+        snapshots: Vec<Snapshot>,
     },
     Eventually {
         subformula: Box<Formula<Function>>,
@@ -117,7 +117,7 @@ pub enum Violation<Function> {
     Implies {
         left: Formula<Function>,
         right: Box<Violation<Function>>,
-        antecedent_snapshot_references: Vec<Snapshot>,
+        antecedent_snapshots: Vec<Snapshot>,
     },
 }
 
@@ -143,11 +143,11 @@ impl<Function: Clone> Violation<Function> {
             Violation::False {
                 time,
                 condition,
-                snapshot_references,
+                snapshots,
             } => Violation::False {
                 time: *time,
                 condition: condition.clone(),
-                snapshot_references: snapshot_references.clone(),
+                snapshots: snapshots.clone(),
             },
             Violation::Eventually { subformula, reason } => {
                 Violation::Eventually {
@@ -179,12 +179,11 @@ impl<Function: Clone> Violation<Function> {
             Violation::Implies {
                 left,
                 right,
-                antecedent_snapshot_references,
+                antecedent_snapshots,
             } => Violation::Implies {
                 left: left.map_function_ref(f),
                 right: Box::new(right.map_function_ref(f)),
-                antecedent_snapshot_references: antecedent_snapshot_references
-                    .clone(),
+                antecedent_snapshots: antecedent_snapshots.clone(),
             },
         }
     }
@@ -283,7 +282,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     Violation::False {
                         time,
                         condition: pretty.clone(),
-                        snapshot_references: vec![],
+                        snapshots: vec![],
                     },
                     None,
                 )
@@ -293,11 +292,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     (self.evaluate_thunk)(function, *negated)?;
                 let mut value = self.evaluate(&formula, time)?;
                 if !accessed.is_empty() {
-                    attach_snapshot_references(
-                        &mut value,
-                        self.snapshots,
-                        accessed,
-                    );
+                    attach_snapshots(&mut value, self.snapshots, accessed);
                 }
                 Ok(value)
             }
@@ -450,29 +445,29 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         match (left, right) {
             (Value::False(_, _), _) => Value::True(vec![]),
             (
-                Value::True(left_references),
+                Value::True(snapshots_left),
                 Value::False(violation, continuation),
             ) => Value::False(
                 Violation::Implies {
                     left: left_formula.clone(),
                     right: Box::new(violation.clone()),
-                    antecedent_snapshot_references: left_references.clone(),
+                    antecedent_snapshots: snapshots_left.clone(),
                 },
                 continuation.as_ref().map(|c| Residual::Implies {
                     left_formula: left_formula.clone(),
-                    left: Box::new(Residual::True(left_references.clone())),
+                    left: Box::new(Residual::True(snapshots_left.clone())),
                     right: Box::new(c.clone()),
                 }),
             ),
-            (Value::True(left_references), Value::True(right_references)) => {
-                let mut merged = left_references.clone();
-                merged.extend(right_references.iter().cloned());
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                let mut merged = snapshots_left.clone();
+                merged.extend(snapshots_right.iter().cloned());
                 Value::True(merged)
             }
-            (Value::True(left_references), Value::Residual(right)) => {
+            (Value::True(snapshots_left), Value::Residual(right)) => {
                 Value::Residual(Residual::Implies {
                     left_formula: left_formula.clone(),
-                    left: Box::new(Residual::True(left_references.clone())),
+                    left: Box::new(Residual::True(snapshots_left.clone())),
                     right: Box::new(right.clone()),
                 })
             }
@@ -851,7 +846,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     }
 }
 
-fn attach_snapshot_references<F>(
+fn attach_snapshots<F>(
     value: &mut Value<F>,
     snapshots: &[Snapshot],
     accessed: BitSet,
@@ -868,12 +863,8 @@ fn attach_snapshot_references<F>(
             references.extend(resolved);
         }
         Value::False(violation, _) => {
-            if let Violation::False {
-                snapshot_references,
-                ..
-            } = violation
-            {
-                snapshot_references.extend(resolved);
+            if let Violation::False { snapshots, .. } = violation {
+                snapshots.extend(resolved);
             }
         }
         Value::Residual(_) => {}

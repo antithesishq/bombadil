@@ -32,13 +32,13 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
         match self.violation {
             Violation::False {
                 condition,
-                snapshot_references,
+                snapshots,
                 ..
             } => {
-                if snapshot_references.is_empty() {
+                if snapshots.is_empty() {
                     write!(f, "!({})", condition)?;
                 } else {
-                    render_snapshot_values(f, snapshot_references)?;
+                    render_snapshot_values(f, snapshots)?;
                 }
             }
             Violation::Eventually { subformula, reason } => {
@@ -91,7 +91,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             Violation::Implies {
                 left,
                 right,
-                antecedent_snapshot_references,
+                antecedent_snapshots: antecedent_snapshot_references,
             } => {
                 if !antecedent_snapshot_references.is_empty() {
                     render_snapshot_inline(f, antecedent_snapshot_references)?;
@@ -402,7 +402,7 @@ mod tests {
                     subformula: Box::new(thunk("y == 20")),
                     reason: EventuallyViolation::TestEnded,
                 }),
-                antecedent_snapshot_references: vec![Snapshot {
+                antecedent_snapshots: vec![Snapshot {
                     name: Some("x".into()),
                     value: json::json!(11),
                 }],
@@ -438,7 +438,7 @@ eventually y == 20 (which never occurred)"
             violation: Box::new(Violation::False {
                 time: time_at(305),
                 condition: "count.current <= 5".into(),
-                snapshot_references: vec![Snapshot {
+                snapshots: vec![Snapshot {
                     name: Some("count".into()),
                     value: json::json!(6),
                 }],
