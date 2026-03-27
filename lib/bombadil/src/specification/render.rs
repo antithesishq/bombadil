@@ -36,7 +36,7 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
                 ..
             } => {
                 if snapshot_references.is_empty() {
-                    write!(f, "{}", condition)?;
+                    write!(f, "!({})", condition)?;
                 } else {
                     render_snapshot_values(f, snapshot_references)?;
                 }

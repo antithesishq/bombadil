@@ -109,7 +109,7 @@ fn render_violation_inner(
             ..
         } => {
             if snapshot_references.is_empty() {
-                html!(<pre><code>{condition}</code></pre>)
+                html!(<pre><code>{format!("!({condition})")}</code></pre>)
             } else {
                 let options = JsonRenderOptions {
                     literal_strings: false,
