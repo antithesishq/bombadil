@@ -12,4 +12,6 @@ pub mod worker;
 #[cfg(test)]
 mod ltl_equivalences;
 #[cfg(test)]
+mod ltl_snapshot_tests;
+#[cfg(test)]
 mod random_test;

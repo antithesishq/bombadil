@@ -362,6 +362,23 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         match (left, right) {
+            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
+                let mut merged = left_snapshots.clone();
+                merged.extend(right_snapshots.iter().cloned());
+                Value::True(merged)
+            }
+            (Value::True(snapshots), Value::Residual(residual)) => {
+                Value::Residual(combine_and(
+                    Residual::True(snapshots.clone()),
+                    residual.clone(),
+                ))
+            }
+            (Value::Residual(residual), Value::True(snapshots)) => {
+                Value::Residual(combine_and(
+                    residual.clone(),
+                    Residual::True(snapshots.clone()),
+                ))
+            }
             (Value::True(_), right) => right.clone(),
             (left, Value::True(_)) => left.clone(),
             (
@@ -423,6 +440,11 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     },
                 ),
             ),
+            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
+                let mut merged = left_snapshots.clone();
+                merged.extend(right_snapshots.iter().cloned());
+                Value::True(merged)
+            }
             (Value::True(references), _) => Value::True(references.clone()),
             (_, Value::True(references)) => Value::True(references.clone()),
             (left, Value::False(_, _)) => left.clone(),

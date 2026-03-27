@@ -119,7 +119,10 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
                 ValueEqMode::UpToViolations => {
                     match (default_left, default_right) {
                         (None, None) => {}
-                        (Some(StopDefault::True), Some(StopDefault::True)) => {}
+                        (
+                            Some(StopDefault::True(_)),
+                            Some(StopDefault::True(_)),
+                        ) => {}
                         (
                             Some(StopDefault::False(_)),
                             Some(StopDefault::False(_)),

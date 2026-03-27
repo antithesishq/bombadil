@@ -686,7 +686,7 @@ mod tests {
                 match value {
                     ltl::Value::Residual(residual) => {
                         match stop_default(residual, time) {
-                            Some(StopDefault::True) => {}
+                            Some(StopDefault::True(_)) => {}
                             _ => panic!("should have a true stop default"),
                         }
                     }
@@ -746,7 +746,7 @@ mod tests {
                 match value {
                     ltl::Value::Residual(residual) => {
                         match stop_default(residual, time) {
-                            Some(StopDefault::True) => {}
+                            Some(StopDefault::True(_)) => {}
                             _ => panic!("should have a true stop default"),
                         }
                     }
@@ -814,7 +814,7 @@ mod tests {
                     match value {
                         ltl::Value::Residual(residual) => {
                             match stop_default(residual, time) {
-                                Some(StopDefault::True) => {}
+                                Some(StopDefault::True(_)) => {}
                                 _ => {
                                     panic!("should have a true stop default")
                                 }
