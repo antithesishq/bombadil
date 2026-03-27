@@ -3,7 +3,6 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use bit_set::BitSet;
 use proptest::prelude::*;
 
 use crate::specification::{
@@ -74,11 +73,19 @@ struct TestState {
     z: bool,
 }
 
+fn variable_snapshot(variable: &Variable) -> Snapshot {
+    let all = make_snapshots();
+    match variable {
+        Variable::X => all[0].clone(),
+        Variable::Y => all[1].clone(),
+        Variable::Z => all[2].clone(),
+    }
+}
+
 fn evaluate_with_state(
     formula: &Formula<Variable>,
     state: &TestState,
 ) -> Value<Variable> {
-    let snapshots = make_snapshots();
     let mut evaluate_thunk = |variable: &Variable, negated: bool| {
         let value = match variable {
             Variable::X => state.x,
@@ -86,21 +93,15 @@ fn evaluate_with_state(
             Variable::Z => state.z,
         };
         let value = if negated { !value } else { value };
-        let mut accessed = BitSet::new();
-        match variable {
-            Variable::X => accessed.insert(0),
-            Variable::Y => accessed.insert(1),
-            Variable::Z => accessed.insert(2),
-        };
         Ok((
             Formula::Pure {
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            accessed,
+            vec![variable_snapshot(variable)],
         ))
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk, &snapshots);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
     evaluator.evaluate(formula, UNIX_EPOCH).unwrap()
 }
 
@@ -109,7 +110,6 @@ fn step_with_state(
     state: &TestState,
     time: Time,
 ) -> Value<Variable> {
-    let snapshots = make_snapshots();
     let mut evaluate_thunk = |variable: &Variable, negated: bool| {
         let value = match variable {
             Variable::X => state.x,
@@ -117,21 +117,15 @@ fn step_with_state(
             Variable::Z => state.z,
         };
         let value = if negated { !value } else { value };
-        let mut accessed = BitSet::new();
-        match variable {
-            Variable::X => accessed.insert(0),
-            Variable::Y => accessed.insert(1),
-            Variable::Z => accessed.insert(2),
-        };
         Ok((
             Formula::Pure {
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            accessed,
+            vec![variable_snapshot(variable)],
         ))
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk, &snapshots);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
     evaluator.step(residual, time).unwrap()
 }
 
@@ -545,7 +539,7 @@ proptest! {
         let formula = syntax.nnf();
         let expected = truth_contributing(&formula, state_x, state_y);
 
-        let snapshots = vec![
+        let all_snapshots = vec![
             snapshot("x_val", serde_json::json!(1)),
             snapshot("y_val", serde_json::json!(2)),
         ];
@@ -556,18 +550,17 @@ proptest! {
                 Variable::Z => unreachable!(),
             };
             let value = if negated { !raw } else { raw };
-            let mut accessed = BitSet::new();
-            accessed.insert(variable_index(variable));
+            let snapshot =
+                all_snapshots[variable_index(variable)].clone();
             Ok((
                 Formula::Pure {
                     value,
                     pretty: format!("{:?}={}", variable, value),
                 },
-                accessed,
+                vec![snapshot],
             ))
         };
-        let mut evaluator =
-            Evaluator::new(&mut evaluate_thunk, &snapshots);
+        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
         let value = evaluator.evaluate(&formula, UNIX_EPOCH).unwrap();
 
         match (&expected, &value) {

@@ -7,7 +7,6 @@ use crate::specification::{
     ltl::*,
     stop::{StopDefault, stop_default},
 };
-use bit_set::BitSet;
 use proptest::prelude::*;
 
 use crate::specification::syntax::Syntax;
@@ -169,7 +168,7 @@ fn check_equivalence(
                     value,
                     pretty: format!("{}", value),
                 },
-                BitSet::default(),
+                vec![],
             ))
         }
         Thunk::Subformula(syntax) => {
@@ -178,10 +177,10 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok((syntax.nnf(), BitSet::default()))
+            Ok((syntax.nnf(), vec![]))
         }
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk, &[]);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
     let mut time = UNIX_EPOCH;
 

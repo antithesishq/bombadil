@@ -2,7 +2,6 @@ use std::time::{Duration, SystemTime};
 
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::verifier::Snapshot;
-use bit_set::BitSet;
 use serde::Serialize;
 
 fn combine_options<T: Clone>(
@@ -251,22 +250,15 @@ pub type EvaluateThunk<'a, Function> =
     &'a mut dyn FnMut(
         &'_ Function,
         bool,
-    ) -> Result<(Formula<Function>, BitSet)>;
+    ) -> Result<(Formula<Function>, Vec<Snapshot>)>;
 
 pub struct Evaluator<'a, Function> {
     evaluate_thunk: EvaluateThunk<'a, Function>,
-    snapshots: &'a [Snapshot],
 }
 
 impl<'a, Function: Clone> Evaluator<'a, Function> {
-    pub fn new(
-        evaluate_thunk: EvaluateThunk<'a, Function>,
-        snapshots: &'a [Snapshot],
-    ) -> Self {
-        Evaluator {
-            evaluate_thunk,
-            snapshots,
-        }
+    pub fn new(evaluate_thunk: EvaluateThunk<'a, Function>) -> Self {
+        Evaluator { evaluate_thunk }
     }
 
     pub fn evaluate(
@@ -288,12 +280,10 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 )
             }),
             Formula::Thunk { function, negated } => {
-                let (formula, accessed) =
+                let (formula, snapshots) =
                     (self.evaluate_thunk)(function, *negated)?;
                 let mut value = self.evaluate(&formula, time)?;
-                if !accessed.is_empty() {
-                    attach_snapshots(&mut value, self.snapshots, accessed);
-                }
+                attach_snapshots(&mut value, snapshots);
                 Ok(value)
             }
             Formula::And(left, right) => {
@@ -868,15 +858,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     }
 }
 
-fn attach_snapshots<F>(
-    value: &mut Value<F>,
-    snapshots: &[Snapshot],
-    accessed: BitSet,
-) {
-    let resolved: Vec<Snapshot> = accessed
-        .iter()
-        .filter_map(|i| snapshots.get(i).cloned())
-        .collect();
+fn attach_snapshots<F>(value: &mut Value<F>, resolved: Vec<Snapshot>) {
     if resolved.is_empty() {
         return;
     }

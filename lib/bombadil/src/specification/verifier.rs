@@ -6,7 +6,6 @@ use crate::specification::result::Result;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
-use bit_set::BitSet;
 use boa_engine::{
     Context, JsString, NativeFunction, Source,
     context::ContextBuilder,
@@ -304,7 +303,7 @@ impl Verifier {
                                   negated: bool|
          -> Result<(
             Formula<RuntimeFunction>,
-            BitSet,
+            Vec<Snapshot>,
         )> {
             start_tracking.call(
                 &JsValue::from(runtime_obj.clone()),
@@ -318,10 +317,19 @@ impl Verifier {
                 &[],
                 context,
             )?;
-            let accessed = crate::specification::js::js_value_to_extractor_set(
-                &accesses_js,
-                context,
-            )?;
+            let indices: Vec<usize> = serde_json::from_value(
+                accesses_js.to_json(context)?.unwrap_or_default(),
+            )
+            .map_err(|error| {
+                SpecificationError::OtherError(format!(
+                    "failed to deserialize extractor indices: {}",
+                    error
+                ))
+            })?;
+            let accessed_snapshots: Vec<Snapshot> = indices
+                .into_iter()
+                .filter_map(|i| snapshots.get(i).cloned())
+                .collect();
             let syntax =
                 Syntax::from_value(&value, &self.bombadil_exports, context)?;
             Ok((
@@ -331,10 +339,10 @@ impl Verifier {
                     syntax
                 })
                 .nnf(),
-                accessed,
+                accessed_snapshots,
             ))
         };
-        let mut evaluator = Evaluator::new(&mut evaluate_thunk, snapshots);
+        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
         for property in self.properties.values_mut() {
             let value = match &property.state {

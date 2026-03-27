@@ -404,7 +404,6 @@ version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64",
- "bit-set",
  "boa_engine",
  "bombadil-browser-keys",
  "bytes",

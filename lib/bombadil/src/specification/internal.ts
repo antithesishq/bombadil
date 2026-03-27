@@ -68,6 +68,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   run(state: S): T {
     return this.extract(state);
   }
+
 }
 
 export class TimeCell implements Cell<Time> {
