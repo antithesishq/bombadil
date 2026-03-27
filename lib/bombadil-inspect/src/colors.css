@@ -43,6 +43,7 @@
     --color-bg-muted: color-mix(in srgb, var(--color-bg) 60%, var(--color-gray-1));
     --color-border: var(--color-gray-2);
 
+    --color-value: color-mix(in srgb, var(--color-kelly) 60%, var(--color-fg));
     --color-overlay: #000;
     --color-text-selection: var(--color-kelly);
 }
@@ -51,7 +52,7 @@
 @media (prefers-color-scheme: dark) {
     :root {
         --color-danger: #f6384f;
-        --color-selected: #a1e4d2;
+        --color-selected: var(--color-kelly-40);
 
         --color-bg: color-mix(in srgb, var(--color-fg) 6%, #000000);
         --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, #000000);
@@ -59,6 +60,7 @@
         --color-fg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-fg));
         --color-border: color-mix(in srgb, var(--color-bg) 70%, var(--color-fg));
 
+        --color-value: var(--color-gray-1);
         --color-overlay: var(--color-bg);
         --color-text-selection: color-mix(in srgb, var(--color-bg) 50%, var(--color-selected));
     }

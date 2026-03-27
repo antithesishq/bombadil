@@ -66,10 +66,6 @@ details[open]::details-content {
   padding: 0;
 }
 
-.state-details dl dt {
-  font-weight: bold;
-}
-
 .state-details dl.snapshots > .json-entry > dt::after,
 .state-details dl.snapshot-values > .json-entry > dt::after {
   content: " =";
@@ -156,6 +152,11 @@ details[open]::details-content {
 .state-details .json-entry:not(.inline) > dd {
   flex-basis: 100%;
   padding-left: 2ch;
+}
+
+.snapshots .json-string,
+.snapshots .json-literal {
+  color: var(--color-value);
 }
 
 .json-string {
