@@ -60,7 +60,7 @@
         --color-fg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-fg));
         --color-border: color-mix(in srgb, var(--color-bg) 70%, var(--color-fg));
 
-        --color-value: var(--color-gray-1);
+        --color-value: color-mix(in srgb, var(--color-gray-1) 50%, var(--color-fg));
         --color-overlay: var(--color-bg);
         --color-text-selection: color-mix(in srgb, var(--color-bg) 50%, var(--color-selected));
     }
