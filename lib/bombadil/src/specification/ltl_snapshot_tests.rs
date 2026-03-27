@@ -539,10 +539,8 @@ proptest! {
         let formula = syntax.nnf();
         let expected = truth_contributing(&formula, state_x, state_y);
 
-        let all_snapshots = vec![
-            snapshot("x_val", serde_json::json!(1)),
-            snapshot("y_val", serde_json::json!(2)),
-        ];
+        let all_snapshots = [snapshot("x_val", serde_json::json!(1)),
+            snapshot("y_val", serde_json::json!(2))];
         let mut evaluate_thunk = |variable: &Variable, negated: bool| {
             let raw = match variable {
                 Variable::X => state_x,
