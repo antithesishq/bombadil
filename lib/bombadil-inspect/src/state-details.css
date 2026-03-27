@@ -151,7 +151,11 @@ details[open]::details-content {
   padding-left: 0;
 }
 
-.state-details .json-entry:not(.scalar) > dd {
+.state-details .json-entry.inline {
+  flex-wrap: initial;
+}
+
+.state-details .json-entry:not(.inline) > dd {
   flex-basis: 100%;
   padding-left: 2ch;
 }

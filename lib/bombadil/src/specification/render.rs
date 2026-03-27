@@ -224,6 +224,9 @@ fn write_json_value(
     depth: usize,
 ) -> std::fmt::Result {
     match value {
+        json::Value::Array(items) if items.is_empty() => {
+            write!(f, " []")?;
+        }
         json::Value::Array(items) => {
             for item in items {
                 writeln!(f)?;
@@ -231,6 +234,9 @@ fn write_json_value(
                 write!(f, "-")?;
                 write_json_value(f, item, depth + 1)?;
             }
+        }
+        json::Value::Object(map) if map.is_empty() => {
+            write!(f, " {{}}")?;
         }
         json::Value::Object(map) => {
             for (key, val) in map {

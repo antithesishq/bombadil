@@ -55,24 +55,30 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 <summary>{"Snapshots"}</summary>
                 <dl class="snapshots">
                 {
-                    props
-                        .entry
-                        .snapshots
-                        .iter()
-                        .map(|snapshot| {
-                            let class = if is_json_scalar(&snapshot.value) {
-                                "json-entry scalar"
-                            } else {
-                                "json-entry"
-                            };
-                            html!(
-                                <div class={class}>
-                                    <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
-                                    <dd>{render_json(&snapshot.value)}</dd>
-                                </div>
-                            )
-                        })
-                        .collect::<Html>()
+                    {
+                        let options = JsonRenderOptions {
+                            literal_strings: true,
+                        };
+                        props
+                            .entry
+                            .snapshots
+                            .iter()
+                            .map(|snapshot| {
+                                let class =
+                                    if is_json_inline(&snapshot.value) {
+                                        "json-entry inline"
+                                    } else {
+                                        "json-entry"
+                                    };
+                                html!(
+                                    <div class={class}>
+                                        <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
+                                        <dd>{render_json(&snapshot.value, options)}</dd>
+                                    </div>
+                                )
+                            })
+                            .collect::<Html>()
+                    }
                 }
                 </dl>
             </details>
@@ -105,7 +111,10 @@ fn render_violation_inner(
             if snapshot_references.is_empty() {
                 html!(<pre><code>{condition}</code></pre>)
             } else {
-                render_snapshot_values(snapshot_references)
+                let options = JsonRenderOptions {
+                    literal_strings: false,
+                };
+                render_snapshot_values(snapshot_references, options)
             }
         }
         Violation::Eventually { subformula, reason } => {
@@ -215,6 +224,9 @@ fn render_violation_inner(
                                     <>
                                         {render_snapshot_inline(
                                             antecedent_snapshot_references,
+                                            JsonRenderOptions {
+                                                literal_strings: false,
+                                            },
                                         )}
                                         {", implying:"}
                                     </>
@@ -236,8 +248,11 @@ fn render_violation_inner(
     }
 }
 
-fn render_snapshot_values(references: &[Snapshot]) -> Html {
-    let items = collect_snapshot_items(references);
+fn render_snapshot_values(
+    references: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Html {
+    let items = collect_snapshot_items(references, options);
     html!(
         <dl class="snapshot-values">
             { for items.into_iter() }
@@ -245,8 +260,11 @@ fn render_snapshot_values(references: &[Snapshot]) -> Html {
     )
 }
 
-fn render_snapshot_inline(references: &[Snapshot]) -> Html {
-    let items = collect_snapshot_items(references);
+fn render_snapshot_inline(
+    references: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Html {
+    let items = collect_snapshot_items(references, options);
     if items.is_empty() {
         return html!();
     }
@@ -259,19 +277,22 @@ fn render_snapshot_inline(references: &[Snapshot]) -> Html {
     )
 }
 
-fn collect_snapshot_items(references: &[Snapshot]) -> Vec<Html> {
+fn collect_snapshot_items(
+    references: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Vec<Html> {
     let mut items = Vec::new();
     for (i, snapshot) in references.iter().enumerate() {
         let name = snapshot_name(snapshot, i);
-        let class = if is_json_scalar(&snapshot.value) {
-            "json-entry scalar"
+        let class = if is_json_inline(&snapshot.value) {
+            "json-entry inline"
         } else {
             "json-entry"
         };
         items.push(html!(
             <div class={class}>
                 <dt>{name}</dt>
-                <dd>{render_json(&snapshot.value)}</dd>
+                <dd>{render_json(&snapshot.value, options)}</dd>
             </div>
         ));
     }
@@ -286,44 +307,69 @@ fn snapshot_name(snapshot: &Snapshot, index: usize) -> String {
         .unwrap_or_else(|| format!("extractor[{}]", index))
 }
 
+#[derive(Clone, Copy)]
+struct JsonRenderOptions {
+    literal_strings: bool,
+}
+
 fn is_printable(s: &str) -> bool {
     s.chars().all(|c| !c.is_control() || c == '\n' || c == '\t')
 }
 
-fn is_json_scalar(value: &json::Value) -> bool {
-    !matches!(value, json::Value::Array(_) | json::Value::Object(_))
+fn is_json_inline(value: &json::Value) -> bool {
+    match value {
+        json::Value::Array(items) => items.is_empty(),
+        json::Value::Object(map) => map.is_empty(),
+        _ => true,
+    }
 }
 
-fn render_json(value: &json::Value) -> Html {
+fn render_json(value: &json::Value, options: JsonRenderOptions) -> Html {
     match value {
+        json::Value::Array(items) if items.is_empty() => {
+            html!(<code class="json-literal">{"[]"}</code>)
+        }
         json::Value::Array(items) => {
             html!(
                 <ul class="json-array">
-                    { for items.iter().map(|item| html!(<li>{render_json(item)}</li>)) }
+                    { for items.iter().map(|item| html!(<li>{render_json(item, options)}</li>)) }
                 </ul>
             )
+        }
+        json::Value::Object(map) if map.is_empty() => {
+            html!(<code class="json-literal">{"{}"}</code>)
         }
         json::Value::Object(map) => {
             html!(
                 <dl class="json-object">
                     { for map.iter().map(|(key, val)| {
-                        let class = if is_json_scalar(val) {
-                            "json-entry scalar"
+                        let class = if is_json_inline(val) {
+                            "json-entry inline"
                         } else {
                             "json-entry"
                         };
                         html!(
                             <div class={class}>
                                 <dt>{key}</dt>
-                                <dd>{render_json(val)}</dd>
+                                <dd>{render_json(val, options)}</dd>
                             </div>
                         )
                     }) }
                 </dl>
             )
         }
-        json::Value::String(s) if is_printable(s) => {
+        json::Value::String(s)
+            if !options.literal_strings && is_printable(s) =>
+        {
             html!(<span class="json-string">{s}</span>)
+        }
+        json::Value::String(s) => {
+            let literal = json::Value::String(s.clone()).to_string();
+            html!(
+                <code class="json-literal" title={s.clone()}>
+                    {literal}
+                </code>
+            )
         }
         other => {
             html!(<code class="json-literal">{other.to_string()}</code>)
