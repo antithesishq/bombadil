@@ -114,7 +114,6 @@ details[open]::details-content {
 
 .json-array > li {
   display: flex;
-  flex-wrap: wrap;
 }
 
 .json-array > li::before {
@@ -122,8 +121,7 @@ details[open]::details-content {
   margin-right: 1ch;
 }
 
-.json-array > li > .json-array,
-.json-array > li > .json-object {
+.json-array > li > .json-array {
   flex-basis: 100%;
   padding-left: 2ch;
 }
