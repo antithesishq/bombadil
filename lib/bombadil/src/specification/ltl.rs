@@ -198,7 +198,7 @@ pub enum Leaning<Function> {
 pub enum Residual<Function> {
     True(Vec<Snapshot>),
     False(Violation<Function>),
-    Derived(Derived<Function>, Leaning<Function>, Vec<Snapshot>),
+    Derived(Derived<Function>, Leaning<Function>),
     And {
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
@@ -307,7 +307,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula: formula.clone(),
                 },
                 Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
-                vec![],
             ))),
             Formula::Always(formula, bound) => {
                 let end = if let Some(duration) = bound {
@@ -523,7 +522,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 end,
             },
             Leaning::AssumeTrue,
-            vec![],
         );
 
         let wrap_and_always = |inner: Residual<Function>,
@@ -634,7 +632,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                         end,
                     },
                     Leaning::AssumeTrue,
-                    vec![],
                 );
                 let inner = combine_options(
                     pending_residual(&left).cloned(),
@@ -696,7 +693,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 subformula: subformula.clone(),
                 reason: EventuallyViolation::TestEnded,
             }),
-            vec![],
         );
 
         Ok(match self.evaluate(&subformula, time)? {
@@ -788,7 +784,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 let right = self.step(right, time)?;
                 self.evaluate_implies(left_formula, &left, &right)
             }
-            Residual::Derived(derived, _, _) => match derived {
+            Residual::Derived(derived, _) => match derived {
                 Derived::Once {
                     start: _,
                     subformula,

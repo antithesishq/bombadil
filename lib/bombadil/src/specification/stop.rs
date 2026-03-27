@@ -15,7 +15,7 @@ pub fn stop_default<Function: Clone>(
     match residual {
         True(snapshots) => Some(StopDefault::True(snapshots.clone())),
         False(violation) => Some(StopDefault::False(violation.clone())),
-        Derived(_, leaning, _) => match leaning {
+        Derived(_, leaning) => match leaning {
             Leaning::AssumeFalse(violation) => {
                 Some(StopDefault::False(violation.clone()))
             }
