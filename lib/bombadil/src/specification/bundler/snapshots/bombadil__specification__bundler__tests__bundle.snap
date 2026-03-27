@@ -449,7 +449,9 @@ expression: bundle
     		return result;
     	}
     	recordAccess(index) {
-    		if (this.tracking) this.accesses.add(index);
+    		if (this.tracking) {
+    			this.accesses.add(index);
+    		}
     	}
     	runExtractors(state) {
     		return this.extractors.map((extractor) => {

@@ -117,7 +117,9 @@ export class Runtime<S> {
   }
 
   recordAccess(index: number): void {
-    if (this.tracking) this.accesses.add(index);
+    if (this.tracking) {
+      this.accesses.add(index);
+    }
   }
 
   runExtractors(state: S): { name: string | null; value: JSON }[] {
