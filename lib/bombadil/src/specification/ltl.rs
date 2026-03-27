@@ -255,7 +255,7 @@ pub type EvaluateThunk<'a, Function> =
 
 pub struct Evaluator<'a, Function> {
     evaluate_thunk: EvaluateThunk<'a, Function>,
-    pub snapshots: &'a [Snapshot],
+    snapshots: &'a [Snapshot],
 }
 
 impl<'a, Function: Clone> Evaluator<'a, Function> {
