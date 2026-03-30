@@ -157,7 +157,7 @@ fn test_and_preserves_left_snapshots_with_residual() {
     };
     let formula = Formula::And(
         Box::new(thunk(Variable::X)),
-        Box::new(Formula::Next(Box::new(thunk(Variable::Y)))),
+        Box::new(Formula::Next(Box::new(thunk(Variable::Y)), true)),
     );
     let value = evaluate_with_state(&formula, &state);
     assert!(matches!(value, Value::Residual(_)));
@@ -190,7 +190,7 @@ fn test_and_preserves_right_snapshots_with_residual() {
         z: false,
     };
     let formula = Formula::And(
-        Box::new(Formula::Next(Box::new(thunk(Variable::X)))),
+        Box::new(Formula::Next(Box::new(thunk(Variable::X)), true)),
         Box::new(thunk(Variable::Y)),
     );
     let value = evaluate_with_state(&formula, &state);
@@ -319,7 +319,7 @@ fn test_or_true_short_circuits_with_snapshots() {
     };
     let formula = Formula::Or(
         Box::new(thunk(Variable::X)),
-        Box::new(Formula::Next(Box::new(thunk(Variable::Y)))),
+        Box::new(Formula::Next(Box::new(thunk(Variable::Y)), true)),
     );
     let value = evaluate_with_state(&formula, &state);
     assert!(matches!(value, Value::True(_)));

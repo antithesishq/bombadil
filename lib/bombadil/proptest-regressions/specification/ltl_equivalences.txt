@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5b1f55ac22ab649ac121568d0d5891579fac9bf36329d773159b7d93307518e1 # shrinks to φ = Or(Not(Thunk(Atomic(X))), Next(Pure { value: false, pretty: "false" })), ψ = Not(Thunk(Atomic(X))), trace = [State { x: true, y: false }]
+cc c29fb5274a668120394cb58fafd702fb056f766675b3c93b692860d1ac9873c7 # shrinks to φ = Eventually(Eventually(Thunk(Atomic(Y)), None), None), ψ = Always(Not(Pure { value: true, pretty: "true" }), None), trace = [State { x: false, y: true }, State { x: false, y: false }]

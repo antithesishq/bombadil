@@ -129,7 +129,7 @@ pub enum Formula {
     And(Box<Formula>, Box<Formula>),
     Or(Box<Formula>, Box<Formula>),
     Implies(Box<Formula>, Box<Formula>),
-    Next(Box<Formula>),
+    Next(Box<Formula>, bool),
     Always(Box<Formula>, Option<Duration>),
     Eventually(Box<Formula>, Option<Duration>),
 }

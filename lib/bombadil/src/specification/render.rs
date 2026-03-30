@@ -291,7 +291,7 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
                     RenderedFormula(right)
                 )
             }
-            Formula::Next(formula) => {
+            Formula::Next(formula, _) => {
                 write!(f, "next {}", RenderedFormula(formula))
             }
             Formula::Always(formula, None) => {

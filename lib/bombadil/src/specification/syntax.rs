@@ -78,7 +78,9 @@ impl<Function: Clone> Syntax<Function> {
                         )
                     }
                 }
-                Syntax::Next(sub) => Formula::Next(Box::new(go(sub, negated))),
+                Syntax::Next(sub) => {
+                    Formula::Next(Box::new(go(sub, negated)), !negated)
+                }
                 Syntax::Always(sub, bound) => {
                     if negated {
                         Formula::Eventually(Box::new(go(sub, negated)), *bound)

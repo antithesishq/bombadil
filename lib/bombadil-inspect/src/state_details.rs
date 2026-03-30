@@ -421,7 +421,7 @@ fn render_formula(formula: &Formula) -> Html {
                 </span>
             )
         }
-        Formula::Next(formula) => {
+        Formula::Next(formula, _) => {
             html!(
                 <span class="formula-next">
                     <span class="keyword">{"next "}</span>

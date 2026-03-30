@@ -251,11 +251,25 @@ proptest! {
     }
 }
 
+// Implication equivalence
+proptest! {
+    // (φ → ψ) ⇔ (¬φ ∨ ψ)
+    #[test]
+    // #[ignore]
+    fn test_implies_or_equivalence(φ in syntax(), ψ in syntax(), trace in trace()) {
+        let formula_left =
+            Syntax::Implies(Box::new(φ.clone()), Box::new(ψ.clone())).nnf();
+        let formula_right =
+            Syntax::Or(Box::new(Syntax::Not(Box::new(φ.clone()))), Box::new(ψ.clone())).nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+}
+
 // Negation propagation
 proptest! {
     // X(¬φ) ⇔ ¬X(φ)
     #[test]
-    fn test_next_self_duality(φ in syntax(), trace in trace()) {
+    fn test_next_self_duality(φ in syntax(), trace in prop::collection::vec(state(), 2..10).boxed()) {
         let formula_left =
             Syntax::Next(Box::new(Syntax::Not(Box::new(φ.clone())))).nnf();
         let formula_right =

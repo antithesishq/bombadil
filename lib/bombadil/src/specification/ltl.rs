@@ -25,7 +25,7 @@ pub enum Formula<Function> {
     And(Box<Formula<Function>>, Box<Formula<Function>>),
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
     Implies(Box<Formula<Function>>, Box<Formula<Function>>),
-    Next(Box<Formula<Function>>),
+    Next(Box<Formula<Function>>, bool),
     Always(Box<Formula<Function>>, Option<Duration>),
     Eventually(Box<Formula<Function>>, Option<Duration>),
 }
@@ -63,9 +63,10 @@ impl<Function: Clone> Formula<Function> {
                 Box::new(left.clone().map_function_ref(f)),
                 Box::new(right.clone().map_function_ref(f)),
             ),
-            Formula::Next(formula) => {
-                Formula::Next(Box::new(formula.clone().map_function_ref(f)))
-            }
+            Formula::Next(formula, assume_true) => Formula::Next(
+                Box::new(formula.clone().map_function_ref(f)),
+                *assume_true,
+            ),
             Formula::Always(formula, bound) => Formula::Always(
                 Box::new(formula.clone().map_function_ref(f)),
                 *bound,
@@ -301,13 +302,24 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 let right = self.evaluate(right.as_ref(), time)?;
                 Ok(self.evaluate_implies(left_formula, &left, &right))
             }
-            Formula::Next(formula) => Ok(Value::Residual(Residual::Derived(
-                Derived::Once {
-                    start: time,
-                    subformula: formula.clone(),
-                },
-                Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
-            ))),
+            Formula::Next(formula, assume_true) => {
+                let leaning = if *assume_true {
+                    Leaning::AssumeTrue
+                } else {
+                    Leaning::AssumeFalse(Violation::False {
+                        time,
+                        condition: "next (test ended)".to_string(),
+                        snapshots: vec![],
+                    })
+                };
+                Ok(Value::Residual(Residual::Derived(
+                    Derived::Once {
+                        start: time,
+                        subformula: formula.clone(),
+                    },
+                    leaning,
+                )))
+            }
             Formula::Always(formula, bound) => {
                 let end = if let Some(duration) = bound {
                     Some(time.checked_add(*duration).ok_or(
