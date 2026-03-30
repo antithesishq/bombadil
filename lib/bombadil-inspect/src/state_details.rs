@@ -104,17 +104,17 @@ fn render_violation_inner(
 ) -> Html {
     match violation {
         Violation::False {
-            snapshot_references,
+            snapshots,
             condition,
             ..
         } => {
-            if snapshot_references.is_empty() {
+            if snapshots.is_empty() {
                 html!(<pre><code>{format!("!({condition})")}</code></pre>)
             } else {
                 let options = JsonRenderOptions {
                     literal_strings: false,
                 };
-                render_snapshot_values(snapshot_references, options)
+                render_snapshot_values(snapshots, options)
             }
         }
         Violation::Eventually { subformula, reason } => {
@@ -213,17 +213,17 @@ fn render_violation_inner(
         Violation::Implies {
             left,
             right,
-            antecedent_snapshot_references,
+            antecedent_snapshots,
         } => {
             html!(
                 <>
                     <span>
                         {
-                            if !antecedent_snapshot_references.is_empty() {
+                            if !antecedent_snapshots.is_empty() {
                                 html!(
                                     <>
                                         {render_snapshot_inline(
-                                            antecedent_snapshot_references,
+                                            antecedent_snapshots,
                                             JsonRenderOptions {
                                                 literal_strings: false,
                                             },
