@@ -226,6 +226,11 @@ pub enum Residual<Function> {
         subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
+        /// When the left-side residual was first created. Used as
+        /// the violation time in the Always wrapper so that "but
+        /// at T" reflects when the subformula first started
+        /// failing, not when the failure was confirmed.
+        onset: Time,
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
     },
@@ -531,6 +536,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 subformula: subformula.clone(),
                 start,
                 end,
+                onset: time,
                 left: Box::new(inner),
                 right: Box::new(always),
             }
@@ -560,11 +566,13 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn evaluate_and_always(
         &mut self,
         subformula: Box<Formula<Function>>,
         start: Time,
         end: Option<Time>,
+        onset: Time,
         time: Time,
         left: Value<Function>,
         right: Value<Function>,
@@ -575,13 +583,15 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             return Ok(Value::True(UniqueSnapshots::new()));
         }
 
-        let wrap_and_always = |inner: Residual<Function>,
+        let wrap_and_always = |onset: Time,
+                               inner: Residual<Function>,
                                always: Residual<Function>|
          -> Residual<Function> {
             Residual::AndAlways {
                 subformula: subformula.clone(),
                 start,
                 end,
+                onset,
                 left: Box::new(inner),
                 right: Box::new(always),
             }
@@ -604,6 +614,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula,
                     start,
                     end,
+                    onset,
                     left: Box::new(left),
                     right: Box::new(Residual::True(UniqueSnapshots::new())),
                 })
@@ -613,6 +624,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula,
                     start,
                     end,
+                    onset: time,
                     left: Box::new(Residual::True(UniqueSnapshots::new())),
                     right: Box::new(right),
                 })
@@ -622,6 +634,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula,
                     start,
                     end,
+                    onset,
                     left: Box::new(left),
                     right: Box::new(right),
                 })
@@ -644,21 +657,38 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     },
                 );
                 let continuation = match inner {
-                    Some(inner) => wrap_and_always(inner, always_residual),
+                    Some(inner) => {
+                        wrap_and_always(onset, inner, always_residual)
+                    }
                     None => always_residual,
-                };
-                let violation = match (&left, &right) {
-                    (Value::False(violation, _), _) => violation,
-                    (_, Value::False(violation, _)) => violation,
-                    _ => unreachable!(),
                 };
                 // Unwrap one layer of Always if present, since
                 // we're about to re-wrap. The inner Always was
                 // produced by either evaluate_always or a prior
                 // evaluate_and_always call for the same formula.
-                let violation = match violation {
-                    Violation::Always { violation, .. } => violation.as_ref(),
-                    other => other,
+                //
+                // When the left side fails, use onset (when the
+                // left residual was first created) so that "but
+                // at T" reflects when the subformula first
+                // started failing. When the right side fails,
+                // use the time from the inner Always (set by
+                // evaluate_always at the current step).
+                let (violation, violation_time) = match (&left, &right) {
+                    (Value::False(v, _), _) => match v {
+                        Violation::Always { violation, .. } => {
+                            (violation.as_ref(), onset)
+                        }
+                        other => (other, onset),
+                    },
+                    (_, Value::False(v, _)) => match v {
+                        Violation::Always {
+                            violation,
+                            time: inner_time,
+                            ..
+                        } => (violation.as_ref(), *inner_time),
+                        other => (other, time),
+                    },
+                    _ => unreachable!(),
                 };
                 Value::False(
                     Violation::Always {
@@ -666,7 +696,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                         subformula,
                         start,
                         end,
-                        time,
+                        time: violation_time,
                     },
                     Some(continuation),
                 )
@@ -846,6 +876,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 subformula,
                 start,
                 end,
+                onset,
                 left,
                 right,
             } => {
@@ -855,6 +886,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula.clone(),
                     *start,
                     *end,
+                    *onset,
                     time,
                     left,
                     right,

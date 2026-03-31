@@ -45,6 +45,7 @@ pub fn stop_default<Function: Clone>(
             end,
             left,
             right,
+            ..
         } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| {
                 stop_and_always_default(
