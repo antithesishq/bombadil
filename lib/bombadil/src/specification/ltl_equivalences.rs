@@ -168,7 +168,7 @@ fn check_equivalence(
                     value,
                     pretty: format!("{}", value),
                 },
-                Snapshots::new(),
+                UniqueSnapshots::new(),
             ))
         }
         Thunk::Subformula(syntax) => {
@@ -177,7 +177,7 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok((syntax.nnf(), Snapshots::new()))
+            Ok((syntax.nnf(), UniqueSnapshots::new()))
         }
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);

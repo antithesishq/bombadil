@@ -5,7 +5,8 @@ use serde_json as json;
 
 use crate::specification::{
     js::RuntimeFunction,
-    ltl::{EventuallyViolation, Formula, Snapshots, Time, Violation},
+    ltl::{EventuallyViolation, Formula, Time, Violation},
+    verifier::Snapshot,
 };
 
 pub fn render_violation(
@@ -159,10 +160,10 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
 
 fn render_snapshot_values(
     f: &mut std::fmt::Formatter<'_>,
-    references: &Snapshots,
+    snapshots: &[Snapshot],
 ) -> std::fmt::Result {
     let mut first = true;
-    for (i, snapshot) in references.iter() {
+    for (i, snapshot) in snapshots.iter().enumerate() {
         if !first {
             writeln!(f)?;
         }
@@ -177,10 +178,10 @@ fn render_snapshot_values(
 
 fn render_snapshot_inline(
     f: &mut std::fmt::Formatter<'_>,
-    references: &Snapshots,
+    snapshots: &[Snapshot],
 ) -> std::fmt::Result {
     let mut first = true;
-    for (i, snapshot) in references.iter() {
+    for (i, snapshot) in snapshots.iter().enumerate() {
         if !first {
             write!(f, ", ")?;
         }
@@ -403,14 +404,11 @@ mod tests {
                     subformula: Box::new(thunk("y == 20")),
                     reason: EventuallyViolation::TestEnded,
                 }),
-                antecedent_snapshots: Snapshots::from([(
-                    0,
-                    Snapshot {
-                        index: 0,
-                        name: Some("x".into()),
-                        value: json::json!(11),
-                    },
-                )]),
+                antecedent_snapshots: vec![Snapshot {
+                    index: 0,
+                    name: Some("x".into()),
+                    value: json::json!(11),
+                }],
             }),
         };
 
@@ -443,14 +441,11 @@ eventually y == 20 (which never occurred)"
             violation: Box::new(Violation::False {
                 time: time_at(305),
                 condition: "count.current <= 5".into(),
-                snapshots: Snapshots::from([(
-                    0,
-                    Snapshot {
-                        index: 0,
-                        name: Some("count".into()),
-                        value: json::json!(6),
-                    },
-                )]),
+                snapshots: vec![Snapshot {
+                    index: 0,
+                    name: Some("count".into()),
+                    value: json::json!(6),
+                }],
             }),
         };
 

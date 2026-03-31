@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
-use crate::specification::ltl::{Evaluator, Formula, Residual, Snapshots};
+use crate::specification::ltl::{
+    Evaluator, Formula, Residual, UniqueSnapshots,
+};
 use crate::specification::result::Result;
 use crate::specification::snapshots::with_snapshot_tracking;
 use crate::specification::syntax::Syntax;
@@ -40,7 +42,10 @@ pub struct Snapshot {
     pub value: json::Value,
 }
 
-pub fn merge_snapshots(left: &Snapshots, right: &Snapshots) -> Snapshots {
+pub fn merge_snapshots(
+    left: &UniqueSnapshots,
+    right: &UniqueSnapshots,
+) -> UniqueSnapshots {
     let mut merged = left.clone();
     merged.extend(
         right
@@ -301,7 +306,7 @@ impl Verifier {
                                   negated: bool|
          -> Result<(
             Formula<RuntimeFunction>,
-            Snapshots,
+            UniqueSnapshots,
         )> {
             let (indices, value) = with_snapshot_tracking(
                 context,
@@ -313,7 +318,7 @@ impl Verifier {
                         .map_err(Into::into)
                 },
             )?;
-            let accessed_snapshots: Snapshots = indices
+            let accessed_snapshots: UniqueSnapshots = indices
                 .into_iter()
                 .filter_map(|index| snapshots.get(index).cloned())
                 .map(|snapshot| (snapshot.index, snapshot))
@@ -348,7 +353,7 @@ impl Verifier {
                 match value {
                     ltl::Value::True(_) => {
                         property.state = PropertyState::DefinitelyTrue;
-                        ltl::Value::True(Snapshots::new())
+                        ltl::Value::True(UniqueSnapshots::new())
                     }
                     ltl::Value::False(violation, continuation) => {
                         property.state = match continuation {

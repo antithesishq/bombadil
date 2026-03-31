@@ -1,11 +1,11 @@
 use crate::specification::{
-    ltl::{Formula, Leaning, Residual, Snapshots, Time, Violation},
+    ltl::{Formula, Leaning, Residual, Time, UniqueSnapshots, Violation},
     verifier::merge_snapshots,
 };
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StopDefault<Function> {
-    True(Snapshots),
+    True(UniqueSnapshots),
     False(Violation<Function>),
 }
 
@@ -21,7 +21,9 @@ pub fn stop_default<Function: Clone>(
             Leaning::AssumeFalse(violation) => {
                 Some(StopDefault::False(violation.clone()))
             }
-            Leaning::AssumeTrue => Some(StopDefault::True(Snapshots::new())),
+            Leaning::AssumeTrue => {
+                Some(StopDefault::True(UniqueSnapshots::new()))
+            }
         },
         And { left, right } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| stop_and_default(&s1, &s2))
@@ -102,11 +104,11 @@ fn stop_implies_default<Function: Clone>(
 ) -> StopDefault<Function> {
     use StopDefault::*;
     match (left, right) {
-        (False(_), _) => True(Snapshots::new()),
+        (False(_), _) => True(UniqueSnapshots::new()),
         (True(snapshots), False(violation)) => False(Violation::Implies {
             left: left_formula.clone(),
             right: Box::new(violation.clone()),
-            antecedent_snapshots: snapshots.clone(),
+            antecedent_snapshots: snapshots.values().cloned().collect(),
         }),
         (True(left_snapshots), True(right_snapshots)) => {
             True(merge_snapshots(left_snapshots, right_snapshots))

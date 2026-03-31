@@ -35,14 +35,14 @@ fn violation_snapshot_names(violation: &Violation<Variable>) -> Vec<String> {
     match violation {
         Violation::False { snapshots, .. } => snapshots
             .iter()
-            .filter_map(|(_, s)| s.name.clone())
+            .filter_map(|snapshot| snapshot.name.clone())
             .collect(),
         Violation::Implies {
             antecedent_snapshots,
             ..
         } => antecedent_snapshots
             .iter()
-            .filter_map(|(_, s)| s.name.clone())
+            .filter_map(|snapshot| snapshot.name.clone())
             .collect(),
         _ => vec![],
     }
@@ -55,8 +55,8 @@ enum Variable {
     Z,
 }
 
-fn make_snapshots() -> Snapshots {
-    Snapshots::from([
+fn make_snapshots() -> UniqueSnapshots {
+    UniqueSnapshots::from([
         (0, snapshot(0, "x_val", serde_json::json!(1))),
         (1, snapshot(1, "y_val", serde_json::json!(2))),
         (2, snapshot(2, "z_val", serde_json::json!(3))),
@@ -98,7 +98,7 @@ fn evaluate_with_state(
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            Snapshots::from([variable_snapshot(variable)]),
+            UniqueSnapshots::from([variable_snapshot(variable)]),
         ))
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
@@ -122,7 +122,7 @@ fn step_with_state(
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            Snapshots::from([variable_snapshot(variable)]),
+            UniqueSnapshots::from([variable_snapshot(variable)]),
         ))
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
@@ -362,7 +362,7 @@ fn test_implies_after_or_has_all_antecedent_snapshots() {
 
 #[test]
 fn test_stop_implies_preserves_antecedent_snapshots() {
-    let snapshots = Snapshots::from([
+    let snapshots = UniqueSnapshots::from([
         (0, snapshot(0, "a", serde_json::json!(1))),
         (1, snapshot(1, "b", serde_json::json!(2))),
     ]);
@@ -376,7 +376,7 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         right: Box::new(Residual::False(Violation::False {
             time: UNIX_EPOCH,
             condition: "z".to_string(),
-            snapshots: Snapshots::new(),
+            snapshots: vec![],
         })),
     };
     let time = UNIX_EPOCH;
@@ -388,7 +388,7 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         })) => {
             let names: Vec<String> = antecedent_snapshots
                 .iter()
-                .filter_map(|(_, s)| s.name.clone())
+                .filter_map(|snapshot| snapshot.name.clone())
                 .collect();
             assert!(
                 names.contains(&"a".to_string()),
@@ -435,7 +435,9 @@ fn nontemporal_syntax() -> BoxedStrategy<Syntax<Variable>> {
 
     leaf.prop_recursive(8, 256, 10, |inner| {
         prop_oneof![
-            inner.clone().prop_map(|s| Syntax::Not(Box::new(s))),
+            inner
+                .clone()
+                .prop_map(|snapshot| Syntax::Not(Box::new(snapshot))),
             (inner.clone(), inner.clone())
                 .prop_map(|(l, r)| Syntax::And(Box::new(l), Box::new(r))),
             (inner.clone(), inner.clone())
@@ -555,7 +557,7 @@ proptest! {
                     value,
                     pretty: format!("{:?}={}", variable, value),
                 },
-                Snapshots::from([(index, snapshot)]),
+                UniqueSnapshots::from([(index, snapshot)]),
             ))
         };
         let mut evaluator = Evaluator::new(&mut evaluate_thunk);
