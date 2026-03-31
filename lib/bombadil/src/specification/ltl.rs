@@ -859,8 +859,8 @@ fn attach_snapshots<F>(value: &mut Value<F>, resolved: Vec<Snapshot>) {
         return;
     }
     match value {
-        Value::True(references) => {
-            references.extend(resolved);
+        Value::True(snapshots) => {
+            snapshots.extend(resolved);
         }
         Value::False(violation, _) => {
             if let Violation::False { snapshots, .. } = violation {

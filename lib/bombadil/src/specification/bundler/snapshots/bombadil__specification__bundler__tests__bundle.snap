@@ -454,10 +454,11 @@ expression: bundle
     		}
     	}
     	runExtractors(state) {
-    		return this.extractors.map((extractor) => {
+    		return this.extractors.map((extractor, index) => {
     			this.extractingDepth++;
     			try {
     				return {
+    					index,
     					name: extractor.name,
     					value: extractor.run(state)
     				};

@@ -71,6 +71,7 @@ pub struct Point {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
+    pub index: usize,
     pub name: Option<String>,
     pub value: serde_json::Value,
 }
@@ -86,7 +87,6 @@ pub enum Violation {
     False {
         time: SystemTime,
         condition: String,
-        #[serde(default)]
         snapshots: Vec<Snapshot>,
     },
     Eventually {
@@ -111,7 +111,6 @@ pub enum Violation {
     Implies {
         left: Formula,
         right: Box<Violation>,
-        #[serde(default)]
         antecedent_snapshots: Vec<Snapshot>,
     },
 }

@@ -304,7 +304,7 @@ fn snapshot_name(snapshot: &Snapshot) -> String {
         .name
         .as_deref()
         .map(String::from)
-        .unwrap_or_else(|| "<unnamed extractor>".into())
+        .unwrap_or_else(|| format!("extractors[{}]", snapshot.index))
 }
 
 #[derive(Clone, Copy)]

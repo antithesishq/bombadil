@@ -68,7 +68,6 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   run(state: S): T {
     return this.extract(state);
   }
-
 }
 
 export class TimeCell implements Cell<Time> {
@@ -123,11 +122,13 @@ export class Runtime<S> {
     }
   }
 
-  runExtractors(state: S): { name: string | null; value: JSON }[] {
-    return this.extractors.map((extractor) => {
+  runExtractors(
+    state: S,
+  ): { index: number; name: string | null; value: JSON }[] {
+    return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
-        return { name: extractor.name, value: extractor.run(state) };
+        return { index, name: extractor.name, value: extractor.run(state) };
       } finally {
         this.extractingDepth--;
       }

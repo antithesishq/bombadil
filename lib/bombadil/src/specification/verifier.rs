@@ -35,6 +35,7 @@ pub struct Verifier {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
+    pub index: usize,
     pub name: Option<String>,
     pub value: json::Value,
 }
@@ -501,6 +502,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(false),
                 }],
@@ -535,10 +537,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(true),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(true),
                     },
@@ -574,10 +578,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(false),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(true),
                     },
@@ -613,10 +619,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(false),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(false),
                     },
@@ -654,6 +662,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -704,6 +713,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -745,6 +755,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -784,6 +795,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -841,6 +853,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -910,6 +923,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -967,6 +981,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -986,6 +1001,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(5),
                 }],
@@ -1003,6 +1019,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1020,6 +1037,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(5),
                 }],
@@ -1053,6 +1071,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(false),
                 }],
@@ -1071,6 +1090,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(true),
                 }],
@@ -1108,6 +1128,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1121,6 +1142,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(10),
                 }],
@@ -1138,6 +1160,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1155,6 +1178,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],

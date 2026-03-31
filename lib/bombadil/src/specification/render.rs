@@ -403,6 +403,7 @@ mod tests {
                     reason: EventuallyViolation::TestEnded,
                 }),
                 antecedent_snapshots: vec![Snapshot {
+                    index: 0,
                     name: Some("x".into()),
                     value: json::json!(11),
                 }],
@@ -439,6 +440,7 @@ eventually y == 20 (which never occurred)"
                 time: time_at(305),
                 condition: "count.current <= 5".into(),
                 snapshots: vec![Snapshot {
+                    index: 0,
                     name: Some("count".into()),
                     value: json::json!(6),
                 }],

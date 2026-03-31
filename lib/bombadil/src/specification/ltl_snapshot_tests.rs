@@ -12,8 +12,9 @@ use crate::specification::{
     verifier::Snapshot,
 };
 
-fn snapshot(name: &str, value: serde_json::Value) -> Snapshot {
+fn snapshot(index: usize, name: &str, value: serde_json::Value) -> Snapshot {
     Snapshot {
+        index,
         name: Some(name.to_string()),
         value,
     }
@@ -54,9 +55,9 @@ enum Variable {
 
 fn make_snapshots() -> Vec<Snapshot> {
     vec![
-        snapshot("x_val", serde_json::json!(1)),
-        snapshot("y_val", serde_json::json!(2)),
-        snapshot("z_val", serde_json::json!(3)),
+        snapshot(0, "x_val", serde_json::json!(1)),
+        snapshot(1, "y_val", serde_json::json!(2)),
+        snapshot(2, "z_val", serde_json::json!(3)),
     ]
 }
 
@@ -363,8 +364,8 @@ fn test_implies_after_or_has_all_antecedent_snapshots() {
 #[test]
 fn test_stop_implies_preserves_antecedent_snapshots() {
     let snapshots = vec![
-        snapshot("a", serde_json::json!(1)),
-        snapshot("b", serde_json::json!(2)),
+        snapshot(0, "a", serde_json::json!(1)),
+        snapshot(1, "b", serde_json::json!(2)),
     ];
     let left_formula: Formula<Variable> = Formula::Pure {
         value: true,
@@ -539,8 +540,8 @@ proptest! {
         let formula = syntax.nnf();
         let expected = truth_contributing(&formula, state_x, state_y);
 
-        let all_snapshots = [snapshot("x_val", serde_json::json!(1)),
-            snapshot("y_val", serde_json::json!(2))];
+        let all_snapshots = [snapshot(0, "x_val", serde_json::json!(1)),
+            snapshot(1, "y_val", serde_json::json!(2))];
         let mut evaluate_thunk = |variable: &Variable, negated: bool| {
             let raw = match variable {
                 Variable::X => state_x,
