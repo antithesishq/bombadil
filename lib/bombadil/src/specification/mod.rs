@@ -4,6 +4,7 @@ pub mod ltl;
 pub mod render;
 pub mod resolver;
 pub mod result;
+pub mod snapshots;
 pub mod stop;
 pub mod syntax;
 pub mod verifier;

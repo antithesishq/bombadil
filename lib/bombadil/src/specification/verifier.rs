@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
 use crate::specification::ltl::{Evaluator, Formula, Residual};
 use crate::specification::result::Result;
+use crate::specification::snapshots::with_snapshot_tracking;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
@@ -284,20 +285,6 @@ impl Verifier {
         let mut result_properties = Vec::with_capacity(self.properties.len());
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
-        let runtime_obj = self.bombadil_exports.runtime.clone();
-        let start_tracking = runtime_obj
-            .get(js_string!("startTracking"), &mut self.context)?
-            .as_callable()
-            .ok_or(SpecificationError::OtherError(
-                "startTracking is not callable".to_string(),
-            ))?;
-        let stop_tracking = runtime_obj
-            .get(js_string!("stopTracking"), &mut self.context)?
-            .as_callable()
-            .ok_or(SpecificationError::OtherError(
-                "stopTracking is not callable".to_string(),
-            ))?;
-
         let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
                                   negated: bool|
@@ -305,27 +292,16 @@ impl Verifier {
             Formula<RuntimeFunction>,
             Vec<Snapshot>,
         )> {
-            start_tracking.call(
-                &JsValue::from(runtime_obj.clone()),
-                &[],
+            let (indices, value) = with_snapshot_tracking(
                 context,
+                &self.bombadil_exports,
+                |context| {
+                    function
+                        .object
+                        .call(&JsValue::undefined(), &[], context)
+                        .map_err(Into::into)
+                },
             )?;
-            let value =
-                function.object.call(&JsValue::undefined(), &[], context)?;
-            let accesses_js = stop_tracking.call(
-                &JsValue::from(runtime_obj.clone()),
-                &[],
-                context,
-            )?;
-            let indices: Vec<usize> = serde_json::from_value(
-                accesses_js.to_json(context)?.unwrap_or_default(),
-            )
-            .map_err(|error| {
-                SpecificationError::OtherError(format!(
-                    "failed to deserialize extractor indices: {}",
-                    error
-                ))
-            })?;
             let accessed_snapshots: Vec<Snapshot> = indices
                 .into_iter()
                 .filter_map(|i| snapshots.get(i).cloned())
