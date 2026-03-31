@@ -652,6 +652,14 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     (_, Value::False(violation, _)) => violation,
                     _ => unreachable!(),
                 };
+                // Unwrap one layer of Always if present, since
+                // we're about to re-wrap. The inner Always was
+                // produced by either evaluate_always or a prior
+                // evaluate_and_always call for the same formula.
+                let violation = match violation {
+                    Violation::Always { violation, .. } => violation.as_ref(),
+                    other => other,
+                };
                 Value::False(
                     Violation::Always {
                         violation: Box::new(violation.clone()),
