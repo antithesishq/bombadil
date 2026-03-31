@@ -1,9 +1,11 @@
-use crate::specification::ltl::{Formula, Leaning, Residual, Time, Violation};
-use crate::specification::verifier::Snapshot;
+use crate::specification::{
+    ltl::{Formula, Leaning, Residual, Snapshots, Time, Violation},
+    verifier::merge_snapshots,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StopDefault<Function> {
-    True(Vec<Snapshot>),
+    True(Snapshots),
     False(Violation<Function>),
 }
 
@@ -19,7 +21,7 @@ pub fn stop_default<Function: Clone>(
             Leaning::AssumeFalse(violation) => {
                 Some(StopDefault::False(violation.clone()))
             }
-            Leaning::AssumeTrue => Some(StopDefault::True(vec![])),
+            Leaning::AssumeTrue => Some(StopDefault::True(Snapshots::new())),
         },
         And { left, right } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| stop_and_default(&s1, &s2))
@@ -64,9 +66,7 @@ fn stop_and_default<Function: Clone>(
     use StopDefault::*;
     match (left, right) {
         (True(left_snapshots), True(right_snapshots)) => {
-            let mut merged = left_snapshots.clone();
-            merged.extend(right_snapshots.iter().cloned());
-            True(merged)
+            True(merge_snapshots(left_snapshots, right_snapshots))
         }
         (True(_), right) => right.clone(),
         (left, True(_)) => left.clone(),
@@ -84,9 +84,7 @@ fn stop_or_default<Function: Clone>(
     use StopDefault::*;
     match (left, right) {
         (True(left_snapshots), True(right_snapshots)) => {
-            let mut merged = left_snapshots.clone();
-            merged.extend(right_snapshots.iter().cloned());
-            True(merged)
+            True(merge_snapshots(left_snapshots, right_snapshots))
         }
         (True(snapshots), _) => True(snapshots.clone()),
         (_, True(snapshots)) => True(snapshots.clone()),
@@ -104,16 +102,14 @@ fn stop_implies_default<Function: Clone>(
 ) -> StopDefault<Function> {
     use StopDefault::*;
     match (left, right) {
-        (False(_), _) => True(vec![]),
+        (False(_), _) => True(Snapshots::new()),
         (True(snapshots), False(violation)) => False(Violation::Implies {
             left: left_formula.clone(),
             right: Box::new(violation.clone()),
             antecedent_snapshots: snapshots.clone(),
         }),
         (True(left_snapshots), True(right_snapshots)) => {
-            let mut merged = left_snapshots.clone();
-            merged.extend(right_snapshots.iter().cloned());
-            True(merged)
+            True(merge_snapshots(left_snapshots, right_snapshots))
         }
     }
 }

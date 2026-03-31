@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime};
 
 use crate::specification::result::{Result, SpecificationError};
-use crate::specification::verifier::Snapshot;
+use crate::specification::verifier::{Snapshot, merge_snapshots};
 use serde::Serialize;
 
 fn combine_options<T: Clone>(
@@ -80,9 +81,11 @@ impl<Function: Clone> Formula<Function> {
 
 pub type Time = SystemTime;
 
+pub type Snapshots = BTreeMap<usize, Snapshot>;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
-    True(Vec<Snapshot>),
+    True(Snapshots),
     False(Violation<Function>, Option<Residual<Function>>),
     Residual(Residual<Function>),
 }
@@ -92,7 +95,7 @@ pub enum Violation<Function> {
     False {
         time: Time,
         condition: String,
-        snapshots: Vec<Snapshot>,
+        snapshots: Snapshots,
     },
     Eventually {
         subformula: Box<Formula<Function>>,
@@ -116,7 +119,7 @@ pub enum Violation<Function> {
     Implies {
         left: Formula<Function>,
         right: Box<Violation<Function>>,
-        antecedent_snapshots: Vec<Snapshot>,
+        antecedent_snapshots: Snapshots,
     },
 }
 
@@ -196,7 +199,7 @@ pub enum Leaning<Function> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Residual<Function> {
-    True(Vec<Snapshot>),
+    True(Snapshots),
     False(Violation<Function>),
     Derived(Derived<Function>, Leaning<Function>),
     And {
@@ -250,7 +253,7 @@ pub type EvaluateThunk<'a, Function> =
     &'a mut dyn FnMut(
         &'_ Function,
         bool,
-    ) -> Result<(Formula<Function>, Vec<Snapshot>)>;
+    ) -> Result<(Formula<Function>, Snapshots)>;
 
 pub struct Evaluator<'a, Function> {
     evaluate_thunk: EvaluateThunk<'a, Function>,
@@ -268,13 +271,13 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     ) -> Result<Value<Function>> {
         match formula {
             Formula::Pure { value, pretty } => Ok(if *value {
-                Value::True(vec![])
+                Value::True(Snapshots::new())
             } else {
                 Value::False(
                     Violation::False {
                         time,
                         condition: pretty.clone(),
-                        snapshots: vec![],
+                        snapshots: Snapshots::new(),
                     },
                     None,
                 )
@@ -352,9 +355,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
         match (left, right) {
             (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                let mut merged = snapshots_left.clone();
-                merged.extend(snapshots_right.iter().cloned());
-                Value::True(merged)
+                Value::True(merge_snapshots(snapshots_left, snapshots_right))
             }
             (Value::True(snapshots), Value::Residual(residual)) => {
                 Value::Residual(combine_and(
@@ -430,9 +431,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 ),
             ),
             (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                let mut merged = snapshots_left.clone();
-                merged.extend(snapshots_right.iter().cloned());
-                Value::True(merged)
+                Value::True(merge_snapshots(snapshots_left, snapshots_right))
             }
             (Value::True(references), _) => Value::True(references.clone()),
             (_, Value::True(references)) => Value::True(references.clone()),
@@ -454,7 +453,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         right: &Value<Function>,
     ) -> Value<Function> {
         match (left, right) {
-            (Value::False(_, _), _) => Value::True(vec![]),
+            (Value::False(_, _), _) => Value::True(Snapshots::new()),
             (
                 Value::True(snapshots_left),
                 Value::False(violation, continuation),
@@ -471,9 +470,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 }),
             ),
             (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                let mut merged = snapshots_left.clone();
-                merged.extend(snapshots_right.iter().cloned());
-                Value::True(merged)
+                Value::True(merge_snapshots(snapshots_left, snapshots_right))
             }
             (Value::True(snapshots_left), Value::Residual(right)) => {
                 Value::Residual(Residual::Implies {
@@ -512,7 +509,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         if let Some(end) = end
             && end < time
         {
-            return Ok(Value::True(vec![]));
+            return Ok(Value::True(Snapshots::new()));
         }
 
         let residual = Residual::Derived(
@@ -572,7 +569,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         if let Some(end) = end
             && end < time
         {
-            return Ok(Value::True(vec![]));
+            return Ok(Value::True(Snapshots::new()));
         }
 
         let wrap_and_always = |inner: Residual<Function>,
@@ -596,14 +593,14 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         Ok(match (left, right) {
-            (Value::True(_), Value::True(_)) => Value::True(vec![]),
+            (Value::True(_), Value::True(_)) => Value::True(Snapshots::new()),
             (Value::Residual(left), Value::True(_)) => {
                 Value::Residual(Residual::AndAlways {
                     subformula,
                     start,
                     end,
                     left: Box::new(left),
-                    right: Box::new(Residual::True(vec![])),
+                    right: Box::new(Residual::True(Snapshots::new())),
                 })
             }
             (Value::True(_), Value::Residual(right)) => {
@@ -611,7 +608,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     subformula,
                     start,
                     end,
-                    left: Box::new(Residual::True(vec![])),
+                    left: Box::new(Residual::True(Snapshots::new())),
                     right: Box::new(right),
                 })
             }
@@ -854,7 +851,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     }
 }
 
-fn attach_snapshots<F>(value: &mut Value<F>, resolved: Vec<Snapshot>) {
+fn attach_snapshots<F>(value: &mut Value<F>, resolved: Snapshots) {
     if resolved.is_empty() {
         return;
     }

@@ -22,9 +22,10 @@ fn snapshot(index: usize, name: &str, value: serde_json::Value) -> Snapshot {
 
 fn snapshot_names(value: &Value<Variable>) -> Vec<String> {
     match value {
-        Value::True(snapshots) => {
-            snapshots.iter().filter_map(|s| s.name.clone()).collect()
-        }
+        Value::True(snapshots) => snapshots
+            .iter()
+            .filter_map(|(_, s)| s.name.clone())
+            .collect(),
         Value::False(violation, _) => violation_snapshot_names(violation),
         Value::Residual(_) => vec![],
     }
@@ -32,15 +33,16 @@ fn snapshot_names(value: &Value<Variable>) -> Vec<String> {
 
 fn violation_snapshot_names(violation: &Violation<Variable>) -> Vec<String> {
     match violation {
-        Violation::False { snapshots, .. } => {
-            snapshots.iter().filter_map(|s| s.name.clone()).collect()
-        }
+        Violation::False { snapshots, .. } => snapshots
+            .iter()
+            .filter_map(|(_, s)| s.name.clone())
+            .collect(),
         Violation::Implies {
             antecedent_snapshots,
             ..
         } => antecedent_snapshots
             .iter()
-            .filter_map(|s| s.name.clone())
+            .filter_map(|(_, s)| s.name.clone())
             .collect(),
         _ => vec![],
     }
@@ -53,12 +55,12 @@ enum Variable {
     Z,
 }
 
-fn make_snapshots() -> Vec<Snapshot> {
-    vec![
-        snapshot(0, "x_val", serde_json::json!(1)),
-        snapshot(1, "y_val", serde_json::json!(2)),
-        snapshot(2, "z_val", serde_json::json!(3)),
-    ]
+fn make_snapshots() -> Snapshots {
+    Snapshots::from([
+        (0, snapshot(0, "x_val", serde_json::json!(1))),
+        (1, snapshot(1, "y_val", serde_json::json!(2))),
+        (2, snapshot(2, "z_val", serde_json::json!(3))),
+    ])
 }
 
 fn thunk(variable: Variable) -> Formula<Variable> {
@@ -74,13 +76,10 @@ struct TestState {
     z: bool,
 }
 
-fn variable_snapshot(variable: &Variable) -> Snapshot {
+fn variable_snapshot(variable: &Variable) -> (usize, Snapshot) {
     let all = make_snapshots();
-    match variable {
-        Variable::X => all[0].clone(),
-        Variable::Y => all[1].clone(),
-        Variable::Z => all[2].clone(),
-    }
+    let index = variable_index(variable);
+    (index, all[&index].clone())
 }
 
 fn evaluate_with_state(
@@ -99,7 +98,7 @@ fn evaluate_with_state(
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            vec![variable_snapshot(variable)],
+            Snapshots::from([variable_snapshot(variable)]),
         ))
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
@@ -123,7 +122,7 @@ fn step_with_state(
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            vec![variable_snapshot(variable)],
+            Snapshots::from([variable_snapshot(variable)]),
         ))
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
@@ -363,10 +362,10 @@ fn test_implies_after_or_has_all_antecedent_snapshots() {
 
 #[test]
 fn test_stop_implies_preserves_antecedent_snapshots() {
-    let snapshots = vec![
-        snapshot(0, "a", serde_json::json!(1)),
-        snapshot(1, "b", serde_json::json!(2)),
-    ];
+    let snapshots = Snapshots::from([
+        (0, snapshot(0, "a", serde_json::json!(1))),
+        (1, snapshot(1, "b", serde_json::json!(2))),
+    ]);
     let left_formula: Formula<Variable> = Formula::Pure {
         value: true,
         pretty: "true".to_string(),
@@ -377,7 +376,7 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         right: Box::new(Residual::False(Violation::False {
             time: UNIX_EPOCH,
             condition: "z".to_string(),
-            snapshots: vec![],
+            snapshots: Snapshots::new(),
         })),
     };
     let time = UNIX_EPOCH;
@@ -389,7 +388,7 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         })) => {
             let names: Vec<String> = antecedent_snapshots
                 .iter()
-                .filter_map(|s| s.name.clone())
+                .filter_map(|(_, s)| s.name.clone())
                 .collect();
             assert!(
                 names.contains(&"a".to_string()),
@@ -519,7 +518,7 @@ fn actual_snapshot_indices(value: &Value<Variable>) -> BTreeSet<usize> {
     match value {
         Value::True(snapshots) => snapshots
             .iter()
-            .filter_map(|s| s.name.as_ref())
+            .filter_map(|(_, s)| s.name.as_ref())
             .map(|name| match name.as_str() {
                 "x_val" => 0,
                 "y_val" => 1,
@@ -549,14 +548,14 @@ proptest! {
                 Variable::Z => unreachable!(),
             };
             let value = if negated { !raw } else { raw };
-            let snapshot =
-                all_snapshots[variable_index(variable)].clone();
+            let index = variable_index(variable);
+            let snapshot = all_snapshots[index].clone();
             Ok((
                 Formula::Pure {
                     value,
                     pretty: format!("{:?}={}", variable, value),
                 },
-                vec![snapshot],
+                Snapshots::from([(index, snapshot)]),
             ))
         };
         let mut evaluator = Evaluator::new(&mut evaluate_thunk);

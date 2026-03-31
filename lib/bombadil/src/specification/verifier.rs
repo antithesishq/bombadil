@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
-use crate::specification::ltl::{Evaluator, Formula, Residual};
+use crate::specification::ltl::{Evaluator, Formula, Residual, Snapshots};
 use crate::specification::result::Result;
 use crate::specification::snapshots::with_snapshot_tracking;
 use crate::specification::syntax::Syntax;
@@ -38,6 +38,16 @@ pub struct Snapshot {
     pub index: usize,
     pub name: Option<String>,
     pub value: json::Value,
+}
+
+pub fn merge_snapshots(left: &Snapshots, right: &Snapshots) -> Snapshots {
+    let mut merged = left.clone();
+    merged.extend(
+        right
+            .iter()
+            .map(|(index, snapshot)| (*index, snapshot.clone())),
+    );
+    merged
 }
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
@@ -291,7 +301,7 @@ impl Verifier {
                                   negated: bool|
          -> Result<(
             Formula<RuntimeFunction>,
-            Vec<Snapshot>,
+            Snapshots,
         )> {
             let (indices, value) = with_snapshot_tracking(
                 context,
@@ -303,9 +313,10 @@ impl Verifier {
                         .map_err(Into::into)
                 },
             )?;
-            let accessed_snapshots: Vec<Snapshot> = indices
+            let accessed_snapshots: Snapshots = indices
                 .into_iter()
-                .filter_map(|i| snapshots.get(i).cloned())
+                .filter_map(|index| snapshots.get(index).cloned())
+                .map(|snapshot| (snapshot.index, snapshot))
                 .collect();
             let syntax =
                 Syntax::from_value(&value, &self.bombadil_exports, context)?;
@@ -337,7 +348,7 @@ impl Verifier {
                 match value {
                     ltl::Value::True(_) => {
                         property.state = PropertyState::DefinitelyTrue;
-                        ltl::Value::True(vec![])
+                        ltl::Value::True(Snapshots::new())
                     }
                     ltl::Value::False(violation, continuation) => {
                         property.state = match continuation {

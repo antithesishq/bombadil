@@ -168,7 +168,7 @@ fn check_equivalence(
                     value,
                     pretty: format!("{}", value),
                 },
-                vec![],
+                Snapshots::new(),
             ))
         }
         Thunk::Subformula(syntax) => {
@@ -177,7 +177,7 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok((syntax.nnf(), vec![]))
+            Ok((syntax.nnf(), Snapshots::new()))
         }
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
