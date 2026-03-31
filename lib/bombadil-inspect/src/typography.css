@@ -48,13 +48,13 @@ ol {
     counter-reset: item;
 }
 
-ol li {
+ol > li {
     display: flex;
     flex-direction: row;
     gap: 1ch;
 }
 
-ol li:before {
+ol > li:before {
     content: counters(item, ".") ". ";
     counter-increment: item;
 }

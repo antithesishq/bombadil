@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use bombadil_inspect_api::EventuallyViolation;
 use bombadil_inspect_api::Formula;
 use bombadil_inspect_api::PropertyViolation;
+use bombadil_inspect_api::Snapshot;
 use bombadil_inspect_api::TraceEntry;
 use bombadil_inspect_api::Violation;
 use serde_json as json;
@@ -50,18 +51,36 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 }
                 </ol>
             </details>
-            <details open={true}>
+            <details>
                 <summary>{"Snapshots"}</summary>
-                <table>
+                <dl class="snapshots">
                 {
-                    props
-                        .entry
-                        .snapshots
-                        .iter()
-                        .map(|snapshot| html!(<tr><th>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</th><td>{json::to_string_pretty(&snapshot.value).unwrap_or("invalid json".into())}</td></tr>))
-                        .collect::<Html>()
+                    {
+                        let options = JsonRenderOptions {
+                            literal_strings: true,
+                        };
+                        props
+                            .entry
+                            .snapshots
+                            .iter()
+                            .map(|snapshot| {
+                                let class =
+                                    if is_json_inline(&snapshot.value) {
+                                        "json-entry inline"
+                                    } else {
+                                        "json-entry"
+                                    };
+                                html!(
+                                    <div class={class}>
+                                        <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
+                                        <dd>{render_json(&snapshot.value, options)}</dd>
+                                    </div>
+                                )
+                            })
+                            .collect::<Html>()
+                    }
                 }
-                </table>
+                </dl>
             </details>
         </>
     )
@@ -73,7 +92,7 @@ fn render_violation(
 ) -> Html {
     html!(
         <div class="violation">
-            <strong>{&violation.name}{": "}</strong>
+            <div class="violation-name">{&violation.name}{":"}</div>
             {render_violation_inner(&violation.violation, test_start)}
         </div>
     )
@@ -84,23 +103,43 @@ fn render_violation_inner(
     test_start: SystemTime,
 ) -> Html {
     match violation {
-        Violation::False { time: _, condition } => {
-            html!(<pre><code>{format!("!({})", condition)}</code></pre>)
+        Violation::False {
+            snapshots,
+            condition,
+            ..
+        } => {
+            if snapshots.is_empty() {
+                html!(<pre><code>{format!("!({condition})")}</code></pre>)
+            } else {
+                let options = JsonRenderOptions {
+                    literal_strings: false,
+                };
+                render_snapshot_values(snapshots, options)
+            }
         }
         Violation::Eventually { subformula, reason } => {
-            let reason_text = match reason {
+            let reason_html = match reason {
                 EventuallyViolation::TimedOut(time) => {
-                    format!("timed out at {}: ", format_time(time, test_start))
+                    html!(
+                        <>
+                            {"(which timed out at "}
+                            <time>{format_time(time, test_start)}</time>
+                            {")"}
+                        </>
+                    )
                 }
                 EventuallyViolation::TestEnded => {
-                    "failed at test end: ".to_string()
+                    html!({ "(which never occurred)" })
                 }
             };
             html!(
-                <div class="violation-eventually">
-                    <span>{reason_text}</span>
-                    {render_formula(subformula)}
-                </div>
+                <>
+                    <span>
+                        <span class="keyword">{"eventually "}</span>
+                        {render_formula(subformula)}
+                    </span>
+                    <span>{reason_html}</span>
+                </>
             )
         }
         Violation::Always {
@@ -111,20 +150,20 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <span class="violation-always">
-                    <span>{
-                        format!(
-                            "as of {}, it should always \
-                             be the case that",
-                            format_time(start, test_start),
-                        )
-                    }</span>
+                <>
+                    <span>
+                        {"as of "}
+                        <time>{format_time(start, test_start)}</time>
+                        {", it should always be the case that:"}
+                    </span>
                     {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}", format_time(time, test_start))
-                    }</span>
+                    <span>
+                        {"but at "}
+                        <time>{format_time(time, test_start)}</time>
+                        {":"}
+                    </span>
                     {render_violation_inner(violation, test_start)}
-                </span>
+                </>
             )
         }
         Violation::Always {
@@ -135,49 +174,205 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <span class="violation-always">
-                    <span>{
-                        format!(
-                            "as of {} and until {}, it \
-                             should always be the case that",
-                            format_time(start, test_start),
-                            format_time(end, test_start),
-                        )
-                    }</span>
+                <>
+                    <span>
+                        {"as of "}
+                        <time>{format_time(start, test_start)}</time>
+                        {" and until "}
+                        <time>{format_time(end, test_start)}</time>
+                        {", it should always be the case that:"}
+                    </span>
                     {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}", format_time(time, test_start))
-                    }</span>
+                    <span>
+                        {"but at "}
+                        <time>{format_time(time, test_start)}</time>
+                        {":"}
+                    </span>
                     {render_violation_inner(violation, test_start)}
-                </span>
+                </>
             )
         }
         Violation::And { left, right } => {
             html!(
-                <div class="violation-and">
+                <>
                     {render_violation_inner(left, test_start)}
                     <span class="keyword">{"and"}</span>
                     {render_violation_inner(right, test_start)}
-                </div>
+                </>
             )
         }
         Violation::Or { left, right } => {
             html!(
-                <div class="violation-or">
+                <>
                     {render_violation_inner(left, test_start)}
                     <span class="keyword">{"or"}</span>
                     {render_violation_inner(right, test_start)}
-                </div>
+                </>
             )
         }
-        Violation::Implies { left, right } => {
+        Violation::Implies {
+            left,
+            right,
+            antecedent_snapshots,
+        } => {
             html!(
-                <div class="violation-implies">
+                <>
+                    <span>
+                        {
+                            if !antecedent_snapshots.is_empty() {
+                                html!(
+                                    <>
+                                        {render_snapshot_inline(
+                                            antecedent_snapshots,
+                                            JsonRenderOptions {
+                                                literal_strings: false,
+                                            },
+                                        )}
+                                        {", implying:"}
+                                    </>
+                                )
+                            } else {
+                                html!(
+                                    <>
+                                        {render_formula(left)}
+                                        <span class="keyword">{" implies:"}</span>
+                                    </>
+                                )
+                            }
+                        }
+                    </span>
                     {render_violation_inner(right, test_start)}
-                    <span class="keyword">{"since"}</span>
-                    {render_formula(left)}
-                </div>
+                </>
             )
+        }
+    }
+}
+
+fn render_snapshot_values(
+    snapshots: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Html {
+    let items = collect_snapshot_items(snapshots, options);
+    html!(
+        <dl class="snapshot-values">
+            { for items.into_iter() }
+        </dl>
+    )
+}
+
+fn render_snapshot_inline(
+    snapshots: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Html {
+    let items = collect_snapshot_items(snapshots, options);
+    if items.is_empty() {
+        return html!();
+    }
+    html!(
+        <span class="snapshot-inline">
+            <dl class="snapshot-values inline">
+                { for items.into_iter() }
+            </dl>
+        </span>
+    )
+}
+
+fn collect_snapshot_items(
+    snapshots: &[Snapshot],
+    options: JsonRenderOptions,
+) -> Vec<Html> {
+    let mut items = Vec::new();
+    for snapshot in snapshots.iter() {
+        let name = snapshot_name(snapshot);
+        let class = if is_json_inline(&snapshot.value) {
+            "json-entry inline"
+        } else {
+            "json-entry"
+        };
+        items.push(html!(
+            <div class={class}>
+                <dt>{name}</dt>
+                <dd>{render_json(&snapshot.value, options)}</dd>
+            </div>
+        ));
+    }
+    items
+}
+
+fn snapshot_name(snapshot: &Snapshot) -> String {
+    snapshot
+        .name
+        .as_deref()
+        .map(String::from)
+        .unwrap_or_else(|| format!("extractors[{}]", snapshot.index))
+}
+
+#[derive(Clone, Copy)]
+struct JsonRenderOptions {
+    literal_strings: bool,
+}
+
+fn is_printable(s: &str) -> bool {
+    s.chars().all(|c| !c.is_control() || c == '\n' || c == '\t')
+}
+
+fn is_json_inline(value: &json::Value) -> bool {
+    match value {
+        json::Value::Array(items) => items.is_empty(),
+        json::Value::Object(map) => map.is_empty(),
+        _ => true,
+    }
+}
+
+fn render_json(value: &json::Value, options: JsonRenderOptions) -> Html {
+    match value {
+        json::Value::Array(items) if items.is_empty() => {
+            html!(<code class="json-literal">{"[]"}</code>)
+        }
+        json::Value::Array(items) => {
+            html!(
+                <ul class="json-array">
+                    { for items.iter().map(|item| html!(<li>{render_json(item, options)}</li>)) }
+                </ul>
+            )
+        }
+        json::Value::Object(map) if map.is_empty() => {
+            html!(<code class="json-literal">{"{}"}</code>)
+        }
+        json::Value::Object(map) => {
+            html!(
+                <dl class="json-object">
+                    { for map.iter().map(|(key, val)| {
+                        let class = if is_json_inline(val) {
+                            "json-entry inline"
+                        } else {
+                            "json-entry"
+                        };
+                        html!(
+                            <div class={class}>
+                                <dt>{key}</dt>
+                                <dd>{render_json(val, options)}</dd>
+                            </div>
+                        )
+                    }) }
+                </dl>
+            )
+        }
+        json::Value::String(s)
+            if !options.literal_strings && is_printable(s) =>
+        {
+            html!(<span class="json-string">{s}</span>)
+        }
+        json::Value::String(s) => {
+            let literal = json::Value::String(s.clone()).to_string();
+            html!(
+                <code class="json-literal" title={s.clone()}>
+                    {literal}
+                </code>
+            )
+        }
+        other => {
+            html!(<code class="json-literal">{other.to_string()}</code>)
         }
     }
 }
@@ -203,9 +398,8 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-and">
                     {render_formula(left)}
-                    <code>{".and("}</code>
+                    <span class="keyword">{" and "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
@@ -213,9 +407,8 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-or">
                     {render_formula(left)}
-                    <code>{".or("}</code>
+                    <span class="keyword">{" or "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
@@ -223,64 +416,54 @@ fn render_formula(formula: &Formula) -> Html {
             html!(
                 <span class="formula-implies">
                     {render_formula(left)}
-                    <code>{".implies("}</code>
+                    <span class="keyword">{" implies "}</span>
                     {render_formula(right)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Next(formula) => {
             html!(
                 <span class="formula-next">
-                    <code>{"next("}</code>
+                    <span class="keyword">{"next "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Always(formula, None) => {
             html!(
                 <span class="formula-always">
-                    <code>{"always("}</code>
+                    <span class="keyword">{"always "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Always(formula, Some(bound)) => {
             html!(
                 <span class="formula-always">
-                    <code>{"always("}</code>
+                    <span class="keyword">{"always "}</span>
                     {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
-                        )
-                    }</code>
+                    <span class="keyword">{
+                        format!(" within {}ms", bound.as_millis())
+                    }</span>
                 </span>
             )
         }
         Formula::Eventually(formula, None) => {
             html!(
                 <span class="formula-eventually">
-                    <code>{"eventually("}</code>
+                    <span class="keyword">{"eventually "}</span>
                     {render_formula(formula)}
-                    <code>{")"}</code>
                 </span>
             )
         }
         Formula::Eventually(formula, Some(bound)) => {
             html!(
                 <span class="formula-eventually">
-                    <code>{"eventually("}</code>
+                    <span class="keyword">{"eventually "}</span>
                     {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
-                        )
-                    }</code>
+                    <span class="keyword">{
+                        format!(" within {}ms", bound.as_millis())
+                    }</span>
                 </span>
             )
         }
