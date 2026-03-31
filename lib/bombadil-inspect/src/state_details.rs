@@ -1,5 +1,5 @@
 use std::rc::Rc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use bombadil_inspect_api::EventuallyViolation;
 use bombadil_inspect_api::Formula;
@@ -91,7 +91,7 @@ fn render_violation(
     test_start: SystemTime,
 ) -> Html {
     html!(
-        <div class="violation">
+        <div class="violation-entry">
             <div class="violation-name">{&violation.name}{":"}</div>
             {render_violation_inner(&violation.violation, test_start)}
         </div>
@@ -122,21 +122,21 @@ fn render_violation_inner(
                 EventuallyViolation::TimedOut(time) => {
                     html!(
                         <>
-                            {"(which timed out at "}
+                            {", which timed out at "}
                             <time>{format_time(time, test_start)}</time>
-                            {")"}
+                            {""}
                         </>
                     )
                 }
                 EventuallyViolation::TestEnded => {
-                    html!({ "(which never occurred)" })
+                    html!({ ", which never occurred" })
                 }
             };
             html!(
                 <>
                     <span>
                         <span class="keyword">{"eventually "}</span>
-                        {render_formula(subformula)}
+                        {render_formula(subformula).1}
                     </span>
                     <span>{reason_html}</span>
                 </>
@@ -150,20 +150,24 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <>
-                    <span>
-                        {"as of "}
-                        <time>{format_time(start, test_start)}</time>
-                        {", it should always be the case that:"}
-                    </span>
-                    {render_formula(subformula)}
-                    <span>
-                        {"but at "}
-                        <time>{format_time(time, test_start)}</time>
-                        {":"}
-                    </span>
-                    {render_violation_inner(violation, test_start)}
-                </>
+                <span class="violation always">
+                    <div class="property">
+                        <span>
+                            {"as of "}
+                            <time>{format_time(start, test_start)}</time>
+                            {", it should always be the case that "}
+                        </span>
+                        {render_formula(subformula).1}
+                    </div>
+                    <div class="counterexample">
+                        <span>
+                            {"but at "}
+                            <time>{format_time(time, test_start)}</time>
+                            {","}
+                        </span>
+                        {render_violation_inner(violation, test_start)}
+                    </div>
+                </span>
             )
         }
         Violation::Always {
@@ -174,7 +178,7 @@ fn render_violation_inner(
             time,
         } => {
             html!(
-                <>
+                <span class="violation always">
                     <span>
                         {"as of "}
                         <time>{format_time(start, test_start)}</time>
@@ -182,32 +186,32 @@ fn render_violation_inner(
                         <time>{format_time(end, test_start)}</time>
                         {", it should always be the case that:"}
                     </span>
-                    {render_formula(subformula)}
+                    {render_formula(subformula).1}
                     <span>
                         {"but at "}
                         <time>{format_time(time, test_start)}</time>
                         {":"}
                     </span>
                     {render_violation_inner(violation, test_start)}
-                </>
+                </span>
             )
         }
         Violation::And { left, right } => {
             html!(
-                <>
+                <span class="violation and">
                     {render_violation_inner(left, test_start)}
                     <span class="keyword">{"and"}</span>
                     {render_violation_inner(right, test_start)}
-                </>
+                </span>
             )
         }
         Violation::Or { left, right } => {
             html!(
-                <>
+                <span class="violation or">
                     {render_violation_inner(left, test_start)}
                     <span class="keyword">{"or"}</span>
                     {render_violation_inner(right, test_start)}
-                </>
+                </span>
             )
         }
         Violation::Implies {
@@ -216,7 +220,7 @@ fn render_violation_inner(
             antecedent_snapshots,
         } => {
             html!(
-                <>
+                <span class="violation implies">
                     <span>
                         {
                             if !antecedent_snapshots.is_empty() {
@@ -228,13 +232,13 @@ fn render_violation_inner(
                                                 literal_strings: false,
                                             },
                                         )}
-                                        {", implying:"}
+                                        {", implying that "}
                                     </>
                                 )
                             } else {
                                 html!(
                                     <>
-                                        {render_formula(left)}
+                                        {render_formula(left).1}
                                         <span class="keyword">{" implies:"}</span>
                                     </>
                                 )
@@ -242,7 +246,7 @@ fn render_violation_inner(
                         }
                     </span>
                     {render_violation_inner(right, test_start)}
-                </>
+                </span>
             )
         }
     }
@@ -377,97 +381,172 @@ fn render_json(value: &json::Value, options: JsonRenderOptions) -> Html {
     }
 }
 
-fn render_formula(formula: &Formula) -> Html {
+enum Layout {
+    Inline,
+    Block,
+}
+
+impl Layout {
+    fn is_inline(&self) -> bool {
+        matches!(self, Layout::Inline)
+    }
+}
+
+fn render_formula(formula: &Formula) -> (Layout, Html) {
     match formula {
         Formula::Pure { value: _, pretty } => {
-            html!(<code>{pretty}</code>)
+            (Layout::Inline, html!(<code>{pretty}</code>))
         }
         Formula::Thunk {
             function,
             negated: true,
-        } => {
-            html!(<pre><code>{format!("not({})", function)}</code></pre>)
-        }
+        } => (
+            if function.contains("\n") {
+                Layout::Block
+            } else {
+                Layout::Inline
+            },
+            html!(<code>{format!("not({})", function)}</code>),
+        ),
         Formula::Thunk {
             function,
             negated: false,
-        } => {
-            html!(<pre><code>{function}</code></pre>)
-        }
+        } => (
+            if function.contains("\n") {
+                Layout::Block
+            } else {
+                Layout::Inline
+            },
+            html!(<code>{function}</code>),
+        ),
         Formula::And(left, right) => {
-            html!(
-                <span class="formula-and">
-                    {render_formula(left)}
-                    <span class="keyword">{" and "}</span>
-                    {render_formula(right)}
-                </span>
+            let (left_layout, left_html) = render_formula(left);
+            let (right_layout, right_html) = render_formula(right);
+            (
+                Layout::Inline,
+                html!(
+                    <span class="formula and">
+                        {left_html}
+                        <span class="keyword">{" and "}</span>
+                        {right_html}
+                    </span>
+                ),
             )
         }
-        Formula::Or(left, right) => {
+        Formula::Or(left, right) => (
+            Layout::Inline,
             html!(
-                <span class="formula-or">
-                    {render_formula(left)}
+                <span class="formula or">
+                    {render_formula(left).1}
                     <span class="keyword">{" or "}</span>
-                    {render_formula(right)}
+                    {render_formula(right).1}
                 </span>
-            )
-        }
-        Formula::Implies(left, right) => {
+            ),
+        ),
+        Formula::Implies(left, right) => (
+            Layout::Inline,
             html!(
-                <span class="formula-implies">
-                    {render_formula(left)}
-                    <span class="keyword">{" implies "}</span>
-                    {render_formula(right)}
+                <span class="formula implies">
+                    <span class="keyword">{"if "}</span>
+                    {render_formula(left).1}
+                    <span class="keyword">{", then "}</span>
+                    {render_formula(right).1}
                 </span>
-            )
-        }
-        Formula::Next(formula) => {
+            ),
+        ),
+        Formula::Next(formula) => (
+            Layout::Inline,
             html!(
-                <span class="formula-next">
+                <span class="formula next">
                     <span class="keyword">{"next "}</span>
-                    {render_formula(formula)}
+                    {render_formula(formula).1}
                 </span>
-            )
-        }
-        Formula::Always(formula, None) => {
+            ),
+        ),
+        Formula::Always(formula, None) => (
+            Layout::Inline,
             html!(
-                <span class="formula-always">
+                <span class="formula always">
                     <span class="keyword">{"always "}</span>
-                    {render_formula(formula)}
+                    {render_formula(formula).1}
                 </span>
-            )
-        }
-        Formula::Always(formula, Some(bound)) => {
+            ),
+        ),
+        Formula::Always(formula, Some(bound)) => (
+            Layout::Inline,
             html!(
-                <span class="formula-always">
-                    <span class="keyword">{"always "}</span>
-                    {render_formula(formula)}
-                    <span class="keyword">{
-                        format!(" within {}ms", bound.as_millis())
-                    }</span>
+                <span class="formula always">
+                    <span class="keyword">{format!("for {} ", format_bound(bound))}</span>
+                    {render_formula(formula).1}
                 </span>
-            )
-        }
-        Formula::Eventually(formula, None) => {
+            ),
+        ),
+        Formula::Eventually(formula, None) => (
+            Layout::Inline,
             html!(
-                <span class="formula-eventually">
+                <span class="formula eventually">
                     <span class="keyword">{"eventually "}</span>
-                    {render_formula(formula)}
+                    {render_formula(formula).1}
                 </span>
-            )
-        }
+            ),
+        ),
         Formula::Eventually(formula, Some(bound)) => {
-            html!(
-                <span class="formula-eventually">
-                    <span class="keyword">{"eventually "}</span>
-                    {render_formula(formula)}
-                    <span class="keyword">{
-                        format!(" within {}ms", bound.as_millis())
-                    }</span>
-                </span>
-            )
+            let (formula_layout, formula_html) = render_formula(formula);
+            if formula_layout.is_inline() {
+                (
+                    Layout::Inline,
+                    html!(
+                        <span class="formula eventually">
+                            <span class="keyword">{"within "}</span>
+                            <time>{format_bound(bound)}</time>
+                            {", "}
+                            {formula_html}
+                        </span>
+                    ),
+                )
+            } else {
+                (
+                    Layout::Block,
+                    html!(
+                        <div class="formula eventually">
+                            <div>
+                                <span class="keyword">{"within "}</span>
+                                <time>{format_bound(bound)}</time>
+                                {":"}
+                            </div>
+                            <div>
+                                {formula_html}
+                            </div>
+                        </div>
+                    ),
+                )
+            }
         }
     }
+}
+
+fn format_bound(duration: &Duration) -> String {
+    let millis = duration.as_millis();
+    if millis == 0 {
+        return "0 milliseconds".to_string();
+    }
+    let (value, unit) = if millis % 60_000 == 0 {
+        let minutes = millis / 60_000;
+        (minutes, if minutes == 1 { "minute" } else { "minutes" })
+    } else if millis % 1_000 == 0 {
+        let seconds = millis / 1_000;
+        (seconds, if seconds == 1 { "second" } else { "seconds" })
+    } else {
+        (
+            millis,
+            if millis == 1 {
+                "millisecond"
+            } else {
+                "milliseconds"
+            },
+        )
+    };
+    format!("{} {}", value, unit)
 }
 
 fn format_time(time: &SystemTime, test_start: SystemTime) -> String {

@@ -43,7 +43,7 @@ details[open]::details-content {
   overflow-x: auto;
 }
 
-.state-details .violation {
+.state-details .violation-entry {
   display: flex;
   flex-direction: column;
   gap: var(--line-height);
@@ -57,6 +57,9 @@ details[open]::details-content {
   margin: 0;
   padding: 0;
   border: none;
+  background: none;
+}
+.state-details code {
   background: none;
   font-style: italic;
 }
@@ -96,6 +99,18 @@ details[open]::details-content {
 
 .state-details dl.inline > .json-entry > dt::after {
   content: " = ";
+}
+
+.state-details div.formula {
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-height);
+}
+
+.state-details .violation.always {
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-height);
 }
 
 .state-details time {

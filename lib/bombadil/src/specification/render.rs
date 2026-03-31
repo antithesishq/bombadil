@@ -300,9 +300,9 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
             Formula::Always(formula, Some(bound)) => {
                 write!(
                     f,
-                    "always {} within {}ms",
+                    "always {} within {}",
                     RenderedFormula(formula),
-                    bound.as_millis()
+                    format_bound(bound)
                 )
             }
             Formula::Eventually(formula, None) => {
@@ -311,9 +311,9 @@ impl<'a> std::fmt::Display for RenderedFormula<'a> {
             Formula::Eventually(formula, Some(bound)) => {
                 write!(
                     f,
-                    "eventually {} within {}ms",
+                    "eventually {} within {}",
                     RenderedFormula(formula),
-                    bound.as_millis()
+                    format_bound(bound)
                 )
             }
         }
@@ -325,6 +325,30 @@ fn format_time(time: &Time, test_start: SystemTime) -> String {
         time.duration_since(test_start)
             .expect("timestamp millisecond conversion failed"),
     )
+}
+
+fn format_bound(duration: &Duration) -> String {
+    let millis = duration.as_millis();
+    if millis == 0 {
+        return "0 milliseconds".to_string();
+    }
+    let (value, unit) = if millis.is_multiple_of(60_000) {
+        let minutes = millis / 60_000;
+        (minutes, if minutes == 1 { "minute" } else { "minutes" })
+    } else if millis.is_multiple_of(1_000) {
+        let seconds = millis / 1_000;
+        (seconds, if seconds == 1 { "second" } else { "seconds" })
+    } else {
+        (
+            millis,
+            if millis == 1 {
+                "millisecond"
+            } else {
+                "milliseconds"
+            },
+        )
+    };
+    format!("{} {}", value, unit)
 }
 
 fn format_duration(duration: Duration) -> String {
