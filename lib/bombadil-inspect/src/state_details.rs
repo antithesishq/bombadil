@@ -249,10 +249,10 @@ fn render_violation_inner(
 }
 
 fn render_snapshot_values(
-    references: &[Snapshot],
+    snapshots: &[Snapshot],
     options: JsonRenderOptions,
 ) -> Html {
-    let items = collect_snapshot_items(references, options);
+    let items = collect_snapshot_items(snapshots, options);
     html!(
         <dl class="snapshot-values">
             { for items.into_iter() }
@@ -261,10 +261,10 @@ fn render_snapshot_values(
 }
 
 fn render_snapshot_inline(
-    references: &[Snapshot],
+    snapshots: &[Snapshot],
     options: JsonRenderOptions,
 ) -> Html {
-    let items = collect_snapshot_items(references, options);
+    let items = collect_snapshot_items(snapshots, options);
     if items.is_empty() {
         return html!();
     }
@@ -278,12 +278,12 @@ fn render_snapshot_inline(
 }
 
 fn collect_snapshot_items(
-    references: &[Snapshot],
+    snapshots: &[Snapshot],
     options: JsonRenderOptions,
 ) -> Vec<Html> {
     let mut items = Vec::new();
-    for (i, snapshot) in references.iter().enumerate() {
-        let name = snapshot_name(snapshot, i);
+    for snapshot in snapshots.iter() {
+        let name = snapshot_name(snapshot);
         let class = if is_json_inline(&snapshot.value) {
             "json-entry inline"
         } else {
@@ -299,12 +299,12 @@ fn collect_snapshot_items(
     items
 }
 
-fn snapshot_name(snapshot: &Snapshot, index: usize) -> String {
+fn snapshot_name(snapshot: &Snapshot) -> String {
     snapshot
         .name
         .as_deref()
         .map(String::from)
-        .unwrap_or_else(|| format!("extractor[{}]", index))
+        .unwrap_or_else(|| "<unnamed extractor>".into())
 }
 
 #[derive(Clone, Copy)]
