@@ -91,10 +91,10 @@ impl<'a> std::fmt::Display for RenderedViolation<'a> {
             Violation::Implies {
                 left,
                 right,
-                antecedent_snapshots: antecedent_snapshot_references,
+                antecedent_snapshots,
             } => {
-                if !antecedent_snapshot_references.is_empty() {
-                    render_snapshot_inline(f, antecedent_snapshot_references)?;
+                if !antecedent_snapshots.is_empty() {
+                    render_snapshot_inline(f, antecedent_snapshots)?;
                     write!(f, ", implying:")?;
                 } else {
                     write!(f, "{} implies:", RenderedFormula(left))?;
