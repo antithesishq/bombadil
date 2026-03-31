@@ -351,9 +351,9 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         match (left, right) {
-            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
-                let mut merged = left_snapshots.clone();
-                merged.extend(right_snapshots.iter().cloned());
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                let mut merged = snapshots_left.clone();
+                merged.extend(snapshots_right.iter().cloned());
                 Value::True(merged)
             }
             (Value::True(snapshots), Value::Residual(residual)) => {
@@ -371,16 +371,16 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             (Value::True(_), right) => right.clone(),
             (left, Value::True(_)) => left.clone(),
             (
-                Value::False(left_violation, left_continuation),
-                Value::False(right_violation, right_continuation),
+                Value::False(violation_left, residual_left),
+                Value::False(violation_right, residual_right),
             ) => Value::False(
                 Violation::And {
-                    left: Box::new(left_violation.clone()),
-                    right: Box::new(right_violation.clone()),
+                    left: Box::new(violation_left.clone()),
+                    right: Box::new(violation_right.clone()),
                 },
                 combine_options(
-                    left_continuation.clone(),
-                    right_continuation.clone(),
+                    residual_left.clone(),
+                    residual_right.clone(),
                     combine_and,
                 ),
             ),
@@ -413,25 +413,25 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     ) -> Value<Function> {
         match (left, right) {
             (
-                Value::False(left_violation, left_continuation),
-                Value::False(right_violation, right_continuation),
+                Value::False(violation_left, residual_left),
+                Value::False(violation_right, residual_right),
             ) => Value::False(
                 Violation::Or {
-                    left: Box::new(left_violation.clone()),
-                    right: Box::new(right_violation.clone()),
+                    left: Box::new(violation_left.clone()),
+                    right: Box::new(violation_right.clone()),
                 },
                 combine_options(
-                    left_continuation.clone(),
-                    right_continuation.clone(),
+                    residual_left.clone(),
+                    residual_right.clone(),
                     |left, right| Residual::Or {
                         left: Box::new(left),
                         right: Box::new(right),
                     },
                 ),
             ),
-            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
-                let mut merged = left_snapshots.clone();
-                merged.extend(right_snapshots.iter().cloned());
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                let mut merged = snapshots_left.clone();
+                merged.extend(snapshots_right.iter().cloned());
                 Value::True(merged)
             }
             (Value::True(references), _) => Value::True(references.clone()),
