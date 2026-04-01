@@ -160,6 +160,31 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             })
         };
 
+        let heap_y_max = if let Some(y) =
+            series_heap.iter().map(|(_, y)| *y).reduce(f64::max)
+            && y > 0.0
+        {
+            const K: f64 = 1_024.0;
+            const M: f64 = K * K;
+            const G: f64 = K * K * K;
+
+            let (unit_divisor, unit_multiplier) = if y >= G {
+                (G, G)
+            } else if y >= M {
+                (M, M)
+            } else if y >= K {
+                (K, K)
+            } else {
+                (1.0, 1.0)
+            };
+
+            let value_in_unit = y / unit_divisor;
+            let rounded = ((value_in_unit / 10.0).ceil() * 10.0).max(1.0);
+            Some(rounded * unit_multiplier)
+        } else {
+            None
+        };
+
         html!(
             <svg
                 class="timeline"
@@ -177,6 +202,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         height={chart_height}
                         series={series_heap}
                         x_max={x_max}
+                        y_max={heap_y_max}
                         print_y={print_y_bytes} />
                 </g>
 
