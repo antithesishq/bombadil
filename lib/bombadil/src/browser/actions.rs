@@ -156,4 +156,58 @@ impl BrowserAction {
         };
         Ok(())
     }
+
+    pub fn to_api(&self) -> bombadil_inspect_api::BrowserAction {
+        match self {
+            BrowserAction::Back => bombadil_inspect_api::BrowserAction::Back,
+            BrowserAction::Forward => {
+                bombadil_inspect_api::BrowserAction::Forward
+            }
+            BrowserAction::Click {
+                name,
+                content,
+                point,
+            } => bombadil_inspect_api::BrowserAction::Click {
+                name: name.clone(),
+                content: content.clone(),
+                point: point.to_api(),
+            },
+            BrowserAction::DoubleClick {
+                name,
+                content,
+                point,
+                delay_millis,
+            } => bombadil_inspect_api::BrowserAction::DoubleClick {
+                name: name.clone(),
+                content: content.clone(),
+                point: point.to_api(),
+                delay_millis: *delay_millis,
+            },
+            BrowserAction::TypeText { text, delay_millis } => {
+                bombadil_inspect_api::BrowserAction::TypeText {
+                    text: text.clone(),
+                    delay_millis: *delay_millis,
+                }
+            }
+            BrowserAction::PressKey { code } => {
+                bombadil_inspect_api::BrowserAction::PressKey { code: *code }
+            }
+            BrowserAction::ScrollUp { origin, distance } => {
+                bombadil_inspect_api::BrowserAction::ScrollUp {
+                    origin: origin.to_api(),
+                    distance: *distance,
+                }
+            }
+            BrowserAction::ScrollDown { origin, distance } => {
+                bombadil_inspect_api::BrowserAction::ScrollDown {
+                    origin: origin.to_api(),
+                    distance: *distance,
+                }
+            }
+            BrowserAction::Reload => {
+                bombadil_inspect_api::BrowserAction::Reload
+            }
+            BrowserAction::Wait => bombadil_inspect_api::BrowserAction::Wait,
+        }
+    }
 }

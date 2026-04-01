@@ -28,3 +28,28 @@ pub struct PropertyViolation {
     pub name: String,
     pub violation: ltl::Violation<render::PrettyFunction>,
 }
+
+impl PropertyViolation {
+    pub fn to_api(&self) -> bombadil_inspect_api::PropertyViolation {
+        bombadil_inspect_api::PropertyViolation {
+            name: self.name.clone(),
+            violation: self.violation.to_api(),
+        }
+    }
+}
+
+impl<'a> TraceEntry<'a> {
+    pub fn to_api(&self) -> bombadil_inspect_api::TraceEntry {
+        bombadil_inspect_api::TraceEntry {
+            timestamp: self.timestamp,
+            url: self.url.to_string(),
+            hash_previous: self.hash_previous,
+            hash_current: self.hash_current,
+            action: self.action.as_ref().map(|a| a.to_api()),
+            screenshot: self.screenshot.to_string_lossy().to_string(),
+            snapshots: self.snapshots.iter().map(|s| s.to_api()).collect(),
+            violations: self.violations.iter().map(|v| v.to_api()).collect(),
+            resources: self.resources.to_api(),
+        }
+    }
+}

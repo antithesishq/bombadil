@@ -188,6 +188,21 @@ impl Resources {
         let cpu = self.thread_time - previous.thread_time;
         (cpu / wall).clamp(0.0, 1.0)
     }
+
+    pub fn to_api(&self) -> bombadil_inspect_api::Resources {
+        bombadil_inspect_api::Resources {
+            js_heap_used: self.js_heap_used,
+            js_heap_total: self.js_heap_total,
+            dom_nodes: self.dom_nodes,
+            documents: self.documents,
+            js_event_listeners: self.js_event_listeners,
+            layout_objects: self.layout_objects,
+            timestamp: self.timestamp,
+            thread_time: self.thread_time,
+            task_duration: self.task_duration,
+            script_duration: self.script_duration,
+        }
+    }
 }
 
 impl BrowserState {

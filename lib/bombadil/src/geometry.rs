@@ -18,3 +18,12 @@ impl From<Point> for layout::Point {
         layout::Point { x: val.x, y: val.y }
     }
 }
+
+impl Point {
+    pub fn to_api(&self) -> bombadil_inspect_api::Point {
+        bombadil_inspect_api::Point {
+            x: self.x,
+            y: self.y,
+        }
+    }
+}

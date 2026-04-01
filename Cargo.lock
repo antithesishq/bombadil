@@ -406,6 +406,7 @@ dependencies = [
  "base64",
  "boa_engine",
  "bombadil-browser-keys",
+ "bombadil-inspect-api",
  "bytes",
  "chromiumoxide",
  "const_format",
