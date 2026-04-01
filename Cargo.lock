@@ -480,6 +480,7 @@ dependencies = [
 name = "bombadil-schema"
 version = "0.3.2"
 dependencies = [
+ "insta",
  "serde",
  "serde_json",
 ]
@@ -1731,6 +1732,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
+ "bombadil-schema",
  "env_logger",
  "indoc",
  "insta",

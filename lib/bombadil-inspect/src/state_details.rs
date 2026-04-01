@@ -42,7 +42,7 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .violations
                         .iter()
                         .map(|violation| {
-                            let markup = render_violation(violation, props.test_start);
+                            let markup = render_violation(violation);
                             html!(<li>
                                 <div class="violation-entry">
                                     <div class="violation-name">{&violation.name}{":"}</div>

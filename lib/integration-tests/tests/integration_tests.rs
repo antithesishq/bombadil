@@ -13,8 +13,9 @@ use bombadil::{
         actions::BrowserAction,
     },
     runner::{Runner, RunnerOptions},
-    specification::{render::render_violation, verifier::Specification},
+    specification::verifier::Specification,
 };
+use bombadil_schema::{markup, text};
 
 enum Expect {
     Error { substring: &'static str },
@@ -168,11 +169,11 @@ async fn run_browser_test(
             let test_start = *self.test_start.get_or_insert(state.timestamp);
             if !violations.is_empty() {
                 for violation in violations {
-                    self.collected_violations.push(format!(
-                        "{}:\n{}\n\n",
-                        violation.name,
-                        render_violation(&violation.violation, test_start,)
-                    ));
+                    let api_violation = violation.to_api();
+                    let markup = markup::render_violation(&api_violation);
+                    let rendered = text::markup_to_text(&markup, test_start);
+                    self.collected_violations
+                        .push(format!("{}:\n{}\n\n", violation.name, rendered));
                 }
             }
             Ok(bombadil::runner::ControlFlow::Continue)

@@ -138,3 +138,249 @@ fn format_duration(time: SystemTime, test_start: SystemTime) -> String {
 
     format!("{:02}:{:02}", minutes, seconds)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, SystemTime};
+
+    use crate::schema::{
+        EventuallyViolation, Formula, PropertyViolation, Snapshot, Violation,
+    };
+
+    use super::*;
+
+    fn thunk(s: &str) -> Formula {
+        Formula::Thunk {
+            function: s.to_string(),
+            negated: false,
+        }
+    }
+
+    const TEST_START: SystemTime = SystemTime::UNIX_EPOCH;
+
+    fn time_at(seconds: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
+    }
+
+    fn render_violation(violation: &PropertyViolation) -> String {
+        let markup = crate::markup::render_violation(violation);
+        markup_to_text(&markup, TEST_START)
+    }
+
+    #[test]
+    fn test_invariant_violation() {
+        // always(() => count.current <= 5)
+        let violation = PropertyViolation {
+            name: "maxCount".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(thunk("count.current <= 5")),
+                start: time_at(0),
+                end: None,
+                time: time_at(305),
+                violation: Box::new(Violation::False {
+                    time: time_at(305),
+                    condition: "count.current <= 5".into(),
+                    snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("count".into()),
+                        value: serde_json::json!(6),
+                    }],
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_always_implies_eventually() {
+        // always((() => x > 10).implies(eventually(() => y == 20)))
+        let violation = PropertyViolation {
+            name: "implicationProperty".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(Formula::Implies(
+                    Box::new(thunk("x > 10")),
+                    Box::new(Formula::Eventually(
+                        Box::new(thunk("y == 20")),
+                        None,
+                    )),
+                )),
+                start: time_at(60),
+                end: None,
+                time: time_at(120),
+                violation: Box::new(Violation::Implies {
+                    left: thunk("x > 10"),
+                    right: Box::new(Violation::Eventually {
+                        subformula: Box::new(thunk("y == 20")),
+                        reason: EventuallyViolation::TestEnded,
+                    }),
+                    antecedent_snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("x".into()),
+                        value: serde_json::json!(11),
+                    }],
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_bounded_eventually() {
+        // always(errorMessage !== null implies eventually(errorMessage === null).within(5 seconds))
+        let violation = PropertyViolation {
+            name: "errorDisappears".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(Formula::Implies(
+                    Box::new(thunk("errorMessage !== null")),
+                    Box::new(Formula::Eventually(
+                        Box::new(thunk("errorMessage === null")),
+                        Some(Duration::from_secs(5)),
+                    )),
+                )),
+                start: time_at(0),
+                end: None,
+                time: time_at(60),
+                violation: Box::new(Violation::Implies {
+                    left: thunk("errorMessage !== null"),
+                    right: Box::new(Violation::Eventually {
+                        subformula: Box::new(thunk("errorMessage === null")),
+                        reason: EventuallyViolation::TimedOut(time_at(65)),
+                    }),
+                    antecedent_snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("errorMessage".into()),
+                        value: serde_json::json!("Error: Failed to load"),
+                    }],
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_next_violation() {
+        // always(unchanged.or(increment).or(decrement))
+        // where unchanged = now(() => next(() => counterValue.current === current))
+        let violation = PropertyViolation {
+            name: "counterStateMachine".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(Formula::Or(
+                    Box::new(Formula::Or(
+                        Box::new(Formula::Next(Box::new(thunk(
+                            "counterValue.current === 5",
+                        )))),
+                        Box::new(Formula::Next(Box::new(thunk(
+                            "counterValue.current === 6",
+                        )))),
+                    )),
+                    Box::new(Formula::Next(Box::new(thunk(
+                        "counterValue.current === 4",
+                    )))),
+                )),
+                start: time_at(0),
+                end: None,
+                time: time_at(30),
+                violation: Box::new(Violation::Or {
+                    left: Box::new(Violation::Or {
+                        left: Box::new(Violation::False {
+                            time: time_at(31),
+                            condition: "counterValue.current === 5".into(),
+                            snapshots: vec![Snapshot {
+                                index: 0,
+                                name: Some("counterValue".into()),
+                                value: serde_json::json!(10),
+                            }],
+                        }),
+                        right: Box::new(Violation::False {
+                            time: time_at(31),
+                            condition: "counterValue.current === 6".into(),
+                            snapshots: vec![],
+                        }),
+                    }),
+                    right: Box::new(Violation::False {
+                        time: time_at(31),
+                        condition: "counterValue.current === 4".into(),
+                        snapshots: vec![],
+                    }),
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_bounded_always() {
+        // always(notificationCount === notificationCount.at(start)).for(10 seconds)
+        let violation = PropertyViolation {
+            name: "constantNotificationCount".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(Formula::Always(
+                    Box::new(thunk(
+                        "notificationCount.current === notificationCount.at(start)",
+                    )),
+                    Some(Duration::from_secs(10)),
+                )),
+                start: time_at(0),
+                end: None,
+                time: time_at(120),
+                violation: Box::new(Violation::Always {
+                    subformula: Box::new(thunk(
+                        "notificationCount.current === notificationCount.at(start)",
+                    )),
+                    start: time_at(120),
+                    end: Some(time_at(130)),
+                    time: time_at(125),
+                    violation: Box::new(Violation::False {
+                        time: time_at(125),
+                        condition: "notificationCount.current === notificationCount.at(start)"
+                            .into(),
+                        snapshots: vec![Snapshot {
+                            index: 0,
+                            name: Some("notificationCount".into()),
+                            value: serde_json::json!(3),
+                        }],
+                    }),
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_complex_snapshots() {
+        // Snapshot with nested objects and arrays
+        let violation = PropertyViolation {
+            name: "userDataValid".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(thunk("user.isValid()")),
+                start: time_at(0),
+                end: None,
+                time: time_at(60),
+                violation: Box::new(Violation::False {
+                    time: time_at(60),
+                    condition: "user.isValid()".into(),
+                    snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("user".into()),
+                        value: serde_json::json!({
+                            "name": "Alice",
+                            "age": 30,
+                            "tags": ["premium", "verified"],
+                            "address": {
+                                "city": "San Francisco",
+                                "zip": "94102"
+                            }
+                        }),
+                    }],
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+}

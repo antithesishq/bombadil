@@ -3,9 +3,9 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::specification::convert::PrettyFunction;
 use crate::specification::js::RuntimeFunction;
 use crate::specification::ltl::{self};
-use crate::specification::render::PrettyFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Snapshot, Specification, Verifier};
 use crate::tree::Tree;

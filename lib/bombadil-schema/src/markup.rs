@@ -28,17 +28,11 @@ pub struct SnapshotMarkup {
     pub value: serde_json::Value,
 }
 
-pub fn render_violation(
-    violation: &PropertyViolation,
-    test_start: SystemTime,
-) -> Markup {
-    render_violation_inner(&violation.violation, test_start)
+pub fn render_violation(violation: &PropertyViolation) -> Markup {
+    render_violation_inner(&violation.violation)
 }
 
-fn render_violation_inner(
-    violation: &Violation,
-    test_start: SystemTime,
-) -> Markup {
+fn render_violation_inner(violation: &Violation) -> Markup {
     match violation {
         Violation::False {
             snapshots,
@@ -83,7 +77,7 @@ fn render_violation_inner(
             Markup::Span(vec![Inline::Text("but at".into())]),
             Markup::Span(vec![Inline::Time(*time)]),
             Markup::Comma,
-            render_violation_inner(violation, test_start),
+            render_violation_inner(violation),
         ]),
         Violation::Always {
             violation,
@@ -104,17 +98,17 @@ fn render_violation_inner(
             Markup::Span(vec![Inline::Text("but at".into())]),
             Markup::Span(vec![Inline::Time(*time)]),
             Markup::Comma,
-            render_violation_inner(violation, test_start),
+            render_violation_inner(violation),
         ]),
         Violation::And { left, right } => Markup::Join(vec![
-            render_violation_inner(left, test_start),
+            render_violation_inner(left),
             Markup::Span(vec![Inline::Keyword("and".into())]),
-            render_violation_inner(right, test_start),
+            render_violation_inner(right),
         ]),
         Violation::Or { left, right } => Markup::Join(vec![
-            render_violation_inner(left, test_start),
+            render_violation_inner(left),
             Markup::Span(vec![Inline::Keyword("or".into())]),
-            render_violation_inner(right, test_start),
+            render_violation_inner(right),
         ]),
         Violation::Implies {
             left,
@@ -126,13 +120,13 @@ fn render_violation_inner(
                     render_snapshot_values(antecedent_snapshots),
                     Markup::Comma,
                     Markup::Span(vec![Inline::Text("implying that".into())]),
-                    render_violation_inner(right, test_start),
+                    render_violation_inner(right),
                 ])
             } else {
                 Markup::Join(vec![
                     render_formula(left),
                     Markup::Span(vec![Inline::Keyword("implies".into())]),
-                    render_violation_inner(right, test_start),
+                    render_violation_inner(right),
                 ])
             }
         }

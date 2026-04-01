@@ -274,8 +274,7 @@ async fn test(
 
             for violation in violations {
                 let api_violation = violation.to_api();
-                let markup =
-                    markup::render_violation(&api_violation, test_start);
+                let markup = markup::render_violation(&api_violation);
                 let text = text::markup_to_text(&markup, test_start);
                 log::error!(
                     "violation of property `{}`:\n{}",

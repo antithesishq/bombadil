@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::{
     browser::{actions::BrowserAction, state::Resources},
-    specification::{ltl, render, verifier::Snapshot},
+    specification::{convert, ltl, verifier::Snapshot},
 };
 
 pub mod writer;
@@ -26,7 +26,7 @@ pub struct TraceEntry<'a> {
 #[derive(Debug, Clone, Serialize)]
 pub struct PropertyViolation {
     pub name: String,
-    pub violation: ltl::Violation<render::PrettyFunction>,
+    pub violation: ltl::Violation<convert::PrettyFunction>,
 }
 
 impl PropertyViolation {
