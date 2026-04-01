@@ -54,8 +54,8 @@ fn app() -> Html {
 
             <svg width="0" height="0" aria-hidden="true" focusable="false">
               <defs>
-                <pattern id="dither" width="1.5" height="1.5" patternUnits="userSpaceOnUse">
-                        <circle cx="1" cy="1" r=".5" opacity="0.4" />
+                <pattern id="dither" width="2" height="2" patternUnits="userSpaceOnUse">
+                        <circle cx="1" cy="1" r="1" opacity="0.3" />
                 </pattern>
                 <pattern id="violation" width="1" height="2" patternUnits="userSpaceOnUse">
                     <rect width="1" height="1" opacity="0.3" />
