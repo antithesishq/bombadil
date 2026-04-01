@@ -159,18 +159,35 @@ fn is_simple_string(s: &str) -> bool {
     }
 
     match s {
-        "true" | "false" | "True" | "False" | "TRUE" | "FALSE" | "yes" | "no"
-        | "Yes" | "No" | "YES" | "NO" | "null" | "Null" | "NULL" | "~" => {
-            return false
-        }
+        "true" | "false" | "True" | "False" | "TRUE" | "FALSE" | "yes"
+        | "no" | "Yes" | "No" | "YES" | "NO" | "null" | "Null" | "NULL"
+        | "~" => return false,
         _ => {}
     }
 
     let first = s.chars().next().unwrap();
     if matches!(
         first,
-        '[' | ']' | '{' | '}' | ',' | '&' | '*' | '#' | '?' | '|' | '-' | '<'
-            | '>' | '=' | '!' | '%' | '@' | '`' | '\'' | '"' | ':'
+        '[' | ']'
+            | '{'
+            | '}'
+            | ','
+            | '&'
+            | '*'
+            | '#'
+            | '?'
+            | '|'
+            | '-'
+            | '<'
+            | '>'
+            | '='
+            | '!'
+            | '%'
+            | '@'
+            | '`'
+            | '\''
+            | '"'
+            | ':'
     ) {
         return false;
     }
