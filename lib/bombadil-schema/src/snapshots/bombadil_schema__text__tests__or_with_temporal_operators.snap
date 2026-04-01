@@ -1,0 +1,5 @@
+---
+source: lib/bombadil-schema/src/text.rs
+expression: render_violation(&violation)
+---
+as of 00:00, it should always be the case that within 30 seconds state === 'ready' or always state === 'disabled' but at 00:10, eventually state === 'ready', which timed out at 00:40 and as of 00:10, it should always be the case that state === 'disabled' but at 00:15, state = "pending"

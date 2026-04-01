@@ -383,4 +383,51 @@ mod tests {
 
         insta::assert_snapshot!(render_violation(&violation));
     }
+
+    #[test]
+    fn test_or_with_temporal_operators() {
+        // State machine property: always(eventually(ready) or always(disabled))
+        // Models: "either we eventually become ready, or we stay disabled forever"
+        let violation = PropertyViolation {
+            name: "stateMachine".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(Formula::Or(
+                    Box::new(Formula::Eventually(
+                        Box::new(thunk("state === 'ready'")),
+                        Some(Duration::from_secs(30)),
+                    )),
+                    Box::new(Formula::Always(
+                        Box::new(thunk("state === 'disabled'")),
+                        None,
+                    )),
+                )),
+                start: time_at(0),
+                end: None,
+                time: time_at(10),
+                violation: Box::new(Violation::Or {
+                    left: Box::new(Violation::Eventually {
+                        subformula: Box::new(thunk("state === 'ready'")),
+                        reason: EventuallyViolation::TimedOut(time_at(40)),
+                    }),
+                    right: Box::new(Violation::Always {
+                        subformula: Box::new(thunk("state === 'disabled'")),
+                        start: time_at(10),
+                        end: None,
+                        time: time_at(15),
+                        violation: Box::new(Violation::False {
+                            time: time_at(15),
+                            condition: "state === 'disabled'".into(),
+                            snapshots: vec![Snapshot {
+                                index: 0,
+                                name: Some("state".into()),
+                                value: serde_json::json!("pending"),
+                            }],
+                        }),
+                    }),
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
 }

@@ -107,7 +107,7 @@ fn render_violation_inner(violation: &Violation) -> Markup {
         ]),
         Violation::Or { left, right } => Markup::Join(vec![
             render_violation_inner(left),
-            Markup::Span(vec![Inline::Keyword("or".into())]),
+            Markup::Span(vec![Inline::Keyword("and".into())]),
             render_violation_inner(right),
         ]),
         Violation::Implies {

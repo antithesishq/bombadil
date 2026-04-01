@@ -2,4 +2,4 @@
 source: lib/bombadil-schema/src/text.rs
 expression: render_violation(&violation)
 ---
-as of 00:00, it should always be the case that next counterValue.current === 5 or next counterValue.current === 6 or next counterValue.current === 4 but at 00:30, counterValue = 10 or !(counterValue.current === 6) or !(counterValue.current === 4)
+as of 00:00, it should always be the case that next counterValue.current === 5 or next counterValue.current === 6 or next counterValue.current === 4 but at 00:30, counterValue = 10 and !(counterValue.current === 6) and !(counterValue.current === 4)
