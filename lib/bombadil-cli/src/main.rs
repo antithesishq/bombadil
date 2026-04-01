@@ -37,7 +37,7 @@ struct TestSharedOptions {
     /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
     /// package on NPM
     specification_file: Option<PathBuf>,
-    /// Where to store output data (trace, screenshots, etc)
+    /// Where to store output data (trace, screenshots, etc.)
     #[arg(long)]
     output_path: Option<PathBuf>,
     /// Whether to exit the test when first failing property is found (useful in development and CI)
