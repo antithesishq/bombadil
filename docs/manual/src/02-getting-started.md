@@ -137,6 +137,6 @@ Bombadil runs and produces results.
 
 
 ::: {.callout .callout-note}
-Bombadil doesn't yet produce a human-readable test report so while this test
-requires some `jq` trickery, stay tuned --- better UIs are on their way! 
+Bombadil doesn't yet produce a human-readable test report so while this process
+requires some `jq` trickery. Stay tuned --- better UIs are on their way! 
 :::
