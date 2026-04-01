@@ -1,0 +1,5 @@
+---
+source: lib/bombadil-schema/src/text.rs
+expression: render_violation(&violation)
+---
+as of 00:00, it should always be the case that if errorMessage !== null then within 5 seconds errorMessage === null but at 01:00, errorMessage = "Error: Failed to load", implying that eventually errorMessage === null, which timed out at 01:05

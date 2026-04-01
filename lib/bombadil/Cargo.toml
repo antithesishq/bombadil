@@ -34,6 +34,7 @@ base64 = "0.22.1"
 markup5ever_rcdom = "0.36.0"
 boa_engine = "0.21.0"
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
+bombadil-schema = { path = "../bombadil-schema" }
 
 [dev-dependencies]
 indoc = "2.0.7"

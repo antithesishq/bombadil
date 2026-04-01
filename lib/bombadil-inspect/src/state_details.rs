@@ -1,17 +1,13 @@
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use bombadil_inspect_api::EventuallyViolation;
-use bombadil_inspect_api::Formula;
-use bombadil_inspect_api::PropertyViolation;
-use bombadil_inspect_api::TraceEntry;
-use bombadil_inspect_api::Violation;
+use bombadil_schema::TraceEntry;
 use serde_json as json;
 use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
-use crate::duration::format_duration;
+use crate::render::{markup_to_html, render_violation};
 
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
@@ -45,251 +41,120 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                         .entry
                         .violations
                         .iter()
-                        .map(|violation| html!(<li>{render_violation(violation, props.test_start)}</li>))
+                        .map(|violation| {
+                            let markup = render_violation(violation);
+                            html!(<li>
+                                <div class="violation-entry">
+                                    <div class="violation-name">{&violation.name}{":"}</div>
+                                    {markup_to_html(&markup, props.test_start)}
+                                </div>
+                            </li>)
+                        })
                         .collect::<Html>()
                 }
                 </ol>
             </details>
-            <details open={true}>
+            <details>
                 <summary>{"Snapshots"}</summary>
-                <table>
+                <dl class="snapshots">
                 {
-                    props
-                        .entry
-                        .snapshots
-                        .iter()
-                        .map(|snapshot| html!(<tr><th>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</th><td>{json::to_string_pretty(&snapshot.value).unwrap_or("invalid json".into())}</td></tr>))
-                        .collect::<Html>()
+                    {
+                        let options = JsonRenderOptions {
+                            literal_strings: true,
+                        };
+                        props
+                            .entry
+                            .snapshots
+                            .iter()
+                            .map(|snapshot| {
+                                let class =
+                                    if is_json_inline(&snapshot.value) {
+                                        "json-entry inline"
+                                    } else {
+                                        "json-entry"
+                                    };
+                                html!(
+                                    <div class={class}>
+                                        <dt>{snapshot.name.as_deref().unwrap_or("<unnamed>")}</dt>
+                                        <dd>{render_json(&snapshot.value, options)}</dd>
+                                    </div>
+                                )
+                            })
+                            .collect::<Html>()
+                    }
                 }
-                </table>
+                </dl>
             </details>
         </>
     )
 }
 
-fn render_violation(
-    violation: &PropertyViolation,
-    test_start: SystemTime,
-) -> Html {
-    html!(
-        <div class="violation">
-            <strong>{&violation.name}{": "}</strong>
-            {render_violation_inner(&violation.violation, test_start)}
-        </div>
-    )
+#[derive(Clone, Copy)]
+struct JsonRenderOptions {
+    literal_strings: bool,
 }
 
-fn render_violation_inner(
-    violation: &Violation,
-    test_start: SystemTime,
-) -> Html {
-    match violation {
-        Violation::False { time: _, condition } => {
-            html!(<pre><code>{format!("!({})", condition)}</code></pre>)
-        }
-        Violation::Eventually { subformula, reason } => {
-            let reason_text = match reason {
-                EventuallyViolation::TimedOut(time) => {
-                    format!("timed out at {}: ", format_time(time, test_start))
-                }
-                EventuallyViolation::TestEnded => {
-                    "failed at test end: ".to_string()
-                }
-            };
-            html!(
-                <div class="violation-eventually">
-                    <span>{reason_text}</span>
-                    {render_formula(subformula)}
-                </div>
-            )
-        }
-        Violation::Always {
-            violation,
-            subformula,
-            start,
-            end: None,
-            time,
-        } => {
-            html!(
-                <span class="violation-always">
-                    <span>{
-                        format!(
-                            "as of {}, it should always \
-                             be the case that",
-                            format_time(start, test_start),
-                        )
-                    }</span>
-                    {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}", format_time(time, test_start))
-                    }</span>
-                    {render_violation_inner(violation, test_start)}
-                </span>
-            )
-        }
-        Violation::Always {
-            violation,
-            subformula,
-            start,
-            end: Some(end),
-            time,
-        } => {
-            html!(
-                <span class="violation-always">
-                    <span>{
-                        format!(
-                            "as of {} and until {}, it \
-                             should always be the case that",
-                            format_time(start, test_start),
-                            format_time(end, test_start),
-                        )
-                    }</span>
-                    {render_formula(subformula)}
-                    <span>{
-                        format!("but at {}", format_time(time, test_start))
-                    }</span>
-                    {render_violation_inner(violation, test_start)}
-                </span>
-            )
-        }
-        Violation::And { left, right } => {
-            html!(
-                <div class="violation-and">
-                    {render_violation_inner(left, test_start)}
-                    <span class="keyword">{"and"}</span>
-                    {render_violation_inner(right, test_start)}
-                </div>
-            )
-        }
-        Violation::Or { left, right } => {
-            html!(
-                <div class="violation-or">
-                    {render_violation_inner(left, test_start)}
-                    <span class="keyword">{"or"}</span>
-                    {render_violation_inner(right, test_start)}
-                </div>
-            )
-        }
-        Violation::Implies { left, right } => {
-            html!(
-                <div class="violation-implies">
-                    {render_violation_inner(right, test_start)}
-                    <span class="keyword">{"since"}</span>
-                    {render_formula(left)}
-                </div>
-            )
-        }
+fn is_printable(s: &str) -> bool {
+    s.chars().all(|c| !c.is_control() || c == '\n' || c == '\t')
+}
+
+fn is_json_inline(value: &json::Value) -> bool {
+    match value {
+        json::Value::Array(items) => items.is_empty(),
+        json::Value::Object(map) => map.is_empty(),
+        _ => true,
     }
 }
 
-fn render_formula(formula: &Formula) -> Html {
-    match formula {
-        Formula::Pure { value: _, pretty } => {
-            html!(<code>{pretty}</code>)
+fn render_json(value: &json::Value, options: JsonRenderOptions) -> Html {
+    match value {
+        json::Value::Array(items) if items.is_empty() => {
+            html!(<code class="json-literal">{"[]"}</code>)
         }
-        Formula::Thunk {
-            function,
-            negated: true,
-        } => {
-            html!(<pre><code>{format!("not({})", function)}</code></pre>)
-        }
-        Formula::Thunk {
-            function,
-            negated: false,
-        } => {
-            html!(<pre><code>{function}</code></pre>)
-        }
-        Formula::And(left, right) => {
+        json::Value::Array(items) => {
             html!(
-                <span class="formula-and">
-                    {render_formula(left)}
-                    <code>{".and("}</code>
-                    {render_formula(right)}
-                    <code>{")"}</code>
-                </span>
+                <ul class="json-array">
+                    { for items.iter().map(|item| html!(<li>{render_json(item, options)}</li>)) }
+                </ul>
             )
         }
-        Formula::Or(left, right) => {
-            html!(
-                <span class="formula-or">
-                    {render_formula(left)}
-                    <code>{".or("}</code>
-                    {render_formula(right)}
-                    <code>{")"}</code>
-                </span>
-            )
+        json::Value::Object(map) if map.is_empty() => {
+            html!(<code class="json-literal">{"{}"}</code>)
         }
-        Formula::Implies(left, right) => {
+        json::Value::Object(map) => {
             html!(
-                <span class="formula-implies">
-                    {render_formula(left)}
-                    <code>{".implies("}</code>
-                    {render_formula(right)}
-                    <code>{")"}</code>
-                </span>
-            )
-        }
-        Formula::Next(formula) => {
-            html!(
-                <span class="formula-next">
-                    <code>{"next("}</code>
-                    {render_formula(formula)}
-                    <code>{")"}</code>
-                </span>
-            )
-        }
-        Formula::Always(formula, None) => {
-            html!(
-                <span class="formula-always">
-                    <code>{"always("}</code>
-                    {render_formula(formula)}
-                    <code>{")"}</code>
-                </span>
-            )
-        }
-        Formula::Always(formula, Some(bound)) => {
-            html!(
-                <span class="formula-always">
-                    <code>{"always("}</code>
-                    {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
+                <dl class="json-object">
+                    { for map.iter().map(|(key, val)| {
+                        let class = if is_json_inline(val) {
+                            "json-entry inline"
+                        } else {
+                            "json-entry"
+                        };
+                        html!(
+                            <div class={class}>
+                                <dt>{key}</dt>
+                                <dd>{render_json(val, options)}</dd>
+                            </div>
                         )
-                    }</code>
-                </span>
+                    }) }
+                </dl>
             )
         }
-        Formula::Eventually(formula, None) => {
+        json::Value::String(s)
+            if !options.literal_strings && is_printable(s) =>
+        {
+            html!(<span class="json-string">{s}</span>)
+        }
+        json::Value::String(s) => {
+            let literal = json::Value::String(s.clone()).to_string();
             html!(
-                <span class="formula-eventually">
-                    <code>{"eventually("}</code>
-                    {render_formula(formula)}
-                    <code>{")"}</code>
-                </span>
+                <code class="json-literal" title={s.clone()}>
+                    {literal}
+                </code>
             )
         }
-        Formula::Eventually(formula, Some(bound)) => {
-            html!(
-                <span class="formula-eventually">
-                    <code>{"eventually("}</code>
-                    {render_formula(formula)}
-                    <code>{
-                        format!(
-                            ").within({}, \"milliseconds\")",
-                            bound.as_millis(),
-                        )
-                    }</code>
-                </span>
-            )
+        other => {
+            html!(<code class="json-literal">{other.to_string()}</code>)
         }
     }
-}
-
-fn format_time(time: &SystemTime, test_start: SystemTime) -> String {
-    format_duration(
-        time.duration_since(test_start)
-            .expect("timestamp millisecond conversion failed"),
-    )
 }

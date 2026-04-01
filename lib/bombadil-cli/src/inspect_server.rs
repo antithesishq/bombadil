@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use bombadil_inspect_api::TraceEntry;
+use bombadil_schema::TraceEntry;
 use include_dir::{Dir, include_dir};
 
 static INSPECT_ASSETS: Dir =
