@@ -1,0 +1,180 @@
+.state-details {
+  max-height: 30vh;
+}
+
+.state-details .content {
+  padding: 0;
+}
+
+.state-details details {
+  position: relative;
+}
+
+.state-details .has-violations {
+  color: var(--color-danger);
+}
+.state-details details .background {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: calc(var(--line-height) * 1.5);
+}
+
+.state-details summary {
+  padding: var(--spacing-vertical) var(--spacing-horizontal);
+  text-transform: uppercase;
+}
+
+.state-details table th,
+.state-details table td {
+  padding: var(--spacing-vertical) var(--spacing-horizontal);
+}
+
+.state-details table th {
+  font-weight: bold;
+  vertical-align: top;
+}
+
+details[open]::details-content {
+  padding: var(--spacing-vertical) calc(var(--spacing-horizontal) * 2);
+  overflow-x: auto;
+}
+
+.state-details .violation-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-height);
+}
+
+.state-details .violation-name {
+  font-weight: 700;
+}
+
+.state-details pre {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.state-details code {
+  background: none;
+  font-style: italic;
+}
+
+.state-details dl {
+  margin: 0;
+  padding: 0;
+}
+
+.state-details dl.snapshots > .json-entry > dt::after,
+.state-details dl.snapshot-values > .json-entry > dt::after {
+  content: " =";
+}
+
+.state-details dl dd {
+  margin: 0;
+  padding-left: 2ch;
+}
+
+.state-details dl.inline {
+  display: inline;
+}
+
+.state-details dl.inline > .json-entry {
+  display: inline;
+}
+
+.state-details dl.inline > .json-entry > dt,
+.state-details dl.inline > .json-entry > dd {
+  display: inline;
+  padding-left: 0;
+}
+
+.state-details dl.inline > .json-entry > dt::before {
+  content: " ";
+}
+
+.state-details dl.inline > .json-entry > dt::after {
+  content: " = ";
+}
+
+.state-details div.formula {
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-height);
+}
+
+.state-details .violation.always {
+  display: flex;
+  flex-direction: column;
+  gap: var(--line-height);
+}
+
+.state-details time {
+  font-weight: bold;
+}
+
+.json-array {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.json-array > li {
+  display: flex;
+}
+
+.json-array > li::before {
+  content: "-";
+  margin-right: 1ch;
+}
+
+.json-array > li > .json-array {
+  flex-basis: 100%;
+  padding-left: 2ch;
+}
+
+.json-object {
+  padding-left: 0;
+}
+
+.json-object > .json-entry > dt {
+  font-weight: 400;
+}
+
+.json-object > .json-entry > dt::after {
+  content: ":";
+}
+
+.state-details .json-entry {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 1ch;
+}
+
+.state-details .json-entry > dd {
+  margin: 0;
+  padding-left: 0;
+}
+
+.state-details .json-entry.inline {
+  flex-wrap: initial;
+}
+
+.state-details .json-entry:not(.inline) > dd {
+  flex-basis: 100%;
+  padding-left: 2ch;
+}
+
+.snapshots .json-string,
+.snapshots .json-literal {
+  color: var(--color-value);
+}
+
+.json-string {
+  font-style: italic;
+  white-space: pre;
+}

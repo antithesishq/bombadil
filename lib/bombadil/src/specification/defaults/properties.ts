@@ -11,14 +11,46 @@ export const noHttpErrorCodes = always(
   () => (responseStatus.current ?? 0) < 400,
 );
 
-const uncaughtExceptions = extract((state) => state.errors.uncaughtExceptions);
+function formatException(e: {
+  text: string;
+  line: number;
+  column: number;
+  url: string | null;
+  stacktrace:
+    | { name: string; line: number; column: number; url: string }[]
+    | null;
+}): string {
+  let result = e.text;
+  if (e.stacktrace) {
+    for (const frame of e.stacktrace) {
+      result += "\n    at ";
+      if (frame.name) result += frame.name + " ";
+      result += `(${frame.url}:${frame.line}:${frame.column})`;
+    }
+  } else if (e.url) {
+    result += `\n    at ${e.url}:${e.line}:${e.column}`;
+  }
+  return result;
+}
 
-export const noUncaughtExceptions = always(() =>
-  uncaughtExceptions.current.every((e) => e.text !== "Uncaught"),
+const uncaughtExceptions = extract((state) =>
+  state.errors.uncaughtExceptions.map(formatException),
 );
 
-export const noUnhandledPromiseRejections = always(() =>
-  uncaughtExceptions.current.every((e) => e.text !== "Uncaught (in promise)"),
+export const noUncaughtExceptions = always(
+  () =>
+    uncaughtExceptions.current.every(
+      (e) =>
+        !e.startsWith("Uncaught") ||
+        e.startsWith("Uncaught (in promise)"),
+    ),
+);
+
+export const noUnhandledPromiseRejections = always(
+  () =>
+    uncaughtExceptions.current.every(
+      (e) => !e.startsWith("Uncaught (in promise)"),
+    ),
 );
 
 const consoleErrors = extract((state) =>

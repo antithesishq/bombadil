@@ -104,7 +104,7 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
     mode: ValueEqMode,
 ) {
     match (&value_left, &value_right) {
-        (Value::True, Value::True) => {}
+        (Value::True(_), Value::True(_)) => {}
         (Value::False(left, _), Value::False(right, _)) => {
             if mode == ValueEqMode::Strict {
                 assert_eq!(left, right);
@@ -118,7 +118,10 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
                 ValueEqMode::UpToViolations => {
                     match (default_left, default_right) {
                         (None, None) => {}
-                        (Some(StopDefault::True), Some(StopDefault::True)) => {}
+                        (
+                            Some(StopDefault::True(_)),
+                            Some(StopDefault::True(_)),
+                        ) => {}
                         (
                             Some(StopDefault::False(_)),
                             Some(StopDefault::False(_)),
@@ -160,10 +163,13 @@ fn check_equivalence(
                 Variable::Y => state.y,
             };
             let value = if negated { !value } else { value };
-            Ok(Formula::Pure {
-                value,
-                pretty: format!("{}", value),
-            })
+            Ok((
+                Formula::Pure {
+                    value,
+                    pretty: format!("{}", value),
+                },
+                UniqueSnapshots::new(),
+            ))
         }
         Thunk::Subformula(syntax) => {
             let syntax = if negated {
@@ -171,7 +177,7 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok(syntax.nnf())
+            Ok((syntax.nnf(), UniqueSnapshots::new()))
         }
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);

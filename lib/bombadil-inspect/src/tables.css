@@ -1,0 +1,30 @@
+/* Tables */
+table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0;
+}
+
+th {
+    padding: 0;
+    text-align: left;
+    font-weight: 600;
+}
+
+td {
+    padding: 0;
+}
+
+table .right {
+    text-align: right;
+}
+
+tbody td {
+    border-left: 1px solid var(--color-border);
+    border-right: 1px solid var(--color-border);
+    background-color: var(--color-bg-muted);
+}
+
+col {
+    width: auto !important;
+}

@@ -117,6 +117,7 @@ in
     // {
       inherit cargoArtifacts;
       nativeCheckInputs = [ chromium ];
+      pname = "bombadil";
       preCheck = ''
         export FONTCONFIG_FILE=${makeFontsConf { fontDirectories = [ freefont_ttf ]; }}
         export HOME=$(mktemp -d)
@@ -134,11 +135,13 @@ in
     commonArgs
     // {
       inherit cargoArtifacts;
+      pname = "bombadil";
       cargoClippyExtraArgs = "--all-targets -- -D warnings";
     }
   );
 
   fmt = craneLib.cargoFmt {
     inherit (commonArgs) src;
+    pname = "bombadil";
   };
 }
