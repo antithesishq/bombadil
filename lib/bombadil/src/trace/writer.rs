@@ -63,6 +63,7 @@ impl TraceWriter {
             screenshot: Cow::Owned(screenshot_path),
             snapshots: Cow::Borrowed(snapshots),
             violations: Cow::Borrowed(violations),
+            resources: Cow::Borrowed(&state.resources),
         };
 
         self.last_transition_hash = state.transition_hash;

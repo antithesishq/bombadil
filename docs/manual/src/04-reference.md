@@ -19,7 +19,7 @@
 ::: {#options-test}
 | Option | Description | Default |
 |--------|-------------|---------:|
-| `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc) | |
+| `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
@@ -44,7 +44,7 @@
 ::: {#options-test}
 | Option | Description | Default |
 |--------|-------------|---------:|
-| `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc) | |
+| `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |

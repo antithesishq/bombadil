@@ -1,8 +1,8 @@
 # Specification language
 
 To extend Bombadil with domain-specific knowledge, you write specifications.
-These are plain TypeScript or JavaScript modules using the library provided by
-Bombadil, exporting *properties* and *action generators*.
+These are plain TypeScript or JavaScript [modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules) that use the library provided by
+Bombadil to export *properties* and *action generators*.
 
 Here's how you run Bombadil with a custom specification:
 
@@ -67,7 +67,7 @@ import raw from "./snapshot.dat" with { type: "binary" };
 When using `"text"`  you get a `string`, and when using `"binary"` you get
 `Uint8Array`.
 
-For JSON data, you can also just rely on the file extension:
+For JSON data, you can also just use the file extension:
 
 ```typescript
 import data from "./fixtures/data.json";
@@ -83,7 +83,7 @@ most of these:
 export * from "@antithesishq/bombadil/defaults";
 ```
 
-In fact, this is exactly what is used when running tests without a custom
+In fact, these defaults are exactly what are used when running tests without a custom
 specification file. If you want to selectively pick just a subset of these,
 use the following modules:
 
@@ -112,7 +112,7 @@ has a small set of central concepts. This section describes them in detail.
 ### Properties
 
 A property is a description of how the system under test should behave *in
-general*. This is different from example-based testing (Playwright, Cypress)
+general*. This is different from example-based testing (e.g. Playwright, Cypress, etc.)
 where you describe how it behaves for *particular* cases.
 
 The most intuitive kind of property, which you might have come across before,
@@ -152,7 +152,7 @@ extract(state => ...)
 
 You give it a function that takes the current browser state as an argument, and
 returns JSON-serializable data. The state object contains a bunch of things,
-but most important are `document` and `window`, the same ones you have access
+but the most important are `document` and `window` --- the same ones you have access
 to in JavaScript running in a browser.
 
 To extract the page title, you'd define this at the top level of your
@@ -184,7 +184,7 @@ Two things to note about this example:
 2. To get the `string` value out of the cell, you use `pageTitle.current`.
 
 This is a custom property using the *temporal* operator called `always`.
-There are other temporal operators, described in [Formulas](#formulas).
+There are other temporal operators, described in [Formulas](#formulas) below.
 
 ### Formulas
 
@@ -200,16 +200,16 @@ facts about formulas and temporal operators:
 * Bombadil evaluates formulas against a sequence of states to check if they
   *hold true*.
 
-In addition to `always`, there's also `eventually` and `next`. Here's an
+Temporal operator types include `always`, as discussed in the example in [Extractors](#extractors) above, and also `eventually` and `next`. Here's an
 informal[^ltl] description of how they work:
 
 * `always(x)` holds if `x` holds in *this* and *every future* state
 * `next(x)` holds if `x` holds in *the next* state
 * `eventually(x)` holds if `x` holds in *this* or *any future* state
 
-They accept *subformulas* as arguments, but in the example with
-`always` above, the argument was a thunk. This works because the operators
-automatically convert thunks into formulas. There's an operator for doing that
+They accept *subformulas* as arguments. You'll notice in the example with
+`always` above, the argument was a thunk. This still works, because the operators
+automatically convert thunks into formulas. In fact, there's an operator for doing that
 explicitly, called `now`:
 
 ```typescript
@@ -240,7 +240,7 @@ now(() => buttonPressed.current).implies(
 )
 ```
 
-You can build more advanced formulas, even with nested temporal operators, but
+You can build more advanced formulas, and even include nested temporal operators, but
 the basics are often powerful enough. See the [examples](#examples) at the bottom for more
 inspiration.
 
@@ -248,16 +248,16 @@ inspiration.
 
 In addition to exporting properties in a specification, you export action
 generators. A generator is an object with a `generate()` method. An action
-generator is such an object that generates values of type `Tree<Action>`.
+generator generates values of type `Tree<Action>`.
 
 Like with [default properties](#default-properties-and-action-generators),
 there are default actions provided by Bombadil. These will get you a long way,
-but there are times where you need to define your own action generators.
+but there are times where you'll need to define your own action generators.
 
 For every state that Bombadil captures, all action generators are run, contributing
 to a tree structure of *possible* actions. Bombadil then randomly picks one in that
-tree. Why a tree, though? It's because the branches are *weighted* --- by default
-they're equally weighted, but you can override this to control the probability of
+tree. Why a tree, though? It's because the branches are *weighted* --- equally, by default.
+But you can override this to control the probability of
 an action being picked.
 
 To define a custom action generator, you use the `actions` function, which
@@ -360,19 +360,19 @@ properties. Each example is a self-contained specification file.
 
 ### Invariant: max notification count
 
-This is a simple one checking that there are never more than five notifications
+This is a simple property checking that there are never more than five notifications
 shown.
 
 ```typescript
 import { extract, always } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) => 
+const notificationCount = extract((state) => 
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const max_notifications_shown = always(() =>
-    notification_count.current <= 5,
+    notificationCount.current <= 5,
 );
 ```
 
@@ -387,14 +387,14 @@ time value to look up older values.
 import { extract, always, now, time } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) =>
+const notificationCount = extract((state) =>
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const constantNotificationCount = now(() => {
     const start = time.current;
     return always(() => 
-        notification_count.current === notification_count.at(start),
+        notificationCount.current === notification_count.at(start),
     );
 });
 ```
@@ -423,11 +423,11 @@ export const errorDisappears = always(
 
 ### Contextful guarantee: notification includes past value
 
-This example uses an outer thunk to force a cell value (`nameEntered`) at every
-state, and then closes over that value with the inner thunk passed to
-`eventually`. The property checks that if there's a non-blank name entered, and
+This property checks that if there's a non-blank name entered, and
 it is submitted, then eventually there will be a notification that includes the
-name.
+name. This example uses an outer thunk to force a cell value (`nameEntered`) at every
+state, and then closes over that value with the inner thunk passed to
+`eventually`. 
 
 ```typescript
 import { extract, always, now, next, eventually } from "@antithesishq/bombadil";
@@ -496,7 +496,7 @@ export const counterStateMachine =
 ```
 
 If this specification exports the `reload` action, the `unchanged` property
-becomes relevant[^stuttering]. Unless this application stored the state of the counter
+becomes relevant.[^stuttering] Unless this application stored the state of the counter
 somehow, reloading the page would clear the counter, which this property
 would catch as a violation.
 
