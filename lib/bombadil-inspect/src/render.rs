@@ -199,9 +199,11 @@ fn render_json(value: &serde_json::Value) -> Html {
             html!(<code class="json-literal">{"{}"}</code>)
         }
         serde_json::Value::Object(map) => {
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_by_key(|(key, _)| *key);
             html!(
                 <dl class="json-object">
-                    { for map.iter().map(|(key, val)| {
+                    { for entries.into_iter().map(|(key, val)| {
                         let class = if is_json_inline(val) {
                             "json-entry inline"
                         } else {

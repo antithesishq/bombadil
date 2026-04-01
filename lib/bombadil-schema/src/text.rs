@@ -25,8 +25,7 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: SystemTime) {
                 }
                 output.push_str(&snapshot.name);
                 output.push_str(" = ");
-                output
-                    .push_str(&serde_json::to_string(&snapshot.value).unwrap());
+                render_json_value(output, &snapshot.value, 0);
             }
         }
         Markup::Stack(items) => {
@@ -95,6 +94,98 @@ fn flatten_joins(items: &[Markup]) -> Vec<Markup> {
     result
 }
 
+fn is_json_inline(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Array(items) => items.is_empty(),
+        serde_json::Value::Object(map) => map.is_empty(),
+        _ => true,
+    }
+}
+
+fn render_json_value(
+    output: &mut String,
+    value: &serde_json::Value,
+    indent: usize,
+) {
+    match value {
+        serde_json::Value::Null => output.push_str("null"),
+        serde_json::Value::Bool(b) => output.push_str(&b.to_string()),
+        serde_json::Value::Number(n) => output.push_str(&n.to_string()),
+        serde_json::Value::String(s) => {
+            if is_simple_string(s) {
+                output.push_str(s);
+            } else {
+                output.push_str(&serde_json::to_string(s).unwrap());
+            }
+        }
+        serde_json::Value::Array(items) if items.is_empty() => {
+            output.push_str("[]")
+        }
+        serde_json::Value::Array(items) => {
+            let indent_str = "  ".repeat(indent + 1);
+            for item in items {
+                output.push('\n');
+                output.push_str(&indent_str);
+                output.push_str("- ");
+                render_json_value(output, item, indent + 1);
+            }
+        }
+        serde_json::Value::Object(map) if map.is_empty() => {
+            output.push_str("{}")
+        }
+        serde_json::Value::Object(map) => {
+            let mut entries: Vec<_> = map.iter().collect();
+            entries.sort_by_key(|(key, _)| *key);
+
+            let indent_str = "  ".repeat(indent + 1);
+            for (key, val) in entries {
+                output.push('\n');
+                output.push_str(&indent_str);
+                output.push_str(key);
+                output.push_str(": ");
+                render_json_value(output, val, indent + 1);
+            }
+        }
+    }
+}
+
+fn is_simple_string(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    if s.chars().any(|c| c.is_control()) {
+        return false;
+    }
+
+    match s {
+        "true" | "false" | "True" | "False" | "TRUE" | "FALSE" | "yes" | "no"
+        | "Yes" | "No" | "YES" | "NO" | "null" | "Null" | "NULL" | "~" => {
+            return false
+        }
+        _ => {}
+    }
+
+    let first = s.chars().next().unwrap();
+    if matches!(
+        first,
+        '[' | ']' | '{' | '}' | ',' | '&' | '*' | '#' | '?' | '|' | '-' | '<'
+            | '>' | '=' | '!' | '%' | '@' | '`' | '\'' | '"' | ':'
+    ) {
+        return false;
+    }
+
+    if s.contains(": ") {
+        return false;
+    }
+
+    if s.contains(" #") {
+        return false;
+    }
+
+    true
+}
+
 fn is_inline(markup: &Markup) -> bool {
     match markup {
         Markup::Span(_) => true,
@@ -105,14 +196,6 @@ fn is_inline(markup: &Markup) -> bool {
         Markup::Stack(_) => false,
         Markup::Join(items) => items.iter().all(is_inline),
         Markup::Comma => true,
-    }
-}
-
-fn is_json_inline(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Array(items) => items.is_empty(),
-        serde_json::Value::Object(map) => map.is_empty(),
-        _ => true,
     }
 }
 
