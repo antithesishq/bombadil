@@ -1,0 +1,5 @@
+---
+source: lib/bombadil-schema/src/text.rs
+expression: render_violation(&violation)
+---
+as of 01:00, it should always be the case that if x > 10 then eventually y == 20 but at 02:00, x = 11, implying that eventually y == 20, which never occurred

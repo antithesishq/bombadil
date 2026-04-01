@@ -1,8 +1,9 @@
 [workspace]
 members = [
     "lib/bombadil",
+    "lib/bombadil-browser-keys",
     "lib/bombadil-cli",
-    "lib/bombadil-inspect-api",
+    "lib/bombadil-schema",
     "lib/bombadil-inspect",
     "lib/integration-tests",
 ]
