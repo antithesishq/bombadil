@@ -1,7 +1,7 @@
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use bombadil_inspect_api::TraceEntry;
+use bombadil_schema::TraceEntry;
 use serde_json as json;
 use yew::component;
 use yew::prelude::*;

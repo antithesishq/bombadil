@@ -2,8 +2,8 @@ use std::rc::Rc;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use bombadil_inspect_api::PropertyViolation;
-use bombadil_inspect_api::TraceEntry;
+use bombadil_schema::PropertyViolation;
+use bombadil_schema::TraceEntry;
 use yew::component;
 use yew::prelude::*;
 

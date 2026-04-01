@@ -157,17 +157,15 @@ impl BrowserAction {
         Ok(())
     }
 
-    pub fn to_api(&self) -> bombadil_inspect_api::BrowserAction {
+    pub fn to_api(&self) -> bombadil_schema::BrowserAction {
         match self {
-            BrowserAction::Back => bombadil_inspect_api::BrowserAction::Back,
-            BrowserAction::Forward => {
-                bombadil_inspect_api::BrowserAction::Forward
-            }
+            BrowserAction::Back => bombadil_schema::BrowserAction::Back,
+            BrowserAction::Forward => bombadil_schema::BrowserAction::Forward,
             BrowserAction::Click {
                 name,
                 content,
                 point,
-            } => bombadil_inspect_api::BrowserAction::Click {
+            } => bombadil_schema::BrowserAction::Click {
                 name: name.clone(),
                 content: content.clone(),
                 point: point.to_api(),
@@ -177,37 +175,35 @@ impl BrowserAction {
                 content,
                 point,
                 delay_millis,
-            } => bombadil_inspect_api::BrowserAction::DoubleClick {
+            } => bombadil_schema::BrowserAction::DoubleClick {
                 name: name.clone(),
                 content: content.clone(),
                 point: point.to_api(),
                 delay_millis: *delay_millis,
             },
             BrowserAction::TypeText { text, delay_millis } => {
-                bombadil_inspect_api::BrowserAction::TypeText {
+                bombadil_schema::BrowserAction::TypeText {
                     text: text.clone(),
                     delay_millis: *delay_millis,
                 }
             }
             BrowserAction::PressKey { code } => {
-                bombadil_inspect_api::BrowserAction::PressKey { code: *code }
+                bombadil_schema::BrowserAction::PressKey { code: *code }
             }
             BrowserAction::ScrollUp { origin, distance } => {
-                bombadil_inspect_api::BrowserAction::ScrollUp {
+                bombadil_schema::BrowserAction::ScrollUp {
                     origin: origin.to_api(),
                     distance: *distance,
                 }
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                bombadil_inspect_api::BrowserAction::ScrollDown {
+                bombadil_schema::BrowserAction::ScrollDown {
                     origin: origin.to_api(),
                     distance: *distance,
                 }
             }
-            BrowserAction::Reload => {
-                bombadil_inspect_api::BrowserAction::Reload
-            }
-            BrowserAction::Wait => bombadil_inspect_api::BrowserAction::Wait,
+            BrowserAction::Reload => bombadil_schema::BrowserAction::Reload,
+            BrowserAction::Wait => bombadil_schema::BrowserAction::Wait,
         }
     }
 }

@@ -189,8 +189,8 @@ impl Resources {
         (cpu / wall).clamp(0.0, 1.0)
     }
 
-    pub fn to_api(&self) -> bombadil_inspect_api::Resources {
-        bombadil_inspect_api::Resources {
+    pub fn to_api(&self) -> bombadil_schema::Resources {
+        bombadil_schema::Resources {
             js_heap_used: self.js_heap_used,
             js_heap_total: self.js_heap_total,
             dom_nodes: self.dom_nodes,

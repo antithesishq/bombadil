@@ -1,11 +1,11 @@
 use std::time::SystemTime;
 
-use bombadil_inspect_api::markup::{Inline, Markup};
+use bombadil_schema::markup::{Inline, Markup};
 use yew::prelude::*;
 
 use crate::duration::format_duration;
 
-pub use bombadil_inspect_api::markup::render_violation;
+pub use bombadil_schema::markup::render_violation;
 
 fn is_inline(markup: &Markup) -> bool {
     match markup {

@@ -30,8 +30,8 @@ pub struct PropertyViolation {
 }
 
 impl PropertyViolation {
-    pub fn to_api(&self) -> bombadil_inspect_api::PropertyViolation {
-        bombadil_inspect_api::PropertyViolation {
+    pub fn to_api(&self) -> bombadil_schema::PropertyViolation {
+        bombadil_schema::PropertyViolation {
             name: self.name.clone(),
             violation: self.violation.to_api(),
         }
@@ -39,8 +39,8 @@ impl PropertyViolation {
 }
 
 impl<'a> TraceEntry<'a> {
-    pub fn to_api(&self) -> bombadil_inspect_api::TraceEntry {
-        bombadil_inspect_api::TraceEntry {
+    pub fn to_api(&self) -> bombadil_schema::TraceEntry {
+        bombadil_schema::TraceEntry {
             timestamp: self.timestamp,
             url: self.url.to_string(),
             hash_previous: self.hash_previous,

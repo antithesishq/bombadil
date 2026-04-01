@@ -1,5 +1,5 @@
 [package]
-name = "bombadil-inspect-api"
+name = "bombadil-schema"
 version.workspace = true
 edition.workspace = true
 

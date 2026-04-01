@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use bombadil_inspect_api::TraceEntry;
+use bombadil_schema::TraceEntry;
 use gloo_console::{error, log};
 use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;

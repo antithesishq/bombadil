@@ -406,7 +406,7 @@ dependencies = [
  "base64",
  "boa_engine",
  "bombadil-browser-keys",
- "bombadil-inspect-api",
+ "bombadil-schema",
  "bytes",
  "chromiumoxide",
  "const_format",
@@ -445,7 +445,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
- "bombadil-inspect-api",
+ "bombadil-schema",
  "clap",
  "env_logger",
  "include_dir",
@@ -464,7 +464,7 @@ name = "bombadil-inspect"
 version = "0.1.0"
 dependencies = [
  "bombadil-browser-keys",
- "bombadil-inspect-api",
+ "bombadil-schema",
  "gloo-console",
  "gloo-net 0.6.0",
  "js-sys",
@@ -477,7 +477,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "bombadil-inspect-api"
+name = "bombadil-schema"
 version = "0.3.2"
 dependencies = [
  "serde",

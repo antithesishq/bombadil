@@ -20,8 +20,8 @@ impl From<Point> for layout::Point {
 }
 
 impl Point {
-    pub fn to_api(&self) -> bombadil_inspect_api::Point {
-        bombadil_inspect_api::Point {
+    pub fn to_api(&self) -> bombadil_schema::Point {
+        bombadil_schema::Point {
             x: self.x,
             y: self.y,
         }

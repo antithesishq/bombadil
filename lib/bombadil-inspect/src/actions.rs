@@ -2,8 +2,8 @@ use std::rc::Rc;
 use std::time::SystemTime;
 
 use bombadil_browser_keys::key_name;
-use bombadil_inspect_api::Point;
-use bombadil_inspect_api::TraceEntry;
+use bombadil_schema::Point;
+use bombadil_schema::TraceEntry;
 use yew::component;
 use yew::prelude::*;
 
@@ -55,13 +55,13 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
     let (action_header, details): (Html, Option<Vec<(&str, String)>>) =
         match &props.entry.action {
             Some(action) => match action {
-                bombadil_inspect_api::BrowserAction::Back => {
+                bombadil_schema::BrowserAction::Back => {
                     (html!(<span class="action-name">{"Back"}</span>), None)
                 }
-                bombadil_inspect_api::BrowserAction::Forward => {
+                bombadil_schema::BrowserAction::Forward => {
                     (html!(<span class="action-name">{"Forward"}</span>), None)
                 }
-                bombadil_inspect_api::BrowserAction::Click {
+                bombadil_schema::BrowserAction::Click {
                     point,
                     name,
                     content,
@@ -85,7 +85,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::DoubleClick {
+                bombadil_schema::BrowserAction::DoubleClick {
                     point,
                     delay_millis,
                     name,
@@ -111,7 +111,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::TypeText {
+                bombadil_schema::BrowserAction::TypeText {
                     text,
                     delay_millis,
                 } => (
@@ -126,9 +126,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Delay", delay_millis.to_string()),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::PressKey {
-                    code, ..
-                } => (
+                bombadil_schema::BrowserAction::PressKey { code, .. } => (
                     html!(
                         <>
                             <span class="action-name">{"Press"}</span>
@@ -137,7 +135,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     ),
                     Some(vec![("Code", code.to_string())]),
                 ),
-                bombadil_inspect_api::BrowserAction::ScrollUp {
+                bombadil_schema::BrowserAction::ScrollUp {
                     origin,
                     distance,
                 } => (
@@ -147,7 +145,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::ScrollDown {
+                bombadil_schema::BrowserAction::ScrollDown {
                     origin,
                     distance,
                 } => (
@@ -157,10 +155,10 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
-                bombadil_inspect_api::BrowserAction::Reload => {
+                bombadil_schema::BrowserAction::Reload => {
                     (html!(<span class="action-name">{"Reload"}</span>), None)
                 }
-                bombadil_inspect_api::BrowserAction::Wait => {
+                bombadil_schema::BrowserAction::Wait => {
                     (html!(<span class="action-name">{"Wait"}</span>), None)
                 }
             },
