@@ -14,12 +14,10 @@ use bombadil::{
     },
     instrumentation::InstrumentationConfig,
     runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
-    specification::{
-        render::render_violation,
-        verifier::{Snapshot, Specification},
-    },
+    specification::verifier::{Snapshot, Specification},
     trace::{PropertyViolation, writer::TraceWriter},
 };
+use bombadil_schema::{markup, text};
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
@@ -259,6 +257,7 @@ async fn test(
     struct MainObserver {
         writer: TraceWriter,
         exit_on_violation: bool,
+        test_start: Option<std::time::SystemTime>,
     }
 
     impl RunObserver for MainObserver {
@@ -271,11 +270,16 @@ async fn test(
             snapshots: &[Snapshot],
             violations: &[PropertyViolation],
         ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
+            let test_start = *self.test_start.get_or_insert(state.timestamp);
+
             for violation in violations {
+                let api_violation = violation.to_api();
+                let markup = markup::render_violation(&api_violation);
+                let text = text::markup_to_text(&markup, test_start);
                 log::error!(
                     "violation of property `{}`:\n{}",
                     violation.name,
-                    render_violation(&violation.violation)
+                    text
                 );
             }
 
@@ -294,6 +298,7 @@ async fn test(
     let mut observer = MainObserver {
         writer: TraceWriter::initialize(output_path).await?,
         exit_on_violation: shared_options.exit_on_violation,
+        test_start: None,
     };
 
     if let Some(exit_code) = runner.run(&mut observer).await? {

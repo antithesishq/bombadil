@@ -13,8 +13,9 @@ use bombadil::{
         actions::BrowserAction,
     },
     runner::{Runner, RunnerOptions},
-    specification::{render::render_violation, verifier::Specification},
+    specification::verifier::Specification,
 };
+use bombadil_schema::{markup, text};
 
 enum Expect {
     Error { substring: &'static str },
@@ -151,6 +152,7 @@ async fn run_browser_test(
 
     struct TestObserver {
         collected_violations: Vec<String>,
+        test_start: Option<std::time::SystemTime>,
     }
 
     impl bombadil::runner::RunObserver for TestObserver {
@@ -158,19 +160,20 @@ async fn run_browser_test(
 
         async fn on_new_state(
             &mut self,
-            _state: &bombadil::browser::state::BrowserState,
+            state: &bombadil::browser::state::BrowserState,
             _last_action: Option<&bombadil::browser::actions::BrowserAction>,
             _snapshots: &[bombadil::specification::verifier::Snapshot],
             violations: &[bombadil::trace::PropertyViolation],
         ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
         {
+            let test_start = *self.test_start.get_or_insert(state.timestamp);
             if !violations.is_empty() {
                 for violation in violations {
-                    self.collected_violations.push(format!(
-                        "{}:\n{}\n\n",
-                        violation.name,
-                        render_violation(&violation.violation)
-                    ));
+                    let api_violation = violation.to_api();
+                    let markup = markup::render_violation(&api_violation);
+                    let rendered = text::markup_to_text(&markup, test_start);
+                    self.collected_violations
+                        .push(format!("{}:\n{}\n\n", violation.name, rendered));
                 }
             }
             Ok(bombadil::runner::ControlFlow::Continue)
@@ -179,6 +182,7 @@ async fn run_browser_test(
 
     let mut observer = TestObserver {
         collected_violations: Vec::new(),
+        test_start: None,
     };
 
     enum Outcome {
@@ -635,6 +639,34 @@ export const moduleLoaded = now(() => {
   return outputText.current === "ES module loaded successfully";
 });
 "##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_snapshot_references_in_violation() {
+    run_browser_test(
+        "snapshot-references",
+        Expect::Error {
+            substring: "pageValue = 1",
+        },
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        Some(
+            r#"
+import { extract, always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults";
+
+const pageValue = extract((state) => {
+  return parseInt(
+    state.document.querySelector("\#value")?.textContent ?? "0", 10
+  );
+});
+
+export const valueShouldStayZero = always(
+  () => pageValue.current === 0
+);
+"#,
         ),
     )
     .await;

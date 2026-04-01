@@ -34,7 +34,6 @@ use crate::browser::state::{
 pub mod actions;
 pub mod evaluation;
 pub mod instrumentation;
-pub mod keys;
 pub mod state;
 
 #[derive(Debug, Clone)]

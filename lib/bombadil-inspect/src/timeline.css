@@ -1,0 +1,84 @@
+.timeline {
+    width: 100%;
+    height: 100%;
+    background: var(--color-bg);
+}
+
+.timeline path,
+.timeline polyline {
+    stroke: var(--color-fg);
+    fill: none;
+}
+
+.timeline text {
+    fill: var(--color-fg);
+}
+
+.timeline .label {
+    font-size: .875rem;
+}
+
+.timeline .tick-label {
+    font-size: .75rem;
+    fill: var(--color-fg-muted);
+}
+
+.timeline .tick-label.min {
+    dominant-baseline: alphabetic;
+}
+
+.timeline .tick-label.max {
+    dominant-baseline: hanging;
+}
+
+.timeline .border {
+    stroke: var(--color-fg-muted);
+    stroke-width: .5;
+}
+
+.timeline .label {
+    text-anchor: middle;
+    dominant-baseline: middle;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+
+.timeline .time text {
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-size: .5rem;
+}
+
+.timeline .time-label {
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-size: .875rem;
+}
+
+.timeline .cursor line {
+    stroke: var(--color-selected);
+    stroke-width: 1;
+    color: var(--color-selected);
+}
+
+.timescale .violation .background {
+    fill: var(--color-bg-muted);
+}
+
+.timescale .violation .pattern {
+    stroke: var(--color-danger);
+    stroke-width: 1;
+}
+
+.timescale .violation .icon {
+    fill: var(--color-danger);
+    text-anchor: middle;
+    dominant-baseline: middle;
+    font-size: .875rem;
+    font-weight: 800;
+}
+
+.timeline .line-chart .background {
+    fill: var(--color-bg-muted);
+}
+

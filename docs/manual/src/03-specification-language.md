@@ -1,8 +1,8 @@
 # Specification language
 
 To extend Bombadil with domain-specific knowledge, you write specifications.
-These are plain TypeScript or JavaScript modules using the library provided by
-Bombadil, exporting *properties* and *action generators*.
+These are plain TypeScript or JavaScript [modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules) that use the library provided by
+Bombadil to export *properties* and *action generators*.
 
 Here's how you run Bombadil with a custom specification:
 
@@ -67,7 +67,7 @@ import raw from "./snapshot.dat" with { type: "binary" };
 When using `"text"`  you get a `string`, and when using `"binary"` you get
 `Uint8Array`.
 
-For JSON data, you can also just rely on the file extension:
+For JSON data, you can also just use the file extension:
 
 ```typescript
 import data from "./fixtures/data.json";
@@ -360,19 +360,19 @@ properties. Each example is a self-contained specification file.
 
 ### Invariant: max notification count
 
-This is a simple one checking that there are never more than five notifications
+This is a simple property checking that there are never more than five notifications
 shown.
 
 ```typescript
 import { extract, always } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) => 
+const notificationCount = extract((state) => 
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const max_notifications_shown = always(() =>
-    notification_count.current <= 5,
+    notificationCount.current <= 5,
 );
 ```
 
@@ -387,14 +387,14 @@ time value to look up older values.
 import { extract, always, now, time } from "@antithesishq/bombadil";
 export * from "@antithesishq/bombadil/defaults";
 
-const notification_count = extract((state) =>
+const notificationCount = extract((state) =>
     state.document.body.querySelectorAll(".notification").length,
 );
 
 export const constantNotificationCount = now(() => {
     const start = time.current;
     return always(() => 
-        notification_count.current === notification_count.at(start),
+        notificationCount.current === notification_count.at(start),
     );
 });
 ```
@@ -423,11 +423,11 @@ export const errorDisappears = always(
 
 ### Contextful guarantee: notification includes past value
 
-This example uses an outer thunk to force a cell value (`nameEntered`) at every
-state, and then closes over that value with the inner thunk passed to
-`eventually`. The property checks that if there's a non-blank name entered, and
+This property checks that if there's a non-blank name entered, and
 it is submitted, then eventually there will be a notification that includes the
-name.
+name. This example uses an outer thunk to force a cell value (`nameEntered`) at every
+state, and then closes over that value with the inner thunk passed to
+`eventually`. 
 
 ```typescript
 import { extract, always, now, next, eventually } from "@antithesishq/bombadil";
@@ -496,7 +496,7 @@ export const counterStateMachine =
 ```
 
 If this specification exports the `reload` action, the `unchanged` property
-becomes relevant[^stuttering]. Unless this application stored the state of the counter
+becomes relevant.[^stuttering] Unless this application stored the state of the counter
 somehow, reloading the page would clear the counter, which this property
 would catch as a violation.
 

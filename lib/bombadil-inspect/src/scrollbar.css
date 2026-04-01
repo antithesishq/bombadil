@@ -1,0 +1,31 @@
+/* Scrollbar styling */
+
+/* Firefox */
+* {
+  scrollbar-width: auto;
+  scrollbar-color: var(--color-border) var(--color-bg-muted);
+}
+
+/* Chrome, Edge, Safari */
+::-webkit-scrollbar {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-muted);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--border-radius);
+  border: 0.125rem solid var(--color-bg-muted);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-muted);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--color-bg-muted);
+}

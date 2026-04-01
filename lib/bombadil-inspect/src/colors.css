@@ -1,0 +1,67 @@
+/* Palette */
+:root {
+    --color-heritage-purple: #D78FF1;
+    --color-purple-2: #E4B6F4;
+    --color-purple-3: #EBCAF5;
+
+    --color-anti-white: #FCFBF9;
+
+    --color-gray-1: #E5E2E3;
+    --color-gray-2: #CEC9CD;
+    --color-gray-3: #726674;
+
+    --color-plum: #250B30;
+    --color-plum-2: #310834;
+    --color-plum-3: #3F0B40;
+
+    --color-true-magenta: #C029BA;
+    --color-true-magenta-40: #E4A7E0;
+    --color-true-magenta-15: #F1D7F2;
+
+    --color-tangerine: #FF9F91;
+    --color-tangerine-40: #FDD6CF;
+    --color-tangerine-15: #FEEDE7;
+
+    --color-kelly: #18C198;
+    --color-kelly-40: #A1E4D2;
+    --color-kelly-15: #D5F4EB;
+
+    --color-citron: #BDF479;
+    --color-citron-40: #E3F8C6;
+    --color-citron-15: #F4FCE6;
+}
+
+/* Light mode */
+:root {
+    --color-danger: #d92d42;
+    --color-selected: color-mix(in srgb, var(--color-tangerine) 50%, var(--color-fg));
+
+    --color-fg: color-mix(in srgb, var(--color-gray-3) 10%, #000000);
+    --color-fg-muted: var(--color-gray-3);
+
+    --color-bg: #fcfbf9;
+    --color-bg-muted: color-mix(in srgb, var(--color-bg) 60%, var(--color-gray-1));
+    --color-border: var(--color-gray-2);
+
+    --color-value: color-mix(in srgb, var(--color-kelly) 60%, var(--color-fg));
+    --color-overlay: #000;
+    --color-text-selection: var(--color-kelly);
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-danger: #f6384f;
+        --color-selected: var(--color-kelly-40);
+
+        --color-bg: color-mix(in srgb, var(--color-fg) 6%, #000000);
+        --color-bg-muted: color-mix(in srgb, var(--color-fg) 12%, #000000);
+        --color-fg: #FF9F91;
+        --color-fg-muted: color-mix(in srgb, var(--color-bg) 50%, var(--color-fg));
+        --color-border: color-mix(in srgb, var(--color-bg) 70%, var(--color-fg));
+
+        --color-value: color-mix(in srgb, var(--color-gray-1) 50%, var(--color-fg));
+        --color-overlay: var(--color-bg);
+        --color-text-selection: color-mix(in srgb, var(--color-bg) 50%, var(--color-selected));
+    }
+}

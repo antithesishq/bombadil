@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
-use crate::specification::ltl::{Evaluator, Formula, Residual};
+use crate::specification::ltl::{
+    Evaluator, Formula, Residual, UniqueSnapshots,
+};
 use crate::specification::result::Result;
+use crate::specification::snapshots::with_snapshot_tracking;
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
@@ -32,10 +35,24 @@ pub struct Verifier {
     extractors: Extractors,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
+    pub index: usize,
     pub name: Option<String>,
     pub value: json::Value,
+}
+
+pub fn merge_snapshots(
+    left: &UniqueSnapshots,
+    right: &UniqueSnapshots,
+) -> UniqueSnapshots {
+    let mut merged = left.clone();
+    merged.extend(
+        right
+            .iter()
+            .map(|(index, snapshot)| (*index, snapshot.clone())),
+    );
+    merged
 }
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
@@ -287,17 +304,36 @@ impl Verifier {
         let context = &mut self.context;
         let mut evaluate_thunk = |function: &RuntimeFunction,
                                   negated: bool|
-         -> Result<Formula<RuntimeFunction>> {
-            let value =
-                function.object.call(&JsValue::undefined(), &[], context)?;
+         -> Result<(
+            Formula<RuntimeFunction>,
+            UniqueSnapshots,
+        )> {
+            let (indices, value) = with_snapshot_tracking(
+                context,
+                &self.bombadil_exports,
+                |context| {
+                    function
+                        .object
+                        .call(&JsValue::undefined(), &[], context)
+                        .map_err(Into::into)
+                },
+            )?;
+            let accessed_snapshots: UniqueSnapshots = indices
+                .into_iter()
+                .filter_map(|index| snapshots.get(index).cloned())
+                .map(|snapshot| (snapshot.index, snapshot))
+                .collect();
             let syntax =
                 Syntax::from_value(&value, &self.bombadil_exports, context)?;
-            Ok((if negated {
-                Syntax::Not(Box::new(syntax))
-            } else {
-                syntax
-            })
-            .nnf())
+            Ok((
+                (if negated {
+                    Syntax::Not(Box::new(syntax))
+                } else {
+                    syntax
+                })
+                .nnf(),
+                accessed_snapshots,
+            ))
         };
         let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
@@ -315,9 +351,9 @@ impl Verifier {
             result_properties.push((
                 property.name.clone(),
                 match value {
-                    ltl::Value::True => {
+                    ltl::Value::True(_) => {
                         property.state = PropertyState::DefinitelyTrue;
-                        ltl::Value::True
+                        ltl::Value::True(UniqueSnapshots::new())
                     }
                     ltl::Value::False(violation, continuation) => {
                         property.state = match continuation {
@@ -482,6 +518,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(false),
                 }],
@@ -491,7 +528,7 @@ mod tests {
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -516,10 +553,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(true),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(true),
                     },
@@ -530,7 +569,7 @@ mod tests {
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -555,10 +594,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(false),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(true),
                     },
@@ -569,7 +610,7 @@ mod tests {
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -594,10 +635,12 @@ mod tests {
             .step(
                 &[
                     Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(false),
                     },
                     Snapshot {
+                        index: 1,
                         name: None,
                         value: json::json!(false),
                     },
@@ -608,7 +651,7 @@ mod tests {
 
         let (name, value) = result.properties.first().unwrap();
         assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True));
+        assert!(matches!(value, ltl::Value::True(_)));
     }
 
     #[test]
@@ -635,6 +678,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -646,12 +690,12 @@ mod tests {
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
-                assert!(matches!(value, ltl::Value::True));
+                assert!(matches!(value, ltl::Value::True(_)));
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
                         match stop_default(residual, time) {
-                            Some(StopDefault::True) => {}
+                            Some(StopDefault::True(_)) => {}
                             _ => panic!("should have a true stop default"),
                         }
                     }
@@ -685,6 +729,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -711,7 +756,7 @@ mod tests {
                 match value {
                     ltl::Value::Residual(residual) => {
                         match stop_default(residual, time) {
-                            Some(StopDefault::True) => {}
+                            Some(StopDefault::True(_)) => {}
                             _ => panic!("should have a true stop default"),
                         }
                     }
@@ -726,6 +771,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -765,6 +811,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -779,7 +826,7 @@ mod tests {
                     match value {
                         ltl::Value::Residual(residual) => {
                             match stop_default(residual, time) {
-                                Some(StopDefault::True) => {}
+                                Some(StopDefault::True(_)) => {}
                                 _ => {
                                     panic!("should have a true stop default")
                                 }
@@ -790,7 +837,7 @@ mod tests {
                         }
                     }
                 } else {
-                    assert!(matches!(value, ltl::Value::True));
+                    assert!(matches!(value, ltl::Value::True(_)));
                 }
             } else {
                 assert!(i > 4, "property should still be pending at i={}", i);
@@ -822,6 +869,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -833,7 +881,7 @@ mod tests {
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
-                assert!(matches!(value, ltl::Value::True));
+                assert!(matches!(value, ltl::Value::True(_)));
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
@@ -891,6 +939,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -948,6 +997,7 @@ mod tests {
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
+                        index: 0,
                         name: None,
                         value: json::json!(i),
                     }],
@@ -967,6 +1017,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(5),
                 }],
@@ -984,6 +1035,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1001,6 +1053,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(5),
                 }],
@@ -1034,6 +1087,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(false),
                 }],
@@ -1052,6 +1106,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(true),
                 }],
@@ -1089,6 +1144,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1102,6 +1158,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(10),
                 }],
@@ -1119,6 +1176,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1136,6 +1194,7 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
+                    index: 0,
                     name: None,
                     value: json::json!(0),
                 }],
@@ -1144,7 +1203,7 @@ mod tests {
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
         assert!(
-            matches!(value, ltl::Value::True),
+            matches!(value, ltl::Value::True(_)),
             "expected True past the bound, got: {:?}",
             value,
         );
