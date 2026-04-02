@@ -21,6 +21,11 @@ const TIMESCALE_AXIS_HEIGHT: f64 =
 const TIMESCALE_HEIGHT: f64 =
     TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_AXIS_HEIGHT;
 
+const K: f64 = 1_024.0;
+const M: f64 = K * K;
+const G: f64 = K * K * K;
+const T: f64 = K * K * K * K;
+
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
     pub entries: Rc<[TraceEntry]>,
@@ -160,6 +165,37 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             })
         };
 
+        let heap_y_max = if let Some(y) =
+            series_heap.iter().map(|(_, y)| *y).reduce(f64::max)
+            && y > 0.0
+        {
+            let unit = if y >= T {
+                T
+            } else if y >= G {
+                G
+            } else if y >= M {
+                M
+            } else if y >= K {
+                K
+            } else {
+                1.0
+            };
+
+            let value_in_unit = y / unit;
+            let order = 10_f64.powf(value_in_unit.log10().floor()).max(10.0);
+            let normalized = value_in_unit / order;
+            let rounded = if normalized <= 1.0 {
+                order
+            } else if normalized <= 5.0 {
+                5.0 * order
+            } else {
+                10.0 * order
+            };
+            Some((rounded * unit).max(M))
+        } else {
+            None
+        };
+
         html!(
             <svg
                 class="timeline"
@@ -177,6 +213,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
                         height={chart_height}
                         series={series_heap}
                         x_max={x_max}
+                        y_max={heap_y_max}
                         print_y={print_y_bytes} />
                 </g>
 
@@ -353,12 +390,10 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
 }
 
 fn format_bytes(size: u64) -> String {
-    const G: f64 = 1_073_741_824.0;
-    const M: f64 = 1_048_576.0;
-    const K: f64 = 1_024.0;
-
     let size_float = size as f64;
-    let (val, suffix) = if size_float >= G {
+    let (val, suffix) = if size_float >= T {
+        (size_float / T, "T")
+    } else if size_float >= G {
         (size_float / G, "G")
     } else if size_float >= M {
         (size_float / M, "M")
