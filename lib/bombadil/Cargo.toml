@@ -32,7 +32,7 @@ html5ever = "0.36.1"
 bytes = "1.11.0"
 base64 = "0.22.1"
 markup5ever_rcdom = "0.36.0"
-boa_engine = "0.21.0"
+boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 
