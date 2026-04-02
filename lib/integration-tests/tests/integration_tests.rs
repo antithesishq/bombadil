@@ -337,8 +337,7 @@ async fn test_back_from_non_html() {
         Some(
             r#"
 import { extract, now, next, eventually } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
-export { back } from "@antithesishq/bombadil/defaults/actions";
+export { clicks, back } from "@antithesishq/bombadil/defaults/actions";
 
 const contentType = extract((state) => state.document.contentType);
 
@@ -435,7 +434,7 @@ async fn test_random_text_input() {
         Some(
             r#"
 import { extract, now, eventually } from "@antithesishq/bombadil";
-export { clicks, inputs } from "@antithesishq/bombadil/defaults";
+export { clicks, inputs } from "@antithesishq/bombadil/defaults/actions";
 
 const inputValue = extract((state) => {
   const input = state.document.querySelector("\#text-input");
@@ -460,7 +459,7 @@ async fn test_counter_state_machine() {
         Some(
             r#"
 import { extract, now, next, always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const counterValue = extract((state) => {
   const element = state.document.body.querySelector("\#counter");
@@ -498,7 +497,7 @@ async fn test_time_extractor() {
         Some(
             r##"
 import { actions, extract, now, eventually, time } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const myTime = extract((state) => time.current);
 
@@ -526,7 +525,7 @@ async fn test_extractor_exception_stack_trace() {
         Some(
             r##"
 import { extract } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 function throwingFunction() {
   throw new Error("extractor stack trace test");
@@ -606,7 +605,7 @@ async fn test_extractor_guard() {
         Some(
             r##"
 import { actions, extract } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 // First extractor
 const foo = extract((state) => state.document.title);
@@ -628,7 +627,7 @@ async fn test_module_script() {
         Some(
             r##"
 import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const outputText = extract((state) => {
   const output = state.document.querySelector("#output");
@@ -655,7 +654,7 @@ async fn test_snapshot_references_in_violation() {
         Some(
             r#"
 import { extract, always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const pageValue = extract((state) => {
   return parseInt(
@@ -681,7 +680,7 @@ async fn test_module_script_external() {
         Some(
             r##"
 import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const outputText = extract((state) => {
   const output = state.document.querySelector("#output");
