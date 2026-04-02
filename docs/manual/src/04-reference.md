@@ -34,14 +34,14 @@
 
 `bombadil` `test-external` [`[OPTIONS]`](#options-test-external) [`<ORIGIN>`](#arguments-test-external) [`[SPECIFICATION_FILE]`](#arguments-test-external)
 
-::: {#arguments-test}
+::: {#arguments-test-external}
 | Argument | Description |
 |----------|-------------|
 | `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites) |
 | `[SPECIFICATION_FILE]` | A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil` package on NPM |
 :::
 
-::: {#options-test}
+::: {#options-test-external}
 | Option | Description | Default |
 |--------|-------------|---------:|
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
@@ -52,5 +52,23 @@
 | `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--remote-debugger <REMOTE_DEBUGGER>` | Address to the remote debugger's server, e.g. http://localhost:9222 | |
 | `--create-target` | Whether Bombadil should create a new tab and navigate to the origin URL in it, as part of starting the test (this should probably be false if you test an Electron app) | |
+| `-h, --help` | Print help | |
+:::
+
+### bombadil inspect
+
+`bombadil` `inspect` [`[OPTIONS]`](#options-inspect) [`<TRACE_PATH>`](#arguments-inspect)
+
+::: {#arguments-inspect}
+| Argument | Description |
+|----------|-------------|
+| `<TRACE_PATH>` | Path to trace.jsonl file or directory containing it |
+:::
+
+::: {#options-inspect}
+| Option | Description | Default |
+|--------|-------------|---------:|
+| `--port <PORT>` | Port to bind the inspect server to | 1073 |
+| `--no-open` | Skip auto-opening browser | |
 | `-h, --help` | Print help | |
 :::
