@@ -128,9 +128,7 @@ pub fn Timeline(
         return html!();
     };
 
-    let x_max = if let Some(x) = data.x_max {
-        x
-    } else {
+    let Some(x_max) = data.x_max else {
         return html!();
     };
 
