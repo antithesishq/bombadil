@@ -39,79 +39,96 @@ pub struct TimelineData {
     series_cpu: Series,
     series_violations: Rc<[(f64, Rc<[PropertyViolation]>)]>,
     series_index_and_time: Rc<[(usize, f64)]>,
+    x_max: Option<f64>,
 }
 
 #[component]
-pub fn Timeline(props: &TimelineProps) -> Html {
+pub fn Timeline(
+    TimelineProps {
+        entries,
+        test_start,
+        selected_index,
+        on_select,
+    }: &TimelineProps,
+) -> Html {
     let (container_ref, container_size) = use_container_size();
     let is_mouse_down = use_mut_ref(|| false);
 
-    let data: Rc<TimelineData> = use_memo((), |_| {
-        let mut series_heap = Vec::with_capacity(props.entries.len());
-        let mut series_cpu = Vec::with_capacity(props.entries.len());
-        let mut series_violations: Vec<(f64, Rc<[PropertyViolation]>)> =
-            Vec::with_capacity(props.entries.len());
-        {
-            for (i, entry) in props.entries.iter().enumerate() {
-                let x = entry
-                    .timestamp
-                    .duration_since(props.test_start)
-                    .expect("couldn't calculate offset time")
-                    .as_millis() as f64;
-                series_heap.push((x, entry.resources.js_heap_used as f64));
+    let data: Rc<TimelineData> = use_memo(
+        (entries.clone(), *test_start),
+        move |(entries, test_start)| {
+            let mut series_heap = Vec::with_capacity(entries.len());
+            let mut series_cpu = Vec::with_capacity(entries.len());
+            let mut series_violations: Vec<(f64, Rc<[PropertyViolation]>)> =
+                Vec::with_capacity(entries.len());
+            {
+                for (i, entry) in entries.iter().enumerate() {
+                    let x = entry
+                        .timestamp
+                        .duration_since(*test_start)
+                        .expect("couldn't calculate offset time")
+                        .as_millis() as f64;
+                    series_heap.push((x, entry.resources.js_heap_used as f64));
 
-                let cpu = if i > 0
-                    && let Some(entry_previous) = props.entries.get(i - 1)
-                {
-                    let wall = entry.resources.timestamp
-                        - entry_previous.resources.timestamp;
-                    if wall <= 0.0 {
-                        0.0
+                    let cpu = if i > 0
+                        && let Some(entry_previous) = entries.get(i - 1)
+                    {
+                        let wall = entry.resources.timestamp
+                            - entry_previous.resources.timestamp;
+                        if wall <= 0.0 {
+                            0.0
+                        } else {
+                            let cpu = entry.resources.thread_time
+                                - entry_previous.resources.thread_time;
+                            (cpu / wall).clamp(0.0, 1.0)
+                        }
                     } else {
-                        let cpu = entry.resources.thread_time
-                            - entry_previous.resources.thread_time;
-                        (cpu / wall).clamp(0.0, 1.0)
-                    }
-                } else {
-                    0.0
-                };
-                series_cpu.push((x, cpu));
+                        0.0
+                    };
+                    series_cpu.push((x, cpu));
 
-                series_violations.push((x, entry.violations.clone().into()));
+                    series_violations
+                        .push((x, entry.violations.clone().into()));
+                }
+            };
+
+            let series_index_and_time: Rc<[(usize, f64)]> = series_heap
+                .iter()
+                .map(|(x, _)| x)
+                .copied()
+                .enumerate()
+                .collect();
+
+            let x_max = if let Some(x) =
+                series_heap.iter().map(|(x, _)| *x).reduce(f64::max)
+                && x > 0.0
+            {
+                Some(x)
+            } else {
+                None
+            };
+
+            TimelineData {
+                series_heap: series_heap.into(),
+                series_cpu: series_cpu.into(),
+                series_violations: series_violations.into(),
+                series_index_and_time,
+                x_max,
             }
-        };
+        },
+    );
 
-        let series_index_and_time: Rc<[(usize, f64)]> = series_heap
-            .iter()
-            .map(|(x, _)| x)
-            .copied()
-            .enumerate()
-            .collect();
-
-        TimelineData {
-            series_heap: series_heap.into(),
-            series_cpu: series_cpu.into(),
-            series_violations: series_violations.into(),
-            series_index_and_time,
-        }
-    });
-
-    let (time_before, time_after) = {
-        if props.selected_index > 0
-            && let (Some((_, before)), Some((_, after))) = (
-                &data.series_index_and_time.get(props.selected_index - 1),
-                &data.series_index_and_time.get(props.selected_index),
-            )
-        {
-            (*before, *after)
-        } else {
-            return html!();
-        }
+    let (time_before, time_after) = if *selected_index > 0
+        && let (Some((_, before)), Some((_, after))) = (
+            data.series_index_and_time.get(selected_index - 1),
+            data.series_index_and_time.get(*selected_index),
+        ) {
+        (*before, *after)
+    } else {
+        return html!();
     };
-    let x_max = if let Some(x) =
-        data.series_heap.iter().map(|(x, _)| *x).reduce(f64::max)
-        && x > 0.0
-    {
+
+    let x_max = if let Some(x) = data.x_max {
         x
     } else {
         return html!();
@@ -135,7 +152,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
         let axis_x_width = width - SPACING_LEFT - SPACING_RIGHT;
 
         let series_index_and_time = data.series_index_and_time.clone();
-        let on_select = props.on_select.clone();
+        let on_select = on_select.clone();
         let select_at_x = Callback::from(move |x: u64| {
             let click_x_axis = ((x
                 .clamp(SPACING_LEFT as u64, (width - SPACING_RIGHT) as u64)
