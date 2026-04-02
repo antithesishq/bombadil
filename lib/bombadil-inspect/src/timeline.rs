@@ -169,19 +169,19 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             series_heap.iter().map(|(_, y)| *y).reduce(f64::max)
             && y > 0.0
         {
-            let (unit_divisor, unit_multiplier) = if y >= T {
-                (T, T)
+            let unit = if y >= T {
+                T
             } else if y >= G {
-                (G, G)
+                G
             } else if y >= M {
-                (M, M)
+                M
             } else if y >= K {
-                (K, K)
+                K
             } else {
-                (1.0, 1.0)
+                1.0
             };
 
-            let value_in_unit = y / unit_divisor;
+            let value_in_unit = y / unit;
             let order = 10_f64.powf(value_in_unit.log10().floor()).max(10.0);
             let normalized = value_in_unit / order;
             let rounded = if normalized <= 1.0 {
@@ -191,7 +191,7 @@ pub fn Timeline(props: &TimelineProps) -> Html {
             } else {
                 10.0 * order
             };
-            Some((rounded * unit_multiplier).max(M))
+            Some((rounded * unit).max(M))
         } else {
             None
         };
