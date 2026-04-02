@@ -1,5 +1,35 @@
 # The Bombadil Changelog
 
+## 0.4.0
+
+Major updates:
+
+* Add the *Bombadil Inspect* web UI  (#81, #94, #102, #109, #114, #112)
+* Install pinned version from boa `main` branch to avoid panic (#113)
+* Reduce likelihood of navigation actions in defaults (#111)
+* Documentation edits and improvements (#87, #88, #92, #95, #96, #101, #106, #110)
+* Improve violations rendering (#104, #108)
+* Include snapshots in trace (#77)
+* Add DoubleClick action (#74)
+
+Bug fixes:
+
+* Fix cached violation bug on continued stepping (#85)
+* Fix hanging pause handling (#79)
+* Instrument module scripts and forward headers (#75)
+
+Internals:
+
+* Remove runner channel (#78)
+* clean up from nix wrapper commands (#80)
+* Move AGENTS.md (#83)
+* Increase integration test parallelism (#76)
+
+Breaking changes:
+
+* Individual default action generators are no longer exported from `@antithesishq/bombadil/defaults`
+* Trace file format changes
+
 ## 0.3.2
 
 Major updates:
