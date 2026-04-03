@@ -1,5 +1,11 @@
 # The Bombadil Changelog
 
+## 0.4.1
+
+* Expose `inspect` command in release build (#119)
+* Use `use_memo` for improved scrubbing performance in Bombadil Inspect (#117)
+
+
 ## 0.4.0
 
 Major updates:
