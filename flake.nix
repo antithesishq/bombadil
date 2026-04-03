@@ -37,8 +37,24 @@
           targets = [ "wasm32-unknown-unknown" ];
         };
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchainWasm;
-        craneLibStatic = crane.mkLib pkgs.pkgsCross.musl64;
-        craneLibAarch64 = crane.mkLib pkgs.pkgsCross.aarch64-multiplatform-musl;
+        craneLibStatic = (crane.mkLib pkgs.pkgsCross.musl64).overrideToolchain (
+          p:
+          p.rust-bin.stable.latest.default.override {
+            targets = [
+              "wasm32-unknown-unknown"
+              "x86_64-unknown-linux-musl"
+            ];
+          }
+        );
+        craneLibAarch64 = (crane.mkLib pkgs.pkgsCross.aarch64-multiplatform-musl).overrideToolchain (
+          p:
+          p.rust-bin.stable.latest.default.override {
+            targets = [
+              "wasm32-unknown-unknown"
+              "aarch64-unknown-linux-musl"
+            ];
+          }
+        );
         bombadil = pkgs.callPackage ./lib/nix/default.nix { inherit craneLib craneLibStatic; };
         bombadilAarch64 = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib;
