@@ -1,4 +1,3 @@
-#[cfg(debug_assertions)]
 mod inspect_server;
 
 use ::url::Url;
@@ -84,7 +83,6 @@ enum Command {
         create_target: bool,
     },
     /// Launch Bombadil Inspect to inspect a trace file
-    #[cfg(debug_assertions)]
     Inspect {
         /// Path to trace.jsonl file or directory containing it
         trace_path: PathBuf,
@@ -206,7 +204,6 @@ async fn main() -> Result<()> {
                 DebuggerOptions::External { remote_debugger };
             test(shared, browser_options, debugger_options).await
         }
-        #[cfg(debug_assertions)]
         Command::Inspect {
             trace_path,
             port,
