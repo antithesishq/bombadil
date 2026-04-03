@@ -1,5 +1,9 @@
 # The Bombadil Changelog
 
+## 0.4.2
+
+* Enable `trunk build` in release (fixes broken `inspect` command)
+
 ## 0.4.1
 
 * Expose `inspect` command in release build (#119)

@@ -5,6 +5,9 @@
   stdenv,
   pkg-config,
   esbuild,
+  trunk,
+  wasm-bindgen-cli,
+  binaryen,
   chromium,
   freefont_ttf,
   makeFontsConf,
@@ -24,6 +27,7 @@ let
       || (lib.hasSuffix ".html" path)
       || (lib.hasSuffix ".xml" path)
       || (lib.hasSuffix ".js" path)
+      || (lib.hasSuffix ".css" path)
       || (lib.hasSuffix ".txt" path)
       || (lib.hasSuffix ".dat" path)
       || (craneLib.filterCargoSources path type);
@@ -62,6 +66,9 @@ let
     inherit src;
     nativeBuildInputs = [
       esbuild
+      trunk
+      wasm-bindgen-cli
+      binaryen
     ];
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
