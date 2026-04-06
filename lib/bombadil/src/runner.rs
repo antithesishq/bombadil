@@ -126,9 +126,17 @@ impl Runner {
         let mut last_action: Option<BrowserAction> = None;
         let mut edges = [0u8; EDGE_MAP_SIZE];
 
+        let mut shutdown = std::pin::pin!(tokio::signal::ctrl_c());
+
         loop {
             let verifier = verifier.clone();
-            let event = browser.next_event().await;
+            let event = tokio::select! {
+                event = browser.next_event() => event,
+                _ = &mut shutdown => {
+                    log::info!("received ctrl+c, stopping test");
+                    return Ok(None);
+                }
+            };
             match event {
                 Some(event) => match event {
                     BrowserEvent::StateChanged(state) => {
