@@ -31,6 +31,22 @@ pub fn stop_default<Function: Clone>(
         Or { left, right } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| stop_or_default(&s1, &s2))
         }),
+        OrUntil { end, left, right } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                stop_default(right, time)
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time)
+                        .map(|s2| stop_or_until_default(&s1, &s2))
+                })
+            }
+        }
+        OrRelease { left, right } => stop_default(left, time).and_then(|s1| {
+            stop_default(right, time)
+                .map(|s2| stop_or_release_default(&s1, &s2))
+        }),
         Implies {
             left_formula,
             left,
@@ -53,6 +69,65 @@ pub fn stop_default<Function: Clone>(
                 )
             })
         }),
+        AndUntil {
+            left_formula,
+            right_formula,
+            bound,
+            end,
+            left,
+            right,
+        } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                Some(StopDefault::False(Violation::Until {
+                    left: left_formula.clone(),
+                    right: right_formula.clone(),
+                    bound: *bound,
+                    reason: crate::specification::ltl::UntilViolation::TimedOut(
+                        time,
+                    ),
+                }))
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time).map(|s2| {
+                        stop_and_until_default(
+                            left_formula,
+                            right_formula,
+                            *bound,
+                            &s1,
+                            &s2,
+                        )
+                    })
+                })
+            }
+        }
+        AndRelease {
+            left_formula,
+            right_formula,
+            bound,
+            end,
+            left,
+            right,
+        } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                Some(StopDefault::True(UniqueSnapshots::new()))
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time).map(|s2| {
+                        stop_and_release_default(
+                            left_formula,
+                            right_formula,
+                            *bound,
+                            &s1,
+                            &s2,
+                        )
+                    })
+                })
+            }
+        }
         OrEventually { left, right, .. } => {
             stop_default(left, time).and_then(|s1| {
                 stop_default(right, time)
@@ -98,6 +173,36 @@ fn stop_or_default<Function: Clone>(
     }
 }
 
+fn stop_or_until_default<Function: Clone>(
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(left_snapshots), True(right_snapshots)) => {
+            True(merge_snapshots(left_snapshots, right_snapshots))
+        }
+        (True(snapshots), _) => True(snapshots.clone()),
+        (_, True(snapshots)) => True(snapshots.clone()),
+        (_, False(right)) => False(right.clone()),
+    }
+}
+
+fn stop_or_release_default<Function: Clone>(
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(left_snapshots), True(right_snapshots)) => {
+            True(merge_snapshots(left_snapshots, right_snapshots))
+        }
+        (True(snapshots), _) => True(snapshots.clone()),
+        (_, True(snapshots)) => True(snapshots.clone()),
+        (_, False(right)) => False(right.clone()),
+    }
+}
+
 fn stop_implies_default<Function: Clone>(
     left_formula: &Formula<Function>,
     left: &StopDefault<Function>,
@@ -134,6 +239,46 @@ fn stop_and_always_default<Function: Clone>(
             start,
             end,
             time,
+        }),
+    }
+}
+
+fn stop_and_until_default<Function: Clone>(
+    left_formula: &Formula<Function>,
+    right_formula: &Formula<Function>,
+    bound: Option<std::time::Duration>,
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(_), right) => right.clone(),
+        (False(violation), _) => StopDefault::False(Violation::Until {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            bound,
+            reason: crate::specification::ltl::UntilViolation::Left(Box::new(
+                violation.clone(),
+            )),
+        }),
+    }
+}
+
+fn stop_and_release_default<Function: Clone>(
+    left_formula: &Formula<Function>,
+    right_formula: &Formula<Function>,
+    bound: Option<std::time::Duration>,
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(_), right) => right.clone(),
+        (False(violation), _) => StopDefault::False(Violation::Release {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            bound,
+            violation: Box::new(violation.clone()),
         }),
     }
 }
