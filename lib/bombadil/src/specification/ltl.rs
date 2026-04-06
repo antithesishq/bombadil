@@ -254,6 +254,25 @@ pub enum Derived<Function> {
     },
 }
 
+impl<Function> Residual<Function> {
+    pub fn operator_name(&self) -> &'static str {
+        match self {
+            Residual::True(_) => "true",
+            Residual::False(_) => "false",
+            Residual::Derived(derived, _) => match derived {
+                Derived::Once { .. } => "once",
+                Derived::Always { .. } => "always",
+                Derived::Eventually { .. } => "eventually",
+            },
+            Residual::And { .. } => "and",
+            Residual::Or { .. } => "or",
+            Residual::Implies { .. } => "implies",
+            Residual::OrEventually { .. } => "eventually",
+            Residual::AndAlways { .. } => "always",
+        }
+    }
+}
+
 pub type EvaluateThunk<'a, Function> =
     &'a mut dyn FnMut(
         &'_ Function,
