@@ -489,6 +489,98 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 }
 
 #[tokio::test]
+async fn test_until_release_success() {
+    run_browser_test(
+        "until-release",
+        Expect::Success,
+        Duration::from_secs(10),
+        Some(
+            r#"
+import { actions, extract, now, eventually, type Action } from "@antithesishq/bombadil";
+
+type ClickTarget = {
+  name: string;
+  content?: string;
+  point: { x: number; y: number };
+};
+
+function buttonTarget(selector: string) {
+  return extract((state): ClickTarget | null => {
+    const element = state.document.querySelector(selector);
+    if (!(element instanceof HTMLButtonElement)) return null;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    return {
+      name: element.nodeName,
+      content: (element.textContent ?? "").trim(),
+      point: {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      },
+    };
+  });
+}
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const incrementATarget = buttonTarget("\#increment-a");
+const incrementBTarget = buttonTarget("\#increment-b");
+
+export const guidedClicks = actions(() => {
+  if (counterA.current < 3) {
+    const target = incrementATarget.current;
+    if (!target) return [];
+    return [{ Click: target } as Action];
+  }
+
+  if (counterB.current === 0) {
+    const target = incrementBTarget.current;
+    if (!target) return [];
+    return [{ Click: target } as Action];
+  }
+
+  return [];
+});
+
+// Counter B stays 0 until Counter A reaches 3.
+export const bStaysZeroUntilAIsThree =
+  now(() => counterB.current === 0).until(() => counterA.current >= 3);
+
+// The same property expressed using the dual release operator.
+export const aAtLeastThreeReleasesBStaysZero =
+  now(() => counterA.current >= 3).release(() => counterB.current === 0);
+
+// Bounded versions should also succeed because the guided clicks unlock B quickly.
+export const boundedBStaysZeroUntilAIsThree =
+  now(() => counterB.current === 0)
+    .until(() => counterA.current >= 3)
+    .within(5, "seconds");
+
+export const boundedAAtLeastThreeReleasesBStaysZero =
+  now(() => counterA.current >= 3)
+    .release(() => counterB.current === 0)
+    .within(5, "seconds");
+
+// Keep the run non-vacuous: after A unlocks B, we must actually click B.
+export const counterBEventuallyIncrements =
+  eventually(() => counterB.current > 0).within(5, "seconds");
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn test_time_extractor() {
     run_browser_test(
         "time-extractor",
