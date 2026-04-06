@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::specification::resolver::{ModuleKey, Resolver};
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use oxc::{
     allocator::{Allocator, TakeIn},
     ast::{NONE, ast},
@@ -36,11 +36,7 @@ pub enum BundlerError {
     },
 }
 
-impl From<BundlerError> for anyhow::Error {
-    fn from(value: BundlerError) -> Self {
-        anyhow!(value)
-    }
-}
+impl std::error::Error for BundlerError {}
 
 impl Display for BundlerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
