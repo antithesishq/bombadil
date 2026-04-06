@@ -87,12 +87,26 @@ impl Runner {
             &self.origin,
             self.options,
             &mut self.browser,
-            self.verifier,
+            self.verifier.clone(),
             observer,
         )
         .await;
 
-        log::debug!("test finished");
+        log::debug!("test finished, draining residuals");
+        match self.verifier.drain_residuals().await {
+            Ok(drained) => {
+                for (property_name, operator) in &drained {
+                    log::warn!(
+                        "Property `{}` was undecided when the test ended (pending `{}`). With more time it may have resolved differently.",
+                        property_name,
+                        operator
+                    );
+                }
+            }
+            Err(e) => {
+                log::warn!("failed to drain residuals: {}", e);
+            }
+        }
 
         self.browser
             .terminate()
