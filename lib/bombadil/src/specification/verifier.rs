@@ -6,6 +6,7 @@ use crate::specification::ltl::{
 };
 use crate::specification::result::Result;
 use crate::specification::snapshots::with_snapshot_tracking;
+use crate::specification::stop::{StopDefault, stop_default};
 use crate::specification::syntax::Syntax;
 use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
@@ -291,8 +292,6 @@ impl Verifier {
     }
 
     pub fn drain_residuals(&self) -> Vec<(String, &'static str)> {
-        use crate::specification::stop::{StopDefault, stop_default};
-
         let Some(time) = self.last_time else {
             log::debug!("no steps were taken, nothing to drain");
             return Vec::new();
@@ -480,8 +479,6 @@ mod tests {
     };
 
     use tempfile::NamedTempFile;
-
-    use crate::specification::stop::{StopDefault, stop_default};
 
     use super::*;
 
