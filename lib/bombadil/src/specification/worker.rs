@@ -19,6 +19,9 @@ enum Command {
         time: ltl::Time,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
+    DrainResiduals {
+        reply: oneshot::Sender<Vec<(String, &'static str)>>,
+    },
 }
 
 struct RawStepResult {
@@ -122,6 +125,9 @@ impl VerifierWorker {
                             ),
                         );
                     }
+                    Command::DrainResiduals { reply } => {
+                        let _ = reply.send(verifier.drain_residuals());
+                    }
                 }
             }
         });
@@ -139,6 +145,17 @@ impl VerifierWorker {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(Command::GetProperties { reply: reply_tx })
+            .await
+            .map_err(|_| WorkerError::WorkerGone)?;
+        reply_rx.await.map_err(|_| WorkerError::WorkerGone)
+    }
+
+    pub async fn drain_residuals(
+        &self,
+    ) -> Result<Vec<(String, &'static str)>, WorkerError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(Command::DrainResiduals { reply: reply_tx })
             .await
             .map_err(|_| WorkerError::WorkerGone)?;
         reply_rx.await.map_err(|_| WorkerError::WorkerGone)

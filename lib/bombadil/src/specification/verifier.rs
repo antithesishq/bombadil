@@ -33,6 +33,7 @@ pub struct Verifier {
     properties: HashMap<String, Property>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
+    last_time: Option<ltl::Time>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -281,6 +282,7 @@ impl Verifier {
             action_generators,
             bombadil_exports,
             extractors,
+            last_time: None,
         })
     }
 
@@ -288,11 +290,36 @@ impl Verifier {
         self.properties.keys().cloned().collect()
     }
 
+    pub fn drain_residuals(&self) -> Vec<(String, &'static str)> {
+        use crate::specification::stop::{StopDefault, stop_default};
+
+        let Some(time) = self.last_time else {
+            log::debug!("no steps were taken, nothing to drain");
+            return Vec::new();
+        };
+
+        let mut results = Vec::new();
+        for property in self.properties.values() {
+            if let PropertyState::Residual(residual) = &property.state {
+                if let Some(StopDefault::False(_)) =
+                    stop_default(residual, time)
+                {
+                    results.push((
+                        property.name.clone(),
+                        residual.operator_name(),
+                    ));
+                }
+            }
+        }
+        results
+    }
+
     pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
         snapshots: &[Snapshot],
         time: ltl::Time,
     ) -> Result<StepResult<A>> {
+        self.last_time = Some(time);
         self.extractors.update_from_snapshots(
             snapshots,
             time,
