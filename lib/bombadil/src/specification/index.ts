@@ -194,7 +194,7 @@ export function now(x: IntoFormula): Formula {
   if (typeof x === "function") {
     const pretty = x
       .toString()
-      .replace(/^\(\)\s*=>\s*/, "")
+      .replaceAll(/\t/g, "  ")
       .replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
 
     function liftResult(result: Formula | boolean): Formula {
