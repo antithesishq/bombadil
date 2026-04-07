@@ -192,6 +192,7 @@ fn render_snapshot_values(
             Inline::Text("at ".into()),
             Inline::Time(current_time),
         ]));
+        result.push(Markup::Comma);
         result.push(Markup::Snapshots(render_snapshot_items(&current)));
     }
 

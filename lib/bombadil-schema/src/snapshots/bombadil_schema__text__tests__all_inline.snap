@@ -2,4 +2,4 @@
 source: lib/bombadil-schema/src/text.rs
 expression: render_violation(&all_inline)
 ---
-as of 00:00.000, it should always be the case that condition, however at 00:10.000 foo = 1, bar = 2, baz = test
+as of 00:00.000, it should always be the case that condition, however at 00:10.000, foo = 1, bar = 2, baz = test
