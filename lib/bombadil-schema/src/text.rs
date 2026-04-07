@@ -239,10 +239,11 @@ fn format_duration(time: Time, test_start: Time) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::time::Duration;
 
     use crate::schema::{
-        EventuallyViolation, Formula, PropertyViolation, Snapshot, Violation,
+        EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
+        Violation,
     };
 
     use super::*;
@@ -254,15 +255,20 @@ mod tests {
         }
     }
 
-    const TEST_START: SystemTime = SystemTime::UNIX_EPOCH;
+    fn test_start() -> Time {
+        Time::from_system_time(std::time::SystemTime::UNIX_EPOCH)
+    }
 
-    fn time_at(seconds: u64) -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)
+    fn time_at(seconds: u64) -> Time {
+        Time::from_system_time(
+            std::time::SystemTime::UNIX_EPOCH
+                + Duration::from_secs(seconds),
+        )
     }
 
     fn render_violation(violation: &PropertyViolation) -> String {
         let markup = crate::markup::render_violation(violation);
-        markup_to_text(&markup, TEST_START)
+        markup_to_text(&markup, test_start())
     }
 
     #[test]
@@ -282,6 +288,7 @@ mod tests {
                         index: 0,
                         name: Some("count".into()),
                         value: serde_json::json!(6),
+                        time: time_at(305),
                     }],
                 }),
             },
@@ -316,6 +323,7 @@ mod tests {
                         index: 0,
                         name: Some("x".into()),
                         value: serde_json::json!(11),
+                        time: time_at(120),
                     }],
                 }),
             },
@@ -350,6 +358,7 @@ mod tests {
                         index: 0,
                         name: Some("errorMessage".into()),
                         value: serde_json::json!("Error: Failed to load"),
+                        time: time_at(60),
                     }],
                 }),
             },
@@ -390,6 +399,7 @@ mod tests {
                                 index: 0,
                                 name: Some("counterValue".into()),
                                 value: serde_json::json!(10),
+                                time: time_at(31),
                             }],
                         }),
                         right: Box::new(Violation::False {
@@ -440,6 +450,7 @@ mod tests {
                             index: 0,
                             name: Some("notificationCount".into()),
                             value: serde_json::json!(3),
+                            time: time_at(125),
                         }],
                     }),
                 }),
@@ -474,6 +485,7 @@ mod tests {
                                 "zip": "94102"
                             }
                         }),
+                        time: time_at(60),
                     }],
                 }),
             },
@@ -519,6 +531,7 @@ mod tests {
                                 index: 0,
                                 name: Some("state".into()),
                                 value: serde_json::json!("pending"),
+                                time: time_at(15),
                             }],
                         }),
                     }),
