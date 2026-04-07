@@ -672,10 +672,8 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         for i in 0..=1 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
@@ -720,10 +718,8 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         for i in 0..=100 {
-            let time = time_at(0);
+            let time = time_from_millis(0);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
@@ -766,7 +762,7 @@ mod tests {
 
         // After the violation at i=100, the property should reset to
         // Residual when given a passing value.
-        let time = time_at(0);
+        let time = time_from_millis(0);
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
@@ -800,10 +796,8 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
@@ -855,10 +849,8 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
@@ -922,10 +914,8 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
@@ -977,8 +967,6 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         // Steps 0-4: Residual (passing)
         for i in 0..5 {
             let result: StepResult<Snapshot> = verifier
@@ -987,9 +975,9 @@ mod tests {
                         index: 0,
                         name: None,
                         value: json::json!(i),
-                        time: time_at(0),
+                        time: time_from_millis(0),
                     }],
-                    time_at(0),
+                    time_from_millis(0),
                 )
                 .unwrap();
             let (_, value) = result.properties.first().unwrap();
@@ -1008,9 +996,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(5),
-                    time: time_at(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1027,9 +1015,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
-                    time: time_at(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1046,9 +1034,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(5),
-                    time: time_at(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1127,8 +1115,6 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| time_from_millis(i);
-
         // At time 0, value 0: Residual
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -1136,9 +1122,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
-                    time: time_at(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1151,9 +1137,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(10),
-                    time: time_at(3),
+                    time: time_from_millis(3),
                 }],
-                time_at(3),
+                time_from_millis(3),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1170,9 +1156,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
-                    time: time_at(4),
+                    time: time_from_millis(4),
                 }],
-                time_at(4),
+                time_from_millis(4),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1189,9 +1175,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
-                    time: time_at(6),
+                    time: time_from_millis(6),
                 }],
-                time_at(6),
+                time_from_millis(6),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();

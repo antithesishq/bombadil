@@ -83,7 +83,7 @@ impl VerifierWorker {
         let handle = Arc::new(VerifierWorker { tx });
 
         let _worker_thread = std::thread::Builder::new()
-            .stack_size(16 * 1024 * 1024) // 16MB stack (default is usually 2MB)
+            .stack_size(16 * 1024 * 1024) // 16MB stack to avoid overflows
             .spawn(move || {
                 let mut verifier = match Verifier::new(&bundle_code) {
                     Ok(verifier) => {

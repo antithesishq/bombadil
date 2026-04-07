@@ -916,9 +916,9 @@ fn attach_to_violation<F>(
     violation: &mut Violation<F>,
     resolved: &UniqueSnapshots,
 ) {
-    let mut worklist = vec![violation];
+    let mut queue = vec![violation];
 
-    while let Some(v) = worklist.pop() {
+    while let Some(v) = queue.pop() {
         match v {
             Violation::False { snapshots, .. } => {
                 snapshots.extend(resolved.values().cloned());
@@ -929,22 +929,20 @@ fn attach_to_violation<F>(
                 ..
             } => {
                 antecedent_snapshots.extend(resolved.values().cloned());
-                worklist.push(right.as_mut());
+                queue.push(right.as_mut());
             }
             Violation::And { left, right } => {
-                worklist.push(left.as_mut());
-                worklist.push(right.as_mut());
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
             }
             Violation::Or { left, right } => {
-                worklist.push(left.as_mut());
-                worklist.push(right.as_mut());
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
             }
             Violation::Always { violation, .. } => {
-                worklist.push(violation.as_mut());
+                queue.push(violation.as_mut());
             }
-            Violation::Eventually { .. } => {
-                // Eventually doesn't have an inner violation, only a subformula
-            }
+            Violation::Eventually { .. } => {}
         }
     }
 }
@@ -953,9 +951,9 @@ fn attach_to_residual<F>(
     residual: &mut Residual<F>,
     resolved: &UniqueSnapshots,
 ) {
-    let mut worklist = vec![residual];
+    let mut queue = vec![residual];
 
-    while let Some(r) = worklist.pop() {
+    while let Some(r) = queue.pop() {
         match r {
             Residual::True(snapshots) => {
                 snapshots.extend(resolved.iter().map(|(k, v)| (*k, v.clone())));
@@ -967,16 +965,14 @@ fn attach_to_residual<F>(
             | Residual::Or { left, right }
             | Residual::OrEventually { left, right, .. }
             | Residual::AndAlways { left, right, .. } => {
-                worklist.push(left.as_mut());
-                worklist.push(right.as_mut());
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
             }
             Residual::Implies { left, right, .. } => {
-                worklist.push(left.as_mut());
-                worklist.push(right.as_mut());
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
             }
-            Residual::Derived(_, _) => {
-                // Derived residuals will re-evaluate the formula, which will re-capture snapshots
-            }
+            Residual::Derived(_, _) => {}
         }
     }
 }
