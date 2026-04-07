@@ -1,5 +1,6 @@
 use std::{borrow::Cow, path::Path, time::SystemTime};
 
+use bombadil_schema::Time;
 use serde::Serialize;
 use url::Url;
 
@@ -41,7 +42,7 @@ impl PropertyViolation {
 impl<'a> TraceEntry<'a> {
     pub fn to_api(&self) -> bombadil_schema::TraceEntry {
         bombadil_schema::TraceEntry {
-            timestamp: self.timestamp,
+            timestamp: Time::from_system_time(self.timestamp),
             url: self.url.to_string(),
             hash_previous: self.hash_previous,
             hash_current: self.hash_current,

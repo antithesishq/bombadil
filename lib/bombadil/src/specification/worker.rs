@@ -82,49 +82,51 @@ impl VerifierWorker {
         let (tx, mut rx) = mpsc::channel::<Command>(32);
         let handle = Arc::new(VerifierWorker { tx });
 
-        let _worker_thread = std::thread::spawn(move || {
-            let mut verifier = match Verifier::new(&bundle_code) {
-                Ok(verifier) => {
-                    let _ = ready_tx.send(Ok(()));
-                    verifier
-                }
-                Err(error) => {
-                    let _ = ready_tx.send(Err(error));
-                    return;
-                }
-            };
-            while let Some(command) = rx.blocking_recv() {
-                match command {
-                    Command::GetProperties { reply } => {
-                        let _ = reply.send(verifier.properties());
+        let _worker_thread = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024) // 16MB stack to avoid overflows
+            .spawn(move || {
+                let mut verifier = match Verifier::new(&bundle_code) {
+                    Ok(verifier) => {
+                        let _ = ready_tx.send(Ok(()));
+                        verifier
                     }
-                    Command::Step {
-                        snapshots,
-                        time,
-                        reply,
-                    } => {
-                        let _ = reply.send(
-                            verifier.step::<json::Value>(&snapshots, time).map(
-                                |result| RawStepResult {
-                                    properties: result
-                                        .properties
-                                        .iter()
-                                        .map(|(key, value)| {
-                                            (
-                                                key.clone(),
-                                                PropertyValue::from(value),
-                                            )
-                                        })
-                                        .collect(),
-                                    actions: result.actions,
-                                    has_pending: result.has_pending,
-                                },
-                            ),
-                        );
+                    Err(error) => {
+                        let _ = ready_tx.send(Err(error));
+                        return;
+                    }
+                };
+                while let Some(command) = rx.blocking_recv() {
+                    match command {
+                        Command::GetProperties { reply } => {
+                            let _ = reply.send(verifier.properties());
+                        }
+                        Command::Step {
+                            snapshots,
+                            time,
+                            reply,
+                        } => {
+                            let _ = reply.send(
+                                verifier
+                                    .step::<json::Value>(&snapshots, time)
+                                    .map(|result| RawStepResult {
+                                        properties: result
+                                            .properties
+                                            .iter()
+                                            .map(|(key, value)| {
+                                                (
+                                                    key.clone(),
+                                                    PropertyValue::from(value),
+                                                )
+                                            })
+                                            .collect(),
+                                        actions: result.actions,
+                                        has_pending: result.has_pending,
+                                    }),
+                            );
+                        }
                     }
                 }
-            }
-        });
+            });
 
         ready_rx.await.map_err(|error| {
             SpecificationError::OtherError(format!(

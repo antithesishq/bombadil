@@ -1,7 +1,6 @@
 use std::rc::Rc;
-use std::time::SystemTime;
 
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{Time, TraceEntry};
 use serde_json as json;
 use yew::component;
 use yew::prelude::*;
@@ -12,7 +11,7 @@ use crate::render::{markup_to_html, render_violation};
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
     pub entry: Rc<TraceEntry>,
-    pub test_start: SystemTime,
+    pub test_start: Time,
 }
 
 #[component]

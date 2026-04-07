@@ -176,7 +176,12 @@ async fn run_browser_test(
                 for violation in violations {
                     let api_violation = violation.to_api();
                     let markup = markup::render_violation(&api_violation);
-                    let rendered = text::markup_to_text(&markup, test_start);
+                    let rendered = text::markup_to_text(
+                        &markup,
+                        bombadil_schema::schema::Time::from_system_time(
+                            test_start,
+                        ),
+                    );
                     self.collected_violations
                         .push(format!("{}:\n{}\n\n", violation.name, rendered));
                 }

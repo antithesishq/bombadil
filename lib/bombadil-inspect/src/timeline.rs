@@ -1,9 +1,7 @@
 use std::rc::Rc;
 use std::time::Duration;
-use std::time::SystemTime;
 
-use bombadil_schema::PropertyViolation;
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{PropertyViolation, Time, TraceEntry};
 use yew::component;
 use yew::prelude::*;
 
@@ -29,7 +27,7 @@ const T: f64 = K * K * K * K;
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
     pub entries: Rc<[TraceEntry]>,
-    pub test_start: SystemTime,
+    pub test_start: Time,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
 }

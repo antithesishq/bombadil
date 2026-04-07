@@ -47,6 +47,7 @@ details[open]::details-content {
   display: flex;
   flex-direction: column;
   gap: var(--line-height);
+  max-width: 100%;
 }
 
 .state-details .violation-name {
