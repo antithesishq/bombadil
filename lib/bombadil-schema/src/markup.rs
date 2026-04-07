@@ -175,18 +175,16 @@ fn render_snapshot_values(
 ) -> Markup {
     use std::collections::BTreeMap;
 
-    let (current, closed_over): (Vec<_>, Vec<_>) =
+    let (current, other): (Vec<_>, Vec<_>) =
         snapshots.iter().partition(|s| s.time == current_time);
 
-    // Group closed-over snapshots by their time
     let mut by_time: BTreeMap<Time, Vec<&Snapshot>> = BTreeMap::new();
-    for snapshot in &closed_over {
+    for snapshot in &other {
         by_time.entry(snapshot.time).or_default().push(snapshot);
     }
 
     let mut result = Vec::new();
 
-    // Show current snapshots first
     if !current.is_empty() {
         result.push(Markup::Span(vec![
             Inline::Text("at ".into()),
@@ -196,7 +194,6 @@ fn render_snapshot_values(
         result.push(Markup::Snapshots(render_snapshot_items(&current)));
     }
 
-    // Show closed-over snapshots grouped by time (newest to oldest)
     for (time, snapshots) in by_time.iter().rev() {
         if !result.is_empty() {
             result.push(Markup::Comma);
