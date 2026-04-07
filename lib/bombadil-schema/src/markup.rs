@@ -199,7 +199,7 @@ fn render_snapshot_values(
     for (time, snapshots) in by_time.iter().rev() {
         if !result.is_empty() {
             result.push(Markup::Comma);
-            result.push(Markup::Span(vec![Inline::Text(" and ".into())]));
+            result.push(Markup::Span(vec![Inline::Text("and".into())]));
         }
         result.push(Markup::Span(vec![
             Inline::Text("from the prior state at ".into()),
