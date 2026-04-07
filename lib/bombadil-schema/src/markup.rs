@@ -75,17 +75,15 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
         }
         Violation::Eventually { subformula, reason } => match reason {
             EventuallyViolation::TimedOut(time) => Markup::Join(vec![
-                Markup::Span(vec![Inline::Keyword("eventually".into())]),
                 render_formula(subformula),
-                Markup::Comma,
-                Markup::Span(vec![Inline::Text("which timed out at".into())]),
+                Markup::Span(vec![Inline::Text(
+                    "was never true before".into(),
+                )]),
                 Markup::Span(vec![Inline::Time(*time)]),
             ]),
             EventuallyViolation::TestEnded => Markup::Join(vec![
-                Markup::Span(vec![Inline::Keyword("eventually".into())]),
                 render_formula(subformula),
-                Markup::Comma,
-                Markup::Span(vec![Inline::Text("which never occurred".into())]),
+                Markup::Span(vec![Inline::Keyword("was never true".into())]),
             ]),
         },
         Violation::Always {
@@ -148,12 +146,7 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
                     render_snapshot_values(antecedent_snapshots, implies_time),
                     Markup::Comma,
                     Markup::Span(vec![Inline::Text(
-                        "which implied that".into(),
-                    )]),
-                    render_formula(left),
-                    Markup::Comma,
-                    Markup::Span(vec![Inline::Text(
-                        "however the implication failed because".into(),
+                        "failing the implication because".into(),
                     )]),
                     render_violation_inner(right, implies_time),
                 ])
@@ -212,6 +205,7 @@ fn render_snapshot_values(
             Inline::Text("from the prior state at ".into()),
             Inline::Time(*time),
         ]));
+        result.push(Markup::Comma);
         result.push(Markup::Snapshots(render_snapshot_items(snapshots)));
     }
 

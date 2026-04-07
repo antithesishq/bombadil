@@ -2,4 +2,4 @@
 source: lib/bombadil-schema/src/text.rs
 expression: render_violation(&violation)
 ---
-as of 00:00.000, it should always be the case that if errorMessage !== null then within 5 seconds errorMessage === null, however from the prior state at 01:00.000 errorMessage = "Error: Failed to load", which implied that errorMessage !== null, however the implication failed because eventually errorMessage === null, which timed out at 01:05.000
+as of 00:00.000, it should always be the case that if errorMessage !== null then within 5 seconds errorMessage === null, however from the prior state at 01:00.000, errorMessage = "Error: Failed to load", failing the implication because errorMessage === null was never true before 01:05.000
