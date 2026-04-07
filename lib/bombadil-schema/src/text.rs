@@ -18,9 +18,12 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
             output.push_str(code);
         }
         Markup::Snapshots(snapshots) => {
+            let all_inline =
+                snapshots.iter().all(|item| is_json_inline(&item.value));
             for (index, snapshot) in snapshots.iter().enumerate() {
                 if index > 0 {
-                    output.push_str(", ");
+                    let separator = if all_inline { ", " } else { "\n" };
+                    output.push_str(separator);
                 }
                 output.push_str(&snapshot.name);
                 output.push_str(" = ");
@@ -261,8 +264,7 @@ mod tests {
 
     fn time_at(seconds: u64) -> Time {
         Time::from_system_time(
-            std::time::SystemTime::UNIX_EPOCH
-                + Duration::from_secs(seconds),
+            std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(seconds),
         )
     }
 
@@ -540,5 +542,89 @@ mod tests {
         };
 
         insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_snapshot_separator_logic() {
+        // Test all-inline snapshots (should use comma separator)
+        let all_inline = PropertyViolation {
+            name: "allInlineSnapshots".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(thunk("condition")),
+                start: time_at(0),
+                end: None,
+                time: time_at(10),
+                violation: Box::new(Violation::False {
+                    time: time_at(10),
+                    condition: "condition".into(),
+                    snapshots: vec![
+                        Snapshot {
+                            index: 0,
+                            name: Some("foo".into()),
+                            value: serde_json::json!(1),
+                            time: time_at(10),
+                        },
+                        Snapshot {
+                            index: 1,
+                            name: Some("bar".into()),
+                            value: serde_json::json!(2),
+                            time: time_at(10),
+                        },
+                        Snapshot {
+                            index: 2,
+                            name: Some("baz".into()),
+                            value: serde_json::json!("test"),
+                            time: time_at(10),
+                        },
+                    ],
+                }),
+            },
+        };
+
+        // Test mixed inline and multi-line snapshots (should use newline separator)
+        let mixed = PropertyViolation {
+            name: "mixedSnapshots".to_string(),
+            violation: Violation::Always {
+                subformula: Box::new(thunk("condition")),
+                start: time_at(0),
+                end: None,
+                time: time_at(20),
+                violation: Box::new(Violation::False {
+                    time: time_at(20),
+                    condition: "condition".into(),
+                    snapshots: vec![
+                        Snapshot {
+                            index: 0,
+                            name: Some("selectedFilter".into()),
+                            value: serde_json::json!("Active"),
+                            time: time_at(20),
+                        },
+                        Snapshot {
+                            index: 1,
+                            name: Some("newTodoInput".into()),
+                            value: serde_json::json!({
+                                "active": false,
+                                "pendingText": "b",
+                                "rect": {}
+                            }),
+                            time: time_at(20),
+                        },
+                        Snapshot {
+                            index: 2,
+                            name: Some("availableFilters".into()),
+                            value: serde_json::json!([
+                                "All",
+                                "Active",
+                                "Completed"
+                            ]),
+                            time: time_at(20),
+                        },
+                    ],
+                }),
+            },
+        };
+
+        insta::assert_snapshot!("all_inline", render_violation(&all_inline));
+        insta::assert_snapshot!("mixed", render_violation(&mixed));
     }
 }
