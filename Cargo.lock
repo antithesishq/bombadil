@@ -436,6 +436,7 @@ dependencies = [
  "log",
  "mime_guess",
  "open",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

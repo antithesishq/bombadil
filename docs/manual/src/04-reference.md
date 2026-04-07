@@ -4,6 +4,13 @@
 
 <!-- **TODO:** generate this automatically but in structured HTML -->
 
+### Exit codes
+
+| Code | Meaning |
+|-----:|---------|
+| 0 | Test completed normally (including time limit) |
+| 2 | Property violation detected (with `--exit-on-violation`) |
+
 ### bombadil test
 
 `bombadil` `test` [`[OPTIONS]`](#options-test) [`<ORIGIN>`](#arguments-test) [`[SPECIFICATION_FILE]`](#arguments-test)
@@ -21,6 +28,7 @@
 |--------|-------------|---------:|
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
+| `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
@@ -46,6 +54,7 @@
 |--------|-------------|---------:|
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
+| `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
