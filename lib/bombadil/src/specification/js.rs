@@ -7,7 +7,6 @@ use boa_engine::{
 
 use serde::{Deserialize, Serialize};
 use serde_json as json;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::browser::actions::BrowserAction;
 use crate::geometry::Point;
@@ -412,7 +411,7 @@ impl Extractors {
     pub fn update_from_snapshots(
         &self,
         snapshots: &[Snapshot],
-        time: SystemTime,
+        time: bombadil_schema::Time,
         context: &mut Context,
     ) -> Result<()> {
         let update = |extractor: &JsObject,
@@ -436,12 +435,11 @@ impl Extractors {
 
         let time = JsValue::from_json(
             &json::Value::Number(
-                json::Number::from_u128(
-                    time.duration_since(UNIX_EPOCH)?.as_millis(),
-                )
-                .ok_or(SpecificationError::OtherError(
-                    "conversion from SystemTime to number failed".to_string(),
-                ))?,
+                json::Number::from_u128(time.as_micros() as u128).ok_or(
+                    SpecificationError::OtherError(
+                        "conversion from Time to number failed".to_string(),
+                    ),
+                )?,
             ),
             context,
         )?;

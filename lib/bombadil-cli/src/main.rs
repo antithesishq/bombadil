@@ -254,7 +254,7 @@ async fn test(
     struct MainObserver {
         writer: TraceWriter,
         exit_on_violation: bool,
-        test_start: Option<std::time::SystemTime>,
+        test_start: Option<bombadil_schema::Time>,
     }
 
     impl RunObserver for MainObserver {
@@ -267,7 +267,9 @@ async fn test(
             snapshots: &[Snapshot],
             violations: &[PropertyViolation],
         ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
-            let test_start = *self.test_start.get_or_insert(state.timestamp);
+            let test_start = *self.test_start.get_or_insert(
+                bombadil_schema::Time::from_system_time(state.timestamp),
+            );
 
             for violation in violations {
                 let api_violation = violation.to_api();

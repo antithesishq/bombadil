@@ -128,7 +128,11 @@ export class Runtime<S> {
     return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
-        return { index, name: extractor.name, value: extractor.run(state) };
+        return {
+          index,
+          name: extractor.name,
+          value: extractor.run(state),
+        };
       } finally {
         this.extractingDepth--;
       }

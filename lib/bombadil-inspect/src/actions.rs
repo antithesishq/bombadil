@@ -1,9 +1,7 @@
 use std::rc::Rc;
-use std::time::SystemTime;
 
 use bombadil_browser_keys::key_name;
-use bombadil_schema::Point;
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{Point, Time, TraceEntry};
 use yew::component;
 use yew::prelude::*;
 
@@ -41,7 +39,7 @@ pub fn ActionsList(props: &ActionsListProps) -> Html {
 
 #[derive(PartialEq, Properties)]
 struct HistoryEntryProps {
-    pub test_start: SystemTime,
+    pub test_start: Time,
     pub entry: Rc<TraceEntry>,
     pub index: usize,
     pub is_selected: bool,

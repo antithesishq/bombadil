@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::verifier::{Snapshot, merge_snapshots};
+pub use bombadil_schema::Time;
 use serde::Serialize;
 
 fn combine_options<T: Clone>(
@@ -79,9 +80,7 @@ impl<Function: Clone> Formula<Function> {
     }
 }
 
-pub type Time = SystemTime;
-
-pub type UniqueSnapshots = BTreeMap<usize, Snapshot>;
+pub type UniqueSnapshots = BTreeMap<(usize, Time), Snapshot>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
@@ -905,10 +904,79 @@ fn attach_snapshots<F>(value: &mut Value<F>, resolved: UniqueSnapshots) {
             snapshots.extend(resolved);
         }
         Value::False(violation, _) => {
-            if let Violation::False { snapshots, .. } = violation {
+            attach_to_violation(violation, &resolved);
+        }
+        Value::Residual(residual) => {
+            attach_to_residual(residual, &resolved);
+        }
+    }
+}
+
+fn attach_to_violation<F>(
+    violation: &mut Violation<F>,
+    resolved: &UniqueSnapshots,
+) {
+    let mut worklist = vec![violation];
+
+    while let Some(v) = worklist.pop() {
+        match v {
+            Violation::False { snapshots, .. } => {
                 snapshots.extend(resolved.values().cloned());
             }
+            Violation::Implies {
+                antecedent_snapshots,
+                right,
+                ..
+            } => {
+                antecedent_snapshots.extend(resolved.values().cloned());
+                worklist.push(right.as_mut());
+            }
+            Violation::And { left, right } => {
+                worklist.push(left.as_mut());
+                worklist.push(right.as_mut());
+            }
+            Violation::Or { left, right } => {
+                worklist.push(left.as_mut());
+                worklist.push(right.as_mut());
+            }
+            Violation::Always { violation, .. } => {
+                worklist.push(violation.as_mut());
+            }
+            Violation::Eventually { .. } => {
+                // Eventually doesn't have an inner violation, only a subformula
+            }
         }
-        Value::Residual(_) => {}
+    }
+}
+
+fn attach_to_residual<F>(
+    residual: &mut Residual<F>,
+    resolved: &UniqueSnapshots,
+) {
+    let mut worklist = vec![residual];
+
+    while let Some(r) = worklist.pop() {
+        match r {
+            Residual::True(snapshots) => {
+                snapshots.extend(resolved.iter().map(|(k, v)| (*k, v.clone())));
+            }
+            Residual::False(violation) => {
+                attach_to_violation(violation, resolved);
+            }
+            Residual::And { left, right }
+            | Residual::Or { left, right }
+            | Residual::OrEventually { left, right, .. }
+            | Residual::AndAlways { left, right, .. } => {
+                worklist.push(left.as_mut());
+                worklist.push(right.as_mut());
+            }
+            Residual::Implies { left, right, .. } => {
+                worklist.push(left.as_mut());
+                worklist.push(right.as_mut());
+            }
+            Residual::Derived(_, _) => {
+                // Derived residuals will re-evaluate the formula, which will re-capture snapshots
+            }
+        }
     }
 }

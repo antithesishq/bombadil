@@ -1,14 +1,13 @@
-use std::time::SystemTime;
-
 use crate::markup::{Inline, Markup};
+use crate::schema::Time;
 
-pub fn markup_to_text(markup: &Markup, test_start: SystemTime) -> String {
+pub fn markup_to_text(markup: &Markup, test_start: Time) -> String {
     let mut output = String::new();
     render_markup(&mut output, markup, test_start);
     output
 }
 
-fn render_markup(output: &mut String, markup: &Markup, test_start: SystemTime) {
+fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
     match markup {
         Markup::Span(inlines) => {
             for inline in inlines {
@@ -45,7 +44,7 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: SystemTime) {
     }
 }
 
-fn render_join(output: &mut String, items: &[Markup], test_start: SystemTime) {
+fn render_join(output: &mut String, items: &[Markup], test_start: Time) {
     let items = flatten_joins(items);
 
     let mut previous_non_comma_index: Option<usize> = None;
@@ -216,7 +215,7 @@ fn is_inline(markup: &Markup) -> bool {
     }
 }
 
-fn render_inline(output: &mut String, inline: &Inline, test_start: SystemTime) {
+fn render_inline(output: &mut String, inline: &Inline, test_start: Time) {
     match inline {
         Inline::Text(text) => output.push_str(text),
         Inline::Code(code) => output.push_str(code),
@@ -227,16 +226,15 @@ fn render_inline(output: &mut String, inline: &Inline, test_start: SystemTime) {
     }
 }
 
-fn format_duration(time: SystemTime, test_start: SystemTime) -> String {
-    let duration = time
-        .duration_since(test_start)
-        .unwrap_or(std::time::Duration::ZERO);
-
-    let total_seconds = duration.as_secs();
+fn format_duration(time: Time, test_start: Time) -> String {
+    let micros_since_start =
+        time.as_micros().saturating_sub(test_start.as_micros());
+    let total_seconds = micros_since_start / 1_000_000;
+    let millis = (micros_since_start % 1_000_000) / 1_000;
     let minutes = total_seconds / 60;
     let seconds = total_seconds % 60;
 
-    format!("{:02}:{:02}", minutes, seconds)
+    format!("{:02}:{:02}.{:03}", minutes, seconds, millis)
 }
 
 #[cfg(test)]

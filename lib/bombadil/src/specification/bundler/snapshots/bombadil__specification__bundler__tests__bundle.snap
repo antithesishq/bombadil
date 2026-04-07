@@ -454,13 +454,15 @@ expression: bundle
     		}
     	}
     	runExtractors(state) {
+    		const currentTime = time.current;
     		return this.extractors.map((extractor, index) => {
     			this.extractingDepth++;
     			try {
     				return {
     					index,
     					name: extractor.name,
-    					value: extractor.run(state)
+    					value: extractor.run(state),
+    					time: currentTime
     				};
     			} finally {
     				this.extractingDepth--;
