@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 bombadil = { path = "../bombadil" }
+bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 anyhow = "1.0"
 axum = "0.8.8"

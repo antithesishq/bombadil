@@ -1,5 +1,6 @@
 mod duration;
 mod inspect_server;
+mod render;
 
 use ::url::Url;
 use anyhow::Result;
@@ -19,9 +20,10 @@ use bombadil::{
     instrumentation::InstrumentationConfig,
     runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
     specification::verifier::{Snapshot, Specification},
+    styled,
     trace::{PropertyViolation, writer::TraceWriter},
 };
-use bombadil_schema::{markup, text};
+use bombadil_schema::markup;
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
@@ -158,7 +160,7 @@ fn parse_instrumentation_config(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let env = env_logger::Env::default().default_filter_or("info");
+    let env = env_logger::Env::default().default_filter_or("warn");
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
         .format_target(true)
@@ -265,6 +267,7 @@ async fn test(
         exit_on_violation: bool,
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
+        output_path: PathBuf,
     }
 
     impl RunObserver for MainObserver {
@@ -281,13 +284,25 @@ async fn test(
                 bombadil_schema::Time::from_system_time(state.timestamp),
             );
 
+            if let Some(action) = last_action {
+                println!(
+                    "{} {}",
+                    render::format_timestamp(state.timestamp, test_start),
+                    render::format_action(action)
+                );
+            }
+
             for violation in violations {
+                log::info!("violation of property `{}`", violation.name);
                 let api_violation = violation.to_api();
                 let markup = markup::render_violation(&api_violation);
-                let text = text::markup_to_text(&markup, test_start);
-                log::error!(
-                    "violation of property `{}`:\n{}",
-                    violation.name,
+                let text = styled::markup_to_styled(&markup, test_start);
+                println!(
+                    "\n{}\n\n{}\n",
+                    styled::maybe_red(styled::maybe_bold(format!(
+                        "{} was violated:",
+                        violation.name
+                    ))),
                     text
                 );
             }
@@ -321,13 +336,25 @@ async fn test(
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
     let mut observer = MainObserver {
-        writer: TraceWriter::initialize(output_path).await?,
+        writer: TraceWriter::initialize(output_path.clone()).await?,
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
         deadline,
+        output_path: output_path.clone(),
     };
 
-    if let Some(exit_code) = runner.run(&mut observer).await? {
+    let exit_code = runner.run(&mut observer).await?;
+
+    println!(
+        "{}\n\nInspect the test results using:\n\n  {}",
+        styled::maybe_bold("Test finished!".to_string()),
+        styled::maybe_italic(format!(
+            "bombadil inspect {}",
+            observer.output_path.display()
+        ))
+    );
+
+    if let Some(exit_code) = exit_code {
         std::process::exit(exit_code);
     }
 

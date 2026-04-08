@@ -1,0 +1,5 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, it should always be the case that if [3merrorMessage !== null[0m then within 5 seconds [3merrorMessage === null[0m, however from the prior state at [1m01:00.000[0m, errorMessage = [34m"Error: Failed to load"[39m, failing the implication because [3merrorMessage === null[0m was never true before [1m01:05.000[0m

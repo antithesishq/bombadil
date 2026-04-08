@@ -18,8 +18,9 @@ use bombadil::{
     },
     runner::{Runner, RunnerOptions},
     specification::verifier::Specification,
+    styled,
 };
-use bombadil_schema::{markup, text};
+use bombadil_schema::markup;
 
 enum Expect {
     Error { substring: &'static str },
@@ -40,6 +41,11 @@ impl Display for Expect {
 static INIT: Once = Once::new();
 
 fn setup() {
+    // For some reason owo_colors::set_override doesn't bite, so we resort to this ugly way
+    // of disabling colorized output.
+    unsafe {
+        std::env::set_var("NO_COLOR", "1");
+    }
     INIT.call_once(|| {
         let env = env_logger::Env::default().default_filter_or("debug");
         env_logger::Builder::from_env(env)
@@ -176,11 +182,9 @@ async fn run_browser_test(
                 for violation in violations {
                     let api_violation = violation.to_api();
                     let markup = markup::render_violation(&api_violation);
-                    let rendered = text::markup_to_text(
+                    let rendered = styled::markup_to_styled(
                         &markup,
-                        bombadil_schema::schema::Time::from_system_time(
-                            test_start,
-                        ),
+                        bombadil_schema::Time::from_system_time(test_start),
                     );
                     self.collected_violations
                         .push(format!("{}:\n{}\n\n", violation.name, rendered));

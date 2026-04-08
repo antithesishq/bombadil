@@ -1,5 +1,0 @@
----
-source: lib/bombadil-schema/src/text.rs
-expression: render_violation(&violation)
----
-as of 00:00.000, it should always be the case that count.current <= 5, however at 05:05.000, count = 6

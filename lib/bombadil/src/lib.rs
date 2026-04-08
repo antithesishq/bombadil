@@ -3,6 +3,7 @@ pub mod geometry;
 pub mod instrumentation;
 pub mod runner;
 pub mod specification;
+pub mod styled;
 pub mod trace;
 pub mod tree;
 pub mod url;
