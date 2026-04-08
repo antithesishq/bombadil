@@ -17,6 +17,7 @@ mod duration;
 mod render;
 mod screenshot;
 mod state_details;
+mod time;
 mod timeline;
 
 #[function_component(App)]

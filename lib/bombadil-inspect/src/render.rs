@@ -2,7 +2,7 @@ use bombadil_schema::Time;
 use bombadil_schema::markup::{Inline, Markup};
 use yew::prelude::*;
 
-use crate::duration::format_duration;
+use crate::duration::{FormatDurationOptions, format_duration};
 
 pub use bombadil_schema::markup::render_violation;
 
@@ -179,6 +179,7 @@ fn format_time(time: &Time, test_start: Time) -> String {
     format_duration(
         time.duration_since(test_start)
             .expect("timestamp microsecond conversion failed"),
+        FormatDurationOptions::default(),
     )
 }
 

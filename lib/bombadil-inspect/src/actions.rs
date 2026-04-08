@@ -6,7 +6,7 @@ use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
-use crate::duration::format_duration;
+use crate::time::Duration;
 
 #[derive(PartialEq, Properties)]
 pub struct ActionsListProps {
@@ -189,7 +189,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 }
                 <header>
                     <div class="action-header">{action_header}</div>
-                    <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
+                    <Duration value={duration_since_start} include_millis={true} />
                 </header>
                 {if let Some(details) = details && props.is_selected {
                     html!(
