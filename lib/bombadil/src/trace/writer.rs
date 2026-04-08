@@ -69,7 +69,7 @@ impl TraceWriter {
         self.last_transition_hash = state.transition_hash;
 
         self.trace_file
-            .write_all(json::to_string(&entry)?.as_bytes())
+            .write_all(json::to_string(&entry.to_api())?.as_bytes())
             .await?;
         self.trace_file.write_u8(b'\n').await?;
 

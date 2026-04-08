@@ -1,9 +1,8 @@
-use std::time::SystemTime;
-
+use bombadil_schema::Time;
 use bombadil_schema::markup::{Inline, Markup};
 use yew::prelude::*;
 
-use crate::duration::format_duration;
+use crate::duration::{FormatDurationOptions, format_duration};
 
 pub use bombadil_schema::markup::render_violation;
 
@@ -28,7 +27,7 @@ fn is_json_inline(value: &serde_json::Value) -> bool {
     }
 }
 
-pub fn markup_to_html(markup: &Markup, test_start: SystemTime) -> Html {
+pub fn markup_to_html(markup: &Markup, test_start: Time) -> Html {
     match markup {
         Markup::Span(inlines) => {
             html!(
@@ -163,7 +162,7 @@ pub fn markup_to_html(markup: &Markup, test_start: SystemTime) -> Html {
     }
 }
 
-fn inline_to_html(inline: &Inline, test_start: SystemTime) -> Html {
+fn inline_to_html(inline: &Inline, test_start: Time) -> Html {
     match inline {
         Inline::Text(text) => html!({ text }),
         Inline::Code(code) => html!(<code>{code}</code>),
@@ -176,10 +175,11 @@ fn inline_to_html(inline: &Inline, test_start: SystemTime) -> Html {
     }
 }
 
-fn format_time(time: &SystemTime, test_start: SystemTime) -> String {
+fn format_time(time: &Time, test_start: Time) -> String {
     format_duration(
         time.duration_since(test_start)
-            .expect("timestamp millisecond conversion failed"),
+            .expect("timestamp microsecond conversion failed"),
+        FormatDurationOptions::default(),
     )
 }
 

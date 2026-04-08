@@ -303,7 +303,7 @@ expression: bundle
     			return typeof result === "boolean" ? new Pure(pretty, result) : result;
     		};
     		var liftResult = liftResult2;
-    		const pretty = x.toString().replace(/^\(\)\s*=>\s*/, "").replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
+    		const pretty = x.toString().replaceAll(/\t/g, "  ").replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
     		return new Thunk(pretty, () => liftResult2(x()));
     	}
     	return x;

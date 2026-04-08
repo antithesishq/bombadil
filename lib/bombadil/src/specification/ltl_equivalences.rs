@@ -1,7 +1,9 @@
 use std::{
     cell::RefCell,
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
+
+use bombadil_schema::schema::Time;
 
 use crate::specification::{
     ltl::*,
@@ -188,7 +190,7 @@ fn check_equivalence(
     };
     let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
-    let mut time = UNIX_EPOCH;
+    let mut time = Time::from_system_time(SystemTime::UNIX_EPOCH);
 
     let mut value_left = evaluator.evaluate(&formula_left, time).unwrap();
     let mut value_right = evaluator.evaluate(&formula_right, time).unwrap();

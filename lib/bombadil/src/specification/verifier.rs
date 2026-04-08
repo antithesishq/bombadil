@@ -17,6 +17,7 @@ use boa_engine::{
     property::PropertyKey,
 };
 use boa_engine::{JsError, JsObject, JsValue};
+use bombadil_schema::Time;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
@@ -40,6 +41,7 @@ pub struct Snapshot {
     pub index: usize,
     pub name: Option<String>,
     pub value: json::Value,
+    pub time: Time,
 }
 
 pub fn merge_snapshots(
@@ -321,7 +323,7 @@ impl Verifier {
             let accessed_snapshots: UniqueSnapshots = indices
                 .into_iter()
                 .filter_map(|index| snapshots.get(index).cloned())
-                .map(|snapshot| (snapshot.index, snapshot))
+                .map(|snapshot| ((snapshot.index, snapshot.time), snapshot))
                 .collect();
             let syntax =
                 Syntax::from_value(&value, &self.bombadil_exports, context)?;
@@ -447,16 +449,20 @@ impl ActionGenerator {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        io::Write,
-        time::{Duration, SystemTime},
-    };
+    use std::io::Write;
 
     use tempfile::NamedTempFile;
 
     use crate::specification::stop::{StopDefault, stop_default};
 
     use super::*;
+
+    fn time_from_millis(millis: u64) -> Time {
+        Time::from_system_time(
+            std::time::SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_millis(millis),
+        )
+    }
 
     fn verifier(specification: &str) -> Verifier {
         use crate::specification::bundler::bundle;
@@ -511,9 +517,7 @@ mod tests {
             "#,
         );
 
-        let time = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(0))
-            .unwrap();
+        let time = time_from_millis(0);
 
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -521,6 +525,7 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(false),
+                    time,
                 }],
                 time,
             )
@@ -545,9 +550,7 @@ mod tests {
             "#,
         );
 
-        let time = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(0))
-            .unwrap();
+        let time = time_from_millis(0);
 
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -556,11 +559,13 @@ mod tests {
                         index: 0,
                         name: None,
                         value: json::json!(true),
+                        time,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(true),
+                        time,
                     },
                 ],
                 time,
@@ -586,9 +591,7 @@ mod tests {
             "#,
         );
 
-        let time = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(0))
-            .unwrap();
+        let time = time_from_millis(0);
 
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -597,11 +600,13 @@ mod tests {
                         index: 0,
                         name: None,
                         value: json::json!(false),
+                        time,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(true),
+                        time,
                     },
                 ],
                 time,
@@ -627,9 +632,7 @@ mod tests {
             "#,
         );
 
-        let time = SystemTime::UNIX_EPOCH
-            .checked_add(Duration::from_millis(0))
-            .unwrap();
+        let time = time_from_millis(0);
 
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -638,11 +641,13 @@ mod tests {
                         index: 0,
                         name: None,
                         value: json::json!(false),
+                        time,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(false),
+                        time,
                     },
                 ],
                 time,
@@ -667,20 +672,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=1 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -718,20 +718,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=100 {
-            let time = time_at(0);
+            let time = time_from_millis(0);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -767,13 +762,14 @@ mod tests {
 
         // After the violation at i=100, the property should reset to
         // Residual when given a passing value.
-        let time = time_at(0);
+        let time = time_from_millis(0);
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time,
                 }],
                 time,
             )
@@ -800,20 +796,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -858,20 +849,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1617,20 +1603,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..10 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1675,12 +1656,6 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         // Steps 0-4: Residual (passing)
         for i in 0..5 {
             let result: StepResult<Snapshot> = verifier
@@ -1689,8 +1664,9 @@ mod tests {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time: time_from_millis(0),
                     }],
-                    time_at(0),
+                    time_from_millis(0),
                 )
                 .unwrap();
             let (_, value) = result.properties.first().unwrap();
@@ -1709,8 +1685,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(5),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1727,8 +1704,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1745,8 +1723,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(5),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1770,7 +1749,7 @@ mod tests {
             "#,
         );
 
-        let time = SystemTime::UNIX_EPOCH;
+        let time = time_from_millis(0);
 
         // First step: False (no continuation)
         let result: StepResult<Snapshot> = verifier
@@ -1779,6 +1758,7 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(false),
+                    time,
                 }],
                 time,
             )
@@ -1798,6 +1778,7 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(true),
+                    time,
                 }],
                 time,
             )
@@ -1823,12 +1804,6 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         // At time 0, value 0: Residual
         let result: StepResult<Snapshot> = verifier
             .step(
@@ -1836,8 +1811,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1850,8 +1826,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(10),
+                    time: time_from_millis(3),
                 }],
-                time_at(3),
+                time_from_millis(3),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1868,8 +1845,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(4),
                 }],
-                time_at(4),
+                time_from_millis(4),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();
@@ -1886,8 +1864,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(6),
                 }],
-                time_at(6),
+                time_from_millis(6),
             )
             .unwrap();
         let (_, value) = result.properties.first().unwrap();

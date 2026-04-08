@@ -1,14 +1,13 @@
 use std::rc::Rc;
-use std::time::SystemTime;
 
 use bombadil_browser_keys::key_name;
-use bombadil_schema::Point;
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{Point, Time, TraceEntry};
 use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
-use crate::duration::format_duration;
+use crate::list_autoscroll::use_list_autoscroll;
+use crate::time::Duration;
 
 #[derive(PartialEq, Properties)]
 pub struct ActionsListProps {
@@ -21,8 +20,10 @@ pub struct ActionsListProps {
 pub fn ActionsList(props: &ActionsListProps) -> Html {
     let test_start =
         props.trace.first().expect("no first trace entry").timestamp;
+    let list_ref = use_list_autoscroll(props.selected_index);
+
     html!(
-        <ol>
+        <ol ref={list_ref}>
         {
             props.trace.iter().enumerate().map(|(i, entry)| {
                 html!(
@@ -41,7 +42,7 @@ pub fn ActionsList(props: &ActionsListProps) -> Html {
 
 #[derive(PartialEq, Properties)]
 struct HistoryEntryProps {
-    pub test_start: SystemTime,
+    pub test_start: Time,
     pub entry: Rc<TraceEntry>,
     pub index: usize,
     pub is_selected: bool,
@@ -191,7 +192,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 }
                 <header>
                     <div class="action-header">{action_header}</div>
-                    <time title={format!("{:?}", duration_since_start)}>{format_duration(duration_since_start)}</time>
+                    <Duration value={duration_since_start} include_millis={true} />
                 </header>
                 {if let Some(details) = details && props.is_selected {
                     html!(

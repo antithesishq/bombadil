@@ -1,7 +1,11 @@
 use anyhow::anyhow;
 use axum::Router;
 use std::io::Write;
-use std::{fmt::Display, sync::Once, time::Duration};
+use std::{
+    fmt::Display,
+    sync::Once,
+    time::{Duration, SystemTime},
+};
 use tempfile::{NamedTempFile, TempDir};
 use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
@@ -50,7 +54,7 @@ fn setup() {
 }
 
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
-/// causing a timeout, so we limit parallelism.
+/// causing a test to hang, so we limit parallelism.
 static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(4);
 const TEST_TIMEOUT_SECONDS: u64 = 120;
 
@@ -67,7 +71,7 @@ const TEST_TIMEOUT_SECONDS: u64 = 120;
 async fn run_browser_test(
     name: &str,
     expect: Expect,
-    timeout: Duration,
+    time_limit: Option<Duration>,
     specification: Option<&str>,
 ) {
     setup();
@@ -153,6 +157,7 @@ async fn run_browser_test(
     struct TestObserver {
         collected_violations: Vec<String>,
         test_start: Option<std::time::SystemTime>,
+        deadline: Option<SystemTime>,
     }
 
     impl bombadil::runner::RunObserver for TestObserver {
@@ -171,24 +176,39 @@ async fn run_browser_test(
                 for violation in violations {
                     let api_violation = violation.to_api();
                     let markup = markup::render_violation(&api_violation);
-                    let rendered = text::markup_to_text(&markup, test_start);
+                    let rendered = text::markup_to_text(
+                        &markup,
+                        bombadil_schema::schema::Time::from_system_time(
+                            test_start,
+                        ),
+                    );
                     self.collected_violations
                         .push(format!("{}:\n{}\n\n", violation.name, rendered));
                 }
             }
+
+            if let Some(deadline) = self.deadline
+                && state.timestamp >= deadline
+            {
+                log::info!("time limit reached, stopping");
+                return Ok(bombadil::runner::ControlFlow::Stop(()));
+            }
+
             Ok(bombadil::runner::ControlFlow::Continue)
         }
     }
 
+    let deadline = time_limit.map(|d| SystemTime::now() + d);
+
     let mut observer = TestObserver {
         collected_violations: Vec::new(),
         test_start: None,
+        deadline,
     };
 
     enum Outcome {
         Success,
         Error(anyhow::Error),
-        Timeout,
     }
 
     impl Display for Outcome {
@@ -198,27 +218,33 @@ async fn run_browser_test(
                 Outcome::Error(error) => {
                     write!(f, "error: {}", error)
                 }
-                Outcome::Timeout => write!(f, "timeout"),
             }
         }
     }
 
-    log::info!("starting timeout");
-    let outcome =
-        match tokio::time::timeout(timeout, runner.run(&mut observer)).await {
-            Ok(Ok(_)) => {
-                if observer.collected_violations.is_empty() {
-                    Outcome::Success
-                } else {
-                    Outcome::Error(anyhow!(
-                        "violations:\n\n{}",
-                        observer.collected_violations.join("")
-                    ))
-                }
+    log::info!("starting runner with infrastructure safety timeout");
+    let outcome = match tokio::time::timeout(
+        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        runner.run(&mut observer),
+    )
+    .await
+    {
+        Ok(Ok(_)) => {
+            if observer.collected_violations.is_empty() {
+                Outcome::Success
+            } else {
+                Outcome::Error(anyhow!(
+                    "violations:\n\n{}",
+                    observer.collected_violations.join("")
+                ))
             }
-            Ok(Err(error)) => Outcome::Error(error),
-            Err(_elapsed) => Outcome::Timeout,
-        };
+        }
+        Ok(Err(error)) => Outcome::Error(error),
+        Err(_elapsed) => panic!(
+            "test infrastructure timeout — test hung for {}s",
+            TEST_TIMEOUT_SECONDS
+        ),
+    };
 
     log::info!("checking outcome");
     match (outcome, expect) {
@@ -228,7 +254,6 @@ async fn run_browser_test(
             }
         }
         (Outcome::Success, Expect::Success) => {}
-        (Outcome::Timeout, Expect::Success) => {}
         (outcome, expect) => {
             panic!("{} but got {}", expect, outcome);
         }
@@ -244,7 +269,7 @@ async fn test_console_error() {
             // cells again
             substring: "noConsoleErrors",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         None,
     )
     .await;
@@ -257,7 +282,7 @@ async fn test_links() {
         Expect::Error {
             substring: "noHttpErrorCodes",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         None,
     )
     .await;
@@ -272,7 +297,7 @@ async fn test_uncaught_exception() {
             // cells again
             substring: "noUncaughtExceptions",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         None,
     )
     .await;
@@ -287,7 +312,7 @@ async fn test_unhandled_promise_rejection() {
             // cells again
             substring: "noUnhandledPromiseRejections",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         None,
     )
     .await;
@@ -298,7 +323,7 @@ async fn test_other_domain() {
     run_browser_test(
         "other-domain",
         Expect::Success,
-        Duration::from_secs(5),
+        Some(Duration::from_secs(5)),
         None,
     )
     .await;
@@ -309,7 +334,7 @@ async fn test_action_within_iframe() {
     run_browser_test(
         "action-within-iframe",
         Expect::Success,
-        Duration::from_secs(5),
+        Some(Duration::from_secs(5)),
         None,
     )
     .await;
@@ -322,7 +347,7 @@ async fn test_no_action_available() {
         Expect::Error {
             substring: "no actions available",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         None,
     )
     .await;
@@ -333,7 +358,7 @@ async fn test_back_from_non_html() {
     run_browser_test(
         "back-from-non-html",
         Expect::Success,
-        Duration::from_secs(30),
+        Some(Duration::from_secs(30)),
         Some(
             r#"
 import { extract, now, next, eventually } from "@antithesishq/bombadil";
@@ -430,7 +455,7 @@ async fn test_random_text_input() {
     run_browser_test(
         "random-text-input",
         Expect::Success,
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         Some(
             r#"
 import { extract, now, eventually } from "@antithesishq/bombadil";
@@ -455,7 +480,7 @@ async fn test_counter_state_machine() {
     run_browser_test(
         "counter-state-machine",
         Expect::Success,
-        Duration::from_secs(3),
+        Some(Duration::from_secs(3)),
         Some(
             r#"
 import { extract, now, next, always } from "@antithesishq/bombadil";
@@ -585,7 +610,7 @@ async fn test_time_extractor() {
     run_browser_test(
         "time-extractor",
         Expect::Success,
-        Duration::from_secs(10),
+        Some(Duration::from_secs(10)),
         Some(
             r##"
 import { actions, extract, now, eventually, time } from "@antithesishq/bombadil";
@@ -613,7 +638,7 @@ async fn test_extractor_exception_stack_trace() {
         Expect::Error {
             substring: "\n    at throwingFunction",
         },
-        Duration::from_secs(5),
+        None,
         Some(
             r##"
 import { extract } from "@antithesishq/bombadil";
@@ -635,7 +660,7 @@ async fn test_wait_action() {
     run_browser_test(
         "wait-action",
         Expect::Success,
-        Duration::from_secs(3),
+        Some(Duration::from_secs(3)),
         Some(
             r#"
 import { actions, extract, always } from "@antithesishq/bombadil";
@@ -659,7 +684,7 @@ async fn test_double_click() {
     run_browser_test(
         "double-click",
         Expect::Success,
-        Duration::from_secs(5),
+        Some(Duration::from_secs(5)),
         Some(
             r#"
 import { actions, extract, eventually } from "@antithesishq/bombadil";
@@ -693,7 +718,7 @@ async fn test_extractor_guard() {
         Expect::Error {
             substring: "Cannot access cell.current from within an extractor",
         },
-        Duration::from_secs(5),
+        None,
         Some(
             r##"
 import { actions, extract } from "@antithesishq/bombadil";
@@ -715,7 +740,7 @@ async fn test_module_script() {
     run_browser_test(
         "module-script",
         Expect::Success,
-        Duration::from_secs(5),
+        Some(Duration::from_secs(5)),
         Some(
             r##"
 import { extract, now } from "@antithesishq/bombadil";
@@ -742,7 +767,7 @@ async fn test_snapshot_references_in_violation() {
         Expect::Error {
             substring: "pageValue = 1",
         },
-        Duration::from_secs(TEST_TIMEOUT_SECONDS),
+        None,
         Some(
             r#"
 import { extract, always } from "@antithesishq/bombadil";
@@ -768,7 +793,7 @@ async fn test_module_script_external() {
     run_browser_test(
         "module-script-external",
         Expect::Success,
-        Duration::from_secs(5),
+        Some(Duration::from_secs(5)),
         Some(
             r##"
 import { extract, now } from "@antithesishq/bombadil";
@@ -783,6 +808,23 @@ export const moduleLoaded = now(() => {
   return outputText.current === "External ES module loaded successfully";
 });
 "##,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_time_limit() {
+    run_browser_test(
+        "time-limit",
+        Expect::Success,
+        Some(Duration::from_secs(5)),
+        Some(
+            r#"
+import { always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+export const neverDone = always(() => true);
+"#,
         ),
     )
     .await;

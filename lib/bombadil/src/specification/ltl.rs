@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::verifier::{Snapshot, merge_snapshots};
+pub use bombadil_schema::Time;
 use serde::Serialize;
 
 fn combine_options<T: Clone>(
@@ -105,9 +106,7 @@ impl<Function: Clone> Formula<Function> {
     }
 }
 
-pub type Time = SystemTime;
-
-pub type UniqueSnapshots = BTreeMap<usize, Snapshot>;
+pub type UniqueSnapshots = BTreeMap<(usize, Time), Snapshot>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
@@ -1220,32 +1219,42 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     }
                     None => always_residual,
                 };
-                // Unwrap one layer of Always if present, since
-                // we're about to re-wrap. The inner Always was
-                // produced by either evaluate_always or a prior
-                // evaluate_and_always call for the same formula.
+                // Unwrap all layers of Always if present, since
+                // we're about to re-wrap. The inner Always wrappers
+                // were produced by prior evaluate_always or
+                // evaluate_and_always calls for the same formula.
                 //
                 // When the left side fails, use onset (when the
                 // left residual was first created) so that "but
                 // at T" reflects when the subformula first
                 // started failing. When the right side fails,
-                // use the time from the inner Always (set by
+                // use the time from the innermost Always (set by
                 // evaluate_always at the current step).
                 let (violation, violation_time) = match (&left, &right) {
-                    (Value::False(v, _), _) => match v {
-                        Violation::Always { violation, .. } => {
-                            (violation.as_ref(), onset)
+                    (Value::False(v, _), _) => {
+                        let mut current = v;
+                        while let Violation::Always {
+                            violation: inner, ..
+                        } = current
+                        {
+                            current = inner.as_ref();
                         }
-                        other => (other, onset),
-                    },
-                    (_, Value::False(v, _)) => match v {
-                        Violation::Always {
-                            violation,
+                        (current, onset)
+                    }
+                    (_, Value::False(v, _)) => {
+                        let mut current = v;
+                        let mut last_time = time;
+                        while let Violation::Always {
+                            violation: inner,
                             time: inner_time,
                             ..
-                        } => (violation.as_ref(), *inner_time),
-                        other => (other, time),
-                    },
+                        } = current
+                        {
+                            last_time = *inner_time;
+                            current = inner.as_ref();
+                        }
+                        (current, last_time)
+                    }
                     _ => unreachable!(),
                 };
                 Value::False(
@@ -1561,10 +1570,75 @@ fn attach_snapshots<F>(value: &mut Value<F>, resolved: UniqueSnapshots) {
             snapshots.extend(resolved);
         }
         Value::False(violation, _) => {
-            if let Violation::False { snapshots, .. } = violation {
+            attach_to_violation(violation, &resolved);
+        }
+        Value::Residual(residual) => {
+            attach_to_residual(residual, &resolved);
+        }
+    }
+}
+
+fn attach_to_violation<F>(
+    violation: &mut Violation<F>,
+    resolved: &UniqueSnapshots,
+) {
+    let mut queue = vec![violation];
+
+    while let Some(v) = queue.pop() {
+        match v {
+            Violation::False { snapshots, .. } => {
                 snapshots.extend(resolved.values().cloned());
             }
+            Violation::Implies {
+                antecedent_snapshots,
+                right,
+                ..
+            } => {
+                antecedent_snapshots.extend(resolved.values().cloned());
+                queue.push(right.as_mut());
+            }
+            Violation::And { left, right } => {
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
+            }
+            Violation::Or { left, right } => {
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
+            }
+            Violation::Always { violation, .. } => {
+                queue.push(violation.as_mut());
+            }
+            Violation::Eventually { .. } => {}
         }
-        Value::Residual(_) => {}
+    }
+}
+
+fn attach_to_residual<F>(
+    residual: &mut Residual<F>,
+    resolved: &UniqueSnapshots,
+) {
+    let mut queue = vec![residual];
+
+    while let Some(r) = queue.pop() {
+        match r {
+            Residual::True(snapshots) => {
+                snapshots.extend(resolved.iter().map(|(k, v)| (*k, v.clone())));
+            }
+            Residual::False(violation) => {
+                attach_to_violation(violation, resolved);
+            }
+            Residual::And { left, right }
+            | Residual::Or { left, right }
+            | Residual::OrEventually { left, right, .. }
+            | Residual::AndAlways { left, right, .. } => {
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
+            }
+            Residual::Implies { left, right, .. } => {
+                queue.push(left.as_mut());
+                queue.push(right.as_mut());
+            }
+            Residual::Derived(_, _) => {}
+        }
     }
 }

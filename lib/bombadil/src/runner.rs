@@ -6,6 +6,8 @@ use crate::specification::verifier::{Snapshot, Specification};
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
+use bombadil_schema::Time;
+use serde::Deserialize;
 use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
@@ -14,6 +16,13 @@ use std::time::Duration;
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
 use crate::url::is_within_domain;
+
+#[derive(Debug, Clone, Deserialize)]
+struct PartialSnapshot {
+    index: usize,
+    name: Option<String>,
+    value: json::Value,
+}
 
 pub struct RunnerOptions {
     pub stop_on_violation: bool,
@@ -131,7 +140,9 @@ impl Runner {
                         let step_result = verifier
                             .step::<crate::specification::js::JsAction>(
                                 snapshots.clone(),
-                                state.timestamp,
+                                bombadil_schema::Time::from_system_time(
+                                    state.timestamp,
+                                ),
                             )
                             .await?;
 
@@ -279,12 +290,23 @@ async fn run_extractors(
         )
         .await?;
 
-    let results: Vec<Snapshot> = state
+    let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
                 "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],
             )
             .await?;
+
+    let time = Time::from_system_time(state.timestamp);
+    let results: Vec<Snapshot> = partial_snapshots
+        .into_iter()
+        .map(|partial| Snapshot {
+            index: partial.index,
+            name: partial.name,
+            value: partial.value,
+            time,
+        })
+        .collect();
 
     Ok(results)
 }

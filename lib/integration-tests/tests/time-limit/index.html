@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><title>Time Limit Test</title></head>
+<body>
+    <button id="increment">+</button>
+    <div id="counter">0</div>
+    <script>
+        let count = 0;
+        const counter = document.getElementById('counter');
+        document.getElementById('increment').addEventListener('click', () => {
+            counter.textContent = ++count;
+        });
+    </script>
+</body>
+</html>

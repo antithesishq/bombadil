@@ -1,13 +1,12 @@
 use std::rc::Rc;
 use std::time::Duration;
-use std::time::SystemTime;
 
-use bombadil_schema::PropertyViolation;
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{PropertyViolation, Time, TraceEntry};
 use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
+use crate::duration::FormatDurationOptions;
 use crate::duration::format_duration;
 
 const SPACING_LEFT: f64 = 24.0;
@@ -29,7 +28,7 @@ const T: f64 = K * K * K * K;
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
     pub entries: Rc<[TraceEntry]>,
-    pub test_start: SystemTime,
+    pub test_start: Time,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
 }
@@ -387,7 +386,12 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                         <>
                             <polyline class="border" points={format!(" {x},{top} {x},{bottom} ", top=TIMESCALE_VIOLATIONS_HEIGHT, bottom=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT)} />
                             // TODO: pass in Durations rather than f64 for time
-                            <text class="time-label" x={format!("{x}")} y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>{format_duration(Duration::from_millis((props.x_max * tick) as u64))}</text>
+                            <text
+                                class="time-label"
+                                x={format!("{x}")}
+                                y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>
+                                {format_duration(Duration::from_millis((props.x_max * tick) as u64), FormatDurationOptions { include_millis: false })}
+                            </text>
                         </>
                     )
                 }).collect::<Html>()

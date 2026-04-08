@@ -1,9 +1,14 @@
+mod duration;
 mod inspect_server;
 
 use ::url::Url;
 use anyhow::Result;
 use clap::{Args, Parser};
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    path::PathBuf,
+    str::FromStr,
+    time::{Duration, SystemTime},
+};
 use tempfile::TempDir;
 
 use bombadil::{
@@ -54,6 +59,10 @@ struct TestSharedOptions {
     /// Comma-separated list of: "files", "inline"
     #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
     instrument_javascript: InstrumentationConfig,
+    /// Maximum time to run the test. Accepts a number with a unit suffix:
+    /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+    #[arg(long, value_parser = duration::parse_duration)]
+    time_limit: Option<Duration>,
 }
 
 #[derive(clap::Subcommand)]
@@ -254,7 +263,8 @@ async fn test(
     struct MainObserver {
         writer: TraceWriter,
         exit_on_violation: bool,
-        test_start: Option<std::time::SystemTime>,
+        test_start: Option<bombadil_schema::Time>,
+        deadline: Option<SystemTime>,
     }
 
     impl RunObserver for MainObserver {
@@ -267,7 +277,9 @@ async fn test(
             snapshots: &[Snapshot],
             violations: &[PropertyViolation],
         ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
-            let test_start = *self.test_start.get_or_insert(state.timestamp);
+            let test_start = *self.test_start.get_or_insert(
+                bombadil_schema::Time::from_system_time(state.timestamp),
+            );
 
             for violation in violations {
                 let api_violation = violation.to_api();
@@ -288,14 +300,31 @@ async fn test(
                 return Ok(ControlFlow::Stop(2));
             }
 
+            if let Some(deadline) = self.deadline
+                && state.timestamp >= deadline
+            {
+                log::info!("time limit reached, stopping");
+                return Ok(ControlFlow::Stop(0));
+            }
+
             Ok(ControlFlow::Continue)
         }
     }
+
+    if let Some(duration) = shared_options.time_limit {
+        log::info!(
+            "test time limit set to {}",
+            duration::format_duration(duration)
+        );
+    }
+
+    let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
     let mut observer = MainObserver {
         writer: TraceWriter::initialize(output_path).await?,
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
+        deadline,
     };
 
     if let Some(exit_code) = runner.run(&mut observer).await? {

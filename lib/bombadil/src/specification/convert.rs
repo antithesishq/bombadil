@@ -199,6 +199,7 @@ impl Snapshot {
             index: self.index,
             name: self.name.clone(),
             value: self.value.clone(),
+            time: self.time,
         }
     }
 }

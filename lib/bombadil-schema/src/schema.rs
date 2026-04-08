@@ -2,9 +2,65 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+/// Time represented as microseconds since UNIX_EPOCH.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Time(u64);
+
+impl Serialize for Time {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Time {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        u64::deserialize(deserializer).map(Time)
+    }
+}
+
+impl Time {
+    pub fn from_system_time(time: SystemTime) -> Self {
+        let micros = time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_micros() as u64;
+        Time(micros)
+    }
+
+    pub fn to_system_time(self) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_micros(self.0)
+    }
+
+    pub fn as_micros(self) -> u64 {
+        self.0
+    }
+
+    pub fn checked_add(self, duration: Duration) -> Option<Self> {
+        let duration_micros = duration.as_micros();
+        if duration_micros > u64::MAX as u128 {
+            return None;
+        }
+        self.0.checked_add(duration_micros as u64).map(Time)
+    }
+
+    pub fn duration_since(self, earlier: Time) -> Result<Duration, Duration> {
+        if self.0 >= earlier.0 {
+            Ok(Duration::from_micros(self.0 - earlier.0))
+        } else {
+            Err(Duration::from_micros(earlier.0 - self.0))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TraceEntry {
-    pub timestamp: SystemTime,
+    pub timestamp: Time,
     pub url: String,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
@@ -74,6 +130,7 @@ pub struct Snapshot {
     pub index: usize,
     pub name: Option<String>,
     pub value: serde_json::Value,
+    pub time: Time,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,7 +142,7 @@ pub struct PropertyViolation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Violation {
     False {
-        time: SystemTime,
+        time: Time,
         condition: String,
         snapshots: Vec<Snapshot>,
     },
@@ -96,9 +153,9 @@ pub enum Violation {
     Always {
         violation: Box<Violation>,
         subformula: Box<Formula>,
-        start: SystemTime,
-        end: Option<SystemTime>,
-        time: SystemTime,
+        start: Time,
+        end: Option<Time>,
+        time: Time,
     },
     Until {
         left: Box<Formula>,
@@ -129,7 +186,7 @@ pub enum Violation {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EventuallyViolation {
-    TimedOut(SystemTime),
+    TimedOut(Time),
     TestEnded,
 }
 
