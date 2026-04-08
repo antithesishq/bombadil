@@ -21,6 +21,7 @@ use bombadil::{
     specification::verifier::{Snapshot, Specification},
     trace::{PropertyViolation, writer::TraceWriter},
 };
+use bombadil_browser_keys::key_name;
 use bombadil_schema::{markup, text};
 
 /// Property-based testing for web UIs
@@ -158,7 +159,7 @@ fn parse_instrumentation_config(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let env = env_logger::Env::default().default_filter_or("info");
+    let env = env_logger::Env::default().default_filter_or("warn");
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
         .format_target(true)
@@ -221,6 +222,63 @@ async fn main() -> Result<()> {
     }
 }
 
+fn format_action(action: &BrowserAction) -> String {
+    match action {
+        BrowserAction::Back => "Going back".to_string(),
+        BrowserAction::Forward => "Going forward".to_string(),
+        BrowserAction::Reload => "Reloading page".to_string(),
+        BrowserAction::Wait => "Waiting".to_string(),
+        BrowserAction::Click {
+            name,
+            content,
+            point,
+        } => {
+            let content_str = content
+                .as_ref()
+                .map(|c| format!(", content: {:?}", c))
+                .unwrap_or_default();
+            format!(
+                "Clicking <{name}> (x: {:.1}, y: {:.1}{content_str})",
+                point.x, point.y
+            )
+        }
+        BrowserAction::DoubleClick {
+            name,
+            content,
+            point,
+            delay_millis,
+        } => {
+            let content_str = content
+                .as_ref()
+                .map(|c| format!(", content: {:?}", c))
+                .unwrap_or_default();
+            format!(
+                "Double-clicking <{name}> (x: {:.1}, y: {:.1}, delay: {delay_millis}ms{content_str})",
+                point.x, point.y
+            )
+        }
+        BrowserAction::TypeText { text, delay_millis } => {
+            format!("Typing {:?} (delay: {delay_millis}ms)", text)
+        }
+        BrowserAction::PressKey { code } => {
+            let key = key_name(*code).unwrap_or("Unknown");
+            format!("Pressing {key} (code: {code})")
+        }
+        BrowserAction::ScrollUp { origin, distance } => {
+            format!(
+                "Scrolling up (x: {:.1}, y: {:.1}, distance: {:.0}px)",
+                origin.x, origin.y, distance
+            )
+        }
+        BrowserAction::ScrollDown { origin, distance } => {
+            format!(
+                "Scrolling down (x: {:.1}, y: {:.1}, distance: {:.0}px)",
+                origin.x, origin.y, distance
+            )
+        }
+    }
+}
+
 async fn test(
     shared_options: TestSharedOptions,
     browser_options: BrowserOptions,
@@ -265,6 +323,7 @@ async fn test(
         exit_on_violation: bool,
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
+        output_path: PathBuf,
     }
 
     impl RunObserver for MainObserver {
@@ -281,15 +340,16 @@ async fn test(
                 bombadil_schema::Time::from_system_time(state.timestamp),
             );
 
+            if let Some(action) = last_action {
+                println!("{}", format_action(action));
+            }
+
             for violation in violations {
+                log::info!("violation of property `{}`", violation.name);
                 let api_violation = violation.to_api();
                 let markup = markup::render_violation(&api_violation);
                 let text = text::markup_to_text(&markup, test_start);
-                log::error!(
-                    "violation of property `{}`:\n{}",
-                    violation.name,
-                    text
-                );
+                println!("\n{} was violated:\n\n{}\n", violation.name, text);
             }
 
             self.writer
@@ -321,13 +381,21 @@ async fn test(
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
     let mut observer = MainObserver {
-        writer: TraceWriter::initialize(output_path).await?,
+        writer: TraceWriter::initialize(output_path.clone()).await?,
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
         deadline,
+        output_path: output_path.clone(),
     };
 
-    if let Some(exit_code) = runner.run(&mut observer).await? {
+    let exit_code = runner.run(&mut observer).await?;
+
+    println!(
+        "\ninspect the test results using:\n\n  bombadil inspect {}",
+        observer.output_path.display()
+    );
+
+    if let Some(exit_code) = exit_code {
         std::process::exit(exit_code);
     }
 

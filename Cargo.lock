@@ -429,6 +429,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
+ "bombadil-browser-keys",
  "bombadil-schema",
  "clap",
  "env_logger",
