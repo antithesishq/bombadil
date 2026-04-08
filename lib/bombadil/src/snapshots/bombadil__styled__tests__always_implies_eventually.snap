@@ -1,5 +1,5 @@
 ---
-source: lib/bombadil-cli/src/styled.rs
+source: lib/bombadil/src/styled.rs
 expression: render_violation(&violation)
 ---
-as of 01:00.000, it should always be the case that if x > 10 then eventually y == 20, however from the prior state at 02:00.000, x = 11, failing the implication because y == 20 was never true
+as of [1m01:00.000[0m, it should always be the case that if [3mx > 10[0m then eventually [3my == 20[0m, however from the prior state at [1m02:00.000[0m, x = [34m11[39m, failing the implication because [3my == 20[0m was never true

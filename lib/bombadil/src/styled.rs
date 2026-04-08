@@ -48,9 +48,6 @@ pub fn maybe_red(s: String) -> String {
 
 pub fn markup_to_styled(markup: &Markup, test_start: Time) -> String {
     let mut output = String::new();
-    unsafe {
-        std::env::set_var("NO_COLOR", "1");
-    }
     render_markup(&mut output, markup, test_start);
     output
 }
