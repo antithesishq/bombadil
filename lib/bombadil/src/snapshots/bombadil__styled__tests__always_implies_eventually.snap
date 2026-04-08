@@ -1,5 +1,5 @@
 ---
-source: lib/bombadil-schema/src/text.rs
+source: lib/bombadil-cli/src/styled.rs
 expression: render_violation(&violation)
 ---
 as of 01:00.000, it should always be the case that if x > 10 then eventually y == 20, however from the prior state at 02:00.000, x = 11, failing the implication because y == 20 was never true

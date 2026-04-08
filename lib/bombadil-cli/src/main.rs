@@ -19,10 +19,11 @@ use bombadil::{
     instrumentation::InstrumentationConfig,
     runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
     specification::verifier::{Snapshot, Specification},
+    styled,
     trace::{PropertyViolation, writer::TraceWriter},
 };
 use bombadil_browser_keys::key_name;
-use bombadil_schema::{markup, text};
+use bombadil_schema::markup;
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
@@ -222,12 +223,32 @@ async fn main() -> Result<()> {
     }
 }
 
+fn format_timestamp(
+    timestamp: std::time::SystemTime,
+    test_start: bombadil_schema::Time,
+) -> String {
+    let time = bombadil_schema::Time::from_system_time(timestamp);
+    let elapsed = std::time::Duration::from_micros(
+        time.as_micros().saturating_sub(test_start.as_micros()),
+    );
+    styled::maybe_dimmed(bombadil_schema::duration::format_duration(
+        elapsed,
+        bombadil_schema::duration::FormatDurationOptions {
+            include_millis: true,
+        },
+    ))
+}
+
 fn format_action(action: &BrowserAction) -> String {
     match action {
-        BrowserAction::Back => "Going back".to_string(),
-        BrowserAction::Forward => "Going forward".to_string(),
-        BrowserAction::Reload => "Reloading page".to_string(),
-        BrowserAction::Wait => "Waiting".to_string(),
+        BrowserAction::Back => styled::maybe_bold("Going back".to_string()),
+        BrowserAction::Forward => {
+            styled::maybe_bold("Going forward".to_string())
+        }
+        BrowserAction::Reload => {
+            styled::maybe_bold("Reloading page".to_string())
+        }
+        BrowserAction::Wait => styled::maybe_bold("Waiting".to_string()),
         BrowserAction::Click {
             name,
             content,
@@ -235,11 +256,19 @@ fn format_action(action: &BrowserAction) -> String {
         } => {
             let content_str = content
                 .as_ref()
-                .map(|c| format!(", content: {:?}", c))
+                .map(|c| {
+                    format!(
+                        ", content: {}",
+                        styled::maybe_blue(format!("{:?}", c))
+                    )
+                })
                 .unwrap_or_default();
             format!(
-                "Clicking <{name}> (x: {:.1}, y: {:.1}{content_str})",
-                point.x, point.y
+                "{} <{name}> (x: {}, y: {}{})",
+                styled::maybe_bold("Clicking".to_string()),
+                styled::maybe_blue(format!("{:.1}", point.x)),
+                styled::maybe_blue(format!("{:.1}", point.y)),
+                content_str
             )
         }
         BrowserAction::DoubleClick {
@@ -250,30 +279,55 @@ fn format_action(action: &BrowserAction) -> String {
         } => {
             let content_str = content
                 .as_ref()
-                .map(|c| format!(", content: {:?}", c))
+                .map(|c| {
+                    format!(
+                        ", content: {}",
+                        styled::maybe_blue(format!("{:?}", c))
+                    )
+                })
                 .unwrap_or_default();
             format!(
-                "Double-clicking <{name}> (x: {:.1}, y: {:.1}, delay: {delay_millis}ms{content_str})",
-                point.x, point.y
+                "{} <{name}> (x: {}, y: {}, delay: {}{})",
+                styled::maybe_bold("Double-clicking".to_string()),
+                styled::maybe_blue(format!("{:.1}", point.x)),
+                styled::maybe_blue(format!("{:.1}", point.y)),
+                styled::maybe_blue(format!("{delay_millis}ms")),
+                content_str
             )
         }
         BrowserAction::TypeText { text, delay_millis } => {
-            format!("Typing {:?} (delay: {delay_millis}ms)", text)
+            format!(
+                "{} {} (delay: {})",
+                styled::maybe_bold("Typing".to_string()),
+                styled::maybe_blue(format!("{:?}", text)),
+                styled::maybe_blue(format!("{delay_millis}ms"))
+            )
         }
         BrowserAction::PressKey { code } => {
             let key = key_name(*code).unwrap_or("Unknown");
-            format!("Pressing {key} (code: {code})")
+            format!(
+                "{} {} (code: {})",
+                styled::maybe_bold("Pressing".to_string()),
+                key,
+                styled::maybe_blue(format!("{code}"))
+            )
         }
         BrowserAction::ScrollUp { origin, distance } => {
             format!(
-                "Scrolling up (x: {:.1}, y: {:.1}, distance: {:.0}px)",
-                origin.x, origin.y, distance
+                "{} (x: {}, y: {}, distance: {})",
+                styled::maybe_bold("Scrolling up".to_string()),
+                styled::maybe_blue(format!("{:.1}", origin.x)),
+                styled::maybe_blue(format!("{:.1}", origin.y)),
+                styled::maybe_blue(format!("{:.0}px", distance))
             )
         }
         BrowserAction::ScrollDown { origin, distance } => {
             format!(
-                "Scrolling down (x: {:.1}, y: {:.1}, distance: {:.0}px)",
-                origin.x, origin.y, distance
+                "{} (x: {}, y: {}, distance: {})",
+                styled::maybe_bold("Scrolling down".to_string()),
+                styled::maybe_blue(format!("{:.1}", origin.x)),
+                styled::maybe_blue(format!("{:.1}", origin.y)),
+                styled::maybe_blue(format!("{:.0}px", distance))
             )
         }
     }
@@ -341,15 +395,26 @@ async fn test(
             );
 
             if let Some(action) = last_action {
-                println!("{}", format_action(action));
+                println!(
+                    "{} {}",
+                    format_timestamp(state.timestamp, test_start),
+                    format_action(action)
+                );
             }
 
             for violation in violations {
                 log::info!("violation of property `{}`", violation.name);
                 let api_violation = violation.to_api();
                 let markup = markup::render_violation(&api_violation);
-                let text = text::markup_to_text(&markup, test_start);
-                println!("\n{} was violated:\n\n{}\n", violation.name, text);
+                let text = styled::markup_to_styled(&markup, test_start);
+                println!(
+                    "\n{}\n\n{}\n",
+                    styled::maybe_red(styled::maybe_bold(format!(
+                        "{} was violated:",
+                        violation.name
+                    ))),
+                    text
+                );
             }
 
             self.writer
@@ -391,8 +456,12 @@ async fn test(
     let exit_code = runner.run(&mut observer).await?;
 
     println!(
-        "\ninspect the test results using:\n\n  bombadil inspect {}",
-        observer.output_path.display()
+        "{}\n\nInspect the test results using:\n\n  {}",
+        styled::maybe_bold("Test finished!".to_string()),
+        styled::maybe_italic(format!(
+            "bombadil inspect {}",
+            observer.output_path.display()
+        ))
     );
 
     if let Some(exit_code) = exit_code {

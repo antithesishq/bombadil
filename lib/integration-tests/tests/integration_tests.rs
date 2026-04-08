@@ -18,8 +18,9 @@ use bombadil::{
     },
     runner::{Runner, RunnerOptions},
     specification::verifier::Specification,
+    styled,
 };
-use bombadil_schema::{markup, text};
+use bombadil_schema::markup;
 
 enum Expect {
     Error { substring: &'static str },
@@ -176,11 +177,9 @@ async fn run_browser_test(
                 for violation in violations {
                     let api_violation = violation.to_api();
                     let markup = markup::render_violation(&api_violation);
-                    let rendered = text::markup_to_text(
+                    let rendered = styled::markup_to_styled(
                         &markup,
-                        bombadil_schema::schema::Time::from_system_time(
-                            test_start,
-                        ),
+                        bombadil_schema::Time::from_system_time(test_start),
                     );
                     self.collected_violations
                         .push(format!("{}:\n{}\n\n", violation.name, rendered));
