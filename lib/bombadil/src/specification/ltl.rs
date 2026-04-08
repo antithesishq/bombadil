@@ -661,32 +661,42 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     }
                     None => always_residual,
                 };
-                // Unwrap one layer of Always if present, since
-                // we're about to re-wrap. The inner Always was
-                // produced by either evaluate_always or a prior
-                // evaluate_and_always call for the same formula.
+                // Unwrap all layers of Always if present, since
+                // we're about to re-wrap. The inner Always wrappers
+                // were produced by prior evaluate_always or
+                // evaluate_and_always calls for the same formula.
                 //
                 // When the left side fails, use onset (when the
                 // left residual was first created) so that "but
                 // at T" reflects when the subformula first
                 // started failing. When the right side fails,
-                // use the time from the inner Always (set by
+                // use the time from the innermost Always (set by
                 // evaluate_always at the current step).
                 let (violation, violation_time) = match (&left, &right) {
-                    (Value::False(v, _), _) => match v {
-                        Violation::Always { violation, .. } => {
-                            (violation.as_ref(), onset)
+                    (Value::False(v, _), _) => {
+                        let mut current = v;
+                        while let Violation::Always {
+                            violation: inner, ..
+                        } = current
+                        {
+                            current = inner.as_ref();
                         }
-                        other => (other, onset),
-                    },
-                    (_, Value::False(v, _)) => match v {
-                        Violation::Always {
-                            violation,
+                        (current, onset)
+                    }
+                    (_, Value::False(v, _)) => {
+                        let mut current = v;
+                        let mut last_time = time;
+                        while let Violation::Always {
+                            violation: inner,
                             time: inner_time,
                             ..
-                        } => (violation.as_ref(), *inner_time),
-                        other => (other, time),
-                    },
+                        } = current
+                        {
+                            last_time = *inner_time;
+                            current = inner.as_ref();
+                        }
+                        (current, last_time)
+                    }
                     _ => unreachable!(),
                 };
                 Value::False(
