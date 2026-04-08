@@ -14,6 +14,7 @@ use crate::timeline::Timeline;
 mod actions;
 mod container_size;
 mod duration;
+mod list_autoscroll;
 mod render;
 mod screenshot;
 mod state_details;

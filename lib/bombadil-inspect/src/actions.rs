@@ -6,6 +6,7 @@ use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
+use crate::list_autoscroll::use_list_autoscroll;
 use crate::time::Duration;
 
 #[derive(PartialEq, Properties)]
@@ -19,8 +20,10 @@ pub struct ActionsListProps {
 pub fn ActionsList(props: &ActionsListProps) -> Html {
     let test_start =
         props.trace.first().expect("no first trace entry").timestamp;
+    let list_ref = use_list_autoscroll(props.selected_index);
+
     html!(
-        <ol>
+        <ol ref={list_ref}>
         {
             props.trace.iter().enumerate().map(|(i, entry)| {
                 html!(
