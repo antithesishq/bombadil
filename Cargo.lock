@@ -1855,6 +1855,7 @@ dependencies = [
  "indoc",
  "insta",
  "log",
+ "owo-colors",
  "proptest",
  "tempfile",
  "tokio",

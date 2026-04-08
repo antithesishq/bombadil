@@ -41,6 +41,11 @@ impl Display for Expect {
 static INIT: Once = Once::new();
 
 fn setup() {
+    // For some reason owo_colors::set_override doesn't bite, so we resort to this ugly way
+    // of disabling colorized output.
+    unsafe {
+        std::env::set_var("NO_COLOR", "1");
+    }
     INIT.call_once(|| {
         let env = env_logger::Env::default().default_filter_or("debug");
         env_logger::Builder::from_env(env)
