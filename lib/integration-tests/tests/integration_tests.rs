@@ -267,9 +267,7 @@ async fn test_console_error() {
     run_browser_test(
         "console-error",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noConsoleErrors",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -288,9 +286,7 @@ async fn test_uncaught_exception() {
     run_browser_test(
         "uncaught-exception",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUncaughtExceptions",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -303,9 +299,7 @@ async fn test_unhandled_promise_rejection() {
     run_browser_test(
         "unhandled-promise-rejection",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUnhandledPromiseRejections",
+            substring: "oh no you pressed too much",
         },
         None,
         None,

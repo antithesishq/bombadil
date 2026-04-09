@@ -16,11 +16,30 @@ function formatException(e: {
   line: number;
   column: number;
   url: string | null;
+  remote_object: {
+    type_name: string;
+    subtype: string | null;
+    class_name: string | null;
+    description: string | null;
+    value: unknown;
+  } | null;
   stacktrace:
     | { name: string; line: number; column: number; url: string }[]
     | null;
 }): string {
   let result = e.text;
+  if (e.remote_object?.description) {
+    const firstLine = e.remote_object.description.split("\n")[0];
+    result = `${e.text} ${firstLine}`;
+  } else if (
+    e.remote_object?.value !== null &&
+    e.remote_object?.value !== undefined
+  ) {
+    const value = String(e.remote_object.value);
+    if (value && value !== e.text) {
+      result = `${e.text} ${value}`;
+    }
+  }
   if (e.stacktrace) {
     for (const frame of e.stacktrace) {
       result += "\n    at ";
