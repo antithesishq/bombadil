@@ -1,7 +1,52 @@
-use crate::markup::{Inline, Markup};
-use crate::schema::Time;
+use bombadil_schema::Time;
+use bombadil_schema::markup::{Inline, Markup};
+use owo_colors::OwoColorize;
 
-pub fn markup_to_text(markup: &Markup, test_start: Time) -> String {
+pub fn supports_color() -> bool {
+    supports_color::on(supports_color::Stream::Stdout).is_some()
+}
+
+pub fn maybe_blue(s: String) -> String {
+    if supports_color() {
+        s.blue().to_string()
+    } else {
+        s
+    }
+}
+
+pub fn maybe_bold(s: String) -> String {
+    if supports_color() {
+        s.bold().to_string()
+    } else {
+        s
+    }
+}
+
+pub fn maybe_italic(s: String) -> String {
+    if supports_color() {
+        s.italic().to_string()
+    } else {
+        s
+    }
+}
+
+pub fn maybe_dimmed(s: String) -> String {
+    if supports_color() {
+        s.dimmed().to_string()
+    } else {
+        s
+    }
+}
+
+pub fn maybe_red(s: String) -> String {
+    if supports_color() {
+        s.red().to_string()
+    } else {
+        s
+    }
+}
+
+pub fn markup_to_styled(markup: &Markup, test_start: Time) -> String {
     let mut output = String::new();
     render_markup(&mut output, markup, test_start);
     output
@@ -15,7 +60,7 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
             }
         }
         Markup::CodeBlock(code) => {
-            output.push_str(code);
+            output.push_str(&maybe_italic(code.to_string()));
         }
         Markup::Snapshots(snapshots) => {
             let all_inline =
@@ -41,9 +86,7 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
         Markup::Join(items) => {
             render_join(output, items, test_start);
         }
-        Markup::Comma => {
-            // Commas are handled by Join logic, never rendered directly
-        }
+        Markup::Comma => {}
     }
 }
 
@@ -110,18 +153,24 @@ fn render_json_value(
     indent: usize,
 ) {
     match value {
-        serde_json::Value::Null => output.push_str("null"),
-        serde_json::Value::Bool(b) => output.push_str(&b.to_string()),
-        serde_json::Value::Number(n) => output.push_str(&n.to_string()),
+        serde_json::Value::Null => {
+            output.push_str(&maybe_blue("null".to_string()))
+        }
+        serde_json::Value::Bool(b) => {
+            output.push_str(&maybe_blue(b.to_string()))
+        }
+        serde_json::Value::Number(n) => {
+            output.push_str(&maybe_blue(n.to_string()))
+        }
         serde_json::Value::String(s) => {
             if is_simple_string(s) {
-                output.push_str(s);
+                output.push_str(&maybe_blue(s.to_string()));
             } else {
-                output.push_str(&serde_json::to_string(s).unwrap());
+                output.push_str(&maybe_blue(serde_json::to_string(s).unwrap()));
             }
         }
         serde_json::Value::Array(items) if items.is_empty() => {
-            output.push_str("[]")
+            output.push_str(&maybe_blue("[]".to_string()))
         }
         serde_json::Value::Array(items) => {
             let indent_str = "  ".repeat(indent + 1);
@@ -133,7 +182,7 @@ fn render_json_value(
             }
         }
         serde_json::Value::Object(map) if map.is_empty() => {
-            output.push_str("{}")
+            output.push_str(&maybe_blue("{}".to_string()))
         }
         serde_json::Value::Object(map) => {
             let mut entries: Vec<_> = map.iter().collect();
@@ -221,30 +270,28 @@ fn is_inline(markup: &Markup) -> bool {
 fn render_inline(output: &mut String, inline: &Inline, test_start: Time) {
     match inline {
         Inline::Text(text) => output.push_str(text),
-        Inline::Code(code) => output.push_str(code),
+        Inline::Code(code) => output.push_str(&maybe_italic(code.to_string())),
         Inline::Time(time) => {
-            output.push_str(&format_duration(*time, test_start));
+            let elapsed = std::time::Duration::from_micros(
+                time.as_micros().saturating_sub(test_start.as_micros()),
+            );
+            let formatted = bombadil_schema::duration::format_duration(
+                elapsed,
+                bombadil_schema::duration::FormatDurationOptions {
+                    include_millis: true,
+                },
+            );
+            output.push_str(&maybe_bold(formatted));
         }
         Inline::Keyword(keyword) => output.push_str(keyword),
     }
-}
-
-fn format_duration(time: Time, test_start: Time) -> String {
-    let micros_since_start =
-        time.as_micros().saturating_sub(test_start.as_micros());
-    let total_seconds = micros_since_start / 1_000_000;
-    let millis = (micros_since_start % 1_000_000) / 1_000;
-    let minutes = total_seconds / 60;
-    let seconds = total_seconds % 60;
-
-    format!("{:02}:{:02}.{:03}", minutes, seconds, millis)
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use crate::schema::{
+    use bombadil_schema::{
         EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
         Violation,
     };
@@ -269,13 +316,12 @@ mod tests {
     }
 
     fn render_violation(violation: &PropertyViolation) -> String {
-        let markup = crate::markup::render_violation(violation);
-        markup_to_text(&markup, test_start())
+        let markup = bombadil_schema::markup::render_violation(violation);
+        markup_to_styled(&markup, test_start())
     }
 
     #[test]
     fn test_invariant_violation() {
-        // always(() => count.current <= 5)
         let violation = PropertyViolation {
             name: "maxCount".to_string(),
             violation: Violation::Always {
@@ -301,7 +347,6 @@ mod tests {
 
     #[test]
     fn test_always_implies_eventually() {
-        // always((() => x > 10).implies(eventually(() => y == 20)))
         let violation = PropertyViolation {
             name: "implicationProperty".to_string(),
             violation: Violation::Always {
@@ -336,7 +381,6 @@ mod tests {
 
     #[test]
     fn test_bounded_eventually() {
-        // always(errorMessage !== null implies eventually(errorMessage === null).within(5 seconds))
         let violation = PropertyViolation {
             name: "errorDisappears".to_string(),
             violation: Violation::Always {
@@ -371,8 +415,6 @@ mod tests {
 
     #[test]
     fn test_next_violation() {
-        // always(unchanged.or(increment).or(decrement))
-        // where unchanged = now(() => next(() => counterValue.current === current))
         let violation = PropertyViolation {
             name: "counterStateMachine".to_string(),
             violation: Violation::Always {
@@ -424,7 +466,6 @@ mod tests {
 
     #[test]
     fn test_bounded_always() {
-        // always(notificationCount === notificationCount.at(start)).for(10 seconds)
         let violation = PropertyViolation {
             name: "constantNotificationCount".to_string(),
             violation: Violation::Always {
@@ -446,8 +487,9 @@ mod tests {
                     time: time_at(125),
                     violation: Box::new(Violation::False {
                         time: time_at(125),
-                        condition: "notificationCount.current === notificationCount.at(start)"
-                            .into(),
+                        condition:
+                            "notificationCount.current === notificationCount.at(start)"
+                                .into(),
                         snapshots: vec![Snapshot {
                             index: 0,
                             name: Some("notificationCount".into()),
@@ -464,7 +506,6 @@ mod tests {
 
     #[test]
     fn test_complex_snapshots() {
-        // Snapshot with nested objects and arrays
         let violation = PropertyViolation {
             name: "userDataValid".to_string(),
             violation: Violation::Always {
@@ -498,8 +539,6 @@ mod tests {
 
     #[test]
     fn test_or_with_temporal_operators() {
-        // State machine property: always(eventually(ready) or always(disabled))
-        // Models: "either we eventually become ready, or we stay disabled forever"
         let violation = PropertyViolation {
             name: "stateMachine".to_string(),
             violation: Violation::Always {
@@ -546,7 +585,6 @@ mod tests {
 
     #[test]
     fn test_snapshot_separator_logic() {
-        // Test all-inline snapshots (should use comma separator)
         let all_inline = PropertyViolation {
             name: "allInlineSnapshots".to_string(),
             violation: Violation::Always {
@@ -581,7 +619,6 @@ mod tests {
             },
         };
 
-        // Test mixed inline and multi-line snapshots (should use newline separator)
         let mixed = PropertyViolation {
             name: "mixedSnapshots".to_string(),
             violation: Violation::Always {

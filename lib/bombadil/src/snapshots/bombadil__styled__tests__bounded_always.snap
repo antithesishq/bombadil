@@ -1,0 +1,5 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, it should always be the case that for 10 seconds [3mnotificationCount.current === notificationCount.at(start)[0m, however as of [1m02:00.000[0m and until [1m02:10.000[0m, it should always be the case that [3mnotificationCount.current === notificationCount.at(start)[0m, however at [1m02:05.000[0m, notificationCount = [34m3[39m

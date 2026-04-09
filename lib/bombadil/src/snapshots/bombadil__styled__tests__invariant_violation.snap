@@ -1,0 +1,5 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, it should always be the case that [3mcount.current <= 5[0m, however at [1m05:05.000[0m, count = [34m6[39m

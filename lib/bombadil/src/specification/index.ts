@@ -284,6 +284,13 @@ export interface State {
       line: number;
       column: number;
       url: string | null;
+      remote_object: {
+        type_name: string;
+        subtype: string | null;
+        class_name: string | null;
+        description: string | null;
+        value: unknown;
+      } | null;
       stacktrace:
         | { name: string; line: number; column: number; url: string }[]
         | null;

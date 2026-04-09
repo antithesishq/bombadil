@@ -1,0 +1,15 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, it should always be the case that [3muser.isValid()[0m, however at [1m01:00.000[0m:
+
+user = 
+  address: 
+    city: [34mSan Francisco[39m
+    zip: [34m94102[39m
+  age: [34m30[39m
+  name: [34mAlice[39m
+  tags: 
+    - [34mpremium[39m
+    - [34mverified[39m

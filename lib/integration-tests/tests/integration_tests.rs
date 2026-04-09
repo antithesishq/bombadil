@@ -18,8 +18,9 @@ use bombadil::{
     },
     runner::{Runner, RunnerOptions},
     specification::verifier::Specification,
+    styled,
 };
-use bombadil_schema::{markup, text};
+use bombadil_schema::markup;
 
 enum Expect {
     Error { substring: &'static str },
@@ -176,11 +177,9 @@ async fn run_browser_test(
                 for violation in violations {
                     let api_violation = violation.to_api();
                     let markup = markup::render_violation(&api_violation);
-                    let rendered = text::markup_to_text(
+                    let rendered = styled::markup_to_styled(
                         &markup,
-                        bombadil_schema::schema::Time::from_system_time(
-                            test_start,
-                        ),
+                        bombadil_schema::Time::from_system_time(test_start),
                     );
                     self.collected_violations
                         .push(format!("{}:\n{}\n\n", violation.name, rendered));
@@ -250,7 +249,10 @@ async fn run_browser_test(
     match (outcome, expect) {
         (Outcome::Error(error), Expect::Error { substring }) => {
             if !error.to_string().contains(substring) {
-                panic!("expected error message not found in: {}", error);
+                panic!(
+                    "expected error message {:?} not found in:\n\n{}",
+                    substring, error
+                );
             }
         }
         (Outcome::Success, Expect::Success) => {}
@@ -265,9 +267,7 @@ async fn test_console_error() {
     run_browser_test(
         "console-error",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noConsoleErrors",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -277,15 +277,8 @@ async fn test_console_error() {
 
 #[tokio::test]
 async fn test_links() {
-    run_browser_test(
-        "links",
-        Expect::Error {
-            substring: "noHttpErrorCodes",
-        },
-        None,
-        None,
-    )
-    .await;
+    run_browser_test("links", Expect::Error { substring: "404" }, None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -293,9 +286,7 @@ async fn test_uncaught_exception() {
     run_browser_test(
         "uncaught-exception",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUncaughtExceptions",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -308,9 +299,7 @@ async fn test_unhandled_promise_rejection() {
     run_browser_test(
         "unhandled-promise-rejection",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUnhandledPromiseRejections",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -765,7 +754,7 @@ async fn test_snapshot_references_in_violation() {
     run_browser_test(
         "snapshot-references",
         Expect::Error {
-            substring: "pageValue = 1",
+            substring: "pageValue =",
         },
         None,
         Some(

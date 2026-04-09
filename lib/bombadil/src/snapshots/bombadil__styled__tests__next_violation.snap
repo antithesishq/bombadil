@@ -1,0 +1,5 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, it should always be the case that next [3mcounterValue.current === 5[0m or next [3mcounterValue.current === 6[0m or next [3mcounterValue.current === 4[0m, however from the prior state at [1m00:31.000[0m, counterValue = [34m10[39m and [3m!(counterValue.current === 6)[0m and [3m!(counterValue.current === 4)[0m

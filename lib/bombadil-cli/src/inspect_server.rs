@@ -45,7 +45,7 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&address).await?;
     let url = format!("http://{}", address);
 
-    log::info!("Bombadil Inspect available at {}", url);
+    println!("Bombadil Inspect available at {}", url);
 
     if open_browser && let Err(error) = open::that(&url) {
         log::warn!("Failed to open browser: {}", error);
