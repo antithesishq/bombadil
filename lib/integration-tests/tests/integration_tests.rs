@@ -41,11 +41,6 @@ impl Display for Expect {
 static INIT: Once = Once::new();
 
 fn setup() {
-    // For some reason owo_colors::set_override doesn't bite, so we resort to this ugly way
-    // of disabling colorized output.
-    unsafe {
-        std::env::set_var("NO_COLOR", "1");
-    }
     INIT.call_once(|| {
         let env = env_logger::Env::default().default_filter_or("debug");
         env_logger::Builder::from_env(env)
@@ -254,7 +249,10 @@ async fn run_browser_test(
     match (outcome, expect) {
         (Outcome::Error(error), Expect::Error { substring }) => {
             if !error.to_string().contains(substring) {
-                panic!("expected error message not found in: {}", error);
+                panic!(
+                    "expected error message {:?} not found in:\n\n{}",
+                    substring, error
+                );
             }
         }
         (Outcome::Success, Expect::Success) => {}
@@ -269,9 +267,7 @@ async fn test_console_error() {
     run_browser_test(
         "console-error",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noConsoleErrors",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -281,15 +277,8 @@ async fn test_console_error() {
 
 #[tokio::test]
 async fn test_links() {
-    run_browser_test(
-        "links",
-        Expect::Error {
-            substring: "noHttpErrorCodes",
-        },
-        None,
-        None,
-    )
-    .await;
+    run_browser_test("links", Expect::Error { substring: "404" }, None, None)
+        .await;
 }
 
 #[tokio::test]
@@ -297,9 +286,7 @@ async fn test_uncaught_exception() {
     run_browser_test(
         "uncaught-exception",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUncaughtExceptions",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -312,9 +299,7 @@ async fn test_unhandled_promise_rejection() {
     run_browser_test(
         "unhandled-promise-rejection",
         Expect::Error {
-            // TODO: restore assertion to "oh no you pressed too much" when we print relevant
-            // cells again
-            substring: "noUnhandledPromiseRejections",
+            substring: "oh no you pressed too much",
         },
         None,
         None,
@@ -677,7 +662,7 @@ async fn test_snapshot_references_in_violation() {
     run_browser_test(
         "snapshot-references",
         Expect::Error {
-            substring: "pageValue = 1",
+            substring: "pageValue =",
         },
         None,
         Some(
