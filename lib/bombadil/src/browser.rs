@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::{BrowserConfigBuilder, HeadlessMode};
+use chromiumoxide::cdp::browser_protocol::browser;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
 };
@@ -216,6 +217,17 @@ impl Browser {
         page.enable_css().await?;
         page.enable_runtime().await?;
         page.enable_debugger().await?;
+
+        // Prevent file downloads to avoid getting stuck
+        page.execute(
+            browser::SetDownloadBehaviorParams::builder()
+                .behavior(browser::SetDownloadBehaviorBehavior::Deny)
+                .build()
+                .map_err(|s| {
+                    anyhow!(s).context("build SetDownloadBehaviorParams failed")
+                })?,
+        )
+        .await?;
 
         page.execute(
             emulation::SetDeviceMetricsOverrideParams::builder()

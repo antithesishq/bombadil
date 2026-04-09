@@ -726,3 +726,28 @@ export const neverDone = always(() => true);
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_file_download() {
+    run_browser_test(
+        "file-download",
+        Expect::Success,
+        Some(Duration::from_secs(10)),
+        Some(
+            r#"
+import { extract, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const messageText = extract((state) => {
+  const message = state.document.querySelector("\#message");
+  return message ? message.textContent : "";
+});
+
+export const downloadCompletes = eventually(
+  () => messageText.current === "you have downloaded the file"
+);
+"#,
+        ),
+    )
+    .await;
+}
