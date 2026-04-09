@@ -507,7 +507,7 @@ async fn test_until_release_success() {
     run_browser_test(
         "until-release",
         Expect::Success,
-        Duration::from_secs(10),
+        Some(Duration::from_secs(10)),
         Some(
             r#"
 import { actions, extract, now, eventually, type Action } from "@antithesishq/bombadil";

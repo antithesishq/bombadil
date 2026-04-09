@@ -119,23 +119,27 @@ impl Violation<PrettyFunction> {
             Violation::Until {
                 left,
                 right,
-                bound,
+                start,
+                end,
                 reason,
             } => bombadil_schema::Violation::Until {
                 left: Box::new(left.to_api()),
                 right: Box::new(right.to_api()),
-                bound: *bound,
+                start: *start,
+                end: *end,
                 reason: reason.to_api(),
             },
             Violation::Release {
                 left,
                 right,
-                bound,
+                start,
+                end,
                 violation,
             } => bombadil_schema::Violation::Release {
                 left: Box::new(left.to_api()),
                 right: Box::new(right.to_api()),
-                bound: *bound,
+                start: *start,
+                end: *end,
                 violation: Box::new(violation.to_api()),
             },
             Violation::And { left, right } => bombadil_schema::Violation::And {
@@ -183,11 +187,16 @@ impl UntilViolation<PrettyFunction> {
                     violation.to_api(),
                 ))
             }
-            UntilViolation::TimedOut(time) => {
-                bombadil_schema::UntilViolation::TimedOut(*time)
+            UntilViolation::TimedOut { time, snapshots } => {
+                bombadil_schema::UntilViolation::TimedOut {
+                    time: *time,
+                    snapshots: snapshots.iter().map(|s| s.to_api()).collect(),
+                }
             }
-            UntilViolation::TestEnded => {
-                bombadil_schema::UntilViolation::TestEnded
+            UntilViolation::TestEnded { snapshots } => {
+                bombadil_schema::UntilViolation::TestEnded {
+                    snapshots: snapshots.iter().map(|s| s.to_api()).collect(),
+                }
             }
         }
     }

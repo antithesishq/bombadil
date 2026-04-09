@@ -895,20 +895,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -946,20 +941,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         let first: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         assert!(matches!(
@@ -973,14 +963,21 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(4),
+                    time: time_from_millis(1),
                 }],
-                time_at(1),
+                time_from_millis(1),
             )
             .unwrap();
         let (_, value) = second.properties.first().unwrap();
         assert!(matches!(
             value,
-            ltl::Value::False(ltl::Violation::Until { .. }, _)
+            ltl::Value::False(
+                ltl::Violation::Until {
+                    reason: ltl::UntilViolation::Left(_),
+                    ..
+                },
+                _
+            )
         ));
     }
 
@@ -1003,8 +1000,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                SystemTime::UNIX_EPOCH,
+                time_from_millis(0),
             )
             .unwrap();
 
@@ -1028,20 +1026,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1081,20 +1074,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1108,7 +1096,7 @@ mod tests {
                     value,
                     ltl::Value::False(
                         ltl::Violation::Until {
-                            reason: ltl::UntilViolation::TimedOut(_),
+                            reason: ltl::UntilViolation::TimedOut { .. },
                             ..
                         },
                         _
@@ -1129,7 +1117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_property_evaluation_until_right_holds_immediately() {
+    fn test_property_evaluation_until_test_ended() {
         let mut verifier = verifier(
             r#"
             import { actions, extract, now } from "@antithesishq/bombadil";
@@ -1137,24 +1125,39 @@ mod tests {
 
             const foo = extract((state) => state.foo);
 
-            export const my_prop = now(() => foo.current === 0).until(() => foo.current === 0);
+            export const my_prop = now(() => foo.current < 3).until(() => foo.current === 3);
             "#,
         );
 
+        let time = time_from_millis(0);
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time,
                 }],
-                SystemTime::UNIX_EPOCH,
+                time,
             )
             .unwrap();
 
-        let (name, value) = result.properties.first().unwrap();
-        assert_eq!(*name, "my_prop");
-        assert!(matches!(value, ltl::Value::True(_)));
+        let (_, value) = result.properties.first().unwrap();
+        match value {
+            ltl::Value::Residual(residual) => {
+                match stop_default(residual, time) {
+                    Some(StopDefault::False(ltl::Violation::Until {
+                        reason: ltl::UntilViolation::TestEnded { .. },
+                        ..
+                    })) => {}
+                    other => panic!(
+                        "should be a TestEnded until violation but was: {:?}",
+                        other
+                    ),
+                }
+            }
+            other => panic!("should be residual but was: {:?}", other),
+        }
     }
 
     #[test]
@@ -1177,8 +1180,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                SystemTime::UNIX_EPOCH,
+                time_from_millis(0),
             )
             .unwrap();
 
@@ -1200,20 +1204,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1252,25 +1251,20 @@ mod tests {
 
             export const my_prop = now(() => foo.current < 3)
                 .until(() => foo.current === 3)
-                .within(3, "milliseconds")
+                .within(2, "milliseconds")
                 .not();
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1280,10 +1274,7 @@ mod tests {
             assert_eq!(*name, "my_prop");
 
             if i == 3 {
-                assert!(matches!(
-                    value,
-                    ltl::Value::False(ltl::Violation::Release { .. }, _)
-                ));
+                assert!(matches!(value, ltl::Value::True(_)));
             } else {
                 match value {
                     ltl::Value::Residual(residual) => {
@@ -1311,20 +1302,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1364,20 +1350,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1403,6 +1384,36 @@ mod tests {
     }
 
     #[test]
+    fn test_property_evaluation_release_resolves_immediately() {
+        let mut verifier = verifier(
+            r#"
+            import { actions, extract, now } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+
+            const foo = extract((state) => state.foo);
+
+            export const my_prop = now(() => foo.current === 0).release(() => foo.current === 0);
+            "#,
+        );
+
+        let result: StepResult<Snapshot> = verifier
+            .step(
+                &[Snapshot {
+                    index: 0,
+                    name: None,
+                    value: json::json!(0),
+                    time: time_from_millis(0),
+                }],
+                time_from_millis(0),
+            )
+            .unwrap();
+
+        let (name, value) = result.properties.first().unwrap();
+        assert_eq!(*name, "my_prop");
+        assert!(matches!(value, ltl::Value::True(_)));
+    }
+
+    #[test]
     fn test_property_evaluation_release_fails_when_right_breaks() {
         let mut verifier = verifier(
             r#"
@@ -1415,20 +1426,15 @@ mod tests {
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         let first: StepResult<Snapshot> = verifier
             .step(
                 &[Snapshot {
                     index: 0,
                     name: None,
                     value: json::json!(0),
+                    time: time_from_millis(0),
                 }],
-                time_at(0),
+                time_from_millis(0),
             )
             .unwrap();
         assert!(matches!(
@@ -1442,8 +1448,9 @@ mod tests {
                     index: 0,
                     name: None,
                     value: json::json!(4),
+                    time: time_from_millis(1),
                 }],
-                time_at(1),
+                time_from_millis(1),
             )
             .unwrap();
         let (_, value) = second.properties.first().unwrap();
@@ -1454,7 +1461,7 @@ mod tests {
     }
 
     #[test]
-    fn test_property_evaluation_not_release_bounded() {
+    fn test_property_evaluation_not_release() {
         let mut verifier = verifier(
             r#"
             import { actions, extract, now, not } from "@antithesishq/bombadil";
@@ -1462,28 +1469,19 @@ mod tests {
 
             const foo = extract((state) => state.foo);
 
-            export const my_prop = not(
-                now(() => foo.current === 4)
-                    .release(() => foo.current <= 2)
-                    .within(2, "milliseconds")
-            );
+            export const my_prop = not(now(() => foo.current === 3).release(() => foo.current <= 3));
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1497,7 +1495,7 @@ mod tests {
                     value,
                     ltl::Value::False(
                         ltl::Violation::Until {
-                            reason: ltl::UntilViolation::TimedOut(_),
+                            reason: ltl::UntilViolation::Left(_),
                             ..
                         },
                         _
@@ -1518,7 +1516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_property_evaluation_not_release() {
+    fn test_property_evaluation_not_release_bounded() {
         let mut verifier = verifier(
             r#"
             import { actions, extract, now, not } from "@antithesishq/bombadil";
@@ -1526,24 +1524,23 @@ mod tests {
 
             const foo = extract((state) => state.foo);
 
-            export const my_prop = not(now(() => foo.current === 3).release(() => foo.current <= 3));
+            export const my_prop = not(
+                now(() => foo.current === 4)
+                    .release(() => foo.current <= 2)
+                    .within(2, "milliseconds")
+            );
             "#,
         );
 
-        let time_at = |i: u64| {
-            SystemTime::UNIX_EPOCH
-                .checked_add(Duration::from_millis(i))
-                .unwrap()
-        };
-
         for i in 0..=3 {
-            let time = time_at(i);
+            let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
                 .step(
                     &[Snapshot {
                         index: 0,
                         name: None,
                         value: json::json!(i),
+                        time,
                     }],
                     time,
                 )
@@ -1555,7 +1552,13 @@ mod tests {
             if i == 3 {
                 assert!(matches!(
                     value,
-                    ltl::Value::False(ltl::Violation::Until { .. }, _)
+                    ltl::Value::False(
+                        ltl::Violation::Until {
+                            reason: ltl::UntilViolation::TimedOut { .. },
+                            ..
+                        },
+                        _
+                    )
                 ));
             } else {
                 match value {

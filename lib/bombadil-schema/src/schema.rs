@@ -160,13 +160,15 @@ pub enum Violation {
     Until {
         left: Box<Formula>,
         right: Box<Formula>,
-        bound: Option<Duration>,
+        start: Time,
+        end: Option<Time>,
         reason: UntilViolation,
     },
     Release {
         left: Box<Formula>,
         right: Box<Formula>,
-        bound: Option<Duration>,
+        start: Time,
+        end: Option<Time>,
         violation: Box<Violation>,
     },
     And {
@@ -193,8 +195,13 @@ pub enum EventuallyViolation {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum UntilViolation {
     Left(Box<Violation>),
-    TimedOut(SystemTime),
-    TestEnded,
+    TimedOut {
+        time: Time,
+        snapshots: Vec<Snapshot>,
+    },
+    TestEnded {
+        snapshots: Vec<Snapshot>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
