@@ -63,7 +63,7 @@ enum InnerStateKind {
     Pausing,
     Paused,
     Resuming(BrowserAction, Timeout),
-    Navigating,
+    Navigating { url: String },
     Loading,
     Running,
     Acting,
@@ -80,8 +80,16 @@ enum InnerEvent {
         call_frame_id: Option<CallFrameId>,
     },
     Resumed,
-    FrameRequestedNavigation(FrameId, ClientNavigationReason, String),
+    FrameRequestedNavigation {
+        frame_id: FrameId,
+        reason: ClientNavigationReason,
+        url: String,
+    },
     FrameNavigated(FrameId, NavigationType),
+    DownloadWillBegin {
+        frame_id: FrameId,
+        url: String,
+    },
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Timeout),
@@ -95,6 +103,7 @@ enum StateRequestReason {
     Timeout,
     Loaded,
     BackForwardCacheRestore,
+    FileDownload,
     Watchdog,
 }
 
@@ -145,6 +154,7 @@ pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
+    pub downloads_directory: PathBuf,
 }
 
 #[derive(Clone)]
@@ -221,7 +231,11 @@ impl Browser {
         // Prevent file downloads to avoid getting stuck
         page.execute(
             browser::SetDownloadBehaviorParams::builder()
-                .behavior(browser::SetDownloadBehaviorBehavior::Deny)
+                .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
+                .events_enabled(true)
+                .download_path(
+                    browser_options.downloads_directory.to_string_lossy(),
+                )
                 .build()
                 .map_err(|s| {
                     anyhow!(s).context("build SetDownloadBehaviorParams failed")
@@ -469,12 +483,10 @@ async fn inner_events(
             .page
             .event_listener::<page::EventFrameRequestedNavigation>()
             .await?
-            .map(|nav| {
-                InnerEvent::FrameRequestedNavigation(
-                    nav.frame_id.clone(),
-                    nav.reason.clone(),
-                    nav.url.clone(),
-                )
+            .map(|nav| InnerEvent::FrameRequestedNavigation {
+                frame_id: nav.frame_id.clone(),
+                reason: nav.reason.clone(),
+                url: nav.url.clone(),
             }),
     ) as InnerEventStream;
 
@@ -488,6 +500,17 @@ async fn inner_events(
                     nav.frame.id.clone(),
                     nav.r#type.clone(),
                 )
+            }),
+    ) as InnerEventStream;
+
+    let events_download_will_begin = Box::pin(
+        context
+            .page
+            .event_listener::<browser::EventDownloadWillBegin>()
+            .await?
+            .map(|event| InnerEvent::DownloadWillBegin {
+                frame_id: event.frame_id.clone(),
+                url: event.url.clone(),
             }),
     ) as InnerEventStream;
 
@@ -599,6 +622,7 @@ async fn inner_events(
         events_exception_thrown,
         events_frame_requested_navigation,
         events_frame_navigated,
+        events_download_will_begin,
         events_target_destroyed,
         // events_node_inserted,
         // events_node_count_updated,
@@ -671,7 +695,7 @@ async fn process_event(
                 state
             } else if matches!(
                 state.kind,
-                Navigating | Loading | Paused | Pausing
+                Navigating { .. } | Loading | Paused | Pausing
             ) {
                 log::debug!(
                     "skipping state capture during {:?} (reason: {:?})",
@@ -792,7 +816,7 @@ async fn process_event(
         }
         (
             state @ InnerState {
-                kind: Loading | Navigating | Pausing,
+                kind: Loading | Navigating { .. } | Pausing,
                 ..
             },
             InnerEvent::ActionAccepted(action, _),
@@ -918,7 +942,11 @@ async fn process_event(
         }
         (
             InnerState { shared, kind },
-            InnerEvent::FrameRequestedNavigation(frame_id, reason, url),
+            InnerEvent::FrameRequestedNavigation {
+                frame_id,
+                reason,
+                url,
+            },
         ) => {
             if frame_id == context.frame_id {
                 log::debug!(
@@ -929,7 +957,7 @@ async fn process_event(
                     shared.generation,
                 );
                 InnerState {
-                    kind: Navigating,
+                    kind: Navigating { url },
                     shared,
                 }
             } else {
@@ -938,7 +966,40 @@ async fn process_event(
         }
         (
             InnerState {
-                kind: Navigating,
+                kind:
+                    Navigating {
+                        url: url_navigating,
+                    },
+                shared,
+            },
+            InnerEvent::DownloadWillBegin {
+                url: url_download,
+                frame_id,
+            },
+        ) => {
+            if frame_id == context.frame_id && url_navigating == url_download {
+                let _ = context.inner_events_sender.send(
+                    InnerEvent::StateRequested(
+                        StateRequestReason::FileDownload,
+                        shared.generation,
+                    ),
+                );
+                InnerState {
+                    kind: Running,
+                    shared,
+                }
+            } else {
+                InnerState {
+                    kind: Navigating {
+                        url: url_navigating,
+                    },
+                    shared,
+                }
+            }
+        }
+        (
+            InnerState {
+                kind: Navigating { url },
                 mut shared,
             },
             InnerEvent::ConsoleEntry(_),
@@ -946,7 +1007,7 @@ async fn process_event(
             // NOTE: clearing between page navigations, but we could retain logs
             shared.console_entries.clear();
             InnerState {
-                kind: Navigating,
+                kind: Navigating { url },
                 shared,
             }
         }

@@ -1,5 +1,10 @@
 use anyhow::anyhow;
-use axum::Router;
+use axum::{
+    Router,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::get,
+};
 use std::io::Write;
 use std::{
     fmt::Display,
@@ -79,7 +84,26 @@ async fn run_browser_test(
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     log::info!("starting browser test");
     let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
-    let app = Router::new().fallback_service(ServeDir::new(&test_dir));
+
+    async fn download_testfile() -> Response {
+        let content = "test file contents";
+        (
+            StatusCode::OK,
+            [
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"test-file\"",
+                ),
+                (header::CONTENT_TYPE, "application/octet-stream"),
+            ],
+            content,
+        )
+            .into_response()
+    }
+
+    let app = Router::new()
+        .route("/test-file", get(download_testfile))
+        .fallback_service(ServeDir::new(&test_dir));
     let app_other = app.clone();
 
     let (listener, listener_other, port) = loop {
@@ -127,6 +151,7 @@ async fn run_browser_test(
         },
     };
 
+    let downloads_directory = TempDir::new().unwrap();
     let runner = Runner::new(
         origin,
         specification,
@@ -141,6 +166,7 @@ async fn run_browser_test(
                 device_scale_factor: 2.0,
             },
             instrumentation: Default::default(),
+            downloads_directory: downloads_directory.path().to_path_buf(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -389,6 +415,7 @@ async fn test_browser_lifecycle() {
     log::info!("running test server on {}", &origin);
     let user_data_directory = TempDir::new().unwrap();
 
+    let downloads_directory = TempDir::new().unwrap();
     let mut browser = Browser::new(
         origin,
         BrowserOptions {
@@ -399,6 +426,7 @@ async fn test_browser_lifecycle() {
                 device_scale_factor: 2.0,
             },
             instrumentation: Default::default(),
+            downloads_directory: downloads_directory.path().to_path_buf(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
