@@ -20,13 +20,8 @@
       const messageDiv = document.getElementById("message");
 
       link.addEventListener("click", (event) => {
-        event.preventDefault();
-        // Show message immediately
+        <!-- event.preventDefault(); -->
         messageDiv.textContent = "you have downloaded the file";
-        // Then navigate to trigger the download behavior
-        setTimeout(() => {
-          window.location.href = link.href;
-        }, 10);
       });
     </script>
   </body>

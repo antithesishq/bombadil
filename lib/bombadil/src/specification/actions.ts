@@ -25,7 +25,8 @@ export type Action =
   | { TypeText: { text: string; delayMillis: number } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }
-  | { ScrollDown: { origin: Point; distance: number } };
+  | { ScrollDown: { origin: Point; distance: number } }
+  | { SetFileInputFiles: { selector: string; files: string[] } };
 
 // Tree
 

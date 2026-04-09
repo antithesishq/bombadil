@@ -162,6 +162,16 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 bombadil_schema::BrowserAction::Wait => {
                     (html!(<span class="action-name">{"Wait"}</span>), None)
                 }
+                bombadil_schema::BrowserAction::SetFileInputFiles {
+                    selector,
+                    files,
+                } => (
+                    html!(<span class="action-name">{"Set file input"}</span>),
+                    Some(vec![
+                        ("Selector", selector.clone()),
+                        ("Files", format!("{} file(s)", files.len())),
+                    ]),
+                ),
             },
             None => return html! {},
         };

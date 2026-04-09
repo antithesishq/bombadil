@@ -332,6 +332,7 @@ fn action_timeout(action: &BrowserAction) -> Duration {
         BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
         BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
         BrowserAction::Wait => Duration::from_millis(500),
+        BrowserAction::SetFileInputFiles { .. } => Duration::from_millis(100),
     }
 }
 

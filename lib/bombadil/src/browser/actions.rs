@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use chromiumoxide::Page;
-use chromiumoxide::cdp::browser_protocol::{input, page};
+use chromiumoxide::cdp::browser_protocol::{dom, input, page};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -41,6 +41,10 @@ pub enum BrowserAction {
     },
     Reload,
     Wait,
+    SetFileInputFiles {
+        selector: String,
+        files: Vec<String>,
+    },
 }
 
 impl BrowserAction {
@@ -153,6 +157,30 @@ impl BrowserAction {
                 page.execute(build_params(input::DispatchKeyEventType::KeyUp)?)
                     .await?;
             }
+            BrowserAction::SetFileInputFiles { selector, files } => {
+                let document =
+                    page.execute(dom::GetDocumentParams::default()).await?;
+                let node = page
+                    .execute(
+                        dom::QuerySelectorParams::builder()
+                            .node_id(document.root.node_id)
+                            .selector(selector)
+                            .build()
+                            .map_err(|err| anyhow!(err))?,
+                    )
+                    .await?;
+                if node.node_id.inner() == &0 {
+                    bail!("element not found for selector: {:?}", selector);
+                }
+                page.execute(
+                    dom::SetFileInputFilesParams::builder()
+                        .files(files.clone())
+                        .node_id(node.node_id)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                )
+                .await?;
+            }
         };
         Ok(())
     }
@@ -204,6 +232,12 @@ impl BrowserAction {
             }
             BrowserAction::Reload => bombadil_schema::BrowserAction::Reload,
             BrowserAction::Wait => bombadil_schema::BrowserAction::Wait,
+            BrowserAction::SetFileInputFiles { selector, files } => {
+                bombadil_schema::BrowserAction::SetFileInputFiles {
+                    selector: selector.clone(),
+                    files: files.clone(),
+                }
+            }
         }
     }
 }

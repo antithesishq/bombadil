@@ -751,3 +751,52 @@ export const downloadCompletes = eventually(
     )
     .await;
 }
+
+#[tokio::test]
+async fn test_file_picker() {
+    let test_file = NamedTempFile::new().unwrap();
+    std::fs::write(test_file.path(), b"test file content").unwrap();
+    let file_path = test_file.path().display().to_string();
+
+    let spec = format!(
+        r#"
+import {{ actions, extract, eventually, weighted }} from "@antithesishq/bombadil";
+export {{ clicks }} from "@antithesishq/bombadil/defaults/actions";
+
+const statusText = extract((state) => {{
+  const status = state.document.querySelector("\#status");
+  return status ? status.textContent : "";
+}});
+
+const fileIsSet = extract((state) => {{
+  const input = state.document.querySelector("\#file-input");
+  return input && input.files && input.files.length > 0;
+}});
+
+export const fileActions = actions(() => {{
+  if (fileIsSet.current) return [];
+  return [
+    {{
+      SetFileInputFiles: {{
+        selector: "\#file-input",
+        files: ["{}"],
+      }},
+    }},
+  ];
+}});
+
+export const fileUploaded = eventually(
+  () => statusText.current === "you have uploaded a file"
+).within(5, "seconds");
+"#,
+        file_path.replace('\\', "\\\\")
+    );
+
+    run_browser_test(
+        "file-picker",
+        Expect::Success,
+        Some(Duration::from_secs(10)),
+        Some(&spec),
+    )
+    .await;
+}

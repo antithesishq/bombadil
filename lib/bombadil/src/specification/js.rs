@@ -56,6 +56,11 @@ pub enum JsAction {
     },
     Reload,
     Wait,
+    #[serde(rename_all = "camelCase")]
+    SetFileInputFiles {
+        selector: String,
+        files: Vec<String>,
+    },
 }
 
 impl JsAction {
@@ -132,6 +137,9 @@ impl JsAction {
                 BrowserAction::ScrollDown { origin, distance }
             }
             JsAction::Wait => BrowserAction::Wait,
+            JsAction::SetFileInputFiles { selector, files } => {
+                BrowserAction::SetFileInputFiles { selector, files }
+            }
         })
     }
 }
