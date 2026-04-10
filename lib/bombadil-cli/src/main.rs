@@ -1,6 +1,7 @@
 mod duration;
 mod inspect_server;
 mod render;
+mod test_server;
 
 use ::url::Url;
 use anyhow::Result;
@@ -11,6 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
+use tokio::sync::mpsc;
 
 use bombadil::{
     browser::{
@@ -277,6 +279,18 @@ async fn test(
         }
     };
 
+
+    let (trace_tx, trace_rx) = mpsc::channel(16);
+    let output_path_cloned = output_path.clone();
+    tokio::spawn(async move {
+        if let Err(e) =
+            test_server::serve(output_path_cloned, None, trace_rx).await
+        {
+            log::error!("test server failed: {e}");
+        }
+    });
+
+
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
@@ -290,6 +304,7 @@ async fn test(
         exit_on_violation: bool,
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
+        trace_tx: mpsc::Sender<bombadil_schema::TraceEntry>,
         output_path: PathBuf,
         violations_count: u64,
     }
@@ -391,6 +406,7 @@ async fn test(
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
         deadline,
+        trace_tx,
         output_path: output_path.clone(),
         violations_count: 0,
     };
