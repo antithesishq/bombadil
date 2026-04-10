@@ -1,5 +1,4 @@
-use std::{io::Result, path::PathBuf};
-
+/// This is a web server for `bombadil test` that streams trace entries for `bombadil inspect`. See https://github.com/antithesishq/bombadil/pull/141
 use axum::{
     Router,
     extract::{
@@ -9,8 +8,8 @@ use axum::{
     response::IntoResponse,
     routing::any,
 };
-
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{Time, TraceEntry};
+use std::{io::Result, path::PathBuf};
 use tokio::sync::{broadcast, mpsc};
 
 #[derive(Clone)]
@@ -19,7 +18,6 @@ struct AppState {
     trace_forward_tx: broadcast::Sender<TraceEntry>,
 }
 
-// The test server is a websocket producer that sends out new trace entries.
 pub async fn serve(
     trace_path: PathBuf,
     port: Option<u16>,
@@ -36,7 +34,7 @@ pub async fn serve(
         trace_path
     };
 
-    let trace_forward_tx = broadcast::Sender::new(100);
+    let trace_forward_tx = broadcast::Sender::new(64);
 
     let state = AppState {
         trace_directory,
@@ -47,7 +45,6 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(&address).await?;
     let actual_port = listener.local_addr()?.port();
     let actual_address = listener.local_addr()?;
-    let url = format!("http://{}", actual_address);
 
     tokio::fs::create_dir_all(&state.trace_directory).await?;
     tokio::fs::write(
@@ -59,8 +56,8 @@ pub async fn serve(
     let trace_forward_tx = state.trace_forward_tx.clone();
     tokio::task::spawn(async move {
         while let Some(trace) = trace_rx.recv().await {
-            // send returns Err when there are no active receivers,
-            // which is expected when no WS clients are connected.
+            // `send` returns Err when there are no active receivers
+            // (eg when no ws clients). Ignore.
             let _ = trace_forward_tx.send(trace);
             log::trace!("forwarded trace");
         }
