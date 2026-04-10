@@ -456,6 +456,7 @@ version = "0.1.0"
 dependencies = [
  "bombadil-browser-keys",
  "bombadil-schema",
+ "futures",
  "gloo-console",
  "gloo-net 0.6.0",
  "gloo-timers",
