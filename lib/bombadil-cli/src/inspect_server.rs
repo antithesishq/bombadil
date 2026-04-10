@@ -32,6 +32,9 @@ pub async fn serve(
         trace_path
     };
 
+    let port_opt =
+        tokio::fs::read_to_string(trace_directory.join("WS_PORT")).await;
+
     let state = AppState { trace_directory };
 
     let app = Router::new()
@@ -43,7 +46,11 @@ pub async fn serve(
 
     let address = format!("127.0.0.1:{}", port);
     let listener = tokio::net::TcpListener::bind(&address).await?;
-    let url = format!("http://{}", address);
+    let mut url = format!("http://{}", address);
+
+    if let Ok(port) = port_opt {
+        url.push_str(&format!("?streaming-port={port}"));
+    }
 
     println!("Bombadil Inspect available at {}", url);
 

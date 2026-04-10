@@ -8,7 +8,7 @@ use axum::{
     response::IntoResponse,
     routing::any,
 };
-use bombadil_schema::{Time, TraceEntry};
+use bombadil_schema::{Time, TraceEntry, WsTraceEntryMessage};
 use std::{io::Result, path::PathBuf};
 use tokio::sync::{broadcast, mpsc};
 
@@ -71,15 +71,6 @@ pub async fn serve(
     Ok(())
 }
 
-#[derive(serde::Serialize)]
-#[serde(tag = "type", content = "data")]
-enum WsMessage {
-    #[serde(rename = "entry")]
-    Entry(TraceEntry),
-    #[serde(rename = "allEntries")]
-    AllEntries(Vec<TraceEntry>),
-}
-
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
@@ -99,8 +90,10 @@ async fn ws_handler(
         log::debug!("ws client connected");
 
         // Send all existing traces first.
+        let existing = existing.into_iter().map(rewrite_screenshot_path).collect();
         let msg =
-            serde_json::to_string(&WsMessage::AllEntries(existing)).unwrap();
+            serde_json::to_string(&WsTraceEntryMessage::AllEntries(existing))
+                .unwrap();
         if socket.send(Message::Text(msg.into())).await.is_err() {
             log::debug!(
                 "ws client disconnected before existing traces were sent"
@@ -115,14 +108,26 @@ async fn ws_handler(
                 continue;
             }
 
-            let msg = serde_json::to_string(&WsMessage::Entry(new_trace))
-                .expect("Failed to serialize trace entry");
+            let new_trace = rewrite_screenshot_path(new_trace);
+            let msg =
+                serde_json::to_string(&WsTraceEntryMessage::Entry(new_trace))
+                    .expect("Failed to serialize trace entry");
             if socket.send(Message::Text(msg.into())).await.is_err() {
                 log::debug!("ws client disconnected");
                 return;
             }
         }
     })
+}
+
+fn rewrite_screenshot_path(mut entry: TraceEntry) -> TraceEntry {
+    let filename = std::path::Path::new(&entry.screenshot)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("")
+        .to_string();
+    entry.screenshot = format!("/api/screenshots/{}", filename);
+    entry
 }
 
 async fn get_all_traces(

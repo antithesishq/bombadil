@@ -1,8 +1,10 @@
 use std::rc::Rc;
 
-use bombadil_schema::TraceEntry;
+use bombadil_schema::{TraceEntry, WsTraceEntryMessage};
+use futures::{SinkExt, StreamExt};
 use gloo_console::{error, log};
 use gloo_net::http::Request;
+use gloo_net::websocket::{Message, futures::WebSocket};
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 
@@ -25,28 +27,87 @@ mod timeline;
 fn app() -> Html {
     let selected_index = use_state_eq(|| 1usize);
     let trace = use_state(|| None::<Rc<[TraceEntry]>>);
+
+    let search = web_sys::window().unwrap().location().search().unwrap();
+    let params = web_sys::UrlSearchParams::new_with_str(&search).unwrap();
+
     {
         let trace = trace.clone();
         use_effect_with((), move |_| {
-            spawn_local(async move {
-                match Request::get("/api/trace").send().await {
-                    Ok(response) => {
-                        match response.json::<Vec<TraceEntry>>().await {
-                            Ok(entries) => {
-                                log!("Loaded trace entries:", entries.len());
-                                trace.set(Some(Rc::from(entries)));
-                            }
-                            Err(error) => {
-                                error!(
-                                    "Failed to parse response: ",
-                                    error.to_string()
-                                )
+            if let Some(port) = params.get("streaming-port") {
+                let ws = WebSocket::open(&format!("ws://127.0.0.1:{port}/"))
+                    .unwrap();
+                let (_write, mut read) = ws.split();
+
+                spawn_local(async move {
+                    while let Some(msg) = read.next().await {
+                        match msg {
+                            Ok(msg) => match msg {
+                                gloo_net::websocket::Message::Text(
+                                    msg_text,
+                                ) => {
+                                    match serde_json::from_str::<
+                                        WsTraceEntryMessage,
+                                    >(
+                                        &msg_text
+                                    ) {
+                                        Ok(trace_entry_msg) => {
+                                            match trace_entry_msg {
+                                                WsTraceEntryMessage::Entry(
+                                                    entry,
+                                                ) => {
+                                                    let mut entries = trace.as_ref().map(|t| t.to_vec()).unwrap_or_default();
+                                                    entries.push(entry);
+                                                    trace.set(Some(Rc::from(entries)));
+                                                }
+                                                 WsTraceEntryMessage::AllEntries(all_entries) => {
+                                                     trace.set(Some(Rc::from(all_entries)))
+                                                 }
+                                            }
+                                        }
+                                        Err(trace_entry_err) => {
+                                            log!("{trace_entry_err}")
+                                        }
+                                    }
+
+                                    log!(format!("1. {:?}", msg_text));
+                                }
+                                gloo_net::websocket::Message::Bytes(_) => {
+                                    log!("Hm. Unexpected bytes recv: {bytes}")
+                                }
+                            },
+                            Err(e) => {
+                                log!(format!("{e}"));
                             }
                         }
                     }
-                    Err(error) => error!("Failed to fetch:", error.to_string()),
-                }
-            });
+                })
+            } else {
+                spawn_local(async move {
+                    match Request::get("/api/trace").send().await {
+                        Ok(response) => {
+                            match response.json::<Vec<TraceEntry>>().await {
+                                Ok(entries) => {
+                                    log!(
+                                        "Loaded trace entries:",
+                                        entries.len()
+                                    );
+                                    trace.set(Some(Rc::from(entries)));
+                                }
+                                Err(error) => {
+                                    error!(
+                                        "Failed to parse response: ",
+                                        error.to_string()
+                                    )
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            error!("Failed to fetch:", error.to_string())
+                        }
+                    }
+                });
+            }
             || ()
         });
     }
