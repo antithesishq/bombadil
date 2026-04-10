@@ -784,7 +784,7 @@ export const downloadCompletes = eventually(
 async fn test_file_picker() {
     let test_file = NamedTempFile::new().unwrap();
     std::fs::write(test_file.path(), b"test file content").unwrap();
-    let file_path = test_file.path().display().to_string();
+    let file_path = test_file.path().display();
 
     let spec = format!(
         r#"
@@ -807,7 +807,7 @@ export const fileActions = actions(() => {{
     {{
       SetFileInputFiles: {{
         selector: "\#file-input",
-        files: ["{}"],
+        files: ["{file_path}"],
       }},
     }},
   ];
@@ -817,7 +817,6 @@ export const fileUploaded = eventually(
   () => statusText.current === "you have uploaded a file"
 ).within(5, "seconds");
 "#,
-        file_path.replace('\\', "\\\\")
     );
 
     run_browser_test(
