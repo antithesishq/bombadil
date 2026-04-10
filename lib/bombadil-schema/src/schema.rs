@@ -75,6 +75,15 @@ pub struct TraceEntry {
     pub resources: Resources,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum WsTraceEntryMessage {
+    #[serde(rename = "entry")]
+    Entry(TraceEntry),
+    #[serde(rename = "allEntries")]
+    AllEntries(Vec<TraceEntry>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Resources {
     pub js_heap_used: u64,
