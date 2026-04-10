@@ -85,18 +85,54 @@ async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    // Subscribe before anything else so none are dropped.
     let mut new_trace_forward_rx = state.trace_forward_tx.subscribe();
-    ws.on_upgrade(|mut socket: WebSocket| async move {
+
+    let existing = get_all_traces(state.trace_directory)
+        .await
+        .unwrap_or_default();
+    let last_existing_timestamp = existing
+        .last()
+        .map(|e| e.timestamp)
+        .unwrap_or(Time::from_micros(0));
+
+    ws.on_upgrade(async move |mut socket: WebSocket| {
         log::debug!("ws client connected");
 
-        while let Ok(new_trace) = new_trace_forward_rx.recv().await {
-            let trace_json = serde_json::to_string(&new_trace).unwrap();
-            let msg = Message::Text(trace_json.into());
+        // Send all existing traces first.
+        let msg =
+            serde_json::to_string(&WsMessage::AllEntries(existing)).unwrap();
+        if socket.send(Message::Text(msg.into())).await.is_err() {
+            log::debug!(
+                "ws client disconnected before existing traces were sent"
+            );
+            return;
+        }
 
-            if socket.send(msg).await.is_err() {
+        // Then stream new ones as they arrive.
+        while let Ok(new_trace) = new_trace_forward_rx.recv().await {
+            // Filter out duplicate traces (in case one comes in while get_all_traces is running).
+            if new_trace.timestamp <= last_existing_timestamp {
+                continue;
+            }
+
+            let msg = serde_json::to_string(&WsMessage::Entry(new_trace))
+                .expect("Failed to serialize trace entry");
+            if socket.send(Message::Text(msg.into())).await.is_err() {
                 log::debug!("ws client disconnected");
                 return;
             }
         }
     })
+}
+
+async fn get_all_traces(
+    trace_directory: PathBuf,
+) -> anyhow::Result<Vec<TraceEntry>> {
+    let contents =
+        &tokio::fs::read(trace_directory.join("trace.jsonl")).await?;
+    String::from_utf8_lossy(contents)
+        .lines()
+        .map(|e| Ok(serde_json::from_str(e)?))
+        .collect()
 }
