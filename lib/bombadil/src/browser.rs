@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow, bail};
-use chromiumoxide::browser::{BrowserConfigBuilder, HeadlessMode};
+use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
@@ -1170,12 +1170,15 @@ fn launch_options_to_config(
                 builder
             }
         };
-    apply_sandbox(BrowserConfig::builder())
-        .headless_mode(if launch_options.headless {
-            HeadlessMode::New
-        } else {
-            HeadlessMode::False
-        })
+    let apply_headless =
+        |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
+            if launch_options.headless {
+                builder
+            } else {
+                builder.with_head()
+            }
+        };
+    apply_headless(apply_sandbox(BrowserConfig::builder()))
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
         .args([
