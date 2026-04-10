@@ -360,9 +360,12 @@ async fn test(
                 );
             }
 
-            self.writer
+            let trace_entry = self
+                .writer
                 .write(state, last_action, snapshots, violations)
                 .await?;
+
+            let _ = self.trace_tx.send(trace_entry).await;
 
             if self.violations_count > 0 && self.exit_on_violation {
                 return Ok(ControlFlow::Stop(TestResult {
