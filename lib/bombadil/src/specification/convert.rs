@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::specification::{
     js::RuntimeFunction,
@@ -6,7 +6,7 @@ use crate::specification::{
     verifier::Snapshot,
 };
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrettyFunction(String);
 
 impl std::fmt::Display for PrettyFunction {
