@@ -30,7 +30,11 @@ impl Time {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_micros() as u64;
-        Time(micros)
+        Self(micros)
+    }
+
+    pub fn from_micros(micros: u64) -> Self {
+        Self(micros)
     }
 
     pub fn to_system_time(self) -> SystemTime {
