@@ -59,7 +59,6 @@ pub async fn serve(
             // `send` returns Err when there are no active receivers
             // (eg when no ws clients). Ignore.
             let _ = trace_forward_tx.send(trace);
-            log::trace!("forwarded trace");
         }
     });
 
