@@ -75,6 +75,15 @@ pub async fn serve(
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(tag = "type", content = "data")]
+enum WsMessage {
+    #[serde(rename = "entry")]
+    Entry(TraceEntry),
+    #[serde(rename = "allEntries")]
+    AllEntries(Vec<TraceEntry>),
+}
+
 async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
