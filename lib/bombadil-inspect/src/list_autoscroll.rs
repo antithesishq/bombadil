@@ -40,8 +40,10 @@ pub fn use_list_autoscroll(
                     }),
                 );
 
-                let js_fn: js_sys::Function =
-                    closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
+                let js_fn: js_sys::Function = closure
+                    .as_ref()
+                    .unchecked_ref::<js_sys::Function>()
+                    .clone();
                 let _ = container
                     .add_event_listener_with_callback("scroll", &js_fn);
 
@@ -50,9 +52,8 @@ pub fn use_list_autoscroll(
 
             move || {
                 if let Some((container, js_fn, _closure)) = listener {
-                    let _ = container.remove_event_listener_with_callback(
-                        "scroll", &js_fn,
-                    );
+                    let _ = container
+                        .remove_event_listener_with_callback("scroll", &js_fn);
                 }
             }
         });

@@ -90,7 +90,8 @@ async fn ws_handler(
         log::debug!("ws client connected");
 
         // Send all existing traces first.
-        let existing = existing.into_iter().map(rewrite_screenshot_path).collect();
+        let existing =
+            existing.into_iter().map(rewrite_screenshot_path).collect();
         let msg =
             serde_json::to_string(&WsTraceEntryMessage::AllEntries(existing))
                 .unwrap();

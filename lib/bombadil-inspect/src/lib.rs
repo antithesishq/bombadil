@@ -57,7 +57,8 @@ fn app() -> Html {
                                 trace.set(Some(Rc::from(entries)));
                             }
                             Ok(WsTraceEntryMessage::AllEntries(all)) => {
-                                let entries: Vec<_> = all.into_iter().map(Rc::new).collect();
+                                let entries: Vec<_> =
+                                    all.into_iter().map(Rc::new).collect();
                                 trace.set(Some(Rc::from(entries)))
                             }
                             Err(e) => log!(format!("{e}")),
@@ -76,7 +77,8 @@ fn app() -> Html {
                     match response.json::<Vec<TraceEntry>>().await {
                         Ok(entries) => {
                             log!("Loaded trace entries:", entries.len());
-                            let entries: Vec<_> = entries.into_iter().map(Rc::new).collect();
+                            let entries: Vec<_> =
+                                entries.into_iter().map(Rc::new).collect();
                             trace.set(Some(Rc::from(entries)));
                         }
                         Err(e) => {
@@ -114,10 +116,8 @@ fn app() -> Html {
         .as_ref()
         .and_then(|t| t.get(effective_index.saturating_sub(1)))
         .cloned();
-    let after_entry = trace
-        .as_ref()
-        .and_then(|t| t.get(effective_index))
-        .cloned();
+    let after_entry =
+        trace.as_ref().and_then(|t| t.get(effective_index)).cloned();
     let action = after_entry
         .as_ref()
         .and_then(|e| e.action.clone())
