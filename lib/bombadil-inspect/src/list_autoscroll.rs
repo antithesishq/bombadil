@@ -25,27 +25,36 @@ pub fn use_list_autoscroll(
                 .and_then(|list| list.parent_element())
                 .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok());
 
-            let Some(container) = container else { return };
+            let listener = container.map(|container| {
+                let scroll_container = container.clone();
+                let closure = wasm_bindgen::closure::Closure::<dyn Fn()>::wrap(
+                    Box::new(move || {
+                        let at_bottom = scroll_container.scroll_top() as f64
+                            + scroll_container.client_height() as f64
+                            >= scroll_container.scroll_height() as f64 - 5.0;
+                        let was_following = *is_following.borrow();
+                        *is_following.borrow_mut() = at_bottom;
+                        if was_following && !at_bottom {
+                            on_select.emit(*current_index.borrow());
+                        }
+                    }),
+                );
 
-            let scroll_container = container.clone();
-            let closure = wasm_bindgen::closure::Closure::<dyn Fn()>::wrap(
-                Box::new(move || {
-                    let at_bottom = scroll_container.scroll_top() as f64
-                        + scroll_container.client_height() as f64
-                        >= scroll_container.scroll_height() as f64 - 5.0;
-                    let was_following = *is_following.borrow();
-                    *is_following.borrow_mut() = at_bottom;
-                    if was_following && !at_bottom {
-                        on_select.emit(*current_index.borrow());
-                    }
-                }),
-            );
+                let js_fn: js_sys::Function =
+                    closure.as_ref().unchecked_ref::<js_sys::Function>().clone();
+                let _ = container
+                    .add_event_listener_with_callback("scroll", &js_fn);
 
-            let _ = container.add_event_listener_with_callback(
-                "scroll",
-                closure.as_ref().unchecked_ref(),
-            );
-            closure.forget();
+                (container, js_fn, closure)
+            });
+
+            move || {
+                if let Some((container, js_fn, _closure)) = listener {
+                    let _ = container.remove_event_listener_with_callback(
+                        "scroll", &js_fn,
+                    );
+                }
+            }
         });
     }
 
