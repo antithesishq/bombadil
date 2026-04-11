@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
