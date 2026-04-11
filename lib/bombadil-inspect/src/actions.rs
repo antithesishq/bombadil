@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use bombadil_browser_keys::key_name;
@@ -5,7 +6,6 @@ use bombadil_schema::{Point, Time, TraceEntry};
 use yew::component;
 use yew::prelude::*;
 
-use crate::container_size::use_container_size;
 use crate::list_autoscroll::use_list_autoscroll;
 use crate::time::Duration;
 
@@ -14,13 +14,18 @@ pub struct ActionsListProps {
     pub trace: Rc<[TraceEntry]>,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
+    pub is_following: Rc<RefCell<bool>>,
 }
 
 #[component]
 pub fn ActionsList(props: &ActionsListProps) -> Html {
     let test_start =
         props.trace.first().expect("no first trace entry").timestamp;
-    let list_ref = use_list_autoscroll(props.selected_index);
+    let list_ref = use_list_autoscroll(
+        props.selected_index,
+        props.is_following.clone(),
+        props.on_select.clone(),
+    );
 
     html!(
         <ol ref={list_ref}>
@@ -51,8 +56,6 @@ struct HistoryEntryProps {
 
 #[component]
 fn ActionEntry(props: &HistoryEntryProps) -> Html {
-    let (container_ref, container_size) = use_container_size();
-
     let (action_header, details): (Html, Option<Vec<(&str, String)>>) =
         match &props.entry.action {
             Some(action) => match action {
@@ -188,12 +191,12 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
 
     html! {
         <li class={li_class}>
-            <button onclick={on_click} ref={container_ref}>
+            <button onclick={on_click}>
                 {
-                    if props.is_selected && let Some((width, height)) = container_size {
+                    if props.is_selected {
                         html!(
                             <svg class="background" xmlns="http://www.w3.org/2000/svg">
-                                <rect width={width.to_string()} height={height.to_string()} fill="url(#dither)" />
+                                <rect width="100%" height="100%" fill="url(#dither)" />
                             </svg>
                         )
                     } else {

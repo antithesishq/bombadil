@@ -1,104 +1,66 @@
-use gloo_timers::callback::Timeout;
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use wasm_bindgen::JsCast;
-use wasm_bindgen::JsValue;
 use yew::prelude::*;
 
 #[hook]
-pub fn use_list_autoscroll(selected_index: usize) -> NodeRef {
+pub fn use_list_autoscroll(
+    selected_index: usize,
+    is_following: Rc<RefCell<bool>>,
+    on_select: Callback<usize>,
+) -> NodeRef {
     let list_ref = use_node_ref();
+    let current_index = use_mut_ref(|| selected_index);
+    *current_index.borrow_mut() = selected_index;
 
+    // Scroll listener: update is_following based on scroll position.
+    // When transitioning from following to not-following, snapshot the
+    // current selected_index so the view stays put.
+    {
+        let list_ref = list_ref.clone();
+        use_effect_with((), move |_| {
+            let container = list_ref
+                .cast::<web_sys::HtmlElement>()
+                .and_then(|list| list.parent_element())
+                .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok());
+
+            let Some(container) = container else { return };
+
+            let scroll_container = container.clone();
+            let closure = wasm_bindgen::closure::Closure::<dyn Fn()>::wrap(
+                Box::new(move || {
+                    let at_bottom = scroll_container.scroll_top() as f64
+                        + scroll_container.client_height() as f64
+                        >= scroll_container.scroll_height() as f64 - 5.0;
+                    let was_following = *is_following.borrow();
+                    *is_following.borrow_mut() = at_bottom;
+                    if was_following && !at_bottom {
+                        on_select.emit(*current_index.borrow());
+                    }
+                }),
+            );
+
+            let _ = container.add_event_listener_with_callback(
+                "scroll",
+                closure.as_ref().unchecked_ref(),
+            );
+            closure.forget();
+        });
+    }
+
+    // Scroll selected item into view.
     {
         let list_ref = list_ref.clone();
         use_effect_with(selected_index, move |_| {
-            let timeout = Timeout::new(0, move || {
-                if let Some(list) = list_ref.cast::<web_sys::HtmlElement>()
-                    && let Some(container) =
-                        list.parent_element().and_then(|node| {
-                            node.dyn_into::<web_sys::HtmlElement>().ok()
-                        })
-                    && let Some(selected_item) =
-                        list.children().item(selected_index as u32).and_then(
-                            |node| node.dyn_into::<web_sys::HtmlElement>().ok(),
-                        )
-                {
-                    let container_js: &JsValue = container.as_ref();
-                    let item_js: &JsValue = selected_item.as_ref();
-
-                    if let Ok(get_rect) = js_sys::Reflect::get(
-                        container_js,
-                        &JsValue::from_str("getBoundingClientRect"),
-                    ) && let Ok(func) =
-                        get_rect.dyn_into::<js_sys::Function>()
-                        && let Ok(container_rect_js) = func.call0(container_js)
-                        && let Ok(item_rect_func) = js_sys::Reflect::get(
-                            item_js,
-                            &JsValue::from_str("getBoundingClientRect"),
-                        )
-                        .and_then(|f| f.dyn_into::<js_sys::Function>())
-                        && let Ok(item_rect_js) = item_rect_func.call0(item_js)
-                    {
-                        let container_top = js_sys::Reflect::get(
-                            &container_rect_js,
-                            &JsValue::from_str("top"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let container_bottom = js_sys::Reflect::get(
-                            &container_rect_js,
-                            &JsValue::from_str("bottom"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let container_height = js_sys::Reflect::get(
-                            &container_rect_js,
-                            &JsValue::from_str("height"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-
-                        let item_top = js_sys::Reflect::get(
-                            &item_rect_js,
-                            &JsValue::from_str("top"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let item_bottom = js_sys::Reflect::get(
-                            &item_rect_js,
-                            &JsValue::from_str("bottom"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-                        let item_height = js_sys::Reflect::get(
-                            &item_rect_js,
-                            &JsValue::from_str("height"),
-                        )
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(0.0);
-
-                        let is_fully_visible = item_top >= container_top
-                            && item_bottom <= container_bottom;
-
-                        if !is_fully_visible {
-                            let item_center = item_top + (item_height / 2.0);
-                            let container_center =
-                                container_top + (container_height / 2.0);
-
-                            let scroll_offset = item_center - container_center;
-                            let new_scroll_top =
-                                container.scroll_top() as f64 + scroll_offset;
-
-                            container.set_scroll_top(new_scroll_top as i32);
-                        }
-                    }
-                }
-            });
-            timeout.forget();
+            if let Some(list) = list_ref.cast::<web_sys::HtmlElement>()
+                && let Some(item) =
+                    list.query_selector(".selected").ok().flatten()
+            {
+                let opts = web_sys::ScrollIntoViewOptions::new();
+                opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+                item.scroll_into_view_with_scroll_into_view_options(&opts);
+            }
         });
     }
 

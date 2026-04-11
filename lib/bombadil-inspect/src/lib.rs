@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use bombadil_schema::{TraceEntry, WsTraceEntryMessage};
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use gloo_console::{error, log};
 use gloo_net::http::Request;
-use gloo_net::websocket::{Message, futures::WebSocket};
+use gloo_net::websocket::futures::WebSocket;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
 
@@ -27,6 +27,7 @@ mod timeline;
 fn app() -> Html {
     let selected_index = use_state_eq(|| 1usize);
     let trace = use_state(|| None::<Rc<[TraceEntry]>>);
+    let is_following_list = use_mut_ref(|| true);
 
     let search = web_sys::window().unwrap().location().search().unwrap();
     let params = web_sys::UrlSearchParams::new_with_str(&search).unwrap();
@@ -86,6 +87,40 @@ fn app() -> Html {
         });
     }
 
+    // When following, derive the selected index from the trace length so that
+    // a single `trace.set()` in the WS handler is enough — no second state
+    // update, no double-render flicker.
+    let trace_len = trace.as_ref().map(|t| t.len()).unwrap_or(0);
+    let effective_index = if *is_following_list.borrow() {
+        trace_len.saturating_sub(1)
+    } else {
+        *selected_index
+    };
+
+    let on_select = {
+        let selected_index = selected_index.clone();
+        let is_following_list = is_following_list.clone();
+        Callback::from(move |index: usize| {
+            selected_index.set(index);
+            *is_following_list.borrow_mut() = index == trace_len - 1;
+        })
+    };
+
+    let test_start =
+        trace.as_ref().and_then(|t| t.first()).map(|e| e.timestamp);
+    let before_entry = trace
+        .as_ref()
+        .and_then(|t| t.get(effective_index.saturating_sub(1)))
+        .map(|e| Rc::new(e.clone()));
+    let after_entry = trace
+        .as_ref()
+        .and_then(|t| t.get(effective_index))
+        .map(|e| Rc::new(e.clone()));
+    let action = after_entry
+        .as_ref()
+        .and_then(|e| e.action.clone())
+        .map(Rc::new);
+
     html! {
         <main class="grid">
 
@@ -110,63 +145,55 @@ fn app() -> Html {
                 <div class="content">
                 {
                     if let Some(trace) = trace.as_ref() && !trace.is_empty() {
-                        let selected_index = selected_index.clone();
                         html!(
                             <ActionsList
                                 trace={trace.clone()}
-                                selected_index={*selected_index}
-                                on_select={Callback::from(move |index| { selected_index.set(index) })}
+                                selected_index={effective_index}
+                                on_select={on_select.clone()}
+                                is_following={is_following_list.clone()}
                                 />
                             )
                     } else { Html::default() }
                 }
                 </div>
+                {if *is_following_list.borrow() {
+                    html!(<p class="following-indicator">{"FOLLOWING"}</p>)
+                } else { Html::default() }}
             </div>
 
             <div class="pane state-screenshot before">
                 <h2>{"State before"}</h2>
-                {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
-                    let action = trace.get(*selected_index).and_then(|e| e.action.clone()).map(Rc::new);
-                    html!(<Screenshot entry={Rc::new(entry.clone())} action={action} />)
+                {if let Some(ref entry) = before_entry {
+                    html!(<Screenshot entry={entry.clone()} action={action.clone()} />)
                 } else {Html::default()}}
             </div>
 
             <div class="pane state-screenshot after">
                 <h2>{"State after"}</h2>
-                {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
-                    html!(<Screenshot entry={Rc::new(entry.clone())} />)
+                {if let Some(ref entry) = after_entry {
+                    html!(<Screenshot entry={entry.clone()} />)
                 } else {Html::default()}}
             </div>
 
             <div class="pane state-details before">
                 <div class="content">
-                    {if let Some(ref trace) = *trace && let Some(entry) = trace.get(selected_index.saturating_sub(1)) {
-                        // TODO: this should be part of test metadata
-                        let test_start = trace.first().expect("no first trace entry").timestamp;
-                        html!(<StateDetails entry={Rc::new(entry.clone())} test_start={test_start} />)
+                    {if let (Some(entry), Some(test_start)) = (&before_entry, test_start) {
+                        html!(<StateDetails entry={entry.clone()} {test_start} />)
                     } else { Html::default() }}
                 </div>
             </div>
 
             <div class="pane state-details after">
                 <div class="content">
-                    {if let Some(ref trace) = *trace && let Some(entry) = trace.get(*selected_index) {
-                        // TODO: this should be part of test metadata
-                        let test_start = trace.first().expect("no first trace entry").timestamp;
-                        html!(<StateDetails entry={Rc::new(entry.clone())} test_start={test_start} />)
+                    {if let (Some(entry), Some(test_start)) = (&after_entry, test_start) {
+                        html!(<StateDetails entry={entry.clone()} {test_start} />)
                     } else {Html::default()}}
                 </div>
             </div>
 
             <footer class="pane">
-                {if let Some(ref trace) = *trace {
-                    // TODO: this should be part of test metadata
-                    let test_start = trace.first().expect("no first trace entry").timestamp;
-                    let on_select = {
-                        let selected_index = selected_index.clone();
-                        Callback::from(move |index| selected_index.set(index))
-                    };
-                    html!(<Timeline entries={trace.clone()} test_start={test_start} selected_index={*selected_index} on_select={on_select} />)
+                {if let (Some(trace), Some(test_start)) = (trace.as_ref(), test_start) {
+                    html!(<Timeline entries={Rc::clone(trace)} {test_start} selected_index={effective_index} on_select={on_select.clone()} />)
                 } else {Html::default()}}
             </footer>
         </main>

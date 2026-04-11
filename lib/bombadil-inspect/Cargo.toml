@@ -18,12 +18,13 @@ web-sys = { version = "0.3", features = [
     "Location",
     "ResizeObserver",
     "ResizeObserverEntry",
+    "ScrollIntoViewOptions",
+    "ScrollLogicalPosition",
     "UrlSearchParams",
     "Window",
 ] }
 gloo-net = { version = "0.6", features = ["websocket"] }
 gloo-console = "0.3"
-gloo-timers = "0.3"
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 serde = { version = "1.0", features = ["derive"] }

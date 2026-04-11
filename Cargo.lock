@@ -459,7 +459,6 @@ dependencies = [
  "futures",
  "gloo-console",
  "gloo-net 0.6.0",
- "gloo-timers",
  "js-sys",
  "serde",
  "serde_json",
