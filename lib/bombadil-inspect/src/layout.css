@@ -60,6 +60,7 @@ header.pane h1 {
     grid-row: 2 / 4;
     grid-column: 1;
     min-width: 28ch;
+    position: relative;
 }
 
 .pane.state-screenshot.before {

@@ -120,3 +120,12 @@
     vertical-align: top;
     text-align: right;
 }
+
+.actions .following-indicator {
+    position: absolute;
+    bottom: -1px;
+    left: 50%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    /*background-color: var(--color-bg-muted);*/
+}
