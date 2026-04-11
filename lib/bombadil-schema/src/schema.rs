@@ -77,6 +77,7 @@ pub struct TraceEntry {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
+#[allow(clippy::large_enum_variant)] // Transit wrapper - doesn't sit around in memory. Even if it was, the small variant (AllEntries) is only used once, so you'd be wasting very little memory vs Boxing<every single Entry TraceEntry>
 pub enum WsTraceEntryMessage {
     #[serde(rename = "entry")]
     Entry(TraceEntry),
