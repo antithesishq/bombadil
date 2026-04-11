@@ -121,11 +121,12 @@
     text-align: right;
 }
 
-.actions .following-indicator {
+.actions .follow-list {
     position: absolute;
     bottom: -1px;
     left: 50%;
     transform: translateX(-50%);
-    pointer-events: none;
-    /*background-color: var(--color-bg-muted);*/
+    background-color: var(--color-bg-muted);
+    border: 1px solid var(--color-border);
+    padding: 0.5em 1em;
 }

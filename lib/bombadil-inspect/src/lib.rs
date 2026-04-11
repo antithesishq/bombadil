@@ -27,7 +27,8 @@ mod timeline;
 fn app() -> Html {
     let selected_index = use_state_eq(|| 1usize);
     let trace = use_state(|| None::<Rc<[Rc<TraceEntry>]>>);
-    let is_following_list = use_mut_ref(|| true);
+
+    let is_following_list = use_state(|| true);
 
     let search = web_sys::window().unwrap().location().search().unwrap();
     let params = web_sys::UrlSearchParams::new_with_str(&search).unwrap();
@@ -95,7 +96,8 @@ fn app() -> Html {
     // a single `trace.set()` in the WS handler is enough — no second state
     // update, no double-render flicker.
     let trace_len = trace.as_ref().map(|t| t.len()).unwrap_or(0);
-    let effective_index = if *is_following_list.borrow() {
+
+    let effective_index = if *is_following_list {
         trace_len.saturating_sub(1)
     } else {
         *selected_index
@@ -106,7 +108,8 @@ fn app() -> Html {
         let is_following_list = is_following_list.clone();
         Callback::from(move |index: usize| {
             selected_index.set(index);
-            *is_following_list.borrow_mut() = index == trace_len - 1;
+
+            is_following_list.set(index == trace_len - 1);
         })
     };
 
@@ -159,8 +162,10 @@ fn app() -> Html {
                     } else { Html::default() }
                 }
                 </div>
-                {if *is_following_list.borrow() {
-                    html!(<p class="following-indicator">{"FOLLOWING"}</p>)
+                {if !*is_following_list {
+                    let ifl = is_following_list.clone();
+                    // TODO: Figure out why all the styles are overridden when using a button :/
+                    html!(<p onclick={Callback::from(move |_| ifl.set(true))} class="follow-list">{"↓ FOLLOW LIST ↓"}</p>)
                 } else { Html::default() }}
             </div>
 

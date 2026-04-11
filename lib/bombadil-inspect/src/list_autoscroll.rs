@@ -7,7 +7,7 @@ use yew::prelude::*;
 #[hook]
 pub fn use_list_autoscroll(
     selected_index: usize,
-    is_following: Rc<RefCell<bool>>,
+    is_following: UseStateHandle<bool>,
     on_select: Callback<usize>,
 ) -> NodeRef {
     let list_ref = use_node_ref();
@@ -32,8 +32,8 @@ pub fn use_list_autoscroll(
                         let at_bottom = scroll_container.scroll_top() as f64
                             + scroll_container.client_height() as f64
                             >= scroll_container.scroll_height() as f64 - 5.0;
-                        let was_following = *is_following.borrow();
-                        *is_following.borrow_mut() = at_bottom;
+                        let was_following = *is_following;
+                        is_following.set(at_bottom);
                         if was_following && !at_bottom {
                             on_select.emit(*current_index.borrow());
                         }

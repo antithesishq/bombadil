@@ -14,7 +14,7 @@ pub struct ActionsListProps {
     pub trace: Rc<[Rc<TraceEntry>]>,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
-    pub is_following: Rc<RefCell<bool>>,
+    pub is_following: UseStateHandle<bool>,
 }
 
 #[component]
