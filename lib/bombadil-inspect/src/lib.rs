@@ -110,6 +110,7 @@ fn app() -> Html {
         })
     };
 
+    // TODO: this should be part of test metadata
     let test_start =
         trace.as_ref().and_then(|t| t.first()).map(|e| e.timestamp);
     let before_entry = trace
