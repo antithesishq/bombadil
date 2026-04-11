@@ -26,7 +26,7 @@ mod timeline;
 #[function_component(App)]
 fn app() -> Html {
     let selected_index = use_state_eq(|| 1usize);
-    let trace = use_state(|| None::<Rc<[TraceEntry]>>);
+    let trace = use_state(|| None::<Rc<[Rc<TraceEntry>]>>);
     let is_following_list = use_mut_ref(|| true);
 
     let search = web_sys::window().unwrap().location().search().unwrap();
@@ -53,11 +53,12 @@ fn app() -> Html {
                                     .as_ref()
                                     .map(|t| t.to_vec())
                                     .unwrap_or_default();
-                                entries.push(entry);
+                                entries.push(Rc::new(entry));
                                 trace.set(Some(Rc::from(entries)));
                             }
                             Ok(WsTraceEntryMessage::AllEntries(all)) => {
-                                trace.set(Some(Rc::from(all)))
+                                let entries: Vec<_> = all.into_iter().map(Rc::new).collect();
+                                trace.set(Some(Rc::from(entries)))
                             }
                             Err(e) => log!(format!("{e}")),
                         }
@@ -75,6 +76,7 @@ fn app() -> Html {
                     match response.json::<Vec<TraceEntry>>().await {
                         Ok(entries) => {
                             log!("Loaded trace entries:", entries.len());
+                            let entries: Vec<_> = entries.into_iter().map(Rc::new).collect();
                             trace.set(Some(Rc::from(entries)));
                         }
                         Err(e) => {
@@ -111,11 +113,11 @@ fn app() -> Html {
     let before_entry = trace
         .as_ref()
         .and_then(|t| t.get(effective_index.saturating_sub(1)))
-        .map(|e| Rc::new(e.clone()));
+        .cloned();
     let after_entry = trace
         .as_ref()
         .and_then(|t| t.get(effective_index))
-        .map(|e| Rc::new(e.clone()));
+        .cloned();
     let action = after_entry
         .as_ref()
         .and_then(|e| e.action.clone())

@@ -27,7 +27,7 @@ const T: f64 = K * K * K * K;
 
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
-    pub entries: Rc<[TraceEntry]>,
+    pub entries: Rc<[Rc<TraceEntry>]>,
     pub test_start: Time,
     pub selected_index: usize,
     pub on_select: Callback<usize>,

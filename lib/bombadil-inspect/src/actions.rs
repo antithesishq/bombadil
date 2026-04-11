@@ -11,7 +11,7 @@ use crate::time::Duration;
 
 #[derive(PartialEq, Properties)]
 pub struct ActionsListProps {
-    pub trace: Rc<[TraceEntry]>,
+    pub trace: Rc<[Rc<TraceEntry>]>,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
     pub is_following: Rc<RefCell<bool>>,
@@ -33,7 +33,7 @@ pub fn ActionsList(props: &ActionsListProps) -> Html {
             props.trace.iter().enumerate().map(|(i, entry)| {
                 html!(
                     <ActionEntry
-                        entry={Rc::new(entry.clone())}
+                        entry={entry.clone()}
                         is_selected={i == props.selected_index}
                             test_start={test_start}
                             index={i}
