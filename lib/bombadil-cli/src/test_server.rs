@@ -10,18 +10,18 @@ use axum::{
 };
 use bombadil_schema::{Time, TraceEntry, WsTraceEntryMessage};
 use std::{io::Result, path::PathBuf};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::broadcast;
 
 #[derive(Clone)]
 struct AppState {
     trace_directory: PathBuf,
-    trace_forward_tx: broadcast::Sender<TraceEntry>,
+    trace_tx: broadcast::Sender<TraceEntry>,
 }
 
 pub async fn serve(
     trace_path: PathBuf,
     port: Option<u16>,
-    mut trace_rx: mpsc::Receiver<TraceEntry>,
+    trace_tx: broadcast::Sender<TraceEntry>,
 ) -> Result<()> {
     log::debug!("starting ws server");
 
@@ -34,11 +34,9 @@ pub async fn serve(
         trace_path
     };
 
-    let trace_forward_tx = broadcast::Sender::new(64);
-
     let state = AppState {
         trace_directory,
-        trace_forward_tx,
+        trace_tx,
     };
 
     let address = format!("127.0.0.1:{}", port.unwrap_or(0));
@@ -53,18 +51,9 @@ pub async fn serve(
     )
     .await?;
 
-    let trace_forward_tx = state.trace_forward_tx.clone();
-    tokio::task::spawn(async move {
-        while let Some(trace) = trace_rx.recv().await {
-            // `send` returns Err when there are no active receivers
-            // (eg when no ws clients). Ignore.
-            let _ = trace_forward_tx.send(trace);
-        }
-    });
-
     let app = Router::new().route("/", any(ws_handler)).with_state(state);
 
-    log::info!("connect to the WS with wscat -c ws://{actual_address}");
+    log::debug!("ws running at ws://{actual_address}");
 
     axum::serve(listener, app).await?;
 
@@ -76,7 +65,7 @@ async fn ws_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     // Subscribe before anything else so none are dropped.
-    let mut new_trace_forward_rx = state.trace_forward_tx.subscribe();
+    let mut new_trace_rx = state.trace_tx.subscribe();
 
     let existing = get_all_traces(state.trace_directory)
         .await
@@ -103,7 +92,7 @@ async fn ws_handler(
         }
 
         // Then stream new ones as they arrive.
-        while let Ok(new_trace) = new_trace_forward_rx.recv().await {
+        while let Ok(new_trace) = new_trace_rx.recv().await {
             // Filter out duplicate traces (in case one comes in while get_all_traces is running).
             if new_trace.timestamp <= last_existing_timestamp {
                 continue;

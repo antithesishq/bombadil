@@ -12,7 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
-use tokio::sync::mpsc;
+use tokio::sync::broadcast;
 
 use bombadil::{
     browser::{
@@ -279,12 +279,12 @@ async fn test(
         }
     };
 
-
-    let (trace_tx, trace_rx) = mpsc::channel(16);
-    let output_path_cloned = output_path.clone();
+    let trace_tx = broadcast::Sender::new(16);
+    let output_path_clone = output_path.clone();
+    let trace_tx_clone = trace_tx.clone();
     tokio::spawn(async move {
         if let Err(e) =
-            test_server::serve(output_path_cloned, None, trace_rx).await
+            test_server::serve(output_path_clone, None, trace_tx_clone).await
         {
             log::error!("test server failed: {e}");
         }
@@ -304,7 +304,7 @@ async fn test(
         exit_on_violation: bool,
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
-        trace_tx: mpsc::Sender<bombadil_schema::TraceEntry>,
+        trace_tx: broadcast::Sender<bombadil_schema::TraceEntry>,
         output_path: PathBuf,
         violations_count: u64,
     }
@@ -365,7 +365,7 @@ async fn test(
                 .write(state, last_action, snapshots, violations)
                 .await?;
 
-            let _ = self.trace_tx.send(trace_entry).await;
+            let _ = self.trace_tx.send(trace_entry);
 
             if self.violations_count > 0 && self.exit_on_violation {
                 return Ok(ControlFlow::Stop(TestResult {
