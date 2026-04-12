@@ -176,6 +176,7 @@ async fn main() -> Result<()> {
             no_sandbox,
         } => {
             let user_data_directory = TempDir::with_prefix("user_data_")?;
+            let output_path = resolve_output_path(&shared)?;
 
             let browser_options = BrowserOptions {
                 create_target: true,
@@ -185,6 +186,7 @@ async fn main() -> Result<()> {
                     device_scale_factor: shared.device_scale_factor,
                 },
                 instrumentation: shared.instrument_javascript.clone(),
+                downloads_directory: output_path.join("downloads"),
             };
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
@@ -195,13 +197,14 @@ async fn main() -> Result<()> {
                     no_sandbox,
                 },
             };
-            test(shared, browser_options, debugger_options).await
+            test(output_path, shared, browser_options, debugger_options).await
         }
         Command::TestExternal {
             shared,
             remote_debugger,
             create_target,
         } => {
+            let output_path = resolve_output_path(&shared)?;
             let browser_options = BrowserOptions {
                 create_target,
                 emulation: Emulation {
@@ -210,10 +213,11 @@ async fn main() -> Result<()> {
                     device_scale_factor: shared.device_scale_factor,
                 },
                 instrumentation: shared.instrument_javascript.clone(),
+                downloads_directory: output_path.join("downloads"),
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
-            test(shared, browser_options, debugger_options).await
+            test(output_path, shared, browser_options, debugger_options).await
         }
         Command::Inspect {
             trace_path,
@@ -223,7 +227,15 @@ async fn main() -> Result<()> {
     }
 }
 
+fn resolve_output_path(shared_options: &TestSharedOptions) -> Result<PathBuf> {
+    match &shared_options.output_path {
+        Some(path) => Ok(path.clone()),
+        None => Ok(TempDir::with_prefix("bombadil_")?.keep().to_path_buf()),
+    }
+}
+
 async fn test(
+    output_path: PathBuf,
     shared_options: TestSharedOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
@@ -244,11 +256,6 @@ async fn test(
         Specification {
             module_specifier: "@antithesishq/bombadil/defaults".to_string(),
         }
-    };
-
-    let output_path = match shared_options.output_path {
-        Some(path) => path,
-        None => TempDir::with_prefix("states_")?.keep().to_path_buf(),
     };
 
     let runner = Runner::new(

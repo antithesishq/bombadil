@@ -117,6 +117,10 @@ pub enum BrowserAction {
     },
     Reload,
     Wait,
+    SetFileInputFiles {
+        selector: String,
+        files: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

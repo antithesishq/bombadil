@@ -109,5 +109,13 @@ pub fn format_action(action: &BrowserAction) -> String {
                 styled::maybe_blue(format!("{:.0}px", distance))
             )
         }
+        BrowserAction::SetFileInputFiles { selector, files } => {
+            format!(
+                "{} {} with {} file(s)",
+                styled::maybe_bold("Setting file input".to_string()),
+                styled::maybe_blue(format!("{:?}", selector)),
+                styled::maybe_blue(format!("{}", files.len()))
+            )
+        }
     }
 }

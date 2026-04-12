@@ -210,6 +210,10 @@ const clickablePoints = extract((state) => {
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
     if (!(element instanceof HTMLInputElement) && !isVisible(element)) continue;
 
+    if (element instanceof HTMLInputElement && element.type === "file") {
+      continue;
+    }
+
     const point = clickablePoint(element);
     if (!point) continue;
     if (!inViewport(point)) continue;
@@ -285,6 +289,8 @@ export const inputs = actions(() => {
   if (contentType.current !== "text/html") return [];
   const type = activeInput.current;
   if (!type) return [];
+
+  if (type === "file") return [];
 
   const delayMillis = integers().min(1).max(100).generate();
 

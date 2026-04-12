@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>File Picker Test</title>
+</head>
+<body>
+    <h1>File Picker Test</h1>
+    <form id="upload-form">
+        <input type="file" id="file-input" />
+        <button type="submit" id="submit-button">Upload</button>
+    </form>
+    <p id="status"></p>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        const fileInput = document.getElementById('file-input');
+        const status = document.getElementById('status');
+
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+
+            if (fileInput.files && fileInput.files.length > 0) {
+                status.textContent = 'you have uploaded a file';
+            } else {
+                status.textContent = 'no file selected';
+            }
+        });
+    </script>
+</body>
+</html>

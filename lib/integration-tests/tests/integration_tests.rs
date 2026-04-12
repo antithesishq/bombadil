@@ -1,5 +1,10 @@
 use anyhow::anyhow;
-use axum::Router;
+use axum::{
+    Router,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+    routing::get,
+};
 use std::io::Write;
 use std::{
     fmt::Display,
@@ -79,7 +84,26 @@ async fn run_browser_test(
     let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
     log::info!("starting browser test");
     let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
-    let app = Router::new().fallback_service(ServeDir::new(&test_dir));
+
+    async fn download_testfile() -> Response {
+        let content = "test file contents";
+        (
+            StatusCode::OK,
+            [
+                (
+                    header::CONTENT_DISPOSITION,
+                    "attachment; filename=\"test-file\"",
+                ),
+                (header::CONTENT_TYPE, "application/octet-stream"),
+            ],
+            content,
+        )
+            .into_response()
+    }
+
+    let app = Router::new()
+        .route("/test-file", get(download_testfile))
+        .fallback_service(ServeDir::new(&test_dir));
     let app_other = app.clone();
 
     let (listener, listener_other, port) = loop {
@@ -127,6 +151,7 @@ async fn run_browser_test(
         },
     };
 
+    let downloads_directory = TempDir::new().unwrap();
     let runner = Runner::new(
         origin,
         specification,
@@ -141,6 +166,7 @@ async fn run_browser_test(
                 device_scale_factor: 2.0,
             },
             instrumentation: Default::default(),
+            downloads_directory: downloads_directory.path().to_path_buf(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -389,6 +415,7 @@ async fn test_browser_lifecycle() {
     log::info!("running test server on {}", &origin);
     let user_data_directory = TempDir::new().unwrap();
 
+    let downloads_directory = TempDir::new().unwrap();
     let mut browser = Browser::new(
         origin,
         BrowserOptions {
@@ -399,6 +426,7 @@ async fn test_browser_lifecycle() {
                 device_scale_factor: 2.0,
             },
             instrumentation: Default::default(),
+            downloads_directory: downloads_directory.path().to_path_buf(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -815,6 +843,79 @@ export { clicks } from "@antithesishq/bombadil/defaults/actions";
 export const neverDone = always(() => true);
 "#,
         ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_file_download() {
+    run_browser_test(
+        "file-download",
+        Expect::Success,
+        Some(Duration::from_secs(10)),
+        Some(
+            r#"
+import { extract, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const messageText = extract((state) => {
+  const message = state.document.querySelector("\#message");
+  return message ? message.textContent : "";
+});
+
+export const downloadCompletes = eventually(
+  () => messageText.current === "you have downloaded the file"
+);
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_file_picker() {
+    let test_file = NamedTempFile::new().unwrap();
+    std::fs::write(test_file.path(), b"test file content").unwrap();
+    let file_path = test_file.path().display();
+
+    let spec = format!(
+        r#"
+import {{ actions, extract, eventually, weighted }} from "@antithesishq/bombadil";
+export {{ clicks }} from "@antithesishq/bombadil/defaults/actions";
+
+const statusText = extract((state) => {{
+  const status = state.document.querySelector("\#status");
+  return status ? status.textContent : "";
+}});
+
+const fileIsSet = extract((state) => {{
+  const input = state.document.querySelector("\#file-input");
+  return input && input.files && input.files.length > 0;
+}});
+
+export const fileActions = actions(() => {{
+  if (fileIsSet.current) return [];
+  return [
+    {{
+      SetFileInputFiles: {{
+        selector: "\#file-input",
+        files: ["{file_path}"],
+      }},
+    }},
+  ];
+}});
+
+export const fileUploaded = eventually(
+  () => statusText.current === "you have uploaded a file"
+).within(5, "seconds");
+"#,
+    );
+
+    run_browser_test(
+        "file-picker",
+        Expect::Success,
+        Some(Duration::from_secs(10)),
+        Some(&spec),
     )
     .await;
 }

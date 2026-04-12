@@ -1,5 +1,24 @@
 # The Bombadil Changelog
 
+## 0.4.3
+
+Major updates:
+
+* Support file downloads and file inputs (#139)
+* Pretty-printed output rather than plain logs (#133, #138)
+* Autoscroll actions list in Bombadil Inspect (#131, #132)
+* Improve violation error messages (#127)
+* Add --timeout option (#86)
+
+Bug fixes:
+
+* Unwrap nested always violations recursively (#134)
+* Fix stack overflow on `BundlerError` (#125)
+
+Internals:
+
+* Bump chromiumoxide (#140)
+
 ## 0.4.2
 
 * Enable `trunk build` in release (fixes broken `inspect` command)

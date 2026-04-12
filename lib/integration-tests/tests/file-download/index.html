@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>File Download Test</title>
+    <style>
+      a {
+        display: block;
+        padding: 10px;
+        font-size: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Download Test</h1>
+    <a href="/test-file" id="download-link">Download File</a>
+    <div id="message"></div>
+
+    <script>
+      const link = document.getElementById("download-link");
+      const messageDiv = document.getElementById("message");
+
+      link.addEventListener("click", (event) => {
+        <!-- event.preventDefault(); -->
+        messageDiv.textContent = "you have downloaded the file";
+      });
+    </script>
+  </body>
+</html>

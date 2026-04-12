@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = { version = "1.0.99", features = ["backtrace"] }
-chromiumoxide = "0.8.0"
+chromiumoxide = "0.9.1"
 const_format = "0.2.35"
 futures = "0.3.31"
 http = "1.4.0"
