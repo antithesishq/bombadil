@@ -155,6 +155,7 @@ pub struct BrowserOptions {
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
     pub downloads_directory: PathBuf,
+    pub grant_permissions: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -243,18 +244,18 @@ impl Browser {
         )
         .await?;
 
-        page.execute(
-            browser::SetPermissionParams::builder()
-                .permission(browser::PermissionDescriptor::new(
-                    "local-network-access",
-                ))
-                .setting(browser::PermissionSetting::Granted)
-                .build()
-                .map_err(|s| {
-                    anyhow!(s).context("build SetPermissionParams failed")
-                })?,
-        )
-        .await?;
+        for permission in &browser_options.grant_permissions {
+            page.execute(
+                browser::SetPermissionParams::builder()
+                    .permission(browser::PermissionDescriptor::new(permission))
+                    .setting(browser::PermissionSetting::Granted)
+                    .build()
+                    .map_err(|s| {
+                        anyhow!(s).context("build SetPermissionParams failed")
+                    })?,
+            )
+            .await?;
+        }
 
         page.execute(
             emulation::SetDeviceMetricsOverrideParams::builder()

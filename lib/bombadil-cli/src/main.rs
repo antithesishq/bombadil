@@ -65,6 +65,10 @@ struct TestSharedOptions {
     /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
     #[arg(long, value_parser = duration::parse_duration)]
     time_limit: Option<Duration>,
+    /// Comma-separated list of Chrome permissions to grant.
+    /// Examples: local-network-access, geolocation, notifications
+    #[arg(long, default_value = "local-network-access")]
+    chrome_grant_permissions: String,
 }
 
 #[derive(clap::Subcommand)]
@@ -187,6 +191,12 @@ async fn main() -> Result<()> {
                 },
                 instrumentation: shared.instrument_javascript.clone(),
                 downloads_directory: output_path.join("downloads"),
+                grant_permissions: shared
+                    .chrome_grant_permissions
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
             };
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
@@ -214,6 +224,12 @@ async fn main() -> Result<()> {
                 },
                 instrumentation: shared.instrument_javascript.clone(),
                 downloads_directory: output_path.join("downloads"),
+                grant_permissions: shared
+                    .chrome_grant_permissions
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
