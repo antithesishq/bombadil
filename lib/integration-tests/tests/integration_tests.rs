@@ -27,6 +27,27 @@ use bombadil::{
 };
 use bombadil_schema::markup;
 
+/// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
+/// causing a test to hang, so we limit parallelism.
+static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(4);
+const TEST_TIMEOUT_SECONDS: u64 = 120;
+
+static INIT: Once = Once::new();
+
+fn setup() {
+    INIT.call_once(|| {
+        let env = env_logger::Env::default().default_filter_or("debug");
+        env_logger::Builder::from_env(env)
+            .format_timestamp_millis()
+            .format_target(true)
+            .is_test(true)
+            .filter_module("html5ever", log::LevelFilter::Warn)
+            // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
+            .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
+            .init();
+    });
+}
+
 enum Expect {
     Error { substring: &'static str },
     Success,
@@ -316,27 +337,6 @@ impl<'a> BrowserIntegrationTest<'a> {
         }
     }
 }
-
-static INIT: Once = Once::new();
-
-fn setup() {
-    INIT.call_once(|| {
-        let env = env_logger::Env::default().default_filter_or("debug");
-        env_logger::Builder::from_env(env)
-            .format_timestamp_millis()
-            .format_target(true)
-            .is_test(true)
-            .filter_module("html5ever", log::LevelFilter::Warn)
-            // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
-            .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
-            .init();
-    });
-}
-
-/// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
-/// causing a test to hang, so we limit parallelism.
-static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(4);
-const TEST_TIMEOUT_SECONDS: u64 = 120;
 
 #[tokio::test]
 async fn test_console_error() {
