@@ -961,6 +961,20 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         let right = self.evaluate(&right_formula, time)?;
+        if let Value::False(violation, _) = right {
+            return Ok(Value::False(
+                Self::release_right_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    end,
+                    violation,
+                ),
+                None,
+            ));
+        }
+
+        let left = self.evaluate(&left_formula, time)?;
         let recursive_release = Residual::Derived(
             Derived::Release {
                 left_formula: left_formula.clone(),
@@ -971,84 +985,69 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             Leaning::AssumeTrue,
         );
 
-        Ok(match right {
-            Value::False(violation, _) => Value::False(
-                Self::release_right_violation(
-                    left_formula.as_ref(),
-                    right_formula.as_ref(),
+        Ok(match (left, right) {
+            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
+                Value::True(merge_snapshots(&left_snapshots, &right_snapshots))
+            }
+            (Value::False(_, _), Value::True(right_snapshots)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
                     start,
                     end,
-                    violation,
-                ),
-                None,
-            ),
-            Value::True(right_snapshots) => {
-                match self.evaluate(&left_formula, time)? {
-                    Value::True(left_snapshots) => Value::True(
-                        merge_snapshots(&left_snapshots, &right_snapshots),
-                    ),
-                    Value::False(_, _) => {
-                        Value::Residual(Residual::AndRelease {
-                            left_formula,
-                            right_formula,
-                            start,
-                            end,
-                            left: Box::new(Residual::True(right_snapshots)),
-                            right: Box::new(recursive_release),
-                        })
-                    }
-                    Value::Residual(left) => {
-                        let fallback = Residual::OrRelease {
-                            left: Box::new(left),
-                            right: Box::new(recursive_release),
-                        };
-                        Value::Residual(Residual::AndRelease {
-                            left_formula,
-                            right_formula,
-                            start,
-                            end,
-                            left: Box::new(Residual::True(right_snapshots)),
-                            right: Box::new(fallback),
-                        })
-                    }
-                }
+                    left: Box::new(Residual::True(right_snapshots)),
+                    right: Box::new(recursive_release),
+                })
             }
-            Value::Residual(right) => match self
-                .evaluate(&left_formula, time)?
-            {
-                Value::True(left_snapshots) => {
-                    Value::Residual(Residual::AndRelease {
-                        left_formula,
-                        right_formula,
-                        start,
-                        end,
-                        left: Box::new(right),
-                        right: Box::new(Residual::True(left_snapshots)),
-                    })
-                }
-                Value::False(_, _) => Value::Residual(Residual::AndRelease {
+            (Value::Residual(left), Value::True(right_snapshots)) => {
+                let fallback = Residual::OrRelease {
+                    left: Box::new(left),
+                    right: Box::new(recursive_release),
+                };
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(right_snapshots)),
+                    right: Box::new(fallback),
+                })
+            }
+            (Value::True(left_snapshots), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(Residual::True(left_snapshots)),
+                })
+            }
+            (Value::False(_, _), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
                     left_formula,
                     right_formula,
                     start,
                     end,
                     left: Box::new(right),
                     right: Box::new(recursive_release),
-                }),
-                Value::Residual(left) => {
-                    let fallback = Residual::OrRelease {
-                        left: Box::new(left),
-                        right: Box::new(recursive_release),
-                    };
-                    Value::Residual(Residual::AndRelease {
-                        left_formula,
-                        right_formula,
-                        start,
-                        end,
-                        left: Box::new(right),
-                        right: Box::new(fallback),
-                    })
-                }
-            },
+                })
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                let fallback = Residual::OrRelease {
+                    left: Box::new(left),
+                    right: Box::new(recursive_release),
+                };
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(fallback),
+                })
+            }
+            (_, Value::False(_, _)) => unreachable!(),
         })
     }
 
