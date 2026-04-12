@@ -538,32 +538,8 @@ async fn test_until_release_success() {
         Some(Duration::from_secs(10)),
         Some(
             r#"
-import { actions, extract, now, eventually, type Action } from "@antithesishq/bombadil";
-
-type ClickTarget = {
-  name: string;
-  content?: string;
-  point: { x: number; y: number };
-};
-
-function buttonTarget(selector: string) {
-  return extract((state): ClickTarget | null => {
-    const element = state.document.querySelector(selector);
-    if (!(element instanceof HTMLButtonElement)) return null;
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return null;
-
-    return {
-      name: element.nodeName,
-      content: (element.textContent ?? "").trim(),
-      point: {
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      },
-    };
-  });
-}
+import { extract, now, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
 
 const counterA = extract((state) => {
   const element = state.document.body.querySelector("\#counter-a");
@@ -575,47 +551,92 @@ const counterB = extract((state) => {
   return parseInt(element?.textContent ?? "0", 10);
 });
 
-const incrementATarget = buttonTarget("\#increment-a");
-const incrementBTarget = buttonTarget("\#increment-b");
-
-export const guidedClicks = actions(() => {
-  if (counterA.current < 3) {
-    const target = incrementATarget.current;
-    if (!target) return [];
-    return [{ Click: target } as Action];
-  }
-
-  if (counterB.current === 0) {
-    const target = incrementBTarget.current;
-    if (!target) return [];
-    return [{ Click: target } as Action];
-  }
-
-  return [];
-});
-
-// Counter B stays 0 until Counter A reaches 3.
+// Counter B stays 0 until Counter A reaches 3
 export const bStaysZeroUntilAIsThree =
   now(() => counterB.current === 0).until(() => counterA.current >= 3);
 
-// The same property expressed using the dual release operator.
+// The same property expressed using the dual release operator
 export const aAtLeastThreeReleasesBStaysZero =
   now(() => counterA.current >= 3).release(() => counterB.current === 0);
 
-// Bounded versions should also succeed because the guided clicks unlock B quickly.
+// Bounded versions with enough time for random clicks to unlock B
 export const boundedBStaysZeroUntilAIsThree =
   now(() => counterB.current === 0)
     .until(() => counterA.current >= 3)
-    .within(5, "seconds");
+    .within(8, "seconds");
 
 export const boundedAAtLeastThreeReleasesBStaysZero =
   now(() => counterA.current >= 3)
     .release(() => counterB.current === 0)
-    .within(5, "seconds");
+    .within(8, "seconds");
 
-// Keep the run non-vacuous: after A unlocks B, we must actually click B.
+// Ensure B actually gets clicked after A unlocks it
 export const counterBEventuallyIncrements =
-  eventually(() => counterB.current > 0).within(5, "seconds");
+  eventually(() => counterB.current > 0).within(8, "seconds");
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_until_violation() {
+    run_browser_test(
+        "until-release",
+        Expect::Error {
+            substring: "aStaysZeroUntilBIsThree",
+        },
+        Some(Duration::from_secs(10)),
+        Some(
+            r#"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+// This must fail: B is disabled until A reaches 3, so B can never reach 3 first
+export const aStaysZeroUntilBIsThree =
+  now(() => counterA.current === 0).until(() => counterB.current >= 3);
+"#,
+        ),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn test_release_violation() {
+    run_browser_test(
+        "until-release",
+        Expect::Error {
+            substring: "bReachesThreeReleasesAStaysZero",
+        },
+        Some(Duration::from_secs(10)),
+        Some(
+            r#"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+// This must fail: B is disabled until A reaches 3, so A breaks the obligation of staying 0
+export const bReachesThreeReleasesAStaysZero =
+  now(() => counterB.current >= 3).release(() => counterA.current === 0);
 "#,
         ),
     )
