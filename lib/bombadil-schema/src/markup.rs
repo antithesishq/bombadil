@@ -479,7 +479,9 @@ fn render_release_requirement(
     parts.extend([
         Markup::Comma,
         render_formula(right),
-        Markup::Span(vec![Inline::Text("should hold unless or until".into())]),
+        Markup::Span(vec![Inline::Text(
+            "should hold until released by".into(),
+        )]),
         render_formula(left),
     ]);
     Markup::Join(parts)

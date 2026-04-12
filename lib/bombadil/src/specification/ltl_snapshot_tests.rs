@@ -352,6 +352,223 @@ fn test_or_true_short_circuits_with_snapshots() {
 }
 
 #[test]
+fn test_until_uses_right_snapshots_when_both_sides_hold() {
+    let state = TestState {
+        x: true,
+        y: true,
+        z: false,
+    };
+    let formula = Formula::Until(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        None,
+    );
+    let value = evaluate_with_state(&formula, &state);
+    assert!(matches!(value, Value::True(_)));
+    let names = snapshot_names(&value);
+    assert!(
+        !names.contains(&"x_val".to_string()),
+        "left snapshots should not be needed once right discharges the until: {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"y_val".to_string()),
+        "right snapshots missing: {:?}",
+        names
+    );
+}
+
+#[test]
+fn test_release_stop_default_is_true() {
+    let state = TestState {
+        x: false,
+        y: true,
+        z: false,
+    };
+    let formula = Formula::Release(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        None,
+    );
+    let value = evaluate_with_state(&formula, &state);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndRelease { .. }) => residual,
+        other => panic!("expected AndRelease residual, got {:?}", other),
+    };
+    let stop = stop_default(&residual, t0());
+    assert!(matches!(stop, Some(StopDefault::True(_))));
+}
+
+#[test]
+fn test_bounded_until_times_out_after_deadline() {
+    let state = TestState {
+        x: true,
+        y: false,
+        z: false,
+    };
+    let formula = Formula::Until(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        Some(Duration::from_millis(0)),
+    );
+    let value = evaluate_with_state(&formula, &state);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndUntil { .. }) => residual,
+        other => panic!("expected AndUntil residual, got {:?}", other),
+    };
+
+    let time = time_from_millis(1);
+    let stepped = step_with_state(&residual, &state, time);
+    assert!(matches!(
+        stepped,
+        Value::False(
+            Violation::Until {
+                start,
+                end,
+                reason: UntilViolation::TimedOut { time: timeout, .. },
+                ..
+            },
+            None
+        ) if start == t0() && end == Some(t0()) && timeout == time
+    ));
+}
+
+#[test]
+fn test_bounded_until_stop_default_times_out_after_deadline() {
+    let state = TestState {
+        x: true,
+        y: false,
+        z: false,
+    };
+    let formula = Formula::Until(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        Some(Duration::from_millis(0)),
+    );
+    let value = evaluate_with_state(&formula, &state);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndUntil { .. }) => residual,
+        other => panic!("expected AndUntil residual, got {:?}", other),
+    };
+
+    let time = time_from_millis(1);
+    let stop = stop_default(&residual, time);
+    assert!(matches!(
+        stop,
+        Some(StopDefault::False(Violation::Until {
+            start,
+            end,
+            reason: UntilViolation::TimedOut { time: timeout, .. },
+            ..
+        })) if start == t0() && end == Some(t0()) && timeout == time
+    ));
+}
+
+#[test]
+fn test_bounded_release_succeeds_after_deadline() {
+    let initial = TestState {
+        x: false,
+        y: true,
+        z: false,
+    };
+    let after_deadline = TestState {
+        x: false,
+        y: false,
+        z: false,
+    };
+    let formula = Formula::Release(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        Some(Duration::from_millis(0)),
+    );
+    let value = evaluate_with_state(&formula, &initial);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndRelease { .. }) => residual,
+        other => panic!("expected AndRelease residual, got {:?}", other),
+    };
+
+    let time = time_from_millis(1);
+    let stepped = step_with_state(&residual, &after_deadline, time);
+    match stepped {
+        Value::True(snapshots) => assert!(snapshots.is_empty()),
+        other => panic!("expected success after deadline, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_bounded_until_timeout_preserves_prior_state_snapshots() {
+    let state = TestState {
+        x: true,
+        y: false,
+        z: false,
+    };
+    let formula = Formula::Until(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        Some(Duration::from_millis(0)),
+    );
+    let value = evaluate_with_state(&formula, &state);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndUntil { .. }) => residual,
+        other => panic!("expected AndUntil residual, got {:?}", other),
+    };
+
+    let time = time_from_millis(1);
+    let stepped = step_with_state(&residual, &state, time);
+    match stepped {
+        Value::False(
+            Violation::Until {
+                reason: UntilViolation::TimedOut { snapshots, .. },
+                ..
+            },
+            None,
+        ) => {
+            let x_times: BTreeSet<_> = snapshots
+                .into_iter()
+                .filter(|snapshot| snapshot.name.as_deref() == Some("x_val"))
+                .map(|snapshot| snapshot.time)
+                .collect();
+            assert_eq!(x_times, BTreeSet::from([t0()]));
+        }
+        other => panic!("expected timed out until violation, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_until_test_ended_preserves_carried_snapshots() {
+    let state = TestState {
+        x: true,
+        y: false,
+        z: false,
+    };
+    let formula = Formula::Until(
+        Box::new(thunk(Variable::X)),
+        Box::new(thunk(Variable::Y)),
+        None,
+    );
+    let value = evaluate_with_state(&formula, &state);
+    let residual = match value {
+        Value::Residual(residual @ Residual::AndUntil { .. }) => residual,
+        other => panic!("expected AndUntil residual, got {:?}", other),
+    };
+
+    match stop_default(&residual, t0()) {
+        Some(StopDefault::False(Violation::Until {
+            reason: UntilViolation::TestEnded { snapshots },
+            ..
+        })) => {
+            let x_times: BTreeSet<_> = snapshots
+                .into_iter()
+                .filter(|snapshot| snapshot.name.as_deref() == Some("x_val"))
+                .map(|snapshot| snapshot.time)
+                .collect();
+            assert_eq!(x_times, BTreeSet::from([t0()]));
+        }
+        other => panic!("expected test-ended until violation, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_implies_after_or_has_all_antecedent_snapshots() {
     // (x OR y) IMPLIES z, where x=true, y=true, z=false
     let state = TestState {
