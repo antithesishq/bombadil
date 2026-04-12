@@ -66,7 +66,7 @@ struct TestSharedOptions {
     #[arg(long, value_parser = duration::parse_duration)]
     time_limit: Option<Duration>,
     /// Comma-separated list of Chrome permissions to grant.
-    /// Examples: local-network-access, geolocation, notifications
+    /// Examples: local-network-access, geolocation, notifications.
     #[arg(long, default_value = "local-network-access")]
     chrome_grant_permissions: String,
 }
