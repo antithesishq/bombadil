@@ -3,6 +3,7 @@
   python3,
   gh,
   basedpyright,
+  black,
   makeWrapper,
 }:
 stdenv.mkDerivation {
@@ -10,6 +11,7 @@ stdenv.mkDerivation {
   src = ./.;
   nativeBuildInputs = [
     basedpyright
+    black
     makeWrapper
   ];
   doCheck = true;

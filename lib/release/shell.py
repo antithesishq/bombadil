@@ -32,7 +32,9 @@ def run_result(
     )
 
 
-def capture(cmd: str | list[str], *, cwd: Path | None = None, check: bool = True) -> str:
+def capture(
+    cmd: str | list[str], *, cwd: Path | None = None, check: bool = True
+) -> str:
     """Run a command and return stripped stdout; abort on failure when check=True."""
     result = run_result(cmd, cwd=cwd)
     if check and result.returncode != 0:

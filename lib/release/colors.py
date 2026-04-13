@@ -7,9 +7,25 @@ RED = "\033[31m"
 DIM = "\033[2m"
 
 
-def green(s: str) -> str: return f"{GREEN}{s}{RESET}"
-def yellow(s: str) -> str: return f"{YELLOW}{s}{RESET}"
-def cyan(s: str) -> str: return f"{CYAN}{s}{RESET}"
-def red(s: str) -> str: return f"{RED}{s}{RESET}"
-def bold(s: str) -> str: return f"{BOLD}{s}{RESET}"
-def dim(s: str) -> str: return f"{DIM}{s}{RESET}"
+def green(s: str) -> str:
+    return f"{GREEN}{s}{RESET}"
+
+
+def yellow(s: str) -> str:
+    return f"{YELLOW}{s}{RESET}"
+
+
+def cyan(s: str) -> str:
+    return f"{CYAN}{s}{RESET}"
+
+
+def red(s: str) -> str:
+    return f"{RED}{s}{RESET}"
+
+
+def bold(s: str) -> str:
+    return f"{BOLD}{s}{RESET}"
+
+
+def dim(s: str) -> str:
+    return f"{DIM}{s}{RESET}"
