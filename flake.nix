@@ -67,6 +67,7 @@
           default = bombadil.bin;
           types = bombadil.types;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
+          release = pkgs.callPackage ./lib/release/default.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           aarch64-linux = bombadilAarch64.bin;
@@ -82,7 +83,6 @@
         };
 
         checks = {
-
           inherit (bombadil) clippy fmt types;
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
@@ -119,6 +119,9 @@
                   trunk
                   wasm-bindgen-cli
                   binaryen
+
+                  # Release automation
+                  self.packages.${system}.release
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
@@ -139,6 +142,10 @@
               nodePackages.concurrently
             ];
             OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
+          };
+
+          release = pkgs.mkShell {
+            inputsFrom = [ self.packages.${system}.release ];
           };
         };
       }

@@ -1,0 +1,6 @@
+{
+  "pythonVersion": "3.13",
+  "extraPaths": ["."],
+  "reportAny": "none",
+  "reportImplicitRelativeImport": "none"
+}
