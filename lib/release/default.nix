@@ -20,7 +20,7 @@ stdenv.mkDerivation {
     mkdir -p $out/bin $out/lib/bombadil-release
     cp *.py $out/lib/bombadil-release/
     makeWrapper ${python3}/bin/python3 $out/bin/release \
-      --add-flags "$out/lib/bombadil-release/release.py" \
+      --add-flags "$out/lib/bombadil-release/main.py" \
       --prefix PATH : ${gh}/bin
   '';
 }
