@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Granted Permissions</title>
+  </head>
+  <body>
+    <div id="notification-permission">checking...</div>
+    <div id="geolocation-permission">checking...</div>
+    <button id="test-button">Test</button>
+
+    <script>
+      const notificationPermissionElement = document.querySelector(
+        "#notification-permission",
+      );
+      notificationPermissionElement.textContent = `notifications: ${Notification.permission}`;
+
+      const geolocationPermissionElement = document.querySelector(
+        "#geolocation-permission",
+      );
+      if (navigator.permissions) {
+        navigator.permissions
+          .query({ name: "geolocation" })
+          .then((result) => {
+            geolocationPermissionElement.textContent = `geolocation: ${result.state}`;
+          })
+          .catch((error) => {
+            geolocationPermissionElement.textContent = `geolocation: error - ${error.message}`;
+          });
+      } else {
+        geolocationPermissionElement.textContent =
+          "geolocation: permissions API not available";
+      }
+    </script>
+  </body>
+</html>

@@ -1,5 +1,10 @@
 # The Bombadil Changelog
 
+## 0.4.4
+
+* Automate release procedure with script (#145)
+* Grant permissions (e.g. local network access) to Chrome from CLI (#143, #144)
+
 ## 0.4.3
 
 Major updates:
