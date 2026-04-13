@@ -108,37 +108,12 @@ cargo test -p integration-tests
 
 ## Releasing
 
-1. Make sure you're on branch `main` and in a clean state
-1. Create a new branch `release/x.y.z` (with the actual version)
-1. Bump the version in the root `Cargo.toml` under `[workspace.package]`
-1. `cargo check` (this regenerates the `Cargo.lock` file)
-1. Run:
+Run the release script from the repo root (in the default Nix shell):
 
-   ```
-   export VERSION_PREV=$(git tag --sort=-v:refname -l "v*" | sed -n '1p' | sed 's/v//')
-   export VERSION_NEW=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-   ```
+```bash
+release
+```
 
-1. Run:
-
-   ```
-   tail -n +2 CHANGELOG.md > tmp.md
-   rm -f CHANGELOG.md
-   (echo "# The Bombadil Changelog" && echo "" && echo "## ${VERSION_NEW}" && echo "" && git log v${VERSION_PREV}..HEAD --oneline | sed 's/^[a-z0-9]* /* /' && echo "") \
-       | cat - tmp.md > CHANGELOG.md && rm -f tmp.md
-   ```
-
-   Open up `CHANGELOG.md` and rewrite the commit log into something meaningful.
-
-1. `git add .`
-1. `git commit -m "release v${VERSION_NEW}"`
-1. Push to GitHub and create a pull request.
-
-   Review the changes and let the checks pass. Then merge the PR and continue:
-1. `git fetch`
-1. `git tag -a "v${VERSION_NEW}" -m "v${VERSION_NEW}" <SQUASH COMMIT FROM PULL REQUEST>`
-1. `git push origin "v${VERSION_NEW}"`
-
-The release workflow will then build binaries, publish the types package to
-NPM, and create a **draft** GitHub release. Go to the GitHub releases page,
-review the draft, and publish it.
+The script guides you through all steps interactively: version selection,
+branch creation, version bump, changelog update, PR creation, tagging, and
+publishing the GitHub release.
