@@ -12,7 +12,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from changelog import CHANGELOG, build_entry, open_in_editor, prepend
 from colors import bold, cyan, dim
-from git import commits_since, current_branch, gh_logged_in, is_clean, is_repo_root, last_tag
+from git import (
+    commits_since,
+    current_branch,
+    gh_logged_in,
+    is_clean,
+    is_repo_root,
+    last_tag,
+)
 from shell import capture, run, run_result
 from ui import confirm, fail, header, info, ok, pause, prompt, step, warn
 from versions import CARGO_TOML, choose_version, read_current_version, write_version
@@ -48,7 +55,10 @@ def main() -> None:
 
         branch = current_branch()
         if branch != "main":
-            if not confirm(f"You are on branch '{branch}', not 'main'. Continue anyway?", default=False):
+            if not confirm(
+                f"You are on branch '{branch}', not 'main'. Continue anyway?",
+                default=False,
+            ):
                 sys.exit(0)
         else:
             ok("On branch main")
@@ -56,7 +66,9 @@ def main() -> None:
         if not is_clean():
             print()
             run("git status --short")
-            if not confirm("Working tree is not clean. Continue anyway?", default=False):
+            if not confirm(
+                "Working tree is not clean. Continue anyway?", default=False
+            ):
                 sys.exit(0)
         else:
             ok("Working tree is clean")
@@ -80,7 +92,10 @@ def main() -> None:
         assert new_version is not None and branch_name is not None
         existing = capture(f"git branch --list {branch_name}")
         if existing:
-            if not confirm(f"Branch '{branch_name}' already exists. Delete and recreate?", default=False):
+            if not confirm(
+                f"Branch '{branch_name}' already exists. Delete and recreate?",
+                default=False,
+            ):
                 sys.exit(0)
             run(f"git branch -D {branch_name}")
         run(f"git checkout -b {branch_name}")
@@ -133,7 +148,7 @@ def main() -> None:
 
             pr_cmd = (
                 f'gh pr create --title "release v{new_version}"'
-                f' --body "Release v{new_version}\\n\\nSee CHANGELOG.md for details."'
+                f' --body "Release v{new_version}. See CHANGELOG.md for details."'
                 f" --base main"
             )
             result = run_result(pr_cmd)
@@ -149,12 +164,14 @@ def main() -> None:
     def tag_release() -> None:
         nonlocal tag
         assert new_version is not None
-        print(f"""
+        print(
+            f"""
   {bold('What to do next:')}
   1. Review the PR on GitHub and let CI pass.
   2. Merge the PR (squash merge).
   3. Come back here and press Enter.
-""")
+"""
+        )
         pause("Press Enter after the PR has been merged…")
 
         run("git fetch")
@@ -182,7 +199,9 @@ def main() -> None:
 
     def publish_release() -> None:
         assert new_version is not None and tag is not None
-        info("The release workflow will build binaries and create a draft GitHub release.")
+        info(
+            "The release workflow will build binaries and create a draft GitHub release."
+        )
         info(f"Polling for draft release {tag}…")
 
         poll_interval = 15
