@@ -1,5 +1,13 @@
 # The Bombadil Changelog
 
+## 0.4.4
+
+* Structure main.py as explicit steps
+* Document new release script usage
+* Automate release with python script
+* generalize chrome permissions with option (#144)
+* Allow local network access for Chrome (#143)
+
 ## 0.4.3
 
 Major updates:
