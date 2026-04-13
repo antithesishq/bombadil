@@ -179,7 +179,12 @@ pub struct Browser {
 impl Drop for Browser {
     fn drop(&mut self) {
         if let Some(sender) = self.shutdown_sender.take() {
-            let _ = sender.send(());
+            let _else = sender.send(());
+        }
+        if let Some(browser) = self.browser.take() {
+            // Drop should already have been called by an explicit browser.close() in
+            // terminate(), but we do this as a last resort.
+            drop(browser);
         }
     }
 }
@@ -358,11 +363,13 @@ impl Browser {
                 );
             }
         }
-        // For some reason browser.close() logs an error about the websocket connection, so we rely
-        // on drop (explicit here so that it's clear) cleaning up the Chrome process.
-        //
-        // Reported here: https://github.com/mattsse/chromiumoxide/issues/287
-        if let Some(browser) = self.browser.take() {
+
+        if let Some(mut browser) = self.browser.take() {
+            browser.close().await?;
+            // For some reason browser.close() logs an error about the websocket connection, so we rely
+            // on drop (explicit here so that it's clear) cleaning up the Chrome process.
+            //
+            // Reported here: https://github.com/mattsse/chromiumoxide/issues/287
             drop(browser);
         }
 
