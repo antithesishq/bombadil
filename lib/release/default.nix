@@ -16,6 +16,7 @@ stdenv.mkDerivation {
   ];
   doCheck = true;
   checkPhase = ''
+    black --check .
     basedpyright .
   '';
   installPhase = ''
