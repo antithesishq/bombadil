@@ -552,11 +552,9 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 
 #[tokio::test]
 async fn test_until_release_success() {
-    run_browser_test(
-        "until-release",
-        Expect::Success,
-        Some(Duration::from_secs(10)),
-        Some(
+    BrowserIntegrationTest::new("until-release")
+        .time_limit(Duration::from_secs(10))
+        .specification(
             r#"
 import { extract, now, eventually } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults/actions";
@@ -594,20 +592,17 @@ export const boundedAAtLeastThreeReleasesBStaysZero =
 export const counterBEventuallyIncrements =
   eventually(() => counterB.current > 0).within(8, "seconds");
 "#,
-        ),
-    )
-    .await;
+        )
+        .run()
+        .await;
 }
 
 #[tokio::test]
 async fn test_until_violation() {
-    run_browser_test(
-        "until-release",
-        Expect::Error {
-            substring: "aStaysZeroUntilBIsThree",
-        },
-        Some(Duration::from_secs(10)),
-        Some(
+    BrowserIntegrationTest::new("until-release")
+        .expect_error("aStaysZeroUntilBIsThree")
+        .time_limit(Duration::from_secs(10))
+        .specification(
             r#"
 import { extract, now } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults/actions";
@@ -626,20 +621,17 @@ const counterB = extract((state) => {
 export const aStaysZeroUntilBIsThree =
   now(() => counterA.current === 0).until(() => counterB.current >= 3);
 "#,
-        ),
-    )
-    .await;
+        )
+        .run()
+        .await;
 }
 
 #[tokio::test]
 async fn test_release_violation() {
-    run_browser_test(
-        "until-release",
-        Expect::Error {
-            substring: "bReachesThreeReleasesAStaysZero",
-        },
-        Some(Duration::from_secs(10)),
-        Some(
+    BrowserIntegrationTest::new("until-release")
+        .expect_error("bReachesThreeReleasesAStaysZero")
+        .time_limit(Duration::from_secs(10))
+        .specification(
             r#"
 import { extract, now } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/defaults/actions";
@@ -658,9 +650,9 @@ const counterB = extract((state) => {
 export const bReachesThreeReleasesAStaysZero =
   now(() => counterB.current >= 3).release(() => counterA.current === 0);
 "#,
-        ),
-    )
-    .await;
+        )
+        .run()
+        .await;
 }
 
 #[tokio::test]
