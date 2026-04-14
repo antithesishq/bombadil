@@ -294,10 +294,16 @@ async fn test(
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
         output_path: PathBuf,
+        violations_count: u64,
+    }
+
+    enum TestResult {
+        ViolationsFound { violations_count: u64 },
+        Success,
     }
 
     impl RunObserver for MainObserver {
-        type StopValue = i32;
+        type StopValue = TestResult;
 
         async fn on_new_state(
             &mut self,
@@ -318,6 +324,7 @@ async fn test(
                 );
             }
 
+            self.violations_count += violations.len() as u64;
             for violation in violations {
                 log::info!("violation of property `{}`", violation.name);
                 let api_violation = violation.to_api();
@@ -337,15 +344,23 @@ async fn test(
                 .write(state, last_action, snapshots, violations)
                 .await?;
 
-            if !violations.is_empty() && self.exit_on_violation {
-                return Ok(ControlFlow::Stop(2));
+            if self.violations_count > 0 && self.exit_on_violation {
+                return Ok(ControlFlow::Stop(TestResult::ViolationsFound {
+                    violations_count: self.violations_count,
+                }));
             }
 
             if let Some(deadline) = self.deadline
                 && state.timestamp >= deadline
             {
                 log::info!("time limit reached, stopping");
-                return Ok(ControlFlow::Stop(0));
+                return Ok(ControlFlow::Stop(if self.violations_count > 0 {
+                    TestResult::ViolationsFound {
+                        violations_count: self.violations_count,
+                    }
+                } else {
+                    TestResult::Success
+                }));
             }
 
             Ok(ControlFlow::Continue)
@@ -367,21 +382,33 @@ async fn test(
         test_start: None,
         deadline,
         output_path: output_path.clone(),
+        violations_count: 0,
     };
 
-    let exit_code = runner.run(&mut observer).await?;
+    let test_result = runner.run(&mut observer).await?;
+
+    let heading =
+        if let Some(TestResult::ViolationsFound { violations_count }) =
+            test_result
+        {
+            styled::maybe_red(styled::maybe_bold(format!(
+                "Test finished with {} violations!",
+                violations_count
+            )))
+        } else {
+            styled::maybe_bold("Test finished!".to_string())
+        };
 
     println!(
-        "{}\n\nInspect the test results using:\n\n  {}",
-        styled::maybe_bold("Test finished!".to_string()),
+        "\n{heading}\n\nInspect the test results using:\n\n  {}",
         styled::maybe_italic(format!(
             "bombadil inspect {}",
             observer.output_path.display()
         ))
     );
 
-    if let Some(exit_code) = exit_code {
-        std::process::exit(exit_code);
+    if let Some(TestResult::ViolationsFound { .. }) = test_result {
+        std::process::exit(2);
     }
 
     Ok(())

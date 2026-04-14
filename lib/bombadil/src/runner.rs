@@ -199,6 +199,7 @@ impl Runner {
                             return Ok(Some(value));
                         }
 
+                        // TODO: remove this?
                         if has_violations && options.stop_on_violation {
                             return Ok(None);
                         }
