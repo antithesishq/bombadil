@@ -7,6 +7,7 @@ import {
   integers,
   keycodes,
   type Action,
+  Cell,
 } from "@antithesishq/bombadil";
 
 const contentType = extract((state) => state.document.contentType);
@@ -25,11 +26,17 @@ const canGoForwardSameOrigin = extract((state) => {
   }
 });
 
-const lastAction = extract((state) => {
+export type OnlyType<T> = T extends string
+  ? T
+  : T extends object
+    ? keyof T
+    : never;
+
+const lastAction: Cell<OnlyType<Action> | null> = extract((state) => {
   const action = state.lastAction;
   if (action === null) return null;
   if (typeof action === "string") return action;
-  return Object.keys(action)[0] ?? null;
+  return Object.keys(action)[0] as OnlyType<Action>;
 });
 
 const body = extract((state) => {
@@ -49,6 +56,14 @@ const window = extract((state) => {
       height: state.window.innerHeight,
     },
   };
+});
+
+export const waitOnce = actions(() => {
+  if (lastAction.current !== "Wait") {
+    return ["Wait"];
+  } else {
+    return [];
+  }
 });
 
 export const scroll = actions(() => {
@@ -346,7 +361,8 @@ export const forward = actions(() => {
 });
 
 export const reload = actions(() => {
-  if (lastAction.current !== "Reload") return ["Reload" as Action];
+  if (lastAction.current !== "Reload" && lastAction.current !== "Wait")
+    return ["Reload" as Action];
   return [];
 });
 
