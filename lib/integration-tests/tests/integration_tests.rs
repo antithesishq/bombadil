@@ -21,7 +21,7 @@ use bombadil::{
         Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
-    runner::{Runner, RunnerOptions},
+    runner::Runner,
     specification::verifier::Specification,
     styled,
 };
@@ -196,9 +196,6 @@ impl<'a> BrowserIntegrationTest<'a> {
         let runner = Runner::new(
             origin,
             specification,
-            RunnerOptions {
-                stop_on_violation: true,
-            },
             BrowserOptions {
                 create_target: true,
                 emulation: Emulation {
@@ -259,6 +256,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                             violation.name, rendered
                         ));
                     }
+                    return Ok(bombadil::runner::ControlFlow::Stop(()));
                 }
 
                 if let Some(deadline) = self.deadline

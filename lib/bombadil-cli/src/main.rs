@@ -18,7 +18,7 @@ use bombadil::{
         actions::BrowserAction, state::BrowserState,
     },
     instrumentation::InstrumentationConfig,
-    runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
+    runner::{ControlFlow, RunObserver, Runner},
     specification::verifier::{Snapshot, Specification},
     styled,
     trace::{PropertyViolation, writer::TraceWriter},
@@ -280,9 +280,6 @@ async fn test(
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
-        RunnerOptions {
-            stop_on_violation: shared_options.exit_on_violation,
-        },
         browser_options,
         debugger_options,
     )

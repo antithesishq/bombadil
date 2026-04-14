@@ -24,10 +24,6 @@ struct PartialSnapshot {
     value: json::Value,
 }
 
-pub struct RunnerOptions {
-    pub stop_on_violation: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlFlow<T> {
     Continue,
@@ -50,7 +46,6 @@ pub trait RunObserver {
 
 pub struct Runner {
     origin: Url,
-    options: RunnerOptions,
     browser: Browser,
     verifier: Arc<VerifierWorker>,
 }
@@ -59,7 +54,6 @@ impl Runner {
     pub async fn new(
         origin: Url,
         specification: Specification,
-        options: RunnerOptions,
         browser_options: BrowserOptions,
         debugger_options: DebuggerOptions,
     ) -> anyhow::Result<Self> {
@@ -77,7 +71,6 @@ impl Runner {
 
         Ok(Runner {
             origin,
-            options,
             browser,
             verifier,
         })
@@ -94,7 +87,6 @@ impl Runner {
 
         let result = Runner::run_test(
             &self.origin,
-            self.options,
             &mut self.browser,
             self.verifier,
             observer,
@@ -113,7 +105,6 @@ impl Runner {
 
     async fn run_test<O: RunObserver>(
         origin: &Url,
-        options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
         observer: &mut O,
@@ -166,7 +157,6 @@ impl Runner {
                                 | PropertyValue::True => {}
                             }
                         }
-                        let has_violations = !violations.is_empty();
 
                         // Make sure we stay within origin.
                         let action_tree =
@@ -199,10 +189,6 @@ impl Runner {
                             return Ok(Some(value));
                         }
 
-                        // TODO: remove this?
-                        if has_violations && options.stop_on_violation {
-                            return Ok(None);
-                        }
                         if !step_result.has_pending {
                             log::info!("all properties are definite, stopping");
                             return Ok(None);
