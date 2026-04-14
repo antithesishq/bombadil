@@ -362,6 +362,16 @@ async fn test(
 
             Ok(ControlFlow::Continue)
         }
+
+        async fn on_terminated(&mut self) -> anyhow::Result<Self::StopValue> {
+            if self.violations_count > 0 {
+                Ok(TestResult::ViolationsFound {
+                    violations_count: self.violations_count,
+                })
+            } else {
+                Ok(TestResult::Success)
+            }
+        }
     }
 
     if let Some(duration) = shared_options.time_limit {
