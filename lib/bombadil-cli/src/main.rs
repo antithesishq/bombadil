@@ -294,9 +294,17 @@ async fn test(
         violations_count: u64,
     }
 
-    enum TestResult {
-        ViolationsFound { violations_count: u64 },
-        Success,
+    #[derive(Clone, Copy, Debug)]
+    enum ExitReason {
+        ExitOnViolation,
+        TimeLimit,
+        Interrupted,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestResult {
+        exit_reason: ExitReason,
+        violations_count: u64,
     }
 
     impl RunObserver for MainObserver {
@@ -342,7 +350,8 @@ async fn test(
                 .await?;
 
             if self.violations_count > 0 && self.exit_on_violation {
-                return Ok(ControlFlow::Stop(TestResult::ViolationsFound {
+                return Ok(ControlFlow::Stop(TestResult {
+                    exit_reason: ExitReason::ExitOnViolation,
                     violations_count: self.violations_count,
                 }));
             }
@@ -351,26 +360,20 @@ async fn test(
                 && state.timestamp >= deadline
             {
                 log::info!("time limit reached, stopping");
-                return Ok(ControlFlow::Stop(if self.violations_count > 0 {
-                    TestResult::ViolationsFound {
-                        violations_count: self.violations_count,
-                    }
-                } else {
-                    TestResult::Success
+                return Ok(ControlFlow::Stop(TestResult {
+                    exit_reason: ExitReason::TimeLimit,
+                    violations_count: self.violations_count,
                 }));
             }
 
             Ok(ControlFlow::Continue)
         }
 
-        async fn on_terminated(&mut self) -> anyhow::Result<Self::StopValue> {
-            if self.violations_count > 0 {
-                Ok(TestResult::ViolationsFound {
-                    violations_count: self.violations_count,
-                })
-            } else {
-                Ok(TestResult::Success)
-            }
+        async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
+            Ok(TestResult {
+                exit_reason: ExitReason::Interrupted,
+                violations_count: self.violations_count,
+            })
         }
     }
 
@@ -394,17 +397,37 @@ async fn test(
 
     let test_result = runner.run(&mut observer).await?;
 
-    let heading =
-        if let Some(TestResult::ViolationsFound { violations_count }) =
-            test_result
-        {
-            styled::maybe_red(styled::maybe_bold(format!(
-                "Test finished with {} violations!",
-                violations_count
-            )))
-        } else {
-            styled::maybe_bold("Test finished!".to_string())
+    let heading = if let Some(TestResult {
+        exit_reason,
+        violations_count,
+    }) = test_result
+    {
+        let findings = match violations_count {
+            0 => "".into(),
+            1 => ", finding 1 violation".into(),
+            n => format!(", finding {n} violations"),
         };
+
+        let heading = styled::maybe_bold(match exit_reason {
+            ExitReason::ExitOnViolation => {
+                format!("Test finished{findings}!",)
+            }
+            ExitReason::TimeLimit => {
+                format!("Test finished after time limit{findings}!")
+            }
+            ExitReason::Interrupted => {
+                format!("Test was interrupted by SIGINT{findings}!",)
+            }
+        });
+
+        if violations_count > 0 {
+            styled::maybe_red(heading)
+        } else {
+            heading
+        }
+    } else {
+        styled::maybe_bold("Test finished!".to_string())
+    };
 
     println!(
         "\n{heading}\n\nInspect the test results using:\n\n  {}",
@@ -414,7 +437,9 @@ async fn test(
         ))
     );
 
-    if let Some(TestResult::ViolationsFound { .. }) = test_result {
+    if let Some(result) = test_result
+        && result.violations_count > 0
+    {
         std::process::exit(2);
     }
 

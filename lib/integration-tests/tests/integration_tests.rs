@@ -269,7 +269,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 Ok(bombadil::runner::ControlFlow::Continue)
             }
 
-            async fn on_terminated(
+            async fn on_interrupted(
                 &mut self,
             ) -> anyhow::Result<Self::StopValue> {
                 Ok(())

@@ -45,7 +45,7 @@ pub trait RunObserver {
         Output = anyhow::Result<ControlFlow<Self::StopValue>>,
     >;
 
-    fn on_terminated(
+    fn on_interrupted(
         &mut self,
     ) -> impl std::future::Future<Output = anyhow::Result<Self::StopValue>>;
 }
@@ -223,7 +223,7 @@ impl Runner {
                     }
                 },
                 _ = ctrl_c() => {
-                    let value = observer.on_terminated().await?;
+                    let value = observer.on_interrupted().await?;
                     return Ok(Some(value));
                 },
             }
