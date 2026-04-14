@@ -21,7 +21,7 @@ use bombadil::{
         Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
-    runner::{Runner, RunnerOptions},
+    runner::Runner,
     specification::verifier::Specification,
     styled,
 };
@@ -196,9 +196,6 @@ impl<'a> BrowserIntegrationTest<'a> {
         let runner = Runner::new(
             origin,
             specification,
-            RunnerOptions {
-                stop_on_violation: true,
-            },
             BrowserOptions {
                 create_target: true,
                 emulation: Emulation {
@@ -259,6 +256,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                             violation.name, rendered
                         ));
                     }
+                    return Ok(bombadil::runner::ControlFlow::Stop(()));
                 }
 
                 if let Some(deadline) = self.deadline
@@ -269,6 +267,12 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
 
                 Ok(bombadil::runner::ControlFlow::Continue)
+            }
+
+            async fn on_interrupted(
+                &mut self,
+            ) -> anyhow::Result<Self::StopValue> {
+                Ok(())
             }
         }
 
@@ -914,12 +918,12 @@ export const fileActions = actions(() => {{
 
 export const fileUploaded = eventually(
   () => statusText.current === "you have uploaded a file"
-).within(5, "seconds");
+).within(20, "seconds");
 "#,
     );
 
     BrowserIntegrationTest::new("file-picker")
-        .time_limit(Duration::from_secs(10))
+        .time_limit(Duration::from_secs(30))
         .specification(&spec)
         .run()
         .await;

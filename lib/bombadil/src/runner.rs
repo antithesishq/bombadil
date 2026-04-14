@@ -12,6 +12,8 @@ use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::select;
+use tokio::signal::ctrl_c;
 
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, DebuggerOptions};
@@ -22,10 +24,6 @@ struct PartialSnapshot {
     index: usize,
     name: Option<String>,
     value: json::Value,
-}
-
-pub struct RunnerOptions {
-    pub stop_on_violation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +44,14 @@ pub trait RunObserver {
     ) -> impl std::future::Future<
         Output = anyhow::Result<ControlFlow<Self::StopValue>>,
     >;
+
+    fn on_interrupted(
+        &mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Self::StopValue>>;
 }
 
 pub struct Runner {
     origin: Url,
-    options: RunnerOptions,
     browser: Browser,
     verifier: Arc<VerifierWorker>,
 }
@@ -59,7 +60,6 @@ impl Runner {
     pub async fn new(
         origin: Url,
         specification: Specification,
-        options: RunnerOptions,
         browser_options: BrowserOptions,
         debugger_options: DebuggerOptions,
     ) -> anyhow::Result<Self> {
@@ -77,7 +77,6 @@ impl Runner {
 
         Ok(Runner {
             origin,
-            options,
             browser,
             verifier,
         })
@@ -94,7 +93,6 @@ impl Runner {
 
         let result = Runner::run_test(
             &self.origin,
-            self.options,
             &mut self.browser,
             self.verifier,
             observer,
@@ -113,7 +111,6 @@ impl Runner {
 
     async fn run_test<O: RunObserver>(
         origin: &Url,
-        options: RunnerOptions,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
         observer: &mut O,
@@ -123,109 +120,112 @@ impl Runner {
 
         loop {
             let verifier = verifier.clone();
-            let event = browser.next_event().await;
-            match event {
-                Some(event) => match event {
-                    BrowserEvent::StateChanged(state) => {
-                        // Step formulas and collect violations.
-                        let snapshots: Arc<[Snapshot]> =
-                            run_extractors(&state, &last_action).await?.into();
-                        for value in snapshots.iter() {
-                            log::debug!(
-                                "snapshot {}: {}",
-                                value.name.as_deref().unwrap_or("<unnamed>"),
-                                value.value
-                            );
-                        }
-                        let step_result = verifier
-                            .step::<crate::specification::js::JsAction>(
-                                snapshots.clone(),
-                                bombadil_schema::Time::from_system_time(
-                                    state.timestamp,
-                                ),
-                            )
-                            .await?;
-
-                        // Convert JsAction tree to BrowserAction tree
-                        let action_tree =
-                            step_result.actions.try_map(&mut |js_action| {
-                                js_action.to_browser_action()
-                            })?;
-
-                        let mut violations =
-                            Vec::with_capacity(step_result.properties.len());
-                        for (name, value) in step_result.properties {
-                            match value {
-                                PropertyValue::False(violation) => {
-                                    violations.push(PropertyViolation {
-                                        name,
-                                        violation,
-                                    });
+            select! {
+                event = browser.next_event() => {
+                    match event {
+                        Some(event) => match event {
+                            BrowserEvent::StateChanged(state) => {
+                                // Step formulas and collect violations.
+                                let snapshots: Arc<[Snapshot]> =
+                                    run_extractors(&state, &last_action).await?.into();
+                                for value in snapshots.iter() {
+                                    log::debug!(
+                                        "snapshot {}: {}",
+                                        value.name.as_deref().unwrap_or("<unnamed>"),
+                                        value.value
+                                    );
                                 }
-                                PropertyValue::Residual
-                                | PropertyValue::True => {}
+                                let step_result = verifier
+                                    .step::<crate::specification::js::JsAction>(
+                                        snapshots.clone(),
+                                        bombadil_schema::Time::from_system_time(
+                                            state.timestamp,
+                                        ),
+                                    )
+                                    .await?;
+
+                                // Convert JsAction tree to BrowserAction tree
+                                let action_tree =
+                                    step_result.actions.try_map(&mut |js_action| {
+                                        js_action.to_browser_action()
+                                    })?;
+
+                                let mut violations =
+                                    Vec::with_capacity(step_result.properties.len());
+                                for (name, value) in step_result.properties {
+                                    match value {
+                                        PropertyValue::False(violation) => {
+                                            violations.push(PropertyViolation {
+                                                name,
+                                                violation,
+                                            });
+                                        }
+                                        PropertyValue::Residual
+                                        | PropertyValue::True => {}
+                                    }
+                                }
+
+                                // Make sure we stay within origin.
+                                let action_tree =
+                                    if !is_within_domain(&state.url, origin) {
+                                        action_tree.filter(&|a| {
+                                            matches!(a, BrowserAction::Back)
+                                        })
+                                    } else {
+                                        action_tree
+                                    };
+
+                                // Update global edges.
+                                for (index, bucket) in &state.coverage.edges_new {
+                                    edges[*index as usize] =
+                                        max(edges[*index as usize], *bucket);
+                                }
+                                log_coverage_stats_increment(&state.coverage);
+                                log_coverage_stats_total(&edges);
+
+                                let control = observer
+                                    .on_new_state(
+                                        &state,
+                                        last_action.as_ref(),
+                                        &snapshots,
+                                        &violations,
+                                    )
+                                    .await?;
+
+                                if let ControlFlow::Stop(value) = control {
+                                    return Ok(Some(value));
+                                }
+
+                                if !step_result.has_pending {
+                                    log::info!("all properties are definite, stopping");
+                                    return Ok(None);
+                                }
+
+                                let action_tree =
+                                    action_tree.prune().ok_or_else(|| {
+                                        anyhow::anyhow!("no actions available")
+                                    })?;
+
+                                let action =
+                                    action_tree.pick(&mut rand::rng())?.clone();
+                                let timeout = action_timeout(&action);
+                                log::info!("picked action: {:?}", action);
+                                browser.apply(action.clone(), timeout)?;
+                                last_action = Some(action);
                             }
+                            BrowserEvent::Error(error) => {
+                                anyhow::bail!("state machine error: {}", error)
+                            }
+                        },
+                        None => {
+                            anyhow::bail!("browser closed")
                         }
-                        let has_violations = !violations.is_empty();
-
-                        // Make sure we stay within origin.
-                        let action_tree =
-                            if !is_within_domain(&state.url, origin) {
-                                action_tree.filter(&|a| {
-                                    matches!(a, BrowserAction::Back)
-                                })
-                            } else {
-                                action_tree
-                            };
-
-                        // Update global edges.
-                        for (index, bucket) in &state.coverage.edges_new {
-                            edges[*index as usize] =
-                                max(edges[*index as usize], *bucket);
-                        }
-                        log_coverage_stats_increment(&state.coverage);
-                        log_coverage_stats_total(&edges);
-
-                        let control = observer
-                            .on_new_state(
-                                &state,
-                                last_action.as_ref(),
-                                &snapshots,
-                                &violations,
-                            )
-                            .await?;
-
-                        if let ControlFlow::Stop(value) = control {
-                            return Ok(Some(value));
-                        }
-
-                        if has_violations && options.stop_on_violation {
-                            return Ok(None);
-                        }
-                        if !step_result.has_pending {
-                            log::info!("all properties are definite, stopping");
-                            return Ok(None);
-                        }
-
-                        let action_tree =
-                            action_tree.prune().ok_or_else(|| {
-                                anyhow::anyhow!("no actions available")
-                            })?;
-
-                        let action =
-                            action_tree.pick(&mut rand::rng())?.clone();
-                        let timeout = action_timeout(&action);
-                        log::info!("picked action: {:?}", action);
-                        browser.apply(action.clone(), timeout)?;
-                        last_action = Some(action);
-                    }
-                    BrowserEvent::Error(error) => {
-                        anyhow::bail!("state machine error: {}", error)
                     }
                 },
-                None => {
-                    anyhow::bail!("browser closed")
-                }
+                _ = ctrl_c() => {
+                    let value = observer.on_interrupted().await?;
+                    return Ok(Some(value));
+                },
             }
         }
     }

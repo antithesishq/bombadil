@@ -18,7 +18,7 @@ use bombadil::{
         actions::BrowserAction, state::BrowserState,
     },
     instrumentation::InstrumentationConfig,
-    runner::{ControlFlow, RunObserver, Runner, RunnerOptions},
+    runner::{ControlFlow, RunObserver, Runner},
     specification::verifier::{Snapshot, Specification},
     styled,
     trace::{PropertyViolation, writer::TraceWriter},
@@ -280,9 +280,6 @@ async fn test(
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
-        RunnerOptions {
-            stop_on_violation: shared_options.exit_on_violation,
-        },
         browser_options,
         debugger_options,
     )
@@ -294,10 +291,24 @@ async fn test(
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
         output_path: PathBuf,
+        violations_count: u64,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum ExitReason {
+        ExitOnViolation,
+        TimeLimit,
+        Interrupted,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestResult {
+        exit_reason: ExitReason,
+        violations_count: u64,
     }
 
     impl RunObserver for MainObserver {
-        type StopValue = i32;
+        type StopValue = TestResult;
 
         async fn on_new_state(
             &mut self,
@@ -318,6 +329,7 @@ async fn test(
                 );
             }
 
+            self.violations_count += violations.len() as u64;
             for violation in violations {
                 log::info!("violation of property `{}`", violation.name);
                 let api_violation = violation.to_api();
@@ -337,18 +349,31 @@ async fn test(
                 .write(state, last_action, snapshots, violations)
                 .await?;
 
-            if !violations.is_empty() && self.exit_on_violation {
-                return Ok(ControlFlow::Stop(2));
+            if self.violations_count > 0 && self.exit_on_violation {
+                return Ok(ControlFlow::Stop(TestResult {
+                    exit_reason: ExitReason::ExitOnViolation,
+                    violations_count: self.violations_count,
+                }));
             }
 
             if let Some(deadline) = self.deadline
                 && state.timestamp >= deadline
             {
                 log::info!("time limit reached, stopping");
-                return Ok(ControlFlow::Stop(0));
+                return Ok(ControlFlow::Stop(TestResult {
+                    exit_reason: ExitReason::TimeLimit,
+                    violations_count: self.violations_count,
+                }));
             }
 
             Ok(ControlFlow::Continue)
+        }
+
+        async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
+            Ok(TestResult {
+                exit_reason: ExitReason::Interrupted,
+                violations_count: self.violations_count,
+            })
         }
     }
 
@@ -367,21 +392,55 @@ async fn test(
         test_start: None,
         deadline,
         output_path: output_path.clone(),
+        violations_count: 0,
     };
 
-    let exit_code = runner.run(&mut observer).await?;
+    let test_result = runner.run(&mut observer).await?;
+
+    let heading = if let Some(TestResult {
+        exit_reason,
+        violations_count,
+    }) = test_result
+    {
+        let findings = match violations_count {
+            0 => "".into(),
+            1 => ", finding 1 violation".into(),
+            n => format!(", finding {n} violations"),
+        };
+
+        let heading = styled::maybe_bold(match exit_reason {
+            ExitReason::ExitOnViolation => {
+                format!("Test finished{findings}!",)
+            }
+            ExitReason::TimeLimit => {
+                format!("Test finished after time limit{findings}!")
+            }
+            ExitReason::Interrupted => {
+                format!("Test was interrupted by SIGINT{findings}!",)
+            }
+        });
+
+        if violations_count > 0 {
+            styled::maybe_red(heading)
+        } else {
+            heading
+        }
+    } else {
+        styled::maybe_bold("Test finished!".to_string())
+    };
 
     println!(
-        "{}\n\nInspect the test results using:\n\n  {}",
-        styled::maybe_bold("Test finished!".to_string()),
+        "\n{heading}\n\nInspect the test results using:\n\n  {}",
         styled::maybe_italic(format!(
             "bombadil inspect {}",
             observer.output_path.display()
         ))
     );
 
-    if let Some(exit_code) = exit_code {
-        std::process::exit(exit_code);
+    if let Some(result) = test_result
+        && result.violations_count > 0
+    {
+        std::process::exit(2);
     }
 
     Ok(())
