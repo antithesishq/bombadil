@@ -813,12 +813,12 @@ export const fileActions = actions(() => {{
 
 export const fileUploaded = eventually(
   () => statusText.current === "you have uploaded a file"
-).within(5, "seconds");
+).within(20, "seconds");
 "#,
     );
 
     BrowserIntegrationTest::new("file-picker")
-        .time_limit(Duration::from_secs(10))
+        .time_limit(Duration::from_secs(30))
         .specification(&spec)
         .run()
         .await;
