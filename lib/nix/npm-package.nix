@@ -81,11 +81,18 @@ let
 
     ## Usage
 
-    Run Bombadil against your app:
+    Add a script to your `package.json`:
 
+    ```json
+    {
+      "scripts": {
+        "test": "bombadil test https://your-app.example.com"
+      }
+    }
     ```
-    npx bombadil test https://your-app.example.com
-    ```
+
+    Then run it with `npm test`. This also gives you TypeScript type definitions
+    for writing specifications.
 
     Write custom properties:
 
