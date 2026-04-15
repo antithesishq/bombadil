@@ -65,7 +65,7 @@
       {
         packages = {
           default = bombadil.bin;
-          types = bombadil.types;
+          npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
           release = pkgs.callPackage ./lib/release/default.nix { };
         }
@@ -83,7 +83,7 @@
         };
 
         checks = {
-          inherit (bombadil) clippy fmt types;
+          inherit (bombadil) clippy fmt npm-package;
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           inherit (bombadil) tests;
@@ -138,8 +138,8 @@
             inputsFrom = [ self.packages.${system}.manual ];
             buildInputs = with pkgs; [
               watchexec
-              nodePackages.browser-sync
-              nodePackages.concurrently
+              browser-sync
+              concurrently
             ];
             OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
           };

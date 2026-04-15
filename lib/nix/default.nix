@@ -117,7 +117,7 @@ in
     }
   );
 
-  types = callPackage ./types.nix { inherit src; };
+  npm-package = callPackage ./npm-package.nix { inherit src; };
 
   tests = craneLib.cargoTest (
     commonArgs

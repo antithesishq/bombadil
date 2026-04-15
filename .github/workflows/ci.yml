@@ -1,14 +1,51 @@
+name: CI
+
 on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
+
+permissions:
+  id-token: write
+  contents: write
+  pages: write
+  actions: write
 
 jobs:
+  check-version:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    outputs:
+      changelog: ${{ steps.changelog.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify tag matches Cargo.toml version
+        run: |
+          cargo_version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$cargo_version" != "$tag_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match Cargo.toml version ($cargo_version)"
+            exit 1
+          fi
+          echo "Version $cargo_version confirmed"
+      - name: Extract changelog
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk "/^## ${version//./\\.}/{found=1; next} /^## /{found=0} found" CHANGELOG.md)
+          if [ -z "$notes" ]; then
+            echo "::error::No changelog entry found for version $version"
+            exit 1
+          fi
+          {
+            echo "notes<<EOF"
+            echo "$notes"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
   build:
-    permissions:
-      contents: read
-      actions: write
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.target }})
     strategy:
       matrix:
         include:
@@ -27,8 +64,6 @@ jobs:
         with:
           name: bombadil
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-
-      - run: nix config show
       - run: nix flake check .
       - name: Build package
         run: nix build .#${{ matrix.package || 'default' }}
@@ -41,10 +76,7 @@ jobs:
         if: matrix.target == 'x86_64-linux'
         run: nix build ".#docker"
 
-  manual:
-    permissions:
-      contents: read
-    name: Build Manual
+  build-npm-package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,11 +85,171 @@ jobs:
         with:
           name: bombadil
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
-
-      - run: nix config show
-      - run: nix build ".#manual"
-      - name: Upload manual
+      - name: Build npm package
+        run: nix build .#npm-package
+      - name: Copy package
+        run: |
+          mkdir -p npm-pkg-dist
+          cp -r result/* npm-pkg-dist/
+      - name: Create package tarball
+        run: tar -czf bombadil-npm-package.tar.gz -C npm-pkg-dist .
+      - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bombadil-manual.zip
+          name: bombadil-npm-package
+          path: bombadil-npm-package.tar.gz
+
+  build-manual:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nixbuild/nix-quick-install-action@v34
+      - uses: cachix/cachix-action@v15
+        with:
+          name: bombadil
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Build manual
+        run: nix build .#manual
+      - name: Create manual archive
+        run: tar -czf bombadil-manual.tar.gz -C result .
+      - name: Upload manual artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-manual
+          path: bombadil-manual.tar.gz
+      - name: Upload manual for GitHub Pages
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-pages
           path: result/
+
+  smoke-test:
+    name: Smoke test (${{ matrix.os }})
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bombadil-x86_64-linux
+          - os: macos-latest
+            artifact: bombadil-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+      - name: Test binary runs without Nix
+        run: |
+          chmod +x bombadil
+          ./bombadil --version
+
+  test-npm-package:
+    name: Test npm package (${{ matrix.os }})
+    needs: [build, build-npm-package]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bombadil-x86_64-linux
+            binary: bombadil-linux-x64
+          - os: macos-latest
+            artifact: bombadil-aarch64-darwin
+            binary: bombadil-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-npm-package
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Test npm package end to end
+        run: |
+          mkdir -p pkg
+          tar -xzf bombadil-npm-package.tar.gz -C pkg
+          mkdir -p pkg/binaries
+          cp bombadil pkg/binaries/${{ matrix.binary }}
+          chmod +x pkg/binaries/${{ matrix.binary }}
+          mkdir test-install
+          cd test-install
+          npm install ../pkg
+          npx bombadil --version
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-npm-package, build-manual, smoke-test, test-npm-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Prepare release binaries
+        run: |
+          for target in x86_64-linux aarch64-linux aarch64-darwin; do
+            chmod +x artifacts/bombadil-$target/bombadil
+            mv artifacts/bombadil-$target/bombadil artifacts/bombadil-$target/bombadil-$target
+          done
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          body: ${{ needs.check-version.outputs.changelog }}
+          files: |
+            artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
+            artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
+            artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+            artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz
+            artifacts/bombadil-manual/bombadil-manual.tar.gz
+
+  publish-npm:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check-version, build, build-npm-package, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Extract npm package
+        run: |
+          mkdir -p pkg
+          tar -xzf artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz -C pkg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Bundle binaries
+        run: |
+          mkdir -p pkg/binaries
+          cp artifacts/bombadil-x86_64-linux/bombadil  pkg/binaries/bombadil-linux-x64
+          cp artifacts/bombadil-aarch64-linux/bombadil  pkg/binaries/bombadil-linux-arm64
+          cp artifacts/bombadil-aarch64-darwin/bombadil pkg/binaries/bombadil-darwin-arm64
+          chmod +x pkg/binaries/*
+      - name: Publish to npm
+        run: |
+          cd pkg
+          npm publish --provenance --access public
+
+  publish-manual:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-manual, release]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download manual pages
+        uses: actions/download-artifact@v4
+        with:
+          name: manual-pages
+          path: manual
+      - name: Add llms-full.txt
+        run: cp manual/bombadil-manual.txt manual/llms-full.txt
+      - name: Upload to GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: manual
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -13,6 +13,29 @@ executable for your platform:
 
 <div class="accordion">
 <details name="install">
+<summary>npm</summary>
+
+Install as a development dependency in your project:
+
+```bash
+npm install --save-dev @antithesishq/bombadil
+```
+
+Add a script to your `package.json` to run Bombadil:
+
+```json
+{
+  "scripts": {
+    "test": "bombadil test https://your-app.example.com"
+  }
+}
+```
+
+Then run it with `npm test`. This also provides TypeScript type definitions for
+writing specifications.
+
+</details>
+<details name="install">
 <summary>macOS</summary>
 
 Download the `bombadil` binary using `curl` (or `wget`) and make it executable:
@@ -50,7 +73,6 @@ curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/download/v
 chmod +x bombadil
 ```
 
-
 Put the binary somewhere on your `PATH`, like in `~/.local/bin` if that is
 configured.
 
@@ -77,7 +99,6 @@ nix run github:antithesishq/bombadil
 
 Not yet available, but coming soon:
 
-* executables bundled in NPM package (i.e. `npx @antithesishq/bombadil`)
 * Docker images
 * a GitHub Action, ready to be used in your CI configuration
 
@@ -86,8 +107,10 @@ If you want to compile from source, see [Contributing](https://github.com/antith
 ## TypeScript support
 
 When writing specifications in TypeScript, you'll want the types available.
-Get them from [NPM](https://www.npmjs.com/package/@antithesishq/bombadil)
-with your package manager of choice:
+If you installed Bombadil via npm, you already have them — skip ahead to
+[Your first test](#your-first-test).
+
+Otherwise, install the package with your package manager of choice:
 
 
 <div class="accordion">
