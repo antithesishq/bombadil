@@ -138,8 +138,8 @@
             inputsFrom = [ self.packages.${system}.manual ];
             buildInputs = with pkgs; [
               watchexec
-              nodePackages.browser-sync
-              nodePackages.concurrently
+              browser-sync
+              concurrently
             ];
             OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
           };
