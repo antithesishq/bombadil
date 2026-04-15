@@ -298,7 +298,6 @@ async fn test(
         }
     });
 
-
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
