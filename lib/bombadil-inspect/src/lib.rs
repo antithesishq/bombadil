@@ -33,6 +33,28 @@ fn app() -> Html {
     let search = web_sys::window().unwrap().location().search().unwrap();
     let params = web_sys::UrlSearchParams::new_with_str(&search).unwrap();
 
+    async fn load_trace_file(
+        trace: UseStateHandle<Option<Rc<[Rc<TraceEntry>]>>>,
+    ) {
+        let response = match Request::get("/api/trace").send().await {
+            Ok(r) => r,
+            Err(e) => {
+                return error!("Failed to fetch:", e.to_string());
+            }
+        };
+        match response.json::<Vec<TraceEntry>>().await {
+            Ok(entries) => {
+                log!("Loaded trace entries:", entries.len());
+                let entries: Vec<_> =
+                    entries.into_iter().map(Rc::new).collect();
+                trace.set(Some(Rc::from(entries)));
+            }
+            Err(e) => {
+                error!("Failed to parse response:", e.to_string())
+            }
+        }
+    }
+
     {
         let trace = trace.clone();
         use_effect_with((), move |_| {
@@ -65,28 +87,14 @@ fn app() -> Html {
                             Err(e) => log!(format!("{e}")),
                         }
                     }
+
+                    log!(
+                        "WS disconnected - falling back to loading the trace file"
+                    );
+                    spawn_local(async { load_trace_file(trace).await });
                 })
             } else {
-                spawn_local(async move {
-                    let response = match Request::get("/api/trace").send().await
-                    {
-                        Ok(r) => r,
-                        Err(e) => {
-                            return error!("Failed to fetch:", e.to_string());
-                        }
-                    };
-                    match response.json::<Vec<TraceEntry>>().await {
-                        Ok(entries) => {
-                            log!("Loaded trace entries:", entries.len());
-                            let entries: Vec<_> =
-                                entries.into_iter().map(Rc::new).collect();
-                            trace.set(Some(Rc::from(entries)));
-                        }
-                        Err(e) => {
-                            error!("Failed to parse response:", e.to_string())
-                        }
-                    }
-                });
+                spawn_local(async { load_trace_file(trace).await });
             }
             || ()
         });
