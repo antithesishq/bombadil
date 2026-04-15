@@ -1,5 +1,22 @@
 # The Bombadil Changelog
 
+## 0.4.5
+
+Major updates:
+
+* Release npm package with executables (#154)
+* Add wait-once generator to defaults (#151)
+* Make CLI exit codes consistent (#150)
+* Widen default granted permissions for Chromium 145 (#149)
+
+Bug fixes:
+
+* Explicitly close + drop chrome on terminate() (#148)
+
+Internals:
+
+* Bump dependencies (#153)
+
 ## 0.4.4
 
 * Automate release procedure with script (#145)

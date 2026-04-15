@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "base64",
@@ -422,11 +422,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.4.4"
+version = "0.4.5"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -467,7 +467,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "insta",
  "serde",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.4.4"
+version = "0.4.5"
 dependencies = [
  "anyhow",
  "axum",
