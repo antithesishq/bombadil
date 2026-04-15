@@ -74,6 +74,10 @@ struct TestSharedOptions {
         default_value = "local-network-access,local-network,loopback-network"
     )]
     chrome_grant_permissions: String,
+    /// The port on which to run the WS server streaming trace entries to the inspector.
+    /// If not specified, the OS will pick an available port.
+    #[arg(long)]
+    port_ws: Option<u16>,
 }
 
 #[derive(clap::Subcommand)]
@@ -283,8 +287,12 @@ async fn test(
     let output_path_clone = output_path.clone();
     let trace_tx_clone = trace_tx.clone();
     tokio::spawn(async move {
-        if let Err(e) =
-            test_server::serve(output_path_clone, None, trace_tx_clone).await
+        if let Err(e) = test_server::serve(
+            output_path_clone,
+            shared_options.port_ws,
+            trace_tx_clone,
+        )
+        .await
         {
             log::error!("test server failed: {e}");
         }
