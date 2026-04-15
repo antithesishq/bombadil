@@ -12,8 +12,11 @@ let
     builtins.toJSON {
       name = "@antithesishq/bombadil";
       inherit version;
-      description = "Type definitions for writing Bombadil specifications";
+      description = "Property-based testing tool for web UIs";
       types = "./dist/index.d.ts";
+      bin = {
+        bombadil = "./bin/bombadil.js";
+      };
       exports = {
         "." = {
           types = "./dist/index.d.ts";
@@ -40,6 +43,8 @@ let
       files = [
         "dist"
         "README.md"
+        "bin"
+        "binaries"
       ];
       keywords = [
         "testing"
@@ -64,10 +69,9 @@ let
 
     [![Version](https://img.shields.io/badge/version-${version}-blue)](https://github.com/antithesishq/bombadil/releases/tag/v${version})
 
-    Type definitions for writing [Bombadil](https://github.com/antithesishq/bombadil) specifications.
-
-    Bombadil is property-based testing for web UIs, autonomously exploring and
-    validating correctness properties, *finding harder bugs earlier*.
+    [Bombadil](https://github.com/antithesishq/bombadil) is property-based testing
+    for web UIs, autonomously exploring and validating correctness properties,
+    *finding harder bugs earlier*.
 
     ## Install
 
@@ -77,16 +81,16 @@ let
 
     ## Usage
 
-    Re-export the default properties:
+    Run Bombadil against your app:
 
-    ```typescript
-    export * from "@antithesishq/bombadil/defaults";
+    ```
+    npx bombadil test https://your-app.example.com
     ```
 
-    Or write custom properties:
+    Write custom properties:
 
     ```typescript
-    import { always, eventually, extract, now } from "@antithesishq/bombadil";
+    import { always, eventually, extract } from "@antithesishq/bombadil";
 
     const title = extract((state) =>
       state.document.querySelector("h1")?.textContent ?? ""
@@ -95,18 +99,62 @@ let
     export const has_title = always(() => title.current.trim() !== "");
     ```
 
+    Or re-export the default properties:
+
+    ```typescript
+    export * from "@antithesishq/bombadil/defaults";
+    ```
+
     ## Documentation
 
     See the [Bombadil repository](https://github.com/antithesishq/bombadil) for
     full usage instructions and more examples.
   '';
+
+  # Wrapper script that resolves the platform-specific binary at runtime.
+  # Backtick template literals use ''${} to escape Nix interpolation.
+  wrapperScript = writeText "bombadil.js" ''
+    #!/usr/bin/env node
+    "use strict";
+
+    const path = require("path");
+    const { spawnSync } = require("child_process");
+    const os = require("os");
+
+    const binaries = {
+      "linux-x64":    "bombadil-linux-x64",
+      "linux-arm64":  "bombadil-linux-arm64",
+      "darwin-arm64": "bombadil-darwin-arm64",
+    };
+
+    const key = `''${os.platform()}-''${os.arch()}`;
+    const binary = binaries[key];
+
+    if (!binary) {
+      process.stderr.write(`bombadil: unsupported platform ''${key}\n`);
+      process.exit(1);
+    }
+
+    const result = spawnSync(
+      path.join(__dirname, "..", "binaries", binary),
+      process.argv.slice(2),
+      { stdio: "inherit" }
+    );
+
+    if (result.error) {
+      process.stderr.write(`bombadil: ''${result.error.message}\n`);
+      process.exit(1);
+    }
+
+    process.exit(result.status ?? 1);
+  '';
 in
-runCommand "bombadil-types-${version}"
+runCommand "bombadil-npm-package-${version}"
   {
     nativeBuildInputs = [ typescript ];
   }
   ''
-    mkdir -p $out/dist
+    mkdir -p $out/dist $out/bin
 
     tsc \
       -p ${src}/lib/bombadil/src/specification/tsconfig.json \
@@ -118,4 +166,6 @@ runCommand "bombadil-types-${version}"
 
     cp ${packageJson} $out/package.json
     cp ${readme} $out/README.md
+    cp ${wrapperScript} $out/bin/bombadil.js
+    chmod +x $out/bin/bombadil.js
   ''
