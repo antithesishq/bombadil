@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::verifier::{Snapshot, merge_snapshots};
 pub use bombadil_schema::Time;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 fn combine_options<T: Clone>(
     left: Option<T>,
@@ -20,7 +20,7 @@ fn combine_options<T: Clone>(
 
 /// A formula in negation normal form (NNF), up to thunks. Note that `Implies` is preserved for
 /// better error messages.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Formula<Function> {
     Pure { value: bool, pretty: String },
     Thunk { function: Function, negated: bool },
@@ -89,7 +89,7 @@ pub enum Value<Function> {
     Residual(Residual<Function>),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Violation<Function> {
     False {
         time: Time,
@@ -122,7 +122,7 @@ pub enum Violation<Function> {
     },
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum EventuallyViolation {
     TimedOut(Time),
     TestEnded,

@@ -43,7 +43,7 @@ impl TraceWriter {
         last_action: Option<&BrowserAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
-    ) -> Result<()> {
+    ) -> Result<bombadil_schema::TraceEntry> {
         let screenshot_path = self.screenshots_path.join(format!(
             "{}.{}",
             state.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
@@ -68,11 +68,13 @@ impl TraceWriter {
 
         self.last_transition_hash = state.transition_hash;
 
+        let entry_api = entry.to_api();
+
         self.trace_file
-            .write_all(json::to_string(&entry.to_api())?.as_bytes())
+            .write_all(json::to_string(&entry_api)?.as_bytes())
             .await?;
         self.trace_file.write_u8(b'\n').await?;
 
-        Ok(())
+        Ok(entry_api)
     }
 }

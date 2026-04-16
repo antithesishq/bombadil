@@ -145,7 +145,7 @@ impl std::fmt::Debug for Screenshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resources {
     pub js_heap_used: u64,
     pub js_heap_total: u64,

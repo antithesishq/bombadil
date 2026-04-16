@@ -1,6 +1,7 @@
 mod duration;
 mod inspect_server;
 mod render;
+mod test_server;
 
 use ::url::Url;
 use anyhow::Result;
@@ -11,6 +12,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
+use tokio::sync::broadcast;
 
 use bombadil::{
     browser::{
@@ -72,6 +74,10 @@ struct TestSharedOptions {
         default_value = "local-network-access,local-network,loopback-network"
     )]
     chrome_grant_permissions: String,
+    /// The port on which to run the WS server streaming trace entries to the inspector.
+    /// If not specified, the OS will pick an available port.
+    #[arg(long)]
+    port_ws: Option<u16>,
 }
 
 #[derive(clap::Subcommand)]
@@ -277,6 +283,21 @@ async fn test(
         }
     };
 
+    let trace_tx = broadcast::Sender::new(16);
+    let output_path_clone = output_path.clone();
+    let trace_tx_clone = trace_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = test_server::serve(
+            output_path_clone,
+            shared_options.port_ws,
+            trace_tx_clone,
+        )
+        .await
+        {
+            log::error!("test server failed: {e}");
+        }
+    });
+
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
@@ -290,6 +311,7 @@ async fn test(
         exit_on_violation: bool,
         test_start: Option<bombadil_schema::Time>,
         deadline: Option<SystemTime>,
+        trace_tx: broadcast::Sender<bombadil_schema::TraceEntry>,
         output_path: PathBuf,
         violations_count: u64,
     }
@@ -345,9 +367,12 @@ async fn test(
                 );
             }
 
-            self.writer
+            let trace_entry = self
+                .writer
                 .write(state, last_action, snapshots, violations)
                 .await?;
+
+            let _ = self.trace_tx.send(trace_entry);
 
             if self.violations_count > 0 && self.exit_on_violation {
                 return Ok(ControlFlow::Stop(TestResult {
@@ -391,6 +416,7 @@ async fn test(
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
         deadline,
+        trace_tx,
         output_path: output_path.clone(),
         violations_count: 0,
     };

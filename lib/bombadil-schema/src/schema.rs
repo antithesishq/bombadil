@@ -30,7 +30,11 @@ impl Time {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_micros() as u64;
-        Time(micros)
+        Self(micros)
+    }
+
+    pub fn from_micros(micros: u64) -> Self {
+        Self(micros)
     }
 
     pub fn to_system_time(self) -> SystemTime {
@@ -69,6 +73,16 @@ pub struct TraceEntry {
     pub snapshots: Vec<Snapshot>,
     pub violations: Vec<PropertyViolation>,
     pub resources: Resources,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+#[allow(clippy::large_enum_variant)] // Transit wrapper - doesn't sit around in memory. Even if it was, the small variant (AllEntries) is only used once, so you'd be wasting very little memory vs Boxing<every single Entry TraceEntry>
+pub enum WsTraceEntryMessage {
+    #[serde(rename = "entry")]
+    Entry(TraceEntry),
+    #[serde(rename = "allEntries")]
+    AllEntries(Vec<TraceEntry>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

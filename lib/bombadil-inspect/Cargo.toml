@@ -15,17 +15,21 @@ web-sys = { version = "0.3", features = [
     "EventTarget",
     "HtmlElement",
     "HtmlImageElement",
+    "Location",
     "ResizeObserver",
     "ResizeObserverEntry",
+    "ScrollIntoViewOptions",
+    "ScrollLogicalPosition",
+    "UrlSearchParams",
     "Window",
 ] }
-gloo-net = "0.6"
+gloo-net = { version = "0.6", features = ["websocket"] }
 gloo-console = "0.3"
-gloo-timers = "0.3"
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+futures = "0.3.32"
 
 [lib]
 crate-type = ["cdylib"]
