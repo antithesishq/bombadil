@@ -698,10 +698,9 @@ fn run_state_machine(
         }.await;
         if let Err(error) = result {
             log::error!("state machine error: {:?}", error);
-            let _ = context.sender.send(BrowserEvent::Error(Arc::new(anyhow!(
-                "error when processing event: {:?}",
-                error
-            ))));
+            let _ = context.sender.send(BrowserEvent::Error(Arc::new(
+                anyhow!("error when processing event: {:?}", error),
+            )));
         }
         // Always signal done, whether the loop exited cleanly or with an error.
         let _ = done_sender.send(());
