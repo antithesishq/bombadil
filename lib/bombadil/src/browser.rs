@@ -352,25 +352,31 @@ impl Browser {
     }
 
     pub async fn terminate(mut self) -> Result<()> {
+        // Send the shutdown signal first so the state machine can exit cleanly
+        // if it is between events.
         if let Some(sender) = self.shutdown_sender.take() {
-            if let Ok(()) = sender.send(()) {
-                if let Some(done_receiver) = self.done_receiver.take() {
-                    done_receiver.await?;
-                }
-            } else {
-                log::warn!(
-                    "couldn't send shutdown signal and receive done signal, killing browser anyway..."
-                );
-            }
+            let _ = sender.send(());
         }
 
+        // Close the browser before waiting for the state machine. Any CDP calls
+        // in-flight inside process_event will fail once the connection drops,
+        // unblocking the state machine so it can exit. Without this ordering,
+        // terminate() could deadlock: the state machine waits for a CDP response
+        // and the browser never closes because we're waiting for the state machine.
         if let Some(mut browser) = self.browser.take() {
-            browser.close().await?;
-            // For some reason browser.close() logs an error about the websocket connection, so we rely
-            // on drop (explicit here so that it's clear) cleaning up the Chrome process.
-            //
-            // Reported here: https://github.com/mattsse/chromiumoxide/issues/287
+            if let Err(error) = browser.close().await {
+                log::warn!("browser close error: {:?}", error);
+            }
+            // Drop explicitly; browser.close() may log a websocket error but
+            // the process is cleaned up here.
+            // Reported: https://github.com/mattsse/chromiumoxide/issues/287
             drop(browser);
+        }
+
+        // Wait for the state machine to confirm it has exited. The done signal
+        // is always sent now (even on error), so this should resolve promptly.
+        if let Some(done_receiver) = self.done_receiver.take() {
+            let _ = done_receiver.await;
         }
 
         Ok(())
@@ -688,18 +694,17 @@ fn run_state_machine(
                     }
                 }
             }
-            let _ = done_sender.send(());
             Ok::<(), anyhow::Error>(())
         }.await;
         if let Err(error) = result {
-            context
-                .sender
-                .send(BrowserEvent::Error(Arc::new(anyhow!(
-                    "error when processing event: {:?}",
-                    error
-                ))))
-                .expect("send state machine event failed");
+            log::error!("state machine error: {:?}", error);
+            let _ = context.sender.send(BrowserEvent::Error(Arc::new(anyhow!(
+                "error when processing event: {:?}",
+                error
+            ))));
         }
+        // Always signal done, whether the loop exited cleanly or with an error.
+        let _ = done_sender.send(());
     });
 }
 
