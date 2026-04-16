@@ -977,7 +977,7 @@ fn build_const_declaration<'a>(
 }
 
 fn commonjs_export_name<'a>(
-    name: oxc::span::Ident<'a>,
+    name: oxc_str::Ident<'a>,
     ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
 ) -> ast::Statement<'a> {
     build_module_exports_assignment(
