@@ -10,10 +10,10 @@ export {
   randomRange,
 } from "@antithesishq/bombadil/random";
 
-export interface Point {
+export type Point = {
   x: number;
   y: number;
-}
+};
 
 export type Action =
   | "Back"
@@ -21,7 +21,14 @@ export type Action =
   | "Reload"
   | "Wait"
   | { Click: { name: string; content?: string; point: Point } }
-  | { DoubleClick: { name: string; content?: string; point: Point; delayMillis: number } }
+  | {
+      DoubleClick: {
+        name: string;
+        content?: string;
+        point: Point;
+        delayMillis: number;
+      };
+    }
   | { TypeText: { text: string; delayMillis: number } }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }

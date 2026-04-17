@@ -26,18 +26,9 @@ const canGoForwardSameOrigin = extract((state) => {
   }
 });
 
-export type OnlyType<T> = T extends string
-  ? T
-  : T extends object
-    ? keyof T
-    : never;
-
-const lastAction: Cell<OnlyType<Action> | null> = extract((state) => {
-  const action = state.lastAction;
-  if (action === null) return null;
-  if (typeof action === "string") return action;
-  return Object.keys(action)[0] as OnlyType<Action>;
-});
+export const lastAction: Cell<Action | null> = extract(
+  (state) => state.lastAction,
+);
 
 const body = extract((state) => {
   return state.document.body
