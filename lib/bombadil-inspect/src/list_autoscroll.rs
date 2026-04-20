@@ -91,9 +91,9 @@ pub fn use_list_autoscroll(selected_index: usize) -> NodeRef {
 
                             let scroll_offset = item_center - container_center;
                             let new_scroll_top =
-                                container.scroll_top() as f64 + scroll_offset;
+                                container.scroll_top() + scroll_offset;
 
-                            container.set_scroll_top(new_scroll_top as i32);
+                            container.set_scroll_top(new_scroll_top);
                         }
                     }
                 }

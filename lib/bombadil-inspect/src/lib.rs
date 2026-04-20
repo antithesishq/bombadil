@@ -23,6 +23,8 @@ mod timeline;
 
 #[function_component(App)]
 fn app() -> Html {
+    // NOTE: this is the selected index of the *after* state, so it begins at 1.
+    // TODO: rework this to be 0-based.
     let selected_index = use_state_eq(|| 1usize);
     let trace = use_state(|| None::<Rc<[TraceEntry]>>);
     {
