@@ -1,4 +1,4 @@
-import { actions, always, extract } from "@antithesishq/bombadil";
+import { actions, always, eventually, extract } from "@antithesishq/bombadil";
 import { lastAction } from "@antithesishq/bombadil/defaults/actions";
 import { randomRange } from "@antithesishq/bombadil/random";
 export * from "@antithesishq/bombadil/defaults";
@@ -59,6 +59,10 @@ const chartSpan = extract((state) => {
     right: rect.right,
   };
 });
+
+export const eventuallyShowsActions = always(
+  eventually(() => actionEntries.current.length > 0).within(2, "seconds"),
+);
 
 export const clickTimelineMovesCursorCorrectly = always(() => {
   // Make sure we have a click and a timeline.
