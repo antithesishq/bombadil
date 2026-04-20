@@ -45,8 +45,18 @@ const cursorSpan = extract((state) => {
   const style = window.getComputedStyle(cursor);
   const transform = new WebKitCSSMatrix(style.transform);
   return {
-    x1: transform.e,
-    x2: transform.e + rect.width.baseVal.value,
+    left: transform.e,
+    right: transform.e + rect.width.baseVal.value,
+  };
+});
+
+const chartSpan = extract((state) => {
+  const background = state.document.querySelector(".line-chart .background");
+  if (!background) return null;
+  const rect = background.getBoundingClientRect();
+  return {
+    left: rect.left,
+    right: rect.right,
   };
 });
 
@@ -55,16 +65,33 @@ export const clickTimelineMovesCursorCorrectly = always(() => {
   if (!lastAction.current) return true;
   if (typeof lastAction.current !== "object") return true;
   if (!("Click" in lastAction.current)) return true;
-  if (!timelineRect.current || !cursorSpan.current) return true;
+  if (!timelineRect.current || !chartSpan.current || !cursorSpan.current)
+    return true;
   const {
     Click: { name, point },
   } = lastAction.current;
   // And that the click was within the timeline.
   if (name !== "timeline") return true;
-  // Then we should end up with the cursor interval including
+
+  // If the click is left of the timeline, we pick the first transition.
+  if (point.x <= chartSpan.current.left) {
+    return (
+      Math.floor(cursorSpan.current.left) == Math.floor(chartSpan.current.left)
+    );
+  }
+
+  // If the click is right of the timeline, we pick the last transition.
+  if (point.x >= chartSpan.current.right) {
+    return (
+      Math.ceil(cursorSpan.current.right) == Math.ceil(chartSpan.current.right)
+    );
+  }
+
+  // Otherwise we should end up with the cursor interval including
   // the clicked point.
   const xRelative = point.x - timelineRect.current.x;
   return (
-    xRelative >= cursorSpan.current.x1 && xRelative <= cursorSpan.current.x2
+    xRelative >= Math.floor(cursorSpan.current.left) &&
+    xRelative <= Math.ceil(cursorSpan.current.right)
   );
 });
