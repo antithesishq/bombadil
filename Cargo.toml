@@ -5,6 +5,7 @@ members = [
     "lib/bombadil-cli",
     "lib/bombadil-schema",
     "lib/bombadil-inspect",
+    "lib/bombadil-terminal",
     "lib/integration-tests",
 ]
 resolver = "2"
