@@ -485,6 +485,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "bombadil-terminal"
+version = "0.4.5"
+dependencies = [
+ "anyhow",
+ "bombadil",
+ "bombadil-browser-keys",
+ "bombadil-schema",
+ "clap",
+ "env_logger",
+ "glob",
+ "include_dir",
+ "indoc",
+ "insta",
+ "log",
+ "proptest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
