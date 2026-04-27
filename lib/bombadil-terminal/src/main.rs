@@ -22,11 +22,8 @@ async fn main() -> Result<()> {
         rows: 24,
         max_scrollback: 10_000,
     })?;
-    let (mut process, mut output) = PtyProcess::spawn(
-        "nix",
-        &["run", "nixpkgs#vitetris", "--", "--nomenu"],
-    )
-    .await?;
+    let (mut process, mut output) =
+        PtyProcess::spawn("tetris", &["--nomenu"]).await?;
     let mut rng = rand::rng();
 
     sleep(Duration::from_millis(200)).await;
@@ -42,7 +39,6 @@ async fn main() -> Result<()> {
                     let mut cells = CellIterator::new()?;
 
                     let snapshot = render_state.update(&terminal)?;
-                    print!("\x1B[2J\x1B[1;1H");
                     let mut row_iter = rows.update(&snapshot)?;
 
                     let mut output = String::with_capacity(120 * 40 * 4);
@@ -60,7 +56,9 @@ async fn main() -> Result<()> {
                         }
                         output.push('\n');
                     }
-                    print!("{}", output);
+
+                    // Clear screen and rerender
+                    print!("\x1B[2J\x1B[1;1H{output}");
 
                     let key = random_key(&mut rng)?;
                     process.write(key.as_bytes());
