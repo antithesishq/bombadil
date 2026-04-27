@@ -506,6 +506,7 @@ dependencies = [
  "insta",
  "libghostty-vt",
  "log",
+ "owo-colors",
  "portable-pty",
  "proptest",
  "rand 0.9.4",
