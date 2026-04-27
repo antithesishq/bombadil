@@ -12,8 +12,11 @@ use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
 };
-use tokio::{join, time::timeout};
-use tokio::{sync::mpsc::channel, time::sleep};
+use tokio::{
+    join,
+    sync::mpsc::channel,
+    time::{Instant, sleep, timeout},
+};
 
 const COLUMN_COUNT: u16 = 120;
 const ROW_COUNT: u16 = 24;
@@ -21,6 +24,7 @@ const CELL_COUNT: u16 = COLUMN_COUNT * ROW_COUNT;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let start = Instant::now();
     let mut terminal = Terminal::new(TerminalOptions {
         cols: COLUMN_COUNT,
         rows: ROW_COUNT,
@@ -29,10 +33,11 @@ async fn main() -> Result<()> {
     let (mut process, mut output) =
         PtyProcess::spawn("tetris", &["--nomenu"]).await?;
     let mut rng = rand::rng();
+    let mut render_state_count = 0;
 
     sleep(Duration::from_millis(200)).await;
 
-    loop {
+    let status = loop {
         match timeout(Duration::from_micros(1), output.read()).await {
             Ok(result) => {
                 if let Some(output) = result? {
@@ -62,31 +67,33 @@ async fn main() -> Result<()> {
                         output.push('\n');
                     }
 
+                    render_state_count += 1;
                     // Clear screen and rerender
                     print!("\x1B[2J\x1B[1;1H{output}");
                 } else {
-                    let status = process.wait().await?;
-                    println!(
-                        "process finished with code {}",
-                        status.exit_code()
-                    );
-                    exit(status.exit_code() as i32);
+                    break process.wait().await?;
                 }
             }
             Err(_elapsed) => {
                 if process.is_finished()? {
-                    let status = process.wait().await?;
-                    println!(
-                        "process finished with code {}",
-                        status.exit_code()
-                    );
-                    exit(status.exit_code() as i32);
+                    break process.wait().await?;
                 }
                 let key = random_key(&mut rng)?;
                 process.write(key.as_bytes());
             }
         }
-    }
+    };
+
+    let end = Instant::now();
+    let duration = end - start;
+    println!(
+        "ran for ~{} seconds, with {} renders ({} per second)",
+        duration.as_secs(),
+        render_state_count,
+        render_state_count as f64 / duration.as_secs_f64()
+    );
+    println!("process finished with code {}", status.exit_code());
+    exit(status.exit_code() as i32);
 }
 
 fn random_key(rng: &mut impl rand::Rng) -> Result<&'static str> {
