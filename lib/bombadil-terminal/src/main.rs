@@ -19,7 +19,7 @@ use tokio::{
 };
 
 const COLUMN_COUNT: u16 = 120;
-const ROW_COUNT: u16 = 24;
+const ROW_COUNT: u16 = 32;
 const CELL_COUNT: u16 = COLUMN_COUNT * ROW_COUNT;
 
 #[tokio::main]
@@ -30,8 +30,7 @@ async fn main() -> Result<()> {
         rows: ROW_COUNT,
         max_scrollback: 10_000,
     })?;
-    let (mut process, mut output) =
-        PtyProcess::spawn("tetris", &["--nomenu"]).await?;
+    let (mut process, mut output) = PtyProcess::spawn("btop", &["-l"]).await?;
     let mut rng = rand::rng();
     let mut render_state_count = 0;
     let mut input_count = 0;
@@ -41,39 +40,43 @@ async fn main() -> Result<()> {
     let status = loop {
         match timeout(Duration::from_millis(1), output.read()).await {
             Ok(result) => {
-                if let Some(output) = result? {
-                    terminal.vt_write(&output.into_bytes());
-
-                    let mut render_state = RenderState::new()?;
-                    let mut rows = RowIterator::new()?;
-                    let mut cells = CellIterator::new()?;
-
-                    let snapshot = render_state.update(&terminal)?;
-                    let mut row_iter = rows.update(&snapshot)?;
-
-                    let mut output =
-                        String::with_capacity(CELL_COUNT as usize * 4);
-                    while let Some(row) = row_iter.next() {
-                        let mut cell_iter = cells.update(row)?;
-                        while let Some(cell) = cell_iter.next() {
-                            let graphemes: Vec<char> = cell.graphemes()?;
-                            if graphemes.is_empty() {
-                                output.push(' ');
-                            } else {
-                                for grapheme in graphemes {
-                                    output.push(grapheme);
-                                }
-                            }
-                        }
-                        output.push('\n');
-                    }
-
-                    render_state_count += 1;
-                    // Clear screen and rerender
-                    print!("\x1B[2J\x1B[1;1H{output}");
+                if let Some(data) = result? {
+                    terminal.vt_write(&data.into_bytes());
                 } else {
                     break process.wait().await?;
                 }
+
+                // Drain all remaining buffered output
+                while let Some(data) = output.try_read() {
+                    terminal.vt_write(&data.into_bytes());
+                }
+
+                let mut render_state = RenderState::new()?;
+                let mut rows = RowIterator::new()?;
+                let mut cells = CellIterator::new()?;
+
+                let snapshot = render_state.update(&terminal)?;
+                let mut row_iter = rows.update(&snapshot)?;
+
+                let mut buf = String::with_capacity(CELL_COUNT as usize * 4);
+                while let Some(row) = row_iter.next() {
+                    let mut cell_iter = cells.update(row)?;
+                    while let Some(cell) = cell_iter.next() {
+                        let graphemes: Vec<char> = cell.graphemes()?;
+                        if graphemes.is_empty() {
+                            buf.push(' ');
+                        } else {
+                            for grapheme in graphemes {
+                                buf.push(grapheme);
+                            }
+                        }
+                    }
+                    buf.push('\n');
+                }
+
+                render_state_count += 1;
+                print!("\x1B[2J\x1B[1;1H{buf}");
+                std::io::stdout().flush()?;
             }
             Err(_elapsed) => {
                 if process.is_finished()? {
@@ -104,14 +107,39 @@ fn random_key(rng: &mut impl rand::Rng) -> Result<&'static str> {
         branches: vec![
             (1, Tree::Leaf { value: "\r" }),
             (1, Tree::Leaf { value: " " }),
+            (1, Tree::Leaf { value: "\x1B" }), // escape
+            (1, Tree::Leaf { value: "\t" }),   // tab
             (
-                1000,
+                10,
                 Tree::Branch {
                     branches: vec![
                         (1, Tree::Leaf { value: "\x1B[A" }),
                         (1, Tree::Leaf { value: "\x1B[B" }),
                         (1, Tree::Leaf { value: "\x1B[C" }),
                         (1, Tree::Leaf { value: "\x1B[D" }),
+                    ],
+                },
+            ),
+            (
+                10,
+                Tree::Branch {
+                    branches: vec![
+                        (1, Tree::Leaf { value: "m" }), // mem
+                        (1, Tree::Leaf { value: "n" }), // net
+                        (1, Tree::Leaf { value: "p" }), // proc
+                        (1, Tree::Leaf { value: "c" }), // cpu
+                        (1, Tree::Leaf { value: "e" }), // tree view
+                        (1, Tree::Leaf { value: "f" }), // filter
+                        (1, Tree::Leaf { value: "r" }), // reverse sort
+                        (1, Tree::Leaf { value: "s" }), // sort options
+                        (1, Tree::Leaf { value: "h" }), // help
+                        (1, Tree::Leaf { value: "/" }), // search
+                        (1, Tree::Leaf { value: "+" }), // expand
+                        (1, Tree::Leaf { value: "-" }), // collapse
+                        (1, Tree::Leaf { value: "1" }), // preset 1
+                        (1, Tree::Leaf { value: "2" }), // preset 2
+                        (1, Tree::Leaf { value: "3" }), // preset 3
+                        (1, Tree::Leaf { value: "4" }), // preset 4
                     ],
                 },
             ),
@@ -131,17 +159,16 @@ impl PtyProcess {
     async fn spawn(command: &str, args: &[&str]) -> Result<(Self, PtyOutput)> {
         let pty_system = NativePtySystem::default();
 
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: ROW_COUNT,
-                cols: COLUMN_COUNT,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .unwrap();
+        let pair = pty_system.openpty(PtySize {
+            rows: ROW_COUNT,
+            cols: COLUMN_COUNT,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
 
         let mut cmd = CommandBuilder::new(command);
         cmd.args(args);
+        cmd.env("TERM", "xterm-256color");
         let child = pair.slave.spawn_command(cmd).unwrap();
 
         // Release any handles owned by the slave: we don't need it now
@@ -152,7 +179,7 @@ impl PtyProcess {
         // This is important because it is easy to encounter a situation
         // where read/write buffers fill and block either your process
         // or the spawned process.
-        let (output_write, output_read) = channel(1);
+        let (output_write, output_read) = channel(64);
         let mut reader = pair.master.try_clone_reader().unwrap();
         let reader = tokio::spawn(async move {
             let mut buffer = [0u8; 1024];
@@ -220,5 +247,9 @@ struct PtyOutput {
 impl PtyOutput {
     pub async fn read(&mut self) -> Result<Option<String>> {
         Ok(self.output_read.recv().await)
+    }
+
+    pub fn try_read(&mut self) -> Option<String> {
+        self.output_read.try_recv().ok()
     }
 }
