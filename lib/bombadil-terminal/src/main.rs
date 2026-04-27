@@ -1,10 +1,12 @@
 use bombadil::tree::Tree;
+use owo_colors::OwoColorize;
 use rand::{self};
 use std::{io::Write, process::exit, time::Duration};
 
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
+    style::{PaletteIndex, RgbColor, Style, StyleColor, Underline},
 };
 
 use anyhow::Result;
@@ -63,14 +65,14 @@ async fn main() -> Result<()> {
                 while let Some(row) = row_iter.next() {
                     let mut cell_iter = cells.update(row)?;
                     while let Some(cell) = cell_iter.next() {
+                        let style = to_owo_style(cell.style()?);
                         let graphemes: Vec<char> = cell.graphemes()?;
-                        if graphemes.is_empty() {
-                            buf.push(' ');
+                        let contents: String = if graphemes.is_empty() {
+                            " ".into()
                         } else {
-                            for grapheme in graphemes {
-                                buf.push(grapheme);
-                            }
-                        }
+                            graphemes.iter().cloned().collect()
+                        };
+                        buf.push_str(&contents.style(style).to_string());
                     }
                     buf.push('\n');
                 }
@@ -101,6 +103,104 @@ async fn main() -> Result<()> {
     );
     println!("process finished with code {}", status.exit_code());
     exit(status.exit_code() as i32);
+}
+
+fn to_owo_style(input: Style) -> owo_colors::Style {
+    let mut style = owo_colors::Style::default();
+
+    match input.fg_color {
+        StyleColor::Rgb(color) => {
+            style = style.truecolor(color.r, color.g, color.b);
+        }
+        StyleColor::Palette(PaletteIndex(palette_index)) => {
+            let color = xterm_index_to_rgb(palette_index);
+            style = style.truecolor(color.r, color.g, color.b);
+        }
+        StyleColor::None => {}
+    }
+
+    match input.bg_color {
+        StyleColor::Rgb(color) => {
+            style = style.on_truecolor(color.r, color.g, color.b);
+        }
+        StyleColor::Palette(PaletteIndex(palette_index)) => {
+            let color = xterm_index_to_rgb(palette_index);
+            style = style.on_truecolor(color.r, color.g, color.b);
+        }
+        StyleColor::None => {}
+    }
+
+    if input.italic {
+        style = style.italic();
+    }
+
+    if input.bold {
+        style = style.bold();
+    }
+
+    if input.underline != Underline::None {
+        style = style.underline();
+    }
+
+    style
+}
+
+/// Convert an xterm 256-color index (0–255) to (r, g, b).
+pub fn xterm_index_to_rgb(idx: u8) -> RgbColor {
+    let i = idx as u32;
+
+    // 0–15: standard + bright ANSI colors
+    const ANSI_0_15: [(u8, u8, u8); 16] = [
+        (0x00, 0x00, 0x00), // 0  black
+        (0xcd, 0x00, 0x00), // 1  red
+        (0x00, 0xcd, 0x00), // 2  green
+        (0xcd, 0xcd, 0x00), // 3  yellow
+        (0x00, 0x00, 0xee), // 4  blue
+        (0xcd, 0x00, 0xcd), // 5  magenta
+        (0x00, 0xcd, 0xcd), // 6  cyan
+        (0xe5, 0xe5, 0xe5), // 7  white (light gray)
+        (0x7f, 0x7f, 0x7f), // 8  bright black (dark gray)
+        (0xff, 0x00, 0x00), // 9  bright red
+        (0x00, 0xff, 0x00), // 10 bright green
+        (0xff, 0xff, 0x00), // 11 bright yellow
+        (0x5c, 0x5c, 0xff), // 12 bright blue
+        (0xff, 0x00, 0xff), // 13 bright magenta
+        (0x00, 0xff, 0xff), // 14 bright cyan
+        (0xff, 0xff, 0xff), // 15 bright white
+    ];
+
+    if i < 16 {
+        let (r, g, b) = ANSI_0_15[i as usize];
+        return RgbColor { r, g, b };
+    }
+
+    // 16–231: 6×6×6 color cube
+    if (16..=231).contains(&i) {
+        let c = i - 16;
+        let r = c / 36;
+        let g = (c % 36) / 6;
+        let b = c % 6;
+
+        // component 0..5 → actual 8-bit value
+        fn level(n: u32) -> u8 {
+            if n == 0 { 0 } else { (n * 40 + 55) as u8 }
+        }
+
+        return RgbColor {
+            r: level(r),
+            g: level(g),
+            b: level(b),
+        };
+    }
+
+    // 232–255: grayscale ramp, 24 steps
+    // values from 8 to 238 in steps of 10
+    let gray = 8 + (i - 232) * 10;
+    RgbColor {
+        r: gray as u8,
+        g: gray as u8,
+        b: gray as u8,
+    }
 }
 
 fn random_key(rng: &mut impl rand::Rng) -> Result<&'static str> {
