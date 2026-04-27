@@ -64,9 +64,6 @@ async fn main() -> Result<()> {
 
                     // Clear screen and rerender
                     print!("\x1B[2J\x1B[1;1H{output}");
-
-                    let key = random_key(&mut rng)?;
-                    process.write(key.as_bytes());
                 } else {
                     let status = process.wait().await?;
                     println!(
@@ -77,6 +74,14 @@ async fn main() -> Result<()> {
                 }
             }
             Err(_elapsed) => {
+                if process.is_finished()? {
+                    let status = process.wait().await?;
+                    println!(
+                        "process finished with code {}",
+                        status.exit_code()
+                    );
+                    exit(status.exit_code() as i32);
+                }
                 let key = random_key(&mut rng)?;
                 process.write(key.as_bytes());
             }
@@ -191,6 +196,10 @@ impl PtyProcess {
         join!(self.reader).0?;
 
         Ok(status)
+    }
+
+    pub fn is_finished(&mut self) -> Result<bool> {
+        Ok(self.child.try_wait()?.is_some())
     }
 }
 
