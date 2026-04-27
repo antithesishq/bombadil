@@ -92,6 +92,10 @@
         devShells = {
           default = pkgs.mkShell (
             {
+              shellHook = ''
+                export CC=${pkgs.clang}/bin/clang
+                export CXX=${pkgs.clang}/bin/clang++
+              '';
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
               inputsFrom = [ self.packages.${system}.default ];
               # nativeBuildInputs takes priority over inputsFrom in
@@ -113,9 +117,6 @@
                   pkg-config
                   cmake
                   clang
-                  # for testing
-                  cmatrix
-                  nsnake
 
                   # TS/JS
                   typescript
