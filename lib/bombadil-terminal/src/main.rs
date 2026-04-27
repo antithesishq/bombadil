@@ -15,11 +15,15 @@ use portable_pty::{
 use tokio::{join, time::timeout};
 use tokio::{sync::mpsc::channel, time::sleep};
 
+const COLUMN_COUNT: u16 = 120;
+const ROW_COUNT: u16 = 24;
+const CELL_COUNT: u16 = COLUMN_COUNT * ROW_COUNT;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut terminal = Terminal::new(TerminalOptions {
-        cols: 120,
-        rows: 24,
+        cols: COLUMN_COUNT,
+        rows: ROW_COUNT,
         max_scrollback: 10_000,
     })?;
     let (mut process, mut output) =
@@ -41,7 +45,8 @@ async fn main() -> Result<()> {
                     let snapshot = render_state.update(&terminal)?;
                     let mut row_iter = rows.update(&snapshot)?;
 
-                    let mut output = String::with_capacity(120 * 40 * 4);
+                    let mut output =
+                        String::with_capacity(CELL_COUNT as usize * 4);
                     while let Some(row) = row_iter.next() {
                         let mut cell_iter = cells.update(row)?;
                         while let Some(cell) = cell_iter.next() {
@@ -113,8 +118,8 @@ impl PtyProcess {
 
         let pair = pty_system
             .openpty(PtySize {
-                rows: 24,
-                cols: 80,
+                rows: ROW_COUNT,
+                cols: COLUMN_COUNT,
                 pixel_width: 0,
                 pixel_height: 0,
             })
