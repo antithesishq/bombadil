@@ -30,7 +30,8 @@ async fn main() -> Result<()> {
         rows: ROW_COUNT,
         max_scrollback: 10_000,
     })?;
-    let (mut process, mut output) = PtyProcess::spawn("btop", &["-l"]).await?;
+    let (mut process, mut output) =
+        PtyProcess::spawn("tetris", &["-color", "-nomenu", "-vt100"]).await?;
     let mut rng = rand::rng();
     let mut render_state_count = 0;
     let mut input_count = 0;
