@@ -34,11 +34,12 @@ async fn main() -> Result<()> {
         PtyProcess::spawn("tetris", &["--nomenu"]).await?;
     let mut rng = rand::rng();
     let mut render_state_count = 0;
+    let mut input_count = 0;
 
     sleep(Duration::from_millis(200)).await;
 
     let status = loop {
-        match timeout(Duration::from_micros(1), output.read()).await {
+        match timeout(Duration::from_millis(1), output.read()).await {
             Ok(result) => {
                 if let Some(output) = result? {
                     terminal.vt_write(&output.into_bytes());
@@ -80,6 +81,7 @@ async fn main() -> Result<()> {
                 }
                 let key = random_key(&mut rng)?;
                 process.write(key.as_bytes());
+                input_count += 1;
             }
         }
     };
@@ -87,8 +89,9 @@ async fn main() -> Result<()> {
     let end = Instant::now();
     let duration = end - start;
     println!(
-        "ran for ~{} seconds, with {} renders ({} per second)",
-        duration.as_secs(),
+        "ran for {:.1} seconds, with {} inputs and {} renders ({} per second)",
+        duration.as_secs_f64(),
+        input_count,
         render_state_count,
         render_state_count as f64 / duration.as_secs_f64()
     );
