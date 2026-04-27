@@ -108,6 +108,15 @@
                   # Nix
                   nil
 
+                  # For bombadil-terminal
+                  zig_0_15
+                  pkg-config
+                  cmake
+                  clang
+                  # for testing
+                  cmatrix
+                  nsnake
+
                   # TS/JS
                   typescript
                   typescript-language-server
