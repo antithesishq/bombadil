@@ -34,13 +34,18 @@ struct Cli {
 enum Command {
     /// Test the given program and arguments
     Test {
+        // The command to run for each test case
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
+        // How many test cases to run (invocations of command)
         #[arg(long, default_value = "1")]
         test_count: u64,
         /// Random generator seed
         #[arg(long)]
         seed: Option<u64>,
+        // Whether to clear screen between renders (otherwise just append into scrollback)
+        #[arg(long, default_value_t = true)]
+        clear: bool,
     },
 }
 
@@ -64,9 +69,10 @@ async fn main() {
             command,
             test_count,
             seed,
+            clear,
         } => {
             if let Some(seed) = seed {
-                if let Err(error) = test_program(seed, &command).await {
+                if let Err(error) = test_program(seed, clear, &command).await {
                     eprintln!(
                         "\n\ntest failed: {error}\n\nreproduced from seed: {seed}"
                     );
@@ -75,7 +81,7 @@ async fn main() {
             } else {
                 for _ in 1..=test_count {
                     let seed = rand::random();
-                    match test_program(seed, &command).await {
+                    match test_program(seed, clear, &command).await {
                         Ok(_) => {}
                         Err(error) => {
                             eprintln!(
@@ -90,7 +96,11 @@ async fn main() {
     }
 }
 
-async fn test_program(seed: u64, command: &[String]) -> Result<()> {
+async fn test_program(
+    seed: u64,
+    clear: bool,
+    command: &[String],
+) -> Result<()> {
     let start = Instant::now();
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
@@ -157,7 +167,12 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
 
                 render_state_count += 1;
                 render_last_at = Instant::now();
-                println!("\x1B[2J\x1B[1;1H{buf}");
+                if clear {
+                    print!("\x1B[2J\x1B[1;1H");
+                } else {
+                    println!("\n");
+                }
+                println!("{buf}");
             }
             Err(_elapsed) => {
                 if process.is_finished()? {
