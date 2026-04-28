@@ -99,7 +99,7 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut render_state_count = 0;
     let render_timeout = Duration::from_secs(10);
-    let mut last_render_at = Instant::now();
+    let mut render_last_at = Instant::now();
     let mut last_action = None;
     let mut action_count = 0;
 
@@ -143,21 +143,16 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                 }
 
                 render_state_count += 1;
-                last_render_at = Instant::now();
-                print!(
-                    "\x1B[2J\x1B[1;1H{buf}\nScroll offset: {}\tLast action:\t{:?}",
-                    terminal.scrollbar().expect("no scrollbar").offset,
-                    last_action
-                );
-                std::io::stdout().flush()?;
+                render_last_at = Instant::now();
+                println!("\x1B[2J\x1B[1;1H{buf}");
             }
-            Err(elapsed) => {
+            Err(_elapsed) => {
                 if process.is_finished()? {
                     break process.wait().await?;
                 }
 
                 // If we've gone too long without a render, treat as “stuck UI”
-                if last_render_at.elapsed() > render_timeout {
+                if render_last_at.elapsed() > render_timeout {
                     bail!(
                         "no render for {:?} despite continued input; program likely stuck",
                         render_timeout
@@ -179,8 +174,18 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                 }
                 last_action = Some(action);
                 action_count += 1;
+
+                // For redrawing the status only
+                print!("\x1b[2K\x1b[1G");
             }
         }
+
+        print!(
+            "Scroll offset: {}\tLast action: {:?}",
+            terminal.scrollbar().expect("no scrollbar").offset,
+            last_action
+        );
+        std::io::stdout().flush()?;
     };
 
     let end = Instant::now();
