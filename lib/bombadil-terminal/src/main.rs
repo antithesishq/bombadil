@@ -1,6 +1,6 @@
 use bombadil::tree::Tree;
 use owo_colors::OwoColorize;
-use rand::{self};
+use rand::{self, SeedableRng};
 use std::{io::Write, process::exit, time::Duration};
 
 use libghostty_vt::{
@@ -35,7 +35,8 @@ async fn main() -> Result<()> {
     })?;
     let (mut process, mut output) =
         PtyProcess::spawn("rlwrap", &["cat"]).await?;
-    let mut rng = rand::rng();
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
     let mut render_state_count = 0;
     let mut last_action = None;
     let mut action_count = 0;
