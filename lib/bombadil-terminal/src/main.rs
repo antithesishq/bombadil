@@ -22,10 +22,6 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-const COLUMN_COUNT: u16 = 120;
-const ROW_COUNT: u16 = 32;
-const CELL_COUNT: u16 = COLUMN_COUNT * ROW_COUNT;
-
 /// Property-based testing for terminal UIs
 #[derive(Parser)]
 #[command(name = "bombadil-terminal", version, about, long_about=None)]
@@ -46,6 +42,18 @@ enum Command {
         #[arg(long)]
         seed: Option<u64>,
     },
+}
+
+#[derive(Debug, Copy, Clone)]
+struct Size {
+    column_count: u16,
+    row_count: u16,
+}
+
+impl Size {
+    pub fn cell_count(&self) -> u16 {
+        self.column_count * self.row_count
+    }
 }
 
 #[tokio::main]
@@ -84,9 +92,12 @@ async fn main() {
 
 async fn test_program(seed: u64, command: &[String]) -> Result<()> {
     let start = Instant::now();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+
+    let mut size_current: Size = random_size(&mut rng);
     let mut terminal = Terminal::new(TerminalOptions {
-        cols: COLUMN_COUNT,
-        rows: ROW_COUNT,
+        cols: size_current.column_count,
+        rows: size_current.row_count,
         max_scrollback: 1_000,
     })?;
 
@@ -94,9 +105,9 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
         [program, args @ ..] => (program, args),
         _ => bail!("command has no program"),
     };
-    let (mut process, mut output) = PtyProcess::spawn(program, args).await?;
+    let (mut process, mut output) =
+        PtyProcess::spawn(size_current, program, args).await?;
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut render_state_count = 0;
     let render_timeout = Duration::from_secs(10);
     let mut render_last_at = Instant::now();
@@ -126,7 +137,9 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                 let snapshot = render_state.update(&terminal)?;
                 let mut row_iter = rows.update(&snapshot)?;
 
-                let mut buf = String::with_capacity(CELL_COUNT as usize * 4);
+                let mut buf = String::with_capacity(
+                    size_current.cell_count() as usize * 4,
+                );
                 while let Some(row) = row_iter.next() {
                     let mut cell_iter = cells.update(row)?;
                     while let Some(cell) = cell_iter.next() {
@@ -171,6 +184,16 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                     Action::Scroll(scroll_viewport) => {
                         terminal.scroll_viewport(scroll_viewport);
                     }
+                    Action::Resize(size) => {
+                        size_current = size;
+                        terminal.resize(
+                            size.column_count,
+                            size.row_count,
+                            0,
+                            0,
+                        )?;
+                        process.resize(size)?;
+                    }
                 }
                 last_action = Some(action);
                 action_count += 1;
@@ -181,8 +204,10 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
         }
 
         print!(
-            "Scroll offset: {}\tLast action: {:?}",
+            "Scroll offset: {}\tSize: {}/{}\tLast action: {:?}",
             terminal.scrollbar().expect("no scrollbar").offset,
+            size_current.column_count,
+            size_current.row_count,
             last_action
         );
         std::io::stdout().flush()?;
@@ -306,6 +331,7 @@ enum Action {
     TypeChar(char),
     TypeString(&'static str),
     Scroll(ScrollViewport),
+    Resize(Size),
 }
 
 fn random_action(
@@ -313,7 +339,16 @@ fn random_action(
     rng: &mut impl rand::Rng,
 ) -> Result<Action> {
     let tree = Tree::Branch {
-        branches: vec![(20, random_key()), (1, random_scroll(terminal))],
+        branches: vec![
+            (20, random_key()),
+            (1, random_scroll(terminal)),
+            (
+                1,
+                Tree::Leaf {
+                    value: Action::Resize(random_size(rng)),
+                },
+            ),
+        ],
     };
     let tree = tree.prune().expect("no actions available");
     Ok(*tree.pick(rng)?)
@@ -418,6 +453,15 @@ fn random_scroll(terminal: &Terminal) -> Tree<Action> {
     Tree::Branch { branches }
 }
 
+fn random_size(rng: &mut impl rand::Rng) -> Size {
+    let column_count = rng.random_range(80..180);
+    let row_count = rng.random_range(16..96);
+    Size {
+        column_count,
+        row_count,
+    }
+}
+
 struct PtyProcess {
     child: Box<dyn Child + Send + Sync>,
     input_write: Box<dyn Write + Send>,
@@ -427,14 +471,15 @@ struct PtyProcess {
 
 impl PtyProcess {
     async fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
+        size: Size,
         command: &str,
         args: I,
     ) -> Result<(Self, PtyOutput)> {
         let pty_system = NativePtySystem::default();
 
         let pair = pty_system.openpty(PtySize {
-            rows: ROW_COUNT,
-            cols: COLUMN_COUNT,
+            rows: size.row_count,
+            cols: size.column_count,
             pixel_width: 0,
             pixel_height: 0,
         })?;
@@ -442,7 +487,7 @@ impl PtyProcess {
         let mut cmd = CommandBuilder::new(command);
         cmd.args(args);
         cmd.env("TERM", "xterm-256color");
-        let child = pair.slave.spawn_command(cmd).unwrap();
+        let child = pair.slave.spawn_command(cmd)?;
 
         // Release any handles owned by the slave: we don't need it now
         // that we've spawned the child.
@@ -492,6 +537,14 @@ impl PtyProcess {
 
     pub fn write(&mut self, input: &[u8]) {
         self.input_write.write_all(input).expect("write failed");
+    }
+
+    pub fn resize(&mut self, size: Size) -> Result<()> {
+        self.master.resize(PtySize {
+            cols: size.column_count,
+            rows: size.row_count,
+            ..Default::default()
+        })
     }
 
     pub async fn wait(mut self) -> Result<ExitStatus> {
