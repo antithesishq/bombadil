@@ -7,6 +7,7 @@ use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
     style::{PaletteIndex, RgbColor, Style, StyleColor, Underline},
+    terminal::ScrollViewport,
 };
 
 use anyhow::Result;
@@ -30,12 +31,14 @@ async fn main() -> Result<()> {
     let mut terminal = Terminal::new(TerminalOptions {
         cols: COLUMN_COUNT,
         rows: ROW_COUNT,
-        max_scrollback: 10_000,
+        max_scrollback: 1_000,
     })?;
-    let (mut process, mut output) = PtyProcess::spawn("btop", &[]).await?;
+    let (mut process, mut output) =
+        PtyProcess::spawn("rlwrap", &["cat"]).await?;
     let mut rng = rand::rng();
     let mut render_state_count = 0;
-    let mut input_count = 0;
+    let mut last_action = None;
+    let mut action_count = 0;
 
     sleep(Duration::from_millis(200)).await;
 
@@ -77,16 +80,32 @@ async fn main() -> Result<()> {
                 }
 
                 render_state_count += 1;
-                print!("\x1B[2J\x1B[1;1H{buf}");
+                print!(
+                    "\x1B[2J\x1B[1;1H{buf}\nScroll offset: {}\tLast action:\t{:?}",
+                    terminal.scrollbar().expect("no scrollbar").offset,
+                    last_action
+                );
                 std::io::stdout().flush()?;
             }
             Err(_elapsed) => {
                 if process.is_finished()? {
                     break process.wait().await?;
                 }
-                let key = random_key(&mut rng)?;
-                process.write(key.as_bytes());
-                input_count += 1;
+                let action = random_action(&terminal, &mut rng)?;
+                match action {
+                    Action::TypeChar(char) => {
+                        let mut buffer = [0u8; 4];
+                        process.write(char.encode_utf8(&mut buffer).as_bytes());
+                    }
+                    Action::TypeString(string) => {
+                        process.write(string.as_bytes());
+                    }
+                    Action::Scroll(scroll_viewport) => {
+                        terminal.scroll_viewport(scroll_viewport);
+                    }
+                }
+                last_action = Some(action);
+                action_count += 1;
             }
         }
     };
@@ -94,9 +113,9 @@ async fn main() -> Result<()> {
     let end = Instant::now();
     let duration = end - start;
     println!(
-        "ran for {:.1} seconds, with {} inputs and {} renders ({} per second)",
+        "ran for {:.1} seconds, with {} actions and {} renders ({} per second)",
         duration.as_secs_f64(),
-        input_count,
+        action_count,
         render_state_count,
         render_state_count as f64 / duration.as_secs_f64()
     );
@@ -202,50 +221,121 @@ pub fn xterm_index_to_rgb(idx: u8) -> RgbColor {
     }
 }
 
-fn random_key(rng: &mut impl rand::Rng) -> Result<&'static str> {
+#[derive(Debug, Copy, Clone)]
+enum Action {
+    TypeChar(char),
+    TypeString(&'static str),
+    Scroll(ScrollViewport),
+}
+
+fn random_action(
+    terminal: &Terminal,
+    rng: &mut impl rand::Rng,
+) -> Result<Action> {
     let tree = Tree::Branch {
+        branches: vec![(20, random_key()), (1, random_scroll(terminal))],
+    };
+    let tree = tree.prune().expect("no actions available");
+    Ok(*tree.pick(rng)?)
+}
+
+fn random_key() -> Tree<Action> {
+    use Action::*;
+    Tree::Branch {
         branches: vec![
-            (1, Tree::Leaf { value: "\r" }),
-            (1, Tree::Leaf { value: " " }),
-            (1, Tree::Leaf { value: "\x1B" }), // escape
-            (1, Tree::Leaf { value: "\t" }),   // tab
             (
-                10,
-                Tree::Branch {
-                    branches: vec![
-                        (1, Tree::Leaf { value: "\x1B[A" }),
-                        (1, Tree::Leaf { value: "\x1B[B" }),
-                        (1, Tree::Leaf { value: "\x1B[C" }),
-                        (1, Tree::Leaf { value: "\x1B[D" }),
-                    ],
+                1,
+                Tree::Leaf {
+                    value: TypeChar('\r'),
                 },
             ),
             (
+                1,
+                Tree::Leaf {
+                    value: TypeChar('\x1B'), // Escape
+                },
+            ),
+            (
+                1,
+                Tree::Leaf {
+                    value: TypeChar('\t'),
+                },
+            ), // tab
+            (
                 10,
                 Tree::Branch {
                     branches: vec![
-                        (1, Tree::Leaf { value: "m" }), // mem
-                        (1, Tree::Leaf { value: "n" }), // net
-                        (1, Tree::Leaf { value: "p" }), // proc
-                        (1, Tree::Leaf { value: "c" }), // cpu
-                        (1, Tree::Leaf { value: "e" }), // tree view
-                        (1, Tree::Leaf { value: "f" }), // filter
-                        (1, Tree::Leaf { value: "r" }), // reverse sort
-                        (1, Tree::Leaf { value: "s" }), // sort options
-                        (1, Tree::Leaf { value: "h" }), // help
-                        (1, Tree::Leaf { value: "/" }), // search
-                        (1, Tree::Leaf { value: "+" }), // expand
-                        (1, Tree::Leaf { value: "-" }), // collapse
-                        (1, Tree::Leaf { value: "1" }), // preset 1
-                        (1, Tree::Leaf { value: "2" }), // preset 2
-                        (1, Tree::Leaf { value: "3" }), // preset 3
-                        (1, Tree::Leaf { value: "4" }), // preset 4
+                        (
+                            1,
+                            Tree::Leaf {
+                                value: TypeString("\x1B[A"),
+                            },
+                        ),
+                        (
+                            1,
+                            Tree::Leaf {
+                                value: TypeString("\x1B[B"),
+                            },
+                        ),
+                        (
+                            1,
+                            Tree::Leaf {
+                                value: TypeString("\x1B[C"),
+                            },
+                        ),
+                        (
+                            1,
+                            Tree::Leaf {
+                                value: TypeString("\x1B[D"),
+                            },
+                        ),
                     ],
+                },
+            ),
+            // ASCII printable range
+            (
+                10,
+                Tree::Branch {
+                    branches: (32..=127)
+                        .map(|b| {
+                            (
+                                1,
+                                Tree::Leaf {
+                                    value: TypeChar(char::from(b)),
+                                },
+                            )
+                        })
+                        .collect(),
                 },
             ),
         ],
-    };
-    Ok(tree.pick(rng)?)
+    }
+}
+
+fn random_scroll(terminal: &Terminal) -> Tree<Action> {
+    let mut branches = vec![];
+
+    if let Ok(scrollbar) = terminal.scrollbar() {
+        if scrollbar.total > scrollbar.len {
+            branches.push((
+                1,
+                Tree::Leaf {
+                    value: Action::Scroll(ScrollViewport::Bottom),
+                },
+            ));
+        }
+
+        if scrollbar.offset > 0 {
+            branches.push((
+                1,
+                Tree::Leaf {
+                    value: Action::Scroll(ScrollViewport::Top),
+                },
+            ));
+        }
+    }
+
+    Tree::Branch { branches }
 }
 
 struct PtyProcess {
