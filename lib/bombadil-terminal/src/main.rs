@@ -1,7 +1,8 @@
 use bombadil::tree::Tree;
+use clap::Parser;
 use owo_colors::OwoColorize;
 use rand::{self, SeedableRng};
-use std::{io::Write, process::exit, time::Duration};
+use std::{ffi::OsStr, io::Write, process::exit, time::Duration};
 
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
@@ -10,7 +11,7 @@ use libghostty_vt::{
     terminal::ScrollViewport,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
@@ -25,18 +26,60 @@ const COLUMN_COUNT: u16 = 120;
 const ROW_COUNT: u16 = 32;
 const CELL_COUNT: u16 = COLUMN_COUNT * ROW_COUNT;
 
+/// Property-based testing for terminal UIs
+#[derive(Parser)]
+#[command(name = "bombadil-terminal", version, about, long_about=None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Test the given program and arguments
+    Test {
+        #[clap(trailing_var_arg = true)]
+        command: Vec<String>,
+        /// Random generator seed
+        #[arg(long)]
+        seed: Option<u64>,
+    },
+}
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    let cli = Cli::parse();
+    match cli.command {
+        Command::Test { command, seed } => {
+            let seed = seed.unwrap_or(rand::random());
+            match test_program(seed, command).await {
+                Ok(_) => {}
+                Err(error) => {
+                    eprintln!(
+                        "test failed: {error}\n\nreproduce with seed: {seed}"
+                    );
+                    exit(1);
+                }
+            }
+        }
+    }
+}
+
+async fn test_program(seed: u64, command: Vec<String>) -> Result<()> {
     let start = Instant::now();
     let mut terminal = Terminal::new(TerminalOptions {
         cols: COLUMN_COUNT,
         rows: ROW_COUNT,
         max_scrollback: 1_000,
     })?;
-    let (mut process, mut output) =
-        PtyProcess::spawn("rlwrap", &["cat"]).await?;
 
-    let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+    let (program, args) = match &command[..] {
+        [program, args @ ..] => (program, args),
+        _ => bail!("command has no program"),
+    };
+    let (mut process, mut output) = PtyProcess::spawn(program, args).await?;
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut render_state_count = 0;
     let mut last_action = None;
     let mut action_count = 0;
@@ -120,8 +163,10 @@ async fn main() -> Result<()> {
         render_state_count,
         render_state_count as f64 / duration.as_secs_f64()
     );
-    println!("process finished with code {}", status.exit_code());
-    exit(status.exit_code() as i32);
+    if !status.success() {
+        bail!("process finished with code {}", status.exit_code());
+    }
+    Ok(())
 }
 
 fn to_owo_style(input: Style) -> owo_colors::Style {
@@ -347,7 +392,10 @@ struct PtyProcess {
 }
 
 impl PtyProcess {
-    async fn spawn(command: &str, args: &[&str]) -> Result<(Self, PtyOutput)> {
+    async fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
+        command: &str,
+        args: I,
+    ) -> Result<(Self, PtyOutput)> {
         let pty_system = NativePtySystem::default();
 
         let pair = pty_system.openpty(PtySize {
