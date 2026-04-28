@@ -60,7 +60,7 @@ async fn main() {
             if let Some(seed) = seed {
                 if let Err(error) = test_program(seed, &command).await {
                     eprintln!(
-                        "test failed: {error}\n\nreproduced from seed: {seed}"
+                        "\n\ntest failed: {error}\n\nreproduced from seed: {seed}"
                     );
                     exit(1);
                 }
@@ -71,7 +71,7 @@ async fn main() {
                         Ok(_) => {}
                         Err(error) => {
                             eprintln!(
-                                "test failed: {error}\n\nreproduce with seed: {seed}"
+                                "\n\ntest failed: {error}\n\nreproduce with seed: {seed}"
                             );
                             exit(1);
                         }
@@ -98,6 +98,8 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
 
     let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
     let mut render_state_count = 0;
+    let render_timeout = Duration::from_secs(10);
+    let mut last_render_at = Instant::now();
     let mut last_action = None;
     let mut action_count = 0;
 
@@ -141,6 +143,7 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                 }
 
                 render_state_count += 1;
+                last_render_at = Instant::now();
                 print!(
                     "\x1B[2J\x1B[1;1H{buf}\nScroll offset: {}\tLast action:\t{:?}",
                     terminal.scrollbar().expect("no scrollbar").offset,
@@ -148,10 +151,19 @@ async fn test_program(seed: u64, command: &[String]) -> Result<()> {
                 );
                 std::io::stdout().flush()?;
             }
-            Err(_elapsed) => {
+            Err(elapsed) => {
                 if process.is_finished()? {
                     break process.wait().await?;
                 }
+
+                // If we've gone too long without a render, treat as “stuck UI”
+                if last_render_at.elapsed() > render_timeout {
+                    bail!(
+                        "no render for {:?} despite continued input; program likely stuck",
+                        render_timeout
+                    );
+                }
+
                 let action = random_action(&terminal, &mut rng)?;
                 match action {
                     Action::TypeChar(char) => {
