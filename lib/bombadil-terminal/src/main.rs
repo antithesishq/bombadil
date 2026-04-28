@@ -40,6 +40,8 @@ enum Command {
     Test {
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
+        #[arg(long, default_value = "1")]
+        test_count: u64,
         /// Random generator seed
         #[arg(long)]
         seed: Option<u64>,
@@ -50,22 +52,37 @@ enum Command {
 async fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Command::Test { command, seed } => {
-            let seed = seed.unwrap_or(rand::random());
-            match test_program(seed, command).await {
-                Ok(_) => {}
-                Err(error) => {
+        Command::Test {
+            command,
+            test_count,
+            seed,
+        } => {
+            if let Some(seed) = seed {
+                if let Err(error) = test_program(seed, &command).await {
                     eprintln!(
-                        "test failed: {error}\n\nreproduce with seed: {seed}"
+                        "test failed: {error}\n\nreproduced from seed: {seed}"
                     );
                     exit(1);
+                }
+            } else {
+                for _ in 1..=test_count {
+                    let seed = rand::random();
+                    match test_program(seed, &command).await {
+                        Ok(_) => {}
+                        Err(error) => {
+                            eprintln!(
+                                "test failed: {error}\n\nreproduce with seed: {seed}"
+                            );
+                            exit(1);
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-async fn test_program(seed: u64, command: Vec<String>) -> Result<()> {
+async fn test_program(seed: u64, command: &[String]) -> Result<()> {
     let start = Instant::now();
     let mut terminal = Terminal::new(TerminalOptions {
         cols: COLUMN_COUNT,
@@ -73,7 +90,7 @@ async fn test_program(seed: u64, command: Vec<String>) -> Result<()> {
         max_scrollback: 1_000,
     })?;
 
-    let (program, args) = match &command[..] {
+    let (program, args) = match command {
         [program, args @ ..] => (program, args),
         _ => bail!("command has no program"),
     };
@@ -157,7 +174,7 @@ async fn test_program(seed: u64, command: Vec<String>) -> Result<()> {
     let end = Instant::now();
     let duration = end - start;
     println!(
-        "ran for {:.1} seconds, with {} actions and {} renders ({} per second)",
+        "\n\nran for {:.1} seconds, with {} actions and {} renders ({} per second)",
         duration.as_secs_f64(),
         action_count,
         render_state_count,
@@ -308,7 +325,7 @@ fn random_key() -> Tree<Action> {
                 },
             ), // tab
             (
-                10,
+                1,
                 Tree::Branch {
                     branches: vec![
                         (
@@ -340,7 +357,7 @@ fn random_key() -> Tree<Action> {
             ),
             // ASCII printable range
             (
-                10,
+                1,
                 Tree::Branch {
                     branches: (32..=127)
                         .map(|b| {
