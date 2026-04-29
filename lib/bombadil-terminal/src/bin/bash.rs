@@ -75,7 +75,10 @@ fn main() {
     println!("Bash exited with status: {:?}", status);
 }
 
-fn handle_input_stream(rx: std::sync::mpsc::Receiver<String>, mut writer: Box<dyn Write + Send>) {
+fn handle_input_stream(
+    rx: std::sync::mpsc::Receiver<String>,
+    mut writer: Box<dyn Write + Send>,
+) {
     for input in rx.iter() {
         if writer.write_all(input.as_bytes()).is_err() {
             eprintln!("Error writing to PTY");
