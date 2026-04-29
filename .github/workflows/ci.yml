@@ -152,6 +152,7 @@ jobs:
             if curl -sf http://localhost:1073 > /dev/null 2>&1; then break; fi
             sleep 1
           done
+          export RUST_LOG=debug
           ./bombadil test http://localhost:1073 \
             lib/bombadil-inspect/test/inspect.spec.ts \
             --headless --no-sandbox \
