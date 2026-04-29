@@ -15,8 +15,30 @@
   craneLibStatic,
   cargoTarget ? "x86_64-unknown-linux-musl",
   darwin ? null,
+  # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
+  # build.rs (`GHOSTTY_COMMIT`). Provided as a vendored source tree so that
+  # the Cargo build script can skip its in-tree `git clone` step (which has
+  # no network access in the Nix sandbox).
+  ghosttySrc,
+  zig_0_15,
+  git,
 }:
 let
+  # Pre-fetched Zig package cache for ghostty's build.zig. Passed to zig via
+  # `--system` (set up by libghostty-vt-sys's build.rs when
+  # `GHOSTTY_ZIG_SYSTEM_DIR` is set), keeping the Zig build hermetic.
+  ghosttyZigDeps = callPackage "${ghosttySrc}/build.zig.zon.nix" {
+    name = "bombadil-ghostty-zig-deps";
+  };
+  ghosttyEnv = {
+    GHOSTTY_SOURCE_DIR = "${ghosttySrc}";
+    GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
+  };
+  ghosttyNativeBuildInputs = [
+    zig_0_15
+    pkg-config
+    git
+  ];
   src = lib.cleanSourceWith {
     src = ../..;
     filter =
@@ -69,16 +91,18 @@ let
       trunk
       wasm-bindgen-cli
       binaryen
-    ];
+    ]
+    ++ ghosttyNativeBuildInputs;
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
     cargoExtraArgs = "--workspace --exclude bombadil-inspect";
-  };
+  }
+  // ghosttyEnv;
   depsArgs = commonArgs // {
     src = depsSrc;
     pname = "bombadil";
     version = "stable";
-    nativeBuildInputs = [ ];
+    nativeBuildInputs = ghosttyNativeBuildInputs;
   };
   cargoArtifacts = craneLib.buildDepsOnly depsArgs;
   cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
