@@ -43,9 +43,9 @@ enum Command {
         /// Random generator seed
         #[arg(long)]
         seed: Option<u64>,
-        // Whether to clear screen between renders (otherwise just append into scrollback)
-        #[arg(long, default_value_t = true)]
-        clear: bool,
+        // Whether to append render output (otherwise clear screen before every render)
+        #[arg(long, default_value_t = false)]
+        render_append: bool,
     },
 }
 
@@ -69,10 +69,12 @@ async fn main() {
             command,
             test_count,
             seed,
-            clear,
+            render_append,
         } => {
             if let Some(seed) = seed {
-                if let Err(error) = test_program(seed, clear, &command).await {
+                if let Err(error) =
+                    test_program(seed, render_append, &command).await
+                {
                     eprintln!(
                         "\n\ntest failed: {error}\n\nreproduced from seed: {seed}"
                     );
@@ -81,7 +83,7 @@ async fn main() {
             } else {
                 for _ in 1..=test_count {
                     let seed = rand::random();
-                    match test_program(seed, clear, &command).await {
+                    match test_program(seed, render_append, &command).await {
                         Ok(_) => {}
                         Err(error) => {
                             eprintln!(
@@ -98,7 +100,7 @@ async fn main() {
 
 async fn test_program(
     seed: u64,
-    clear: bool,
+    render_append: bool,
     command: &[String],
 ) -> Result<()> {
     let start = Instant::now();
@@ -167,10 +169,10 @@ async fn test_program(
 
                 render_state_count += 1;
                 render_last_at = Instant::now();
-                if clear {
-                    print!("\x1B[2J\x1B[1;1H");
-                } else {
+                if render_append {
                     println!("\n");
+                } else {
+                    print!("\x1B[2J\x1B[1;1H");
                 }
                 println!("{buf}");
             }
@@ -213,8 +215,12 @@ async fn test_program(
                 last_action = Some(action);
                 action_count += 1;
 
-                // For redrawing the status only
-                print!("\x1b[2K\x1b[1G");
+                if render_append {
+                    println!();
+                } else {
+                    // For redrawing the status only
+                    print!("\x1b[2K\x1b[1G");
+                }
             }
         }
 
