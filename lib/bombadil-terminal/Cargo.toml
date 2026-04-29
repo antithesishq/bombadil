@@ -15,7 +15,7 @@ bombadil-schema = { path = "../bombadil-schema" }
 clap = { version = "4.5.46", features = ["derive"] }
 env_logger = "0.11.8"
 include_dir = "0.7.4"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "22682c09c456265ab8d96a2f169f781fff233d5a", features = [
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "269c5459c1cb0e1fa30a31d77e27b0bb74b0f0aa", features = [
   "link-static",
 ] }
 log = "0.4"
