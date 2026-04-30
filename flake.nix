@@ -55,9 +55,20 @@
             ];
           }
         );
-        bombadil = pkgs.callPackage ./lib/nix/default.nix { inherit craneLib craneLibStatic; };
+        # Pinned to match `GHOSTTY_COMMIT` in libghostty-vt-sys's build.rs at
+        # the `libghostty-vt` rev used by `lib/bombadil-terminal/Cargo.toml`.
+        # Bump these together when updating libghostty-vt.
+        ghosttySrc = pkgs.fetchFromGitHub {
+          owner = "ghostty-org";
+          repo = "ghostty";
+          rev = "6590196661f769dd8f2b3e85d6c98262c4ec5b3b";
+          sha256 = "0bxq9pv568zr6ns5szmhg18id7f68mbkhqaygm641c3cw1df0w8w";
+        };
+        bombadil = pkgs.callPackage ./lib/nix/default.nix {
+          inherit craneLib craneLibStatic ghosttySrc;
+        };
         bombadilAarch64 = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib;
+          inherit craneLib ghosttySrc;
           craneLibStatic = craneLibAarch64;
           cargoTarget = "aarch64-unknown-linux-musl";
         };
@@ -65,12 +76,14 @@
       {
         packages = {
           default = bombadil.bin;
+          terminal = bombadil.terminal;
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
           release = pkgs.callPackage ./lib/release/default.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           aarch64-linux = bombadilAarch64.bin;
+          aarch64-linux-terminal = bombadilAarch64.terminal;
           docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
@@ -92,6 +105,10 @@
         devShells = {
           default = pkgs.mkShell (
             {
+              shellHook = ''
+                export CC=${pkgs.clang}/bin/clang
+                export CXX=${pkgs.clang}/bin/clang++
+              '';
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
               inputsFrom = [ self.packages.${system}.default ];
               # nativeBuildInputs takes priority over inputsFrom in
@@ -107,6 +124,13 @@
 
                   # Nix
                   nil
+
+                  # For bombadil-terminal. zig_0_15 / pkg-config come in via
+                  # `inputsFrom = [ self.packages.${system}.default ]`; adding
+                  # them again here re-sources zig's setup-hook and trips its
+                  # readonly `zigDefaultCpuFlag` guard.
+                  cmake
+                  clang
 
                   # TS/JS
                   typescript

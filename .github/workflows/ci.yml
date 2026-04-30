@@ -54,6 +54,7 @@ jobs:
           - os: ubuntu-latest
             target: aarch64-linux
             package: aarch64-linux
+            terminal-package: aarch64-linux-terminal
           - os: macos-latest
             target: aarch64-darwin
     runs-on: ${{ matrix.os }}
@@ -72,6 +73,13 @@ jobs:
         with:
           name: bombadil-${{ matrix.target }}
           path: result/bin/bombadil
+      - name: Build terminal package
+        run: nix build .#${{ matrix.terminal-package || 'terminal' }} --out-link result-terminal
+      - name: Upload terminal binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-terminal-${{ matrix.target }}
+          path: result-terminal/bin/bombadil-terminal
       - name: Build Docker image
         if: matrix.target == 'x86_64-linux'
         run: nix build ".#docker"
@@ -187,6 +195,26 @@ jobs:
           chmod +x bombadil
           ./bombadil --version
 
+  smoke-test-terminal:
+    name: Smoke test terminal (${{ matrix.os }})
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bombadil-terminal-x86_64-linux
+          - os: macos-latest
+            artifact: bombadil-terminal-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+      - name: Test terminal binary runs without Nix
+        run: |
+          chmod +x bombadil-terminal
+          ./bombadil-terminal test head -n 100
+
   test-npm-package:
     name: Test npm package (${{ matrix.os }})
     needs: [build, build-npm-package]
@@ -224,7 +252,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check-version, build, build-npm-package, build-manual, smoke-test, test-npm-package]
+    needs: [check-version, build, build-npm-package, build-manual, smoke-test, smoke-test-terminal, test-npm-package]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -235,6 +263,8 @@ jobs:
           for target in x86_64-linux aarch64-linux aarch64-darwin; do
             chmod +x artifacts/bombadil-$target/bombadil
             mv artifacts/bombadil-$target/bombadil artifacts/bombadil-$target/bombadil-$target
+            chmod +x artifacts/bombadil-terminal-$target/bombadil-terminal
+            mv artifacts/bombadil-terminal-$target/bombadil-terminal artifacts/bombadil-terminal-$target/bombadil-terminal-$target
           done
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -245,6 +275,9 @@ jobs:
             artifacts/bombadil-x86_64-linux/bombadil-x86_64-linux
             artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+            artifacts/bombadil-terminal-x86_64-linux/bombadil-terminal-x86_64-linux
+            artifacts/bombadil-terminal-aarch64-linux/bombadil-terminal-aarch64-linux
+            artifacts/bombadil-terminal-aarch64-darwin/bombadil-terminal-aarch64-darwin
             artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz
             artifacts/bombadil-manual/bombadil-manual.tar.gz
 

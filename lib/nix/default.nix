@@ -8,15 +8,56 @@
   trunk,
   wasm-bindgen-cli,
   binaryen,
+  apple-sdk ? null,
+  cctools ? null,
   chromium,
   freefont_ttf,
   makeFontsConf,
+  libiconv ? null,
   craneLib,
   craneLibStatic,
   cargoTarget ? "x86_64-unknown-linux-musl",
   darwin ? null,
+  xcbuild ? null,
+  # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
+  # build.rs (`GHOSTTY_COMMIT`). Provided as a vendored source tree so that
+  # the Cargo build script can skip its in-tree `git clone` step (which has
+  # no network access in the Nix sandbox).
+  ghosttySrc,
+  zig_0_15,
+  git,
 }:
 let
+  # Pre-fetched Zig package cache for ghostty's build.zig. Passed to zig via
+  # `--system` (set up by libghostty-vt-sys's build.rs when
+  # `GHOSTTY_ZIG_SYSTEM_DIR` is set), keeping the Zig build hermetic.
+  ghosttyZigDeps = callPackage "${ghosttySrc}/build.zig.zon.nix" {
+    name = "bombadil-ghostty-zig-deps";
+  };
+  ghosttyEnv = {
+    GHOSTTY_SOURCE_DIR = "${ghosttySrc}";
+    GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
+  };
+  ghosttyNativeBuildInputs = [
+    zig_0_15
+    pkg-config
+    git
+  ]
+  ++ lib.optionals stdenv.isDarwin [
+    # Ghostty's Zig build asks Zig to discover the native Darwin SDK via
+    # xcode-select and xcrun. Nix's apple-sdk propagates xcrun, but xcbuild
+    # provides xcode-select so Zig's findNative() path does not fail with
+    # DarwinSdkNotFound in sandboxed CI builds.
+    cctools
+    xcbuild
+  ];
+  ghosttyBuildInputs = lib.optionals stdenv.isDarwin [
+    # Put the SDK in buildInputs so Nix's Darwin SDK hook owns SDKROOT and
+    # DEVELOPER_DIR. libiconv is propagated by newer SDKs, but keeping it here
+    # preserves compatibility with older nixpkgs revisions.
+    apple-sdk
+    libiconv
+  ];
   src = lib.cleanSourceWith {
     src = ../..;
     filter =
@@ -69,16 +110,20 @@ let
       trunk
       wasm-bindgen-cli
       binaryen
-    ];
+    ]
+    ++ ghosttyNativeBuildInputs;
+    buildInputs = ghosttyBuildInputs;
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
     cargoExtraArgs = "--workspace --exclude bombadil-inspect";
-  };
+  }
+  // ghosttyEnv;
   depsArgs = commonArgs // {
     src = depsSrc;
     pname = "bombadil";
     version = "stable";
-    nativeBuildInputs = [ ];
+    nativeBuildInputs = ghosttyNativeBuildInputs;
+    buildInputs = ghosttyBuildInputs;
   };
   cargoArtifacts = craneLib.buildDepsOnly depsArgs;
   cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
@@ -111,6 +156,36 @@ in
         for nixlib in $(otool -L $out/bin/bombadil | grep /nix/store | awk '{print $1}'); do
           base=$(basename "$nixlib")
           install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil
+        done
+      '';
+      nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
+    }
+  );
+
+  terminal = (if stdenv.isLinux then craneLibStatic else craneLib).buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      doCheck = false;
+      pname = "bombadil-terminal";
+      cargoExtraArgs = "-p bombadil-terminal";
+      meta = {
+        mainProgram = "bombadil-terminal";
+        description = ''
+          Terminal UI testing with Bombadil, using Ghostty's virtual terminal.
+        '';
+      };
+    }
+    // lib.optionalAttrs stdenv.isLinux {
+      cargoArtifacts = cargoArtifactsStatic;
+      CARGO_BUILD_TARGET = cargoTarget;
+      CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+    }
+    // lib.optionalAttrs stdenv.isDarwin {
+      postFixup = ''
+        for nixlib in $(otool -L $out/bin/bombadil-terminal | grep /nix/store | awk '{print $1}'); do
+          base=$(basename "$nixlib")
+          install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil-terminal
         done
       '';
       nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
