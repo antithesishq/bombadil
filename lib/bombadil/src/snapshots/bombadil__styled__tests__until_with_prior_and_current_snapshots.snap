@@ -1,0 +1,5 @@
+---
+source: lib/bombadil/src/styled.rs
+expression: render_violation(&violation)
+---
+as of [1m00:00.000[0m, [3mloading === true[0m should hold until [3mready === true[0m, but before that at [1m02:00.000[0m, loading = [34mfalse[39m, and from the prior state at [1m01:00.000[0m, loading = [34mtrue[39m

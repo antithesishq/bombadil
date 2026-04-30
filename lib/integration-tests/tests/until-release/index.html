@@ -1,0 +1,68 @@
+<!doctype html>
+<html>
+    <head>
+        <title>Counter Until and Release</title>
+        <style>
+            body {
+                font-family: sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                height: 100vh;
+                margin: 0;
+                gap: 40px;
+            }
+            .counter-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            .counter-value {
+                font-size: 48px;
+                margin: 20px;
+            }
+            button {
+                font-size: 24px;
+                padding: 10px 20px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="counter-container">
+            <h1>Counter A</h1>
+            <div id="counter-a" class="counter-value">0</div>
+            <button id="increment-a">Increment A</button>
+        </div>
+
+        <div class="counter-container">
+            <h1>Counter B</h1>
+            <div id="counter-b" class="counter-value">0</div>
+            <button id="increment-b" disabled>Increment B (Locked)</button>
+        </div>
+
+        <script>
+            let countA = 0;
+            let countB = 0;
+            const counterAElement = document.getElementById("counter-a");
+            const counterBElement = document.getElementById("counter-b");
+            const incrementAButton = document.getElementById("increment-a");
+            const incrementBButton = document.getElementById("increment-b");
+
+            incrementAButton.addEventListener("click", () => {
+                countA++;
+                counterAElement.textContent = countA;
+                if (countA >= 3) {
+                    incrementBButton.disabled = false;
+                    incrementBButton.textContent = "Increment B";
+                }
+            });
+
+            incrementBButton.addEventListener("click", () => {
+                countB++;
+                counterBElement.textContent = countB;
+            });
+        </script>
+    </body>
+</html>

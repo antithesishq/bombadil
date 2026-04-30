@@ -161,6 +161,20 @@ pub enum Violation {
         end: Option<Time>,
         time: Time,
     },
+    Until {
+        left: Box<Formula>,
+        right: Box<Formula>,
+        start: Time,
+        end: Option<Time>,
+        reason: UntilViolation,
+    },
+    Release {
+        left: Box<Formula>,
+        right: Box<Formula>,
+        start: Time,
+        end: Option<Time>,
+        violation: Box<Violation>,
+    },
     And {
         left: Box<Violation>,
         right: Box<Violation>,
@@ -183,12 +197,26 @@ pub enum EventuallyViolation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum UntilViolation {
+    Left(Box<Violation>),
+    TimedOut {
+        time: Time,
+        snapshots: Vec<Snapshot>,
+    },
+    TestEnded {
+        snapshots: Vec<Snapshot>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Formula {
     Pure { value: bool, pretty: String },
     Thunk { function: String, negated: bool },
     And(Box<Formula>, Box<Formula>),
     Or(Box<Formula>, Box<Formula>),
     Implies(Box<Formula>, Box<Formula>),
+    Until(Box<Formula>, Box<Formula>, Option<Duration>),
+    Release(Box<Formula>, Box<Formula>, Option<Duration>),
     Next(Box<Formula>),
     Always(Box<Formula>, Option<Duration>),
     Eventually(Box<Formula>, Option<Duration>),

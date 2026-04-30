@@ -1,5 +1,8 @@
 use crate::specification::{
-    ltl::{Formula, Leaning, Residual, Time, UniqueSnapshots, Violation},
+    ltl::{
+        Formula, Leaning, Residual, Time, UniqueSnapshots, Violation,
+        attach_to_violation,
+    },
     verifier::merge_snapshots,
 };
 
@@ -31,6 +34,22 @@ pub fn stop_default<Function: Clone>(
         Or { left, right } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| stop_or_default(&s1, &s2))
         }),
+        OrUntil { end, left, right } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                stop_default(right, time)
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time)
+                        .map(|s2| stop_or_until_default(&s1, &s2))
+                })
+            }
+        }
+        OrRelease { left, right } => stop_default(left, time).and_then(|s1| {
+            stop_default(right, time)
+                .map(|s2| stop_or_release_default(&s1, &s2))
+        }),
         Implies {
             left_formula,
             left,
@@ -53,6 +72,78 @@ pub fn stop_default<Function: Clone>(
                 )
             })
         }),
+        AndUntil {
+            left_formula,
+            right_formula,
+            start,
+            end,
+            left,
+            right,
+        } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                let carried_snapshots = stop_default(left, time)
+                    .and_then(|stop| match stop {
+                        StopDefault::True(snapshots) => {
+                            Some(snapshots.values().cloned().collect())
+                        }
+                        StopDefault::False(_) => None,
+                    })
+                    .unwrap_or_default();
+                Some(StopDefault::False(Violation::Until {
+                    left: left_formula.clone(),
+                    right: right_formula.clone(),
+                    start: *start,
+                    end: Some(*end),
+                    reason:
+                        crate::specification::ltl::UntilViolation::TimedOut {
+                            time,
+                            snapshots: carried_snapshots,
+                        },
+                }))
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time).map(|s2| {
+                        stop_and_until_default(
+                            left_formula,
+                            right_formula,
+                            *start,
+                            *end,
+                            &s1,
+                            &s2,
+                        )
+                    })
+                })
+            }
+        }
+        AndRelease {
+            left_formula,
+            right_formula,
+            start,
+            end,
+            left,
+            right,
+        } => {
+            if let Some(end) = end
+                && *end < time
+            {
+                Some(StopDefault::True(UniqueSnapshots::new()))
+            } else {
+                stop_default(left, time).and_then(|s1| {
+                    stop_default(right, time).map(|s2| {
+                        stop_and_release_default(
+                            left_formula,
+                            right_formula,
+                            *start,
+                            *end,
+                            &s1,
+                            &s2,
+                        )
+                    })
+                })
+            }
+        }
         OrEventually { left, right, .. } => {
             stop_default(left, time).and_then(|s1| {
                 stop_default(right, time)
@@ -98,6 +189,36 @@ fn stop_or_default<Function: Clone>(
     }
 }
 
+fn stop_or_until_default<Function: Clone>(
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(left_snapshots), True(right_snapshots)) => {
+            True(merge_snapshots(left_snapshots, right_snapshots))
+        }
+        (True(snapshots), _) => True(snapshots.clone()),
+        (_, True(snapshots)) => True(snapshots.clone()),
+        (_, False(right)) => False(right.clone()),
+    }
+}
+
+fn stop_or_release_default<Function: Clone>(
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(left_snapshots), True(right_snapshots)) => {
+            True(merge_snapshots(left_snapshots, right_snapshots))
+        }
+        (True(snapshots), _) => True(snapshots.clone()),
+        (_, True(snapshots)) => True(snapshots.clone()),
+        (_, False(right)) => False(right.clone()),
+    }
+}
+
 fn stop_implies_default<Function: Clone>(
     left_formula: &Formula<Function>,
     left: &StopDefault<Function>,
@@ -134,6 +255,60 @@ fn stop_and_always_default<Function: Clone>(
             start,
             end,
             time,
+        }),
+    }
+}
+
+fn stop_and_until_default<Function: Clone>(
+    left_formula: &Formula<Function>,
+    right_formula: &Formula<Function>,
+    start: Time,
+    end: Option<Time>,
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(snapshots), False(violation)) => {
+            let mut violation = violation.clone();
+            attach_to_violation(&mut violation, snapshots);
+            False(violation)
+        }
+        (True(_), right) => right.clone(),
+        (False(violation), _) => StopDefault::False(Violation::Until {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            reason: crate::specification::ltl::UntilViolation::Left(Box::new(
+                violation.clone(),
+            )),
+        }),
+    }
+}
+
+fn stop_and_release_default<Function: Clone>(
+    left_formula: &Formula<Function>,
+    right_formula: &Formula<Function>,
+    start: Time,
+    end: Option<Time>,
+    left: &StopDefault<Function>,
+    right: &StopDefault<Function>,
+) -> StopDefault<Function> {
+    use StopDefault::*;
+    match (left, right) {
+        (True(snapshots), False(violation)) => {
+            let mut violation = violation.clone();
+            attach_to_violation(&mut violation, snapshots);
+            False(violation)
+        }
+        (True(_), right) => right.clone(),
+        (False(violation), _) => StopDefault::False(Violation::Release {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            violation: Box::new(violation.clone()),
         }),
     }
 }

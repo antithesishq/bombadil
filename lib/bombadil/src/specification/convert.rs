@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::specification::{
     js::RuntimeFunction,
-    ltl::{EventuallyViolation, Formula, Violation},
+    ltl::{EventuallyViolation, Formula, UntilViolation, Violation},
     verifier::Snapshot,
 };
 
@@ -52,6 +52,20 @@ impl Formula<PrettyFunction> {
                 Box::new(left.to_api()),
                 Box::new(right.to_api()),
             ),
+            Formula::Until(left, right, bound) => {
+                bombadil_schema::Formula::Until(
+                    Box::new(left.to_api()),
+                    Box::new(right.to_api()),
+                    *bound,
+                )
+            }
+            Formula::Release(left, right, bound) => {
+                bombadil_schema::Formula::Release(
+                    Box::new(left.to_api()),
+                    Box::new(right.to_api()),
+                    *bound,
+                )
+            }
             Formula::Next(formula) => {
                 bombadil_schema::Formula::Next(Box::new(formula.to_api()))
             }
@@ -102,6 +116,32 @@ impl Violation<PrettyFunction> {
                 end: *end,
                 time: *time,
             },
+            Violation::Until {
+                left,
+                right,
+                start,
+                end,
+                reason,
+            } => bombadil_schema::Violation::Until {
+                left: Box::new(left.to_api()),
+                right: Box::new(right.to_api()),
+                start: *start,
+                end: *end,
+                reason: reason.to_api(),
+            },
+            Violation::Release {
+                left,
+                right,
+                start,
+                end,
+                violation,
+            } => bombadil_schema::Violation::Release {
+                left: Box::new(left.to_api()),
+                right: Box::new(right.to_api()),
+                start: *start,
+                end: *end,
+                violation: Box::new(violation.to_api()),
+            },
             Violation::And { left, right } => bombadil_schema::Violation::And {
                 left: Box::new(left.to_api()),
                 right: Box::new(right.to_api()),
@@ -134,6 +174,29 @@ impl EventuallyViolation {
             }
             EventuallyViolation::TestEnded => {
                 bombadil_schema::EventuallyViolation::TestEnded
+            }
+        }
+    }
+}
+
+impl UntilViolation<PrettyFunction> {
+    pub fn to_api(&self) -> bombadil_schema::UntilViolation {
+        match self {
+            UntilViolation::Left(violation) => {
+                bombadil_schema::UntilViolation::Left(Box::new(
+                    violation.to_api(),
+                ))
+            }
+            UntilViolation::TimedOut { time, snapshots } => {
+                bombadil_schema::UntilViolation::TimedOut {
+                    time: *time,
+                    snapshots: snapshots.iter().map(|s| s.to_api()).collect(),
+                }
+            }
+            UntilViolation::TestEnded { snapshots } => {
+                bombadil_schema::UntilViolation::TestEnded {
+                    snapshots: snapshots.iter().map(|s| s.to_api()).collect(),
+                }
             }
         }
     }

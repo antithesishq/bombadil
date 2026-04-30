@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use crate::schema::{
-    EventuallyViolation, Formula, PropertyViolation, Snapshot, Time, Violation,
+    EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
+    UntilViolation, Violation,
 };
 
 #[derive(Debug, Clone)]
@@ -46,6 +47,26 @@ fn get_violation_time(violation: &Violation) -> Time {
                         std::time::SystemTime::UNIX_EPOCH,
                     ),
                 };
+            }
+            Violation::Until { reason, .. } => {
+                return match reason {
+                    UntilViolation::Left(violation) => {
+                        get_violation_time(violation)
+                    }
+                    UntilViolation::TimedOut { time, .. } => *time,
+                    UntilViolation::TestEnded { snapshots } => snapshots
+                        .iter()
+                        .map(|snapshot| snapshot.time)
+                        .max()
+                        .unwrap_or_else(|| {
+                            Time::from_system_time(
+                                std::time::SystemTime::UNIX_EPOCH,
+                            )
+                        }),
+                };
+            }
+            Violation::Release { violation, .. } => {
+                current = violation.as_ref();
             }
             Violation::Implies { right, .. } => {
                 current = right.as_ref();
@@ -123,6 +144,88 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
             Markup::Comma,
             Markup::Span(vec![Inline::Text("however".into())]),
             render_violation_inner(violation, *time),
+        ]),
+        Violation::Until {
+            left,
+            right,
+            start,
+            end,
+            reason,
+        } => match reason {
+            UntilViolation::Left(violation) => Markup::Join(vec![
+                render_until_requirement(left, right, *start, *end),
+                Markup::Comma,
+                Markup::Span(vec![Inline::Text("but before that".into())]),
+                render_violation_inner(
+                    violation,
+                    get_violation_time(violation),
+                ),
+            ]),
+            UntilViolation::TimedOut { time, snapshots } => {
+                let mut parts =
+                    vec![render_until_requirement(left, right, *start, *end)];
+                if !snapshots.is_empty() {
+                    parts.push(Markup::Comma);
+                    parts.push(render_snapshot_values(snapshots, *time));
+                }
+                parts.push(Markup::Comma);
+                parts.push(Markup::Span(vec![Inline::Text(
+                    "but the terminating condition".into(),
+                )]));
+                parts.push(render_formula(right));
+                parts.push(Markup::Span(vec![Inline::Text(
+                    "did not occur before the deadline at".into(),
+                )]));
+                parts.push(Markup::Span(vec![Inline::Time(*time)]));
+                Markup::Join(parts)
+            }
+            UntilViolation::TestEnded { snapshots } => {
+                let current_time = snapshots
+                    .iter()
+                    .map(|snapshot| snapshot.time)
+                    .max()
+                    .unwrap_or_else(|| {
+                        Time::from_system_time(
+                            std::time::SystemTime::UNIX_EPOCH,
+                        )
+                    });
+                let mut parts =
+                    vec![render_until_requirement(left, right, *start, *end)];
+                if !snapshots.is_empty() {
+                    parts.push(Markup::Comma);
+                    parts.push(render_snapshot_values(snapshots, current_time));
+                }
+                parts.push(Markup::Comma);
+                parts.push(if end.is_some() {
+                    Markup::Span(vec![Inline::Text(
+                        "but the test ended before the terminating condition occurred"
+                            .into(),
+                    )])
+                } else {
+                    Markup::Join(vec![
+                        Markup::Span(vec![Inline::Text(
+                            "but the terminating condition".into(),
+                        )]),
+                        render_formula(right),
+                        Markup::Span(vec![Inline::Text(
+                            "never occurred".into(),
+                        )]),
+                    ])
+                });
+                Markup::Join(parts)
+            }
+        },
+        Violation::Release {
+            left,
+            right,
+            start,
+            end,
+            violation,
+        } => Markup::Join(vec![
+            render_release_requirement(left, right, *start, *end),
+            Markup::Comma,
+            Markup::Span(vec![Inline::Text("but before that".into())]),
+            render_violation_inner(violation, get_violation_time(violation)),
         ]),
         Violation::And { left, right } => Markup::Join(vec![
             render_violation_inner(left, current_time),
@@ -285,6 +388,12 @@ fn render_formula(formula: &Formula) -> Markup {
             Markup::Span(vec![Inline::Keyword("then".into())]),
             render_formula(right),
         ]),
+        Formula::Until(left, right, bound) => {
+            render_temporal_binary(left, "until", right, *bound)
+        }
+        Formula::Release(left, right, bound) => {
+            render_temporal_binary(left, "release", right, *bound)
+        }
         Formula::Next(formula) => Markup::Join(vec![
             Markup::Span(vec![Inline::Keyword("next".into())]),
             render_formula(formula),
@@ -310,4 +419,70 @@ fn render_formula(formula: &Formula) -> Markup {
             render_formula(formula),
         ]),
     }
+}
+
+fn render_temporal_binary(
+    left: &Formula,
+    keyword: &str,
+    right: &Formula,
+    bound: Option<Duration>,
+) -> Markup {
+    let mut parts = vec![
+        render_formula(left),
+        Markup::Span(vec![Inline::Keyword(keyword.into())]),
+        render_formula(right),
+    ];
+    if let Some(bound) = bound {
+        parts.push(Markup::Span(vec![Inline::Text("within".into())]));
+        parts.push(Markup::Span(vec![Inline::Text(format_bound(bound))]));
+    }
+    Markup::Join(parts)
+}
+
+fn render_until_requirement(
+    left: &Formula,
+    right: &Formula,
+    start: Time,
+    end: Option<Time>,
+) -> Markup {
+    let mut parts = vec![
+        Markup::Span(vec![Inline::Text("as of".into())]),
+        Markup::Span(vec![Inline::Time(start)]),
+    ];
+    if let Some(end) = end {
+        parts.push(Markup::Span(vec![Inline::Text("and before".into())]));
+        parts.push(Markup::Span(vec![Inline::Time(end)]));
+    }
+    parts.extend([
+        Markup::Comma,
+        render_formula(left),
+        Markup::Span(vec![Inline::Text("should hold until".into())]),
+        render_formula(right),
+    ]);
+    Markup::Join(parts)
+}
+
+fn render_release_requirement(
+    left: &Formula,
+    right: &Formula,
+    start: Time,
+    end: Option<Time>,
+) -> Markup {
+    let mut parts = vec![
+        Markup::Span(vec![Inline::Text("as of".into())]),
+        Markup::Span(vec![Inline::Time(start)]),
+    ];
+    if let Some(end) = end {
+        parts.push(Markup::Span(vec![Inline::Text("and before".into())]));
+        parts.push(Markup::Span(vec![Inline::Time(end)]));
+    }
+    parts.extend([
+        Markup::Comma,
+        render_formula(right),
+        Markup::Span(vec![Inline::Text(
+            "should hold until released by".into(),
+        )]),
+        render_formula(left),
+    ]);
+    Markup::Join(parts)
 }

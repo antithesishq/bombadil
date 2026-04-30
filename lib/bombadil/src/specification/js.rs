@@ -231,6 +231,28 @@ impl Syntax<RuntimeFunction> {
             return Ok(Implies(Box::new(left), Box::new(right)));
         }
 
+        if value.instance_of(&bombadil.until, context)? {
+            let left_value = object.get(js_string!("left"), context)?;
+            let right_value = object.get(js_string!("right"), context)?;
+            let left = Self::from_value(&left_value, bombadil, context)?;
+            let right = Self::from_value(&right_value, bombadil, context)?;
+            let bound = optional_duration_from_js(
+                object.get(js_string!("boundMillis"), context)?,
+            )?;
+            return Ok(Until(Box::new(left), Box::new(right), bound));
+        }
+
+        if value.instance_of(&bombadil.release, context)? {
+            let left_value = object.get(js_string!("left"), context)?;
+            let right_value = object.get(js_string!("right"), context)?;
+            let left = Self::from_value(&left_value, bombadil, context)?;
+            let right = Self::from_value(&right_value, bombadil, context)?;
+            let bound = optional_duration_from_js(
+                object.get(js_string!("boundMillis"), context)?,
+            )?;
+            return Ok(Release(Box::new(left), Box::new(right), bound));
+        }
+
         if value.instance_of(&bombadil.next, context)? {
             let subformula_value =
                 object.get(js_string!("subformula"), context)?;
@@ -303,6 +325,8 @@ pub struct BombadilExports {
     pub and: JsValue,
     pub or: JsValue,
     pub implies: JsValue,
+    pub until: JsValue,
+    pub release: JsValue,
     pub next: JsValue,
     pub always: JsValue,
     pub eventually: JsValue,
@@ -331,6 +355,8 @@ impl BombadilExports {
             and: get_export("And")?,
             or: get_export("Or")?,
             implies: get_export("Implies")?,
+            until: get_export("Until")?,
+            release: get_export("Release")?,
             next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
@@ -365,6 +391,8 @@ impl BombadilExports {
             and: get_export("And")?,
             or: get_export("Or")?,
             implies: get_export("Implies")?,
+            until: get_export("Until")?,
+            release: get_export("Release")?,
             next: get_export("Next")?,
             always: get_export("Always")?,
             eventually: get_export("Eventually")?,
