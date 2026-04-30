@@ -162,6 +162,36 @@ in
     }
   );
 
+  terminal = (if stdenv.isLinux then craneLibStatic else craneLib).buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      doCheck = false;
+      pname = "bombadil-terminal";
+      cargoExtraArgs = "-p bombadil-terminal";
+      meta = {
+        mainProgram = "bombadil-terminal";
+        description = ''
+          Terminal UI testing with Bombadil, using Ghostty's virtual terminal.
+        '';
+      };
+    }
+    // lib.optionalAttrs stdenv.isLinux {
+      cargoArtifacts = cargoArtifactsStatic;
+      CARGO_BUILD_TARGET = cargoTarget;
+      CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+    }
+    // lib.optionalAttrs stdenv.isDarwin {
+      postFixup = ''
+        for nixlib in $(otool -L $out/bin/bombadil-terminal | grep /nix/store | awk '{print $1}'); do
+          base=$(basename "$nixlib")
+          install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil-terminal
+        done
+      '';
+      nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
+    }
+  );
+
   npm-package = callPackage ./npm-package.nix { inherit src; };
 
   tests = craneLib.cargoTest (

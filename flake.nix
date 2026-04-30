@@ -76,6 +76,7 @@
       {
         packages = {
           default = bombadil.bin;
+          terminal = bombadil.terminal;
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
           release = pkgs.callPackage ./lib/release/default.nix { };
