@@ -396,7 +396,7 @@ fn random_key() -> Tree<Action> {
                 Tree::Leaf {
                     value: TypeChar('\t'),
                 },
-            ), // tab
+            ),
             (
                 1,
                 Tree::Branch {
@@ -509,17 +509,13 @@ impl PtyProcess {
         cmd.args(args);
         cmd.env("TERM", "xterm-256color");
         let child = pair.slave.spawn_command(cmd)?;
-
-        // Release any handles owned by the slave: we don't need it now
-        // that we've spawned the child.
         drop(pair.slave);
 
-        // Read the output in another thread.
-        // This is important because it is easy to encounter a situation
-        // where read/write buffers fill and block either your process
-        // or the spawned process.
         let (output_write, output_read) = channel(64);
-        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("couldn't clone master reader");
         let reader = tokio::spawn(async move {
             let mut buffer = [0u8; 1024];
             loop {
@@ -527,7 +523,10 @@ impl PtyProcess {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let output = String::from_utf8_lossy(&buffer[..n]);
-                        output_write.send(output.into()).await.unwrap();
+                        output_write
+                            .send(output.into())
+                            .await
+                            .expect("failed to send output");
                     }
                     Err(e) => {
                         eprintln!("Error reading from PTY: {}", e);
@@ -537,19 +536,11 @@ impl PtyProcess {
             }
         });
 
-        // Obtain the writer.
-        // When the writer is dropped, EOF will be sent to
-        // the program that was spawned.
-        // It is important to take the writer even if you don't
-        // send anything to its stdin so that EOF can be
-        // generated, otherwise you risk deadlocking yourself.
-        let writer = pair.master.take_writer()?;
-
         Ok((
             Self {
                 child,
+                input_write: pair.master.take_writer()?,
                 master: pair.master,
-                input_write: writer,
                 reader,
             },
             PtyOutput { output_read },
@@ -569,16 +560,9 @@ impl PtyProcess {
     }
 
     pub async fn wait(mut self) -> Result<ExitStatus> {
-        // Wait for the child to complete
         let status = self.child.wait()?;
-
-        // Take care to drop the master after our processes are
-        // done, as some platforms get unhappy if it is dropped
-        // sooner than that.
         drop(self.master);
-
         join!(self.reader).0?;
-
         Ok(status)
     }
 
