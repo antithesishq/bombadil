@@ -8,13 +8,17 @@
   trunk,
   wasm-bindgen-cli,
   binaryen,
+  apple-sdk ? null,
+  cctools ? null,
   chromium,
   freefont_ttf,
   makeFontsConf,
+  libiconv ? null,
   craneLib,
   craneLibStatic,
   cargoTarget ? "x86_64-unknown-linux-musl",
   darwin ? null,
+  xcbuild ? null,
   # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
   # build.rs (`GHOSTTY_COMMIT`). Provided as a vendored source tree so that
   # the Cargo build script can skip its in-tree `git clone` step (which has
@@ -38,6 +42,21 @@ let
     zig_0_15
     pkg-config
     git
+  ]
+  ++ lib.optionals stdenv.isDarwin [
+    # Ghostty's Zig build asks Zig to discover the native Darwin SDK via
+    # xcode-select and xcrun. Nix's apple-sdk propagates xcrun, but xcbuild
+    # provides xcode-select so Zig's findNative() path does not fail with
+    # DarwinSdkNotFound in sandboxed CI builds.
+    cctools
+    xcbuild
+  ];
+  ghosttyBuildInputs = lib.optionals stdenv.isDarwin [
+    # Put the SDK in buildInputs so Nix's Darwin SDK hook owns SDKROOT and
+    # DEVELOPER_DIR. libiconv is propagated by newer SDKs, but keeping it here
+    # preserves compatibility with older nixpkgs revisions.
+    apple-sdk
+    libiconv
   ];
   src = lib.cleanSourceWith {
     src = ../..;
@@ -93,6 +112,7 @@ let
       binaryen
     ]
     ++ ghosttyNativeBuildInputs;
+    buildInputs = ghosttyBuildInputs;
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
     cargoExtraArgs = "--workspace --exclude bombadil-inspect";
@@ -103,6 +123,7 @@ let
     pname = "bombadil";
     version = "stable";
     nativeBuildInputs = ghosttyNativeBuildInputs;
+    buildInputs = ghosttyBuildInputs;
   };
   cargoArtifacts = craneLib.buildDepsOnly depsArgs;
   cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
