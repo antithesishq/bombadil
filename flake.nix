@@ -83,6 +83,7 @@
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           aarch64-linux = bombadilAarch64.bin;
+          aarch64-linux-terminal = bombadilAarch64.terminal;
           docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 
