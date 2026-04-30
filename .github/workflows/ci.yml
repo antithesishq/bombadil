@@ -156,6 +156,7 @@ jobs:
           ./bombadil test http://localhost:1073 \
             lib/bombadil-inspect/test/inspect.spec.ts \
             --headless --no-sandbox \
+            --instrument-javascript="" \ 
             --output-path inspect-test-output \
             --time-limit 1m
       - name: Upload inspect test output
