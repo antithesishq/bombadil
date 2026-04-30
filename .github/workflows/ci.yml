@@ -123,6 +123,50 @@ jobs:
           name: manual-pages
           path: result/
 
+  inspect-test:
+    name: Inspect UI test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+        with:
+          chrome-version: stable
+      - run: echo "CHROME=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-x86_64-linux
+      - name: Generate report
+        run: |
+          chmod +x bombadil
+          ./bombadil test lib/integration-tests/tests/console-error/index.html \
+            --headless --no-sandbox \
+            --output-path report \
+            --exit-on-violation \
+            --time-limit 30s || true
+      - name: Test inspect UI
+        run: |
+          ./bombadil inspect report --no-open --port 1073 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:1073 > /dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          export RUST_LOG=debug
+          ./bombadil test \
+            --headless --no-sandbox \
+            --instrument-javascript="" \
+            --output-path inspect-test-output \
+            --time-limit 1m \
+            http://localhost:1073 \
+            lib/bombadil-inspect/test/inspect.spec.ts
+      - name: Upload inspect test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inspect-test-output
+          path: inspect-test-output/
+
   smoke-test:
     name: Smoke test (${{ matrix.os }})
     needs: build

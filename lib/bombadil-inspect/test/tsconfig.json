@@ -1,0 +1,8 @@
+{
+  "extends": "../../bombadil/src/specification/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+  }
+}

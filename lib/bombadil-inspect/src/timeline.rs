@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -66,7 +67,7 @@ pub fn Timeline(
                         .timestamp
                         .duration_since(*test_start)
                         .expect("couldn't calculate offset time")
-                        .as_millis() as f64;
+                        .as_micros() as f64;
                     series_heap.push((x, entry.resources.js_heap_used as f64));
 
                     let cpu = if i > 0
@@ -150,28 +151,36 @@ pub fn Timeline(
 
         let series_index_and_time = data.series_index_and_time.clone();
         let on_select = on_select.clone();
-        let select_at_x = Callback::from(move |x: u64| {
-            let click_x_axis = ((x
-                .clamp(SPACING_LEFT as u64, (width - SPACING_RIGHT) as u64)
-                .saturating_sub(SPACING_LEFT as u64)
-                as f64)
+        let select_at_x = Callback::from(move |x: f64| {
+            let click_x_axis = ((x.clamp(SPACING_LEFT, width - SPACING_RIGHT)
+                - SPACING_LEFT)
                 / axis_x_width)
                 * x_max;
 
-            for (index, time) in series_index_and_time.iter() {
-                if click_x_axis < *time {
-                    on_select.emit(*index);
-                    return;
+            let windows: Vec<&[(usize, f64); 2]> =
+                series_index_and_time.array_windows().collect();
+
+            let index = windows.binary_search_by(|[(_, start), (_, end)]| {
+                if *end <= click_x_axis {
+                    Ordering::Less
+                } else if *start > click_x_axis {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
                 }
+            });
+
+            match index {
+                Ok(index) => on_select.emit(index + 1),
+                Err(_) => on_select.emit(series_index_and_time.len() - 1),
             }
-            on_select.emit(series_index_and_time.len() - 1);
         });
         let on_mouse_down = {
             let select_at_x = select_at_x.clone();
             let is_mouse_down = is_mouse_down.clone();
             Callback::from(move |event: MouseEvent| {
                 *is_mouse_down.borrow_mut() = true;
-                select_at_x.emit(event.client_x() as u64);
+                select_at_x.emit(event.client_x());
             })
         };
         let on_mouse_move = {
@@ -179,7 +188,7 @@ pub fn Timeline(
             let is_mouse_down = is_mouse_down.clone();
             Callback::from(move |event: MouseEvent| {
                 if *is_mouse_down.borrow() {
-                    select_at_x.emit(event.client_x() as u64);
+                    select_at_x.emit(event.client_x());
                 }
             })
         };
