@@ -519,7 +519,10 @@ impl PtyProcess {
         // where read/write buffers fill and block either your process
         // or the spawned process.
         let (output_write, output_read) = channel(64);
-        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut reader = pair
+            .master
+            .try_clone_reader()
+            .expect("couldn't clone master reader");
         let reader = tokio::spawn(async move {
             let mut buffer = [0u8; 1024];
             loop {
@@ -527,7 +530,10 @@ impl PtyProcess {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         let output = String::from_utf8_lossy(&buffer[..n]);
-                        output_write.send(output.into()).await.unwrap();
+                        output_write
+                            .send(output.into())
+                            .await
+                            .expect("failed to send output");
                     }
                     Err(e) => {
                         eprintln!("Error reading from PTY: {}", e);
