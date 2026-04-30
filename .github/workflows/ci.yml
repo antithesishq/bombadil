@@ -153,12 +153,13 @@ jobs:
             sleep 1
           done
           export RUST_LOG=debug
-          ./bombadil test http://localhost:1073 \
-            lib/bombadil-inspect/test/inspect.spec.ts \
+          ./bombadil test \
             --headless --no-sandbox \
-            --instrument-javascript="" \ 
+            --instrument-javascript="" \
             --output-path inspect-test-output \
-            --time-limit 1m
+            --time-limit 1m \
+            http://localhost:1073 \
+            lib/bombadil-inspect/test/inspect.spec.ts
       - name: Upload inspect test output
         if: failure()
         uses: actions/upload-artifact@v4
