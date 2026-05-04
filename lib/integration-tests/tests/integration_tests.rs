@@ -159,7 +159,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             let authorized = headers
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())
-                .map_or(false, |v| v == "Bearer bombadil");
+                == Some("Bearer bombadil");
             if !authorized {
                 return StatusCode::UNAUTHORIZED.into_response();
             }
