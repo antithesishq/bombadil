@@ -291,6 +291,8 @@ impl Browser {
         )
         .await?;
 
+        auto_accept_dialogs(page.clone()).await?;
+
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
 
@@ -432,6 +434,33 @@ impl Browser {
             .await;
         Ok(())
     }
+}
+
+/// Auto-accept JavaScript dialogs (alert, confirm, prompt, beforeunload)
+/// so they never block the test run.
+async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
+    let mut events = page
+        .event_listener::<page::EventJavascriptDialogOpening>()
+        .await?;
+    spawn(async move {
+        while let Some(event) = events.next().await {
+            log::debug!(
+                "auto-accepting JavaScript dialog: \
+                 type={:?} message={:?}",
+                event.r#type,
+                event.message
+            );
+            let _ = page
+                .execute(
+                    page::HandleJavaScriptDialogParams::builder()
+                        .accept(true)
+                        .build()
+                        .expect("build HandleJavaScriptDialogParams"),
+                )
+                .await;
+        }
+    });
+    Ok(())
 }
 
 async fn inner_events(
