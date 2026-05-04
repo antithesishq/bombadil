@@ -72,6 +72,10 @@ struct TestSharedOptions {
         default_value = "local-network-access,local-network,loopback-network"
     )]
     chrome_grant_permissions: String,
+    /// Extra HTTP header to send with all browser requests, in KEY=VALUE format.
+    /// Can be specified multiple times.
+    #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
+    headers: Vec<(String, String)>,
 }
 
 #[derive(clap::Subcommand)]
@@ -132,6 +136,12 @@ impl FromStr for Origin {
             )))
             .map(|url| Origin { url })
     }
+}
+
+fn parse_header(s: &str) -> std::result::Result<(String, String), String> {
+    s.split_once('=')
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .ok_or_else(|| format!("invalid header {:?}, expected KEY=VALUE", s))
 }
 
 fn parse_instrumentation_config(
@@ -200,6 +210,7 @@ async fn main() -> Result<()> {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect(),
+                extra_headers: shared.headers.iter().cloned().collect(),
             };
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
@@ -233,6 +244,7 @@ async fn main() -> Result<()> {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
                     .collect(),
+                extra_headers: shared.headers.iter().cloned().collect(),
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
