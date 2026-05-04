@@ -1,10 +1,12 @@
 use anyhow::anyhow;
 use axum::{
     Router,
-    http::{StatusCode, header},
+    extract::Path,
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
+use std::collections::HashMap;
 use std::io::Write;
 use std::{
     fmt::Display,
@@ -70,6 +72,7 @@ struct BrowserIntegrationTest<'a> {
     time_limit: Option<Duration>,
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
+    extra_headers: HashMap<String, String>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -80,6 +83,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             time_limit: None,
             specification: None,
             grant_permissions: vec![],
+            extra_headers: HashMap::new(),
         }
     }
 
@@ -103,6 +107,11 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn extra_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.extra_headers = headers;
+        self
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -120,6 +129,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             time_limit,
             specification,
             grant_permissions,
+            extra_headers,
         } = self;
         setup();
         let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -142,8 +152,33 @@ impl<'a> BrowserIntegrationTest<'a> {
                 .into_response()
         }
 
+        async fn secret_handler(
+            Path(path): Path<String>,
+            headers: HeaderMap,
+        ) -> Response {
+            let authorized = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                == Some("Bearer bombadil");
+            if !authorized {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            match path.as_str() {
+                "app.js" => (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/javascript")],
+                    "var el = document.createElement('div'); \
+                     el.id = 'secret-loaded'; \
+                     document.body.appendChild(el);",
+                )
+                    .into_response(),
+                _ => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+
         let app = Router::new()
             .route("/test-file", get(download_testfile))
+            .route("/secret/{*path}", get(secret_handler))
             .fallback_service(ServeDir::new(&test_dir));
         let app_other = app.clone();
 
@@ -206,6 +241,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 instrumentation: Default::default(),
                 downloads_directory: downloads_directory.path().to_path_buf(),
                 grant_permissions,
+                extra_headers,
             },
             DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
@@ -456,6 +492,7 @@ async fn test_browser_lifecycle() {
             instrumentation: Default::default(),
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions: vec![],
+            extra_headers: Default::default(),
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -856,6 +893,32 @@ export const geolocationGranted = now(() => {
             "notifications".to_string(),
             "geolocation".to_string(),
         ])
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_extra_headers() {
+    BrowserIntegrationTest::new("fetch-headers")
+        .extra_headers(HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer bombadil".to_string(),
+        )]))
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { extract, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const loaded = extract((state) => {
+  return state.document.querySelector('#secret-loaded') !== null;
+});
+
+export const secretResourceLoaded = eventually(
+  () => loaded.current === true
+).within(10, "seconds");
+"#,
+        )
         .run()
         .await;
 }

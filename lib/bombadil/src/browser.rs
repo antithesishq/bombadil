@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser;
+use chromiumoxide::cdp::browser_protocol::network;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
 };
@@ -13,6 +14,7 @@ use chromiumoxide::{BrowserConfig, Page};
 use futures::{StreamExt, stream};
 use log;
 use serde_json as json;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -156,6 +158,7 @@ pub struct BrowserOptions {
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
+    pub extra_headers: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -233,6 +236,15 @@ impl Browser {
         page.enable_css().await?;
         page.enable_runtime().await?;
         page.enable_debugger().await?;
+
+        if !browser_options.extra_headers.is_empty() {
+            page.execute(network::SetExtraHttpHeadersParams::new(
+                network::Headers::new(json::to_value(
+                    &browser_options.extra_headers,
+                )?),
+            ))
+            .await?;
+        }
 
         // Prevent file downloads to avoid getting stuck
         page.execute(
