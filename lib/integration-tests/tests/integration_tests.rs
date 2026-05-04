@@ -922,3 +922,26 @@ export const secretResourceLoaded = eventually(
         .run()
         .await;
 }
+
+#[tokio::test]
+async fn test_confirm_dialog() {
+    BrowserIntegrationTest::new("confirm-dialog")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r#"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const message = extract((state) => {
+  const element = state.document.querySelector("\#message");
+  return element ? element.textContent : "";
+});
+
+export const dialogWasAccepted = now(
+  () => message.current === "dialog accepted"
+);
+"#,
+        )
+        .run()
+        .await;
+}

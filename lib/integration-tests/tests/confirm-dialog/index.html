@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Confirm Dialog</title>
+  </head>
+  <body>
+    <div id="message"></div>
+    <script>
+      const accepted = confirm("do you accept?");
+      if (accepted) {
+        document.getElementById("message").textContent = "dialog accepted";
+      }
+    </script>
+  </body>
+</html>
