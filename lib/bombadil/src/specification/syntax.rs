@@ -5,12 +5,25 @@ use crate::specification::ltl::Formula;
 /// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Syntax<Function> {
-    Pure { value: bool, pretty: String },
+    Pure {
+        value: bool,
+        pretty: String,
+    },
     Thunk(Function),
     Not(Box<Syntax<Function>>),
     And(Box<Syntax<Function>>, Box<Syntax<Function>>),
     Or(Box<Syntax<Function>>, Box<Syntax<Function>>),
     Implies(Box<Syntax<Function>>, Box<Syntax<Function>>),
+    Until(
+        Box<Syntax<Function>>,
+        Box<Syntax<Function>>,
+        Option<Duration>,
+    ),
+    Release(
+        Box<Syntax<Function>>,
+        Box<Syntax<Function>>,
+        Option<Duration>,
+    ),
     Next(Box<Syntax<Function>>),
     Always(Box<Syntax<Function>>, Option<Duration>),
     Eventually(Box<Syntax<Function>>, Option<Duration>),
@@ -75,6 +88,40 @@ impl<Function: Clone> Syntax<Function> {
                         Formula::Implies(
                             Box::new(go(left, negated)),
                             Box::new(go(right, negated)),
+                        )
+                    }
+                }
+                //   ¬(l U r)
+                // ⇔ (¬l) R (¬r)
+                Syntax::Until(left, right, bound) => {
+                    if negated {
+                        Formula::Release(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                            *bound,
+                        )
+                    } else {
+                        Formula::Until(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                            *bound,
+                        )
+                    }
+                }
+                //   ¬(l R r)
+                // ⇔ (¬l) U (¬r)
+                Syntax::Release(left, right, bound) => {
+                    if negated {
+                        Formula::Until(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                            *bound,
+                        )
+                    } else {
+                        Formula::Release(
+                            Box::new(go(left, negated)),
+                            Box::new(go(right, negated)),
+                            *bound,
                         )
                     }
                 }

@@ -592,6 +592,111 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 }
 
 #[tokio::test]
+async fn test_until_release_success() {
+    BrowserIntegrationTest::new("until-release")
+        .time_limit(Duration::from_secs(10))
+        .specification(
+            r#"
+import { extract, now, eventually } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+// Counter B stays 0 until Counter A reaches 3
+export const bStaysZeroUntilAIsThree =
+  now(() => counterB.current === 0).until(() => counterA.current >= 3);
+
+// The same property expressed using the dual release operator
+export const aAtLeastThreeReleasesBStaysZero =
+  now(() => counterA.current >= 3).release(() => counterB.current === 0);
+
+// Bounded versions with enough time for random clicks to unlock B
+export const boundedBStaysZeroUntilAIsThree =
+  now(() => counterB.current === 0)
+    .until(() => counterA.current >= 3)
+    .within(8, "seconds");
+
+export const boundedAAtLeastThreeReleasesBStaysZero =
+  now(() => counterA.current >= 3)
+    .release(() => counterB.current === 0)
+    .within(8, "seconds");
+
+// Ensure B actually gets clicked after A unlocks it
+export const counterBEventuallyIncrements =
+  eventually(() => counterB.current > 0).within(8, "seconds");
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_until_violation() {
+    BrowserIntegrationTest::new("until-release")
+        .expect_error("aStaysZeroUntilBIsThree")
+        .time_limit(Duration::from_secs(10))
+        .specification(
+            r#"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+// This must fail: B is disabled until A reaches 3, so B can never reach 3 first
+export const aStaysZeroUntilBIsThree =
+  now(() => counterA.current === 0).until(() => counterB.current >= 3);
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_release_violation() {
+    BrowserIntegrationTest::new("until-release")
+        .expect_error("bReachesThreeReleasesAStaysZero")
+        .time_limit(Duration::from_secs(10))
+        .specification(
+            r#"
+import { extract, now } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+const counterA = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-a");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const counterB = extract((state) => {
+  const element = state.document.body.querySelector("\#counter-b");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+// This must fail: B is disabled until A reaches 3, so A breaks the obligation of staying 0
+export const bReachesThreeReleasesAStaysZero =
+  now(() => counterB.current >= 3).release(() => counterA.current === 0);
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
 async fn test_time_extractor() {
     BrowserIntegrationTest::new("time-extractor")
         .time_limit(Duration::from_secs(10))

@@ -79,6 +79,12 @@ fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
             (inner.clone(), inner.clone()).prop_map(|(left, right)| {
                 Syntax::Implies(Box::new(left), Box::new(right))
             }),
+            (inner.clone(), inner.clone()).prop_map(|(left, right)| {
+                Syntax::Until(Box::new(left), Box::new(right), None)
+            }),
+            (inner.clone(), inner.clone()).prop_map(|(left, right)| {
+                Syntax::Release(Box::new(left), Box::new(right), None)
+            }),
             inner
                 .clone()
                 .prop_map(|subformula| { Syntax::Next(Box::new(subformula)) }),
@@ -251,6 +257,94 @@ proptest! {
             Syntax::And(Box::new(Syntax::Always(Box::new(φ.clone()), bound)), Box::new(Syntax::Always(Box::new(ψ.clone()), bound))).nnf();
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
     }
+
+    // r U (p ∨ q) ⇔ (r U p) ∨ (r U q)
+    #[test]
+    fn test_until_disjunction_distributivity(
+        r in syntax(),
+        p in syntax(),
+        q in syntax(),
+        trace in trace(),
+    ) {
+        let formula_left = Syntax::Until(
+            Box::new(r.clone()),
+            Box::new(Syntax::Or(Box::new(p.clone()), Box::new(q.clone()))),
+            None,
+        )
+        .nnf();
+        let formula_right = Syntax::Or(
+            Box::new(Syntax::Until(Box::new(r.clone()), Box::new(p.clone()), None)),
+            Box::new(Syntax::Until(Box::new(r.clone()), Box::new(q.clone()), None)),
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // (p ∧ q) U r ⇔ (p U r) ∧ (q U r)
+    #[test]
+    fn test_until_conjunction_distributivity(
+        p in syntax(),
+        q in syntax(),
+        r in syntax(),
+        trace in trace(),
+    ) {
+        let formula_left = Syntax::Until(
+            Box::new(Syntax::And(Box::new(p.clone()), Box::new(q.clone()))),
+            Box::new(r.clone()),
+            None,
+        )
+        .nnf();
+        let formula_right = Syntax::And(
+            Box::new(Syntax::Until(Box::new(p.clone()), Box::new(r.clone()), None)),
+            Box::new(Syntax::Until(Box::new(q.clone()), Box::new(r.clone()), None)),
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // (p ∨ q) R r ⇔ (p R r) ∨ (q R r)
+    #[test]
+    fn test_release_disjunction_distributivity(
+        p in syntax(),
+        q in syntax(),
+        r in syntax(),
+        trace in trace(),
+    ) {
+        let formula_left = Syntax::Release(
+            Box::new(Syntax::Or(Box::new(p.clone()), Box::new(q.clone()))),
+            Box::new(r.clone()),
+            None,
+        )
+        .nnf();
+        let formula_right = Syntax::Or(
+            Box::new(Syntax::Release(Box::new(p.clone()), Box::new(r.clone()), None)),
+            Box::new(Syntax::Release(Box::new(q.clone()), Box::new(r.clone()), None)),
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // p R (q ∧ r) ⇔ (p R q) ∧ (p R r)
+    #[test]
+    fn test_release_conjunction_distributivity(
+        p in syntax(),
+        q in syntax(),
+        r in syntax(),
+        trace in trace(),
+    ) {
+        let formula_left = Syntax::Release(
+            Box::new(p.clone()),
+            Box::new(Syntax::And(Box::new(q.clone()), Box::new(r.clone()))),
+            None,
+        )
+        .nnf();
+        let formula_right = Syntax::And(
+            Box::new(Syntax::Release(Box::new(p.clone()), Box::new(q.clone()), None)),
+            Box::new(Syntax::Release(Box::new(p.clone()), Box::new(r.clone()), None)),
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
 }
 
 // Negation propagation
@@ -292,6 +386,103 @@ proptest! {
             Syntax::Always(Box::new(φ.clone()), None).nnf();
         let formula_right =
             Syntax::Always(Box::new(Syntax::Always(Box::new(φ.clone()), None)), None).nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+}
+
+// Until / release equivalences and dualities
+proptest! {
+    // F(φ) ⇔ true U φ
+    #[test]
+    fn test_eventually_until_equivalence(φ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left =
+            Syntax::Eventually(Box::new(φ.clone()), bound).nnf();
+        let formula_right = Syntax::Until(
+            Box::new(Syntax::Pure {
+                value: true,
+                pretty: "true".into(),
+            }),
+            Box::new(φ.clone()),
+            bound,
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // G(φ) ⇔ false R φ
+    #[test]
+    fn test_always_release_equivalence(φ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left =
+            Syntax::Always(Box::new(φ.clone()), bound).nnf();
+        let formula_right = Syntax::Release(
+            Box::new(Syntax::Pure {
+                value: false,
+                pretty: "false".into(),
+            }),
+            Box::new(φ.clone()),
+            bound,
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+    }
+
+    // ¬(φ U ψ) ⇔ (¬φ) R (¬ψ)
+    #[test]
+    fn test_until_release_duality(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left = Syntax::Not(Box::new(Syntax::Until(
+            Box::new(φ.clone()),
+            Box::new(ψ.clone()),
+            bound,
+        )))
+        .nnf();
+        let formula_right = Syntax::Release(
+            Box::new(Syntax::Not(Box::new(φ.clone()))),
+            Box::new(Syntax::Not(Box::new(ψ.clone()))),
+            bound,
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
+    }
+
+    // ¬(φ R ψ) ⇔ (¬φ) U (¬ψ)
+    #[test]
+    fn test_release_until_duality(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
+        let formula_left = Syntax::Not(Box::new(Syntax::Release(
+            Box::new(φ.clone()),
+            Box::new(ψ.clone()),
+            bound,
+        )))
+        .nnf();
+        let formula_right = Syntax::Until(
+            Box::new(Syntax::Not(Box::new(φ.clone()))),
+            Box::new(Syntax::Not(Box::new(ψ.clone()))),
+            bound,
+        )
+        .nnf();
+        check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
+    }
+
+    // φ R ψ ⇔ ψ ∧ (φ ∨ X(φ R ψ))
+    #[test]
+    fn test_release_recursion(φ in syntax(), ψ in syntax(), trace in trace()) {
+        let formula_left = Syntax::Release(
+            Box::new(φ.clone()),
+            Box::new(ψ.clone()),
+            None,
+        )
+        .nnf();
+        let formula_right = Syntax::And(
+            Box::new(ψ.clone()),
+            Box::new(Syntax::Or(
+                Box::new(φ.clone()),
+                Box::new(Syntax::Next(Box::new(Syntax::Release(
+                    Box::new(φ.clone()),
+                    Box::new(ψ.clone()),
+                    None,
+                )))),
+            )),
+        )
+        .nnf();
         check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
     }
 }

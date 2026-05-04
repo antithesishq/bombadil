@@ -1,5 +1,6 @@
 ---
 source: lib/bombadil/src/specification/bundler/mod.rs
+assertion_line: 1007
 expression: bundle
 ---
 (function() {
@@ -133,6 +134,12 @@ expression: bundle
     const runtime = new Runtime();
     const { time } = __bombadilRequire("@antithesishq/bombadil/internal");
     const { actions, weighted, ActionGenerator, from, strings, emails, integers, keycodes } = __bombadilRequire("@antithesishq/bombadil/actions");
+    function durationMillis(n, unit) {
+    	switch (unit) {
+    		case "milliseconds": return n;
+    		case "seconds": return n * 1e3;
+    	}
+    }
     class Formula {
     	not() {
     		return new Not(this);
@@ -145,6 +152,12 @@ expression: bundle
     	}
     	implies(that) {
     		return new Implies(this, now(that));
+    	}
+    	until(that) {
+    		return new Until(null, this, now(that));
+    	}
+    	release(that) {
+    		return new Release(null, this, now(that));
     	}
     }
     class Pure extends Formula {
@@ -173,6 +186,9 @@ expression: bundle
     		this.left = left;
     		this.right = right;
     	}
+    	toString() {
+    		return `(${this.left}) || (${this.right})`;
+    	}
     }
     class Implies extends Formula {
     	constructor(left, right) {
@@ -190,7 +206,7 @@ expression: bundle
     		this.subformula = subformula;
     	}
     	toString() {
-    		return `!(${this.subformula.toString()})`;
+    		return `!(${this.subformula})`;
     	}
     }
     class Next extends Formula {
@@ -212,16 +228,7 @@ expression: bundle
     		if (this.boundMillis !== null) {
     			throw new Error("time bound is already set for `always`");
     		}
-    		let durationMillis;
-    		switch (unit) {
-    			case "milliseconds":
-    				durationMillis = n;
-    				break;
-    			case "seconds":
-    				durationMillis = n * 1e3;
-    				break;
-    		}
-    		return new Always(durationMillis, this.subformula);
+    		return new Always(durationMillis(n, unit), this.subformula);
     	}
     	toString() {
     		return this.boundMillis === null ? `always(${this.subformula})` : `always(${this.subformula}).within(${this.boundMillis}, "milliseconds")`;
@@ -237,19 +244,44 @@ expression: bundle
     		if (this.boundMillis !== null) {
     			throw new Error("time bound is already set for `eventually`");
     		}
-    		let durationMillis;
-    		switch (unit) {
-    			case "milliseconds":
-    				durationMillis = n;
-    				break;
-    			case "seconds":
-    				durationMillis = n * 1e3;
-    				break;
-    		}
-    		return new Eventually(durationMillis, this.subformula);
+    		return new Eventually(durationMillis(n, unit), this.subformula);
     	}
     	toString() {
     		return this.boundMillis === null ? `eventually(${this.subformula})` : `eventually(${this.subformula}).within(${this.boundMillis}, "milliseconds")`;
+    	}
+    }
+    class Until extends Formula {
+    	constructor(boundMillis, left, right) {
+    		super();
+    		this.boundMillis = boundMillis;
+    		this.left = left;
+    		this.right = right;
+    	}
+    	within(n, unit) {
+    		if (this.boundMillis !== null) {
+    			throw new Error("time bound is already set for `until`");
+    		}
+    		return new Until(durationMillis(n, unit), this.left, this.right);
+    	}
+    	toString() {
+    		return this.boundMillis === null ? `${this.left}.until(${this.right})` : `${this.left}.until(${this.right}).within(${this.boundMillis}, "milliseconds")`;
+    	}
+    }
+    class Release extends Formula {
+    	constructor(boundMillis, left, right) {
+    		super();
+    		this.boundMillis = boundMillis;
+    		this.left = left;
+    		this.right = right;
+    	}
+    	within(n, unit) {
+    		if (this.boundMillis !== null) {
+    			throw new Error("time bound is already set for `release`");
+    		}
+    		return new Release(durationMillis(n, unit), this.left, this.right);
+    	}
+    	toString() {
+    		return this.boundMillis === null ? `${this.left}.release(${this.right})` : `${this.left}.release(${this.right}).within(${this.boundMillis}, "milliseconds")`;
     	}
     }
     class Thunk extends Formula {
@@ -299,7 +331,9 @@ expression: bundle
     module.exports.Not = Not;
     module.exports.Or = Or;
     module.exports.Pure = Pure;
+    module.exports.Release = Release;
     module.exports.Thunk = Thunk;
+    module.exports.Until = Until;
     module.exports.actions = actions;
     module.exports.always = always;
     module.exports.emails = emails;

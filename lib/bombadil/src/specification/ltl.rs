@@ -22,11 +22,27 @@ fn combine_options<T: Clone>(
 /// better error messages.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum Formula<Function> {
-    Pure { value: bool, pretty: String },
-    Thunk { function: Function, negated: bool },
+    Pure {
+        value: bool,
+        pretty: String,
+    },
+    Thunk {
+        function: Function,
+        negated: bool,
+    },
     And(Box<Formula<Function>>, Box<Formula<Function>>),
     Or(Box<Formula<Function>>, Box<Formula<Function>>),
     Implies(Box<Formula<Function>>, Box<Formula<Function>>),
+    Until(
+        Box<Formula<Function>>,
+        Box<Formula<Function>>,
+        Option<Duration>,
+    ),
+    Release(
+        Box<Formula<Function>>,
+        Box<Formula<Function>>,
+        Option<Duration>,
+    ),
     Next(Box<Formula<Function>>),
     Always(Box<Formula<Function>>, Option<Duration>),
     Eventually(Box<Formula<Function>>, Option<Duration>),
@@ -64,6 +80,16 @@ impl<Function: Clone> Formula<Function> {
             Formula::Implies(left, right) => Formula::Implies(
                 Box::new(left.clone().map_function_ref(f)),
                 Box::new(right.clone().map_function_ref(f)),
+            ),
+            Formula::Until(left, right, bound) => Formula::Until(
+                Box::new(left.clone().map_function_ref(f)),
+                Box::new(right.clone().map_function_ref(f)),
+                *bound,
+            ),
+            Formula::Release(left, right, bound) => Formula::Release(
+                Box::new(left.clone().map_function_ref(f)),
+                Box::new(right.clone().map_function_ref(f)),
+                *bound,
             ),
             Formula::Next(formula) => {
                 Formula::Next(Box::new(formula.clone().map_function_ref(f)))
@@ -107,6 +133,20 @@ pub enum Violation<Function> {
         end: Option<Time>,
         time: Time,
     },
+    Until {
+        left: Box<Formula<Function>>,
+        right: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        reason: UntilViolation<Function>,
+    },
+    Release {
+        left: Box<Formula<Function>>,
+        right: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        violation: Box<Violation<Function>>,
+    },
     And {
         left: Box<Violation<Function>>,
         right: Box<Violation<Function>>,
@@ -126,6 +166,18 @@ pub enum Violation<Function> {
 pub enum EventuallyViolation {
     TimedOut(Time),
     TestEnded,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum UntilViolation<Function> {
+    Left(Box<Violation<Function>>),
+    TimedOut {
+        time: Time,
+        snapshots: Vec<Snapshot>,
+    },
+    TestEnded {
+        snapshots: Vec<Snapshot>,
+    },
 }
 
 impl<Function: Clone> Violation<Function> {
@@ -169,6 +221,32 @@ impl<Function: Clone> Violation<Function> {
                 end: *end,
                 time: *time,
             },
+            Violation::Until {
+                left,
+                right,
+                start,
+                end,
+                reason,
+            } => Violation::Until {
+                left: Box::new(left.map_function_ref(f)),
+                right: Box::new(right.map_function_ref(f)),
+                start: *start,
+                end: *end,
+                reason: reason.map_function_ref(f),
+            },
+            Violation::Release {
+                left,
+                right,
+                start,
+                end,
+                violation,
+            } => Violation::Release {
+                left: Box::new(left.map_function_ref(f)),
+                right: Box::new(right.map_function_ref(f)),
+                start: *start,
+                end: *end,
+                violation: Box::new(violation.map_function_ref(f)),
+            },
             Violation::And { left, right } => Violation::And {
                 left: Box::new(left.map_function_ref(f)),
                 right: Box::new(right.map_function_ref(f)),
@@ -190,6 +268,30 @@ impl<Function: Clone> Violation<Function> {
     }
 }
 
+impl<Function: Clone> UntilViolation<Function> {
+    fn map_function_ref<Result>(
+        &self,
+        f: &impl Fn(&Function) -> Result,
+    ) -> UntilViolation<Result> {
+        match self {
+            UntilViolation::Left(violation) => {
+                UntilViolation::Left(Box::new(violation.map_function_ref(f)))
+            }
+            UntilViolation::TimedOut { time, snapshots } => {
+                UntilViolation::TimedOut {
+                    time: *time,
+                    snapshots: snapshots.clone(),
+                }
+            }
+            UntilViolation::TestEnded { snapshots } => {
+                UntilViolation::TestEnded {
+                    snapshots: snapshots.clone(),
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Leaning<Function> {
     AssumeTrue,
@@ -206,6 +308,15 @@ pub enum Residual<Function> {
         right: Box<Residual<Function>>,
     },
     Or {
+        left: Box<Residual<Function>>,
+        right: Box<Residual<Function>>,
+    },
+    OrUntil {
+        end: Option<Time>,
+        left: Box<Residual<Function>>,
+        right: Box<Residual<Function>>,
+    },
+    OrRelease {
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
     },
@@ -233,6 +344,22 @@ pub enum Residual<Function> {
         left: Box<Residual<Function>>,
         right: Box<Residual<Function>>,
     },
+    AndUntil {
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        left: Box<Residual<Function>>,
+        right: Box<Residual<Function>>,
+    },
+    AndRelease {
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        left: Box<Residual<Function>>,
+        right: Box<Residual<Function>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -240,6 +367,18 @@ pub enum Derived<Function> {
     Once {
         start: Time,
         subformula: Box<Formula<Function>>,
+    },
+    Until {
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+    },
+    Release {
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
     },
     Always {
         start: Time,
@@ -266,6 +405,87 @@ pub struct Evaluator<'a, Function> {
 impl<'a, Function: Clone> Evaluator<'a, Function> {
     pub fn new(evaluate_thunk: EvaluateThunk<'a, Function>) -> Self {
         Evaluator { evaluate_thunk }
+    }
+
+    fn end_from_bound(
+        bound: Option<Duration>,
+        time: Time,
+    ) -> Result<Option<Time>> {
+        if let Some(duration) = bound {
+            Ok(Some(time.checked_add(duration).ok_or(
+                SpecificationError::OtherError(
+                    "failed to add bound to time".to_string(),
+                ),
+            )?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn until_test_ended_violation(
+        left_formula: &Formula<Function>,
+        right_formula: &Formula<Function>,
+        start: Time,
+        end: Option<Time>,
+    ) -> Violation<Function> {
+        Violation::Until {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            reason: UntilViolation::TestEnded { snapshots: vec![] },
+        }
+    }
+
+    fn until_timed_out_violation(
+        left_formula: &Formula<Function>,
+        right_formula: &Formula<Function>,
+        start: Time,
+        end: Option<Time>,
+        time: Time,
+    ) -> Violation<Function> {
+        Violation::Until {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            reason: UntilViolation::TimedOut {
+                time,
+                snapshots: vec![],
+            },
+        }
+    }
+
+    fn until_left_violation(
+        left_formula: &Formula<Function>,
+        right_formula: &Formula<Function>,
+        start: Time,
+        end: Option<Time>,
+        violation: Violation<Function>,
+    ) -> Violation<Function> {
+        Violation::Until {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            reason: UntilViolation::Left(Box::new(violation)),
+        }
+    }
+
+    fn release_right_violation(
+        left_formula: &Formula<Function>,
+        right_formula: &Formula<Function>,
+        start: Time,
+        end: Option<Time>,
+        violation: Violation<Function>,
+    ) -> Violation<Function> {
+        Violation::Release {
+            left: Box::new(left_formula.clone()),
+            right: Box::new(right_formula.clone()),
+            start,
+            end,
+            violation: Box::new(violation),
+        }
     }
 
     pub fn evaluate(
@@ -308,6 +528,26 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 let right = self.evaluate(right.as_ref(), time)?;
                 Ok(self.evaluate_implies(left_formula, &left, &right))
             }
+            Formula::Until(left_formula, right_formula, bound) => {
+                let end = Self::end_from_bound(*bound, time)?;
+                self.evaluate_until(
+                    left_formula.clone(),
+                    right_formula.clone(),
+                    time,
+                    end,
+                    time,
+                )
+            }
+            Formula::Release(left_formula, right_formula, bound) => {
+                let end = Self::end_from_bound(*bound, time)?;
+                self.evaluate_release(
+                    left_formula.clone(),
+                    right_formula.clone(),
+                    time,
+                    end,
+                    time,
+                )
+            }
             Formula::Next(formula) => Ok(Value::Residual(Residual::Derived(
                 Derived::Once {
                     start: time,
@@ -316,27 +556,11 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
             ))),
             Formula::Always(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
-                } else {
-                    None
-                };
+                let end = Self::end_from_bound(*bound, time)?;
                 self.evaluate_always(formula.clone(), time, end, time)
             }
             Formula::Eventually(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
-                } else {
-                    None
-                };
+                let end = Self::end_from_bound(*bound, time)?;
                 self.evaluate_eventually(formula.clone(), time, end, time)
             }
         }
@@ -503,6 +727,417 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     right: Box::new(right.clone()),
                 })
             }
+        }
+    }
+
+    fn evaluate_until(
+        &mut self,
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        time: Time,
+    ) -> Result<Value<Function>> {
+        if let Some(end) = end
+            && end < time
+        {
+            return Ok(Value::False(
+                Self::until_timed_out_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    Some(end),
+                    time,
+                ),
+                None,
+            ));
+        }
+
+        let right = self.evaluate(&right_formula, time)?;
+        if let Value::True(references) = right {
+            return Ok(Value::True(references));
+        }
+
+        let left = self.evaluate(&left_formula, time)?;
+        let recursive_until = Residual::Derived(
+            Derived::Until {
+                left_formula: left_formula.clone(),
+                right_formula: right_formula.clone(),
+                start,
+                end,
+            },
+            Leaning::AssumeFalse(Self::until_test_ended_violation(
+                left_formula.as_ref(),
+                right_formula.as_ref(),
+                start,
+                end,
+            )),
+        );
+
+        Ok(match (left, right) {
+            (Value::True(snapshots), Value::False(_, _)) => {
+                Value::Residual(Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(snapshots)),
+                    right: Box::new(recursive_until),
+                })
+            }
+            (Value::False(violation, _), Value::False(_, _)) => Value::False(
+                Self::until_left_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    end,
+                    violation,
+                ),
+                None,
+            ),
+            (Value::Residual(left), Value::False(_, _)) => {
+                Value::Residual(Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(recursive_until),
+                })
+            }
+            (Value::True(snapshots), Value::Residual(right)) => {
+                let fallback = Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(snapshots)),
+                    right: Box::new(recursive_until),
+                };
+                Value::Residual(Residual::OrUntil {
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(fallback),
+                })
+            }
+            (Value::False(violation, _), Value::Residual(right)) => {
+                Value::Residual(Residual::OrUntil {
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(Residual::False(
+                        Self::until_left_violation(
+                            left_formula.as_ref(),
+                            right_formula.as_ref(),
+                            start,
+                            end,
+                            violation,
+                        ),
+                    )),
+                })
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                let fallback = Residual::AndUntil {
+                    left_formula: left_formula.clone(),
+                    right_formula: right_formula.clone(),
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(recursive_until),
+                };
+                Value::Residual(Residual::OrUntil {
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(fallback),
+                })
+            }
+            _ => unreachable!(),
+        })
+    }
+
+    fn evaluate_or_until(
+        &mut self,
+        end: Option<Time>,
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Value<Function> {
+        match (left, right) {
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                Value::True(merge_snapshots(&snapshots_left, &snapshots_right))
+            }
+            (Value::True(references), _) => Value::True(references),
+            (_, Value::True(references)) => Value::True(references),
+            (Value::False(_, _), Value::False(right, _)) => {
+                Value::False(right, None)
+            }
+            (Value::False(_, _), Value::Residual(residual)) => {
+                Value::Residual(residual)
+            }
+            (Value::Residual(residual), Value::False(_, _)) => {
+                Value::Residual(residual)
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                Value::Residual(Residual::OrUntil {
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
+        }
+    }
+
+    fn evaluate_and_until(
+        &mut self,
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Value<Function> {
+        match (left, right) {
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                Value::True(merge_snapshots(&snapshots_left, &snapshots_right))
+            }
+            (Value::Residual(left), Value::True(snapshots)) => {
+                Value::Residual(Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(Residual::True(snapshots)),
+                })
+            }
+            (Value::True(snapshots), Value::Residual(right)) => {
+                Value::Residual(Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(snapshots)),
+                    right: Box::new(right),
+                })
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                Value::Residual(Residual::AndUntil {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
+            (Value::False(violation, _), _) => Value::False(
+                Self::until_left_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    end,
+                    violation,
+                ),
+                None,
+            ),
+            (Value::True(snapshots), Value::False(mut violation, _)) => {
+                attach_to_violation(&mut violation, &snapshots);
+                Value::False(violation, None)
+            }
+            (_, Value::False(violation, _)) => Value::False(violation, None),
+        }
+    }
+
+    fn evaluate_release(
+        &mut self,
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        time: Time,
+    ) -> Result<Value<Function>> {
+        if let Some(end) = end
+            && end < time
+        {
+            return Ok(Value::True(UniqueSnapshots::new()));
+        }
+
+        let right = self.evaluate(&right_formula, time)?;
+        if let Value::False(violation, _) = right {
+            return Ok(Value::False(
+                Self::release_right_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    end,
+                    violation,
+                ),
+                None,
+            ));
+        }
+
+        let left = self.evaluate(&left_formula, time)?;
+        let recursive_release = Residual::Derived(
+            Derived::Release {
+                left_formula: left_formula.clone(),
+                right_formula: right_formula.clone(),
+                start,
+                end,
+            },
+            Leaning::AssumeTrue,
+        );
+
+        Ok(match (left, right) {
+            (Value::True(left_snapshots), Value::True(right_snapshots)) => {
+                Value::True(merge_snapshots(&left_snapshots, &right_snapshots))
+            }
+            (Value::False(_, _), Value::True(right_snapshots)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(right_snapshots)),
+                    right: Box::new(recursive_release),
+                })
+            }
+            (Value::Residual(left), Value::True(right_snapshots)) => {
+                let fallback = Residual::OrRelease {
+                    left: Box::new(left),
+                    right: Box::new(recursive_release),
+                };
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(right_snapshots)),
+                    right: Box::new(fallback),
+                })
+            }
+            (Value::True(left_snapshots), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(Residual::True(left_snapshots)),
+                })
+            }
+            (Value::False(_, _), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(recursive_release),
+                })
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                let fallback = Residual::OrRelease {
+                    left: Box::new(left),
+                    right: Box::new(recursive_release),
+                };
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(right),
+                    right: Box::new(fallback),
+                })
+            }
+            (_, Value::False(_, _)) => unreachable!(),
+        })
+    }
+
+    fn evaluate_or_release(
+        &mut self,
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Value<Function> {
+        match (left, right) {
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                Value::True(merge_snapshots(&snapshots_left, &snapshots_right))
+            }
+            (Value::True(references), _) => Value::True(references),
+            (_, Value::True(references)) => Value::True(references),
+            (Value::False(_, _), Value::False(right, _)) => {
+                Value::False(right, None)
+            }
+            (Value::False(_, _), Value::Residual(residual)) => {
+                Value::Residual(residual)
+            }
+            (Value::Residual(residual), Value::False(_, _)) => {
+                Value::Residual(residual)
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                Value::Residual(Residual::OrRelease {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
+        }
+    }
+
+    fn evaluate_and_release(
+        &mut self,
+        left_formula: Box<Formula<Function>>,
+        right_formula: Box<Formula<Function>>,
+        start: Time,
+        end: Option<Time>,
+        left: Value<Function>,
+        right: Value<Function>,
+    ) -> Value<Function> {
+        match (left, right) {
+            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
+                Value::True(merge_snapshots(&snapshots_left, &snapshots_right))
+            }
+            (Value::Residual(left), Value::True(snapshots)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(Residual::True(snapshots)),
+                })
+            }
+            (Value::True(snapshots), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(Residual::True(snapshots)),
+                    right: Box::new(right),
+                })
+            }
+            (Value::Residual(left), Value::Residual(right)) => {
+                Value::Residual(Residual::AndRelease {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                    left: Box::new(left),
+                    right: Box::new(right),
+                })
+            }
+            (Value::False(violation, _), _) => Value::False(
+                Self::release_right_violation(
+                    left_formula.as_ref(),
+                    right_formula.as_ref(),
+                    start,
+                    end,
+                    violation,
+                ),
+                None,
+            ),
+            (Value::True(snapshots), Value::False(mut violation, _)) => {
+                attach_to_violation(&mut violation, &snapshots);
+                Value::False(violation, None)
+            }
+            (_, Value::False(violation, _)) => Value::False(violation, None),
         }
     }
 
@@ -824,6 +1459,22 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 let right = self.step(right, time)?;
                 self.evaluate_or(&left, &right)
             }
+            Residual::OrUntil { end, left, right } => {
+                if let Some(end) = end
+                    && *end < time
+                {
+                    self.step(right, time)?
+                } else {
+                    let left = self.step(left, time)?;
+                    let right = self.step(right, time)?;
+                    self.evaluate_or_until(*end, left, right)
+                }
+            }
+            Residual::OrRelease { left, right } => {
+                let left = self.step(left, time)?;
+                let right = self.step(right, time)?;
+                self.evaluate_or_release(left, right)
+            }
             Residual::Implies {
                 left_formula,
                 left,
@@ -841,6 +1492,30 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     // TODO: wrap potential violation in Next wrapper with start time
                     self.evaluate(subformula, time)?
                 }
+                Derived::Until {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                } => self.evaluate_until(
+                    left_formula.clone(),
+                    right_formula.clone(),
+                    *start,
+                    *end,
+                    time,
+                )?,
+                Derived::Release {
+                    left_formula,
+                    right_formula,
+                    start,
+                    end,
+                } => self.evaluate_release(
+                    left_formula.clone(),
+                    right_formula.clone(),
+                    *start,
+                    *end,
+                    time,
+                )?,
                 Derived::Always {
                     start,
                     end,
@@ -901,6 +1576,65 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     right,
                 )?
             }
+            Residual::AndUntil {
+                left_formula,
+                right_formula,
+                start,
+                end,
+                left,
+                right,
+            } => {
+                if let Some(end) = end
+                    && *end < time
+                {
+                    let mut violation = Self::until_timed_out_violation(
+                        left_formula,
+                        right_formula,
+                        *start,
+                        Some(*end),
+                        time,
+                    );
+                    let snapshots = collect_resolved_snapshots(left);
+                    attach_to_violation(&mut violation, &snapshots);
+                    Value::False(violation, None)
+                } else {
+                    let left = self.step(left, time)?;
+                    let right = self.step(right, time)?;
+                    self.evaluate_and_until(
+                        left_formula.clone(),
+                        right_formula.clone(),
+                        *start,
+                        *end,
+                        left,
+                        right,
+                    )
+                }
+            }
+            Residual::AndRelease {
+                left_formula,
+                right_formula,
+                start,
+                end,
+                left,
+                right,
+            } => {
+                if let Some(end) = end
+                    && *end < time
+                {
+                    Value::True(UniqueSnapshots::new())
+                } else {
+                    let left = self.step(left, time)?;
+                    let right = self.step(right, time)?;
+                    self.evaluate_and_release(
+                        left_formula.clone(),
+                        right_formula.clone(),
+                        *start,
+                        *end,
+                        left,
+                        right,
+                    )
+                }
+            }
         })
     }
 }
@@ -922,7 +1656,7 @@ fn attach_snapshots<F>(value: &mut Value<F>, resolved: UniqueSnapshots) {
     }
 }
 
-fn attach_to_violation<F>(
+pub(crate) fn attach_to_violation<F>(
     violation: &mut Violation<F>,
     resolved: &UniqueSnapshots,
 ) {
@@ -952,6 +1686,18 @@ fn attach_to_violation<F>(
             Violation::Always { violation, .. } => {
                 queue.push(violation.as_mut());
             }
+            Violation::Until { reason, .. } => match reason {
+                UntilViolation::Left(violation) => {
+                    queue.push(violation.as_mut());
+                }
+                UntilViolation::TimedOut { snapshots, .. }
+                | UntilViolation::TestEnded { snapshots } => {
+                    snapshots.extend(resolved.values().cloned());
+                }
+            },
+            Violation::Release { violation, .. } => {
+                queue.push(violation.as_mut());
+            }
             Violation::Eventually { .. } => {}
         }
     }
@@ -973,7 +1719,11 @@ fn attach_to_residual<F>(
             }
             Residual::And { left, right }
             | Residual::Or { left, right }
+            | Residual::OrUntil { left, right, .. }
+            | Residual::OrRelease { left, right }
             | Residual::OrEventually { left, right, .. }
+            | Residual::AndUntil { left, right, .. }
+            | Residual::AndRelease { left, right, .. }
             | Residual::AndAlways { left, right, .. } => {
                 queue.push(left.as_mut());
                 queue.push(right.as_mut());
@@ -985,4 +1735,37 @@ fn attach_to_residual<F>(
             Residual::Derived(_, _) => {}
         }
     }
+}
+
+fn collect_resolved_snapshots<F>(residual: &Residual<F>) -> UniqueSnapshots {
+    let mut queue = vec![residual];
+    let mut snapshots = UniqueSnapshots::new();
+
+    while let Some(residual) = queue.pop() {
+        match residual {
+            Residual::True(resolved) => {
+                snapshots.extend(
+                    resolved.iter().map(|(key, value)| (*key, value.clone())),
+                );
+            }
+            Residual::False(_) | Residual::Derived(_, _) => {}
+            Residual::And { left, right }
+            | Residual::Or { left, right }
+            | Residual::OrUntil { left, right, .. }
+            | Residual::OrRelease { left, right }
+            | Residual::OrEventually { left, right, .. }
+            | Residual::AndUntil { left, right, .. }
+            | Residual::AndRelease { left, right, .. }
+            | Residual::AndAlways { left, right, .. } => {
+                queue.push(left.as_ref());
+                queue.push(right.as_ref());
+            }
+            Residual::Implies { left, right, .. } => {
+                queue.push(left.as_ref());
+                queue.push(right.as_ref());
+            }
+        }
+    }
+
+    snapshots
 }

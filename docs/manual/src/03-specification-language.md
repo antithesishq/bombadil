@@ -194,18 +194,22 @@ facts about formulas and temporal operators:
 
 * Temporal operators return formulas. 
 * Every property in Bombadil is a formula (of the `Formula` type). 
-* A temporal operator is a function that takes some subformula and evaluates it
-  over time. 
+* A temporal operator is a function or method that takes one or more subformulas 
+  and evaluates them over time.
 * Different temporal operators evaluate their subformulas in different ways.
 * Bombadil evaluates formulas against a sequence of states to check if they
   *hold true*.
 
-Temporal operator types include `always`, as discussed in the example in [Extractors](#extractors) above, and also `eventually` and `next`. Here's an
-informal[^ltl] description of how they work:
+Temporal operator types include `always`, as discussed in the example in
+[Extractors](#extractors) above, plus `eventually`, `next`, `until`, and
+`release`. Here's an informal[^ltl] description of how they work:
 
 * `always(x)` holds if `x` holds in *this* and *every future* state
 * `next(x)` holds if `x` holds in *the next* state
 * `eventually(x)` holds if `x` holds in *this* or *any future* state
+* `x.until(y)` holds if `y` holds in *this* or *a future* state, and `x` holds in *every state before* it
+* `x.release(y)` holds if `y` holds in *this* and *every future* state until and including a state where `x` holds, 
+  or *forever* if `x` never holds
 
 They accept *subformulas* as arguments. You'll notice in the example with
 `always` above, the argument was a thunk. This still works, because the operators
@@ -217,15 +221,25 @@ always(now(() => pageTitle.current !== ""))
 ```
 
 You normally don't have to use the `now` operator, unless you want to use
-*logical connectives* at the formula level. They are defined as methods on
-formulas:
+*logical connectives* or *binary temporal operators* at the formula level.
+They are defined as methods on formulas:
 
 * `x.and(y)` holds if `x` holds and `y` holds
 * `x.or(y)` holds if `x` holds or `y` holds
 * `x.implies(y)` holds if `x` doesn't hold or `y` holds
+* `x.until(y)` and `x.release(y)` as described [above](#formulas)
 
 There's also negation, both as a function and as a method on
 formulas, i.e. `not(x)` and `x.not()`.
+
+Like `always` and `eventually`, both `until` and `release` support time
+bounds with `.within(...)`:
+
+```typescript
+now(() => buttonDisabled.current)
+    .until(() => setupComplete.current)
+    .within(5, "seconds")
+```
 
 The `now` operator is useful when expressing single-state preconditions. The
 following property checks that pressing a button shows a spinner that is
@@ -419,6 +433,30 @@ export const errorDisappears = always(
             .within(5, "seconds"),
     ),
 );
+```
+
+### Sequencing: loading until ready
+
+The `until` operator is useful for expressing that a condition must hold *while
+waiting* for something else to happen. This property checks that a loading
+indicator stays visible until the content is ready, within ten seconds.
+
+```typescript
+import { extract, now } from "@antithesishq/bombadil";
+export * from "@antithesishq/bombadil/defaults";
+
+const isLoading = extract((state) =>
+    state.document.body.querySelector(".spinner") !== null,
+);
+
+const contentReady = extract((state) =>
+    state.document.body.querySelector("#content") !== null,
+);
+
+export const loadingUntilReady =
+    now(() => isLoading.current)
+        .until(() => contentReady.current)
+        .within(10, "seconds");
 ```
 
 ### Contextful guarantee: notification includes past value

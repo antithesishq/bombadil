@@ -293,7 +293,7 @@ mod tests {
 
     use bombadil_schema::{
         EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
-        Violation,
+        UntilViolation, Violation,
     };
 
     use super::*;
@@ -576,6 +576,119 @@ mod tests {
                             }],
                         }),
                     }),
+                }),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_until_with_prior_and_current_snapshots() {
+        let violation = PropertyViolation {
+            name: "loadingUntilReady".to_string(),
+            violation: Violation::Until {
+                left: Box::new(thunk("loading === true")),
+                right: Box::new(thunk("ready === true")),
+                start: time_at(0),
+                end: None,
+                reason: UntilViolation::Left(Box::new(Violation::False {
+                    time: time_at(120),
+                    condition: "loading === true".into(),
+                    snapshots: vec![
+                        Snapshot {
+                            index: 0,
+                            name: Some("loading".into()),
+                            value: serde_json::json!(false),
+                            time: time_at(120),
+                        },
+                        Snapshot {
+                            index: 0,
+                            name: Some("loading".into()),
+                            value: serde_json::json!(true),
+                            time: time_at(60),
+                        },
+                    ],
+                })),
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_until_timed_out_with_snapshots() {
+        let violation = PropertyViolation {
+            name: "loadingUntilReady".to_string(),
+            violation: Violation::Until {
+                left: Box::new(thunk("loading === true")),
+                right: Box::new(thunk("ready === true")),
+                start: time_at(60),
+                end: Some(time_at(65)),
+                reason: UntilViolation::TimedOut {
+                    time: time_at(65),
+                    snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("loading".into()),
+                        value: serde_json::json!(true),
+                        time: time_at(60),
+                    }],
+                },
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_until_test_ended_with_snapshots() {
+        let violation = PropertyViolation {
+            name: "loadingUntilReady".to_string(),
+            violation: Violation::Until {
+                left: Box::new(thunk("loading === true")),
+                right: Box::new(thunk("ready === true")),
+                start: time_at(30),
+                end: None,
+                reason: UntilViolation::TestEnded {
+                    snapshots: vec![Snapshot {
+                        index: 0,
+                        name: Some("loading".into()),
+                        value: serde_json::json!(true),
+                        time: time_at(120),
+                    }],
+                },
+            },
+        };
+
+        insta::assert_snapshot!(render_violation(&violation));
+    }
+
+    #[test]
+    fn test_release_with_prior_and_current_snapshots() {
+        let violation = PropertyViolation {
+            name: "readyReleasesLoading".to_string(),
+            violation: Violation::Release {
+                left: Box::new(thunk("ready === true")),
+                right: Box::new(thunk("loading === true")),
+                start: time_at(10),
+                end: Some(time_at(20)),
+                violation: Box::new(Violation::False {
+                    time: time_at(15),
+                    condition: "loading === true".into(),
+                    snapshots: vec![
+                        Snapshot {
+                            index: 0,
+                            name: Some("loading".into()),
+                            value: serde_json::json!(false),
+                            time: time_at(15),
+                        },
+                        Snapshot {
+                            index: 0,
+                            name: Some("loading".into()),
+                            value: serde_json::json!(true),
+                            time: time_at(12),
+                        },
+                    ],
                 }),
             },
         };

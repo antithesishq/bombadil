@@ -27,6 +27,15 @@ export {
 
 import type { Action } from "@antithesishq/bombadil/actions";
 
+function durationMillis(n: number, unit: TimeUnit): number {
+  switch (unit) {
+    case "milliseconds":
+      return n;
+    case "seconds":
+      return n * 1000;
+  }
+}
+
 export class Formula {
   not(): Formula {
     return new Not(this);
@@ -39,6 +48,12 @@ export class Formula {
   }
   implies(that: IntoFormula): Formula {
     return new Implies(this, now(that));
+  }
+  until(that: IntoFormula): Until {
+    return new Until(null, this, now(that));
+  }
+  release(that: IntoFormula): Release {
+    return new Release(null, this, now(that));
   }
 }
 
@@ -75,6 +90,10 @@ export class Or extends Formula {
   ) {
     super();
   }
+
+  override toString() {
+    return `(${this.left}) || (${this.right})`;
+  }
 }
 
 export class Implies extends Formula {
@@ -95,7 +114,7 @@ export class Not extends Formula {
     super();
   }
   override toString() {
-    return `!(${this.subformula.toString()})`;
+    return `!(${this.subformula})`;
   }
 }
 
@@ -121,16 +140,7 @@ export class Always extends Formula {
     if (this.boundMillis !== null) {
       throw new Error("time bound is already set for `always`");
     }
-    let durationMillis: number;
-    switch (unit) {
-      case "milliseconds":
-        durationMillis = n;
-        break;
-      case "seconds":
-        durationMillis = n * 1000;
-        break;
-    }
-    return new Always(durationMillis, this.subformula);
+    return new Always(durationMillis(n, unit), this.subformula);
   }
 
   override toString() {
@@ -152,22 +162,59 @@ export class Eventually extends Formula {
     if (this.boundMillis !== null) {
       throw new Error("time bound is already set for `eventually`");
     }
-    let durationMillis: number;
-    switch (unit) {
-      case "milliseconds":
-        durationMillis = n;
-        break;
-      case "seconds":
-        durationMillis = n * 1000;
-        break;
-    }
-    return new Eventually(durationMillis, this.subformula);
+    return new Eventually(durationMillis(n, unit), this.subformula);
   }
 
   override toString() {
     return this.boundMillis === null
       ? `eventually(${this.subformula})`
       : `eventually(${this.subformula}).within(${this.boundMillis}, "milliseconds")`;
+  }
+}
+
+export class Until extends Formula {
+  constructor(
+    public boundMillis: number | null,
+    public left: Formula,
+    public right: Formula,
+  ) {
+    super();
+  }
+
+  within(n: number, unit: TimeUnit): Formula {
+    if (this.boundMillis !== null) {
+      throw new Error("time bound is already set for `until`");
+    }
+    return new Until(durationMillis(n, unit), this.left, this.right);
+  }
+
+  override toString() {
+    return this.boundMillis === null
+      ? `${this.left}.until(${this.right})`
+      : `${this.left}.until(${this.right}).within(${this.boundMillis}, "milliseconds")`;
+  }
+}
+
+export class Release extends Formula {
+  constructor(
+    public boundMillis: number | null,
+    public left: Formula,
+    public right: Formula,
+  ) {
+    super();
+  }
+
+  within(n: number, unit: TimeUnit): Formula {
+    if (this.boundMillis !== null) {
+      throw new Error("time bound is already set for `release`");
+    }
+    return new Release(durationMillis(n, unit), this.left, this.right);
+  }
+
+  override toString() {
+    return this.boundMillis === null
+      ? `${this.left}.release(${this.right})`
+      : `${this.left}.release(${this.right}).within(${this.boundMillis}, "milliseconds")`;
   }
 }
 
