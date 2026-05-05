@@ -178,6 +178,26 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
         }
         let mut program = result.program;
 
+        // Strip TypeScript types first so the rewriter only sees
+        // plain JavaScript.
+        let transform_options = TransformOptions {
+            typescript: oxc::transformer::TypeScriptOptions {
+                only_remove_type_imports: true,
+                allow_namespaces: true,
+                remove_class_fields_without_initializer: false,
+                rewrite_import_extensions: None,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let semantic = SemanticBuilder::new().build(&program);
+        let scopes = semantic.semantic.into_scoping();
+        let transformer =
+            Transformer::new(&allocator, key.path(), &transform_options);
+        transformer.build_with_scoping(scopes, &mut program);
+
+        // Now run semantic checks on the transformed JS.
         let semantic = SemanticBuilder::new()
             .with_check_syntax_error(true)
             .build(&program);
@@ -234,30 +254,6 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
                 import_types.insert(import_key, import_type);
             }
         }
-
-        let transform_options = TransformOptions {
-            typescript: oxc::transformer::TypeScriptOptions {
-                only_remove_type_imports: true,
-                allow_namespaces: true,
-                remove_class_fields_without_initializer: false,
-                rewrite_import_extensions: None,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let semantic = SemanticBuilder::new()
-            .with_check_syntax_error(true)
-            .build(&program);
-        if !semantic.errors.is_empty() {
-            let errors = semantic.errors.to_vec();
-            bail!(BundlerError::SemanticErrors(errors));
-        }
-        let scopes = semantic.semantic.into_scoping();
-
-        let transformer =
-            Transformer::new(&allocator, key.path(), &transform_options);
-        transformer.build_with_scoping(scopes, &mut program);
 
         let codegen = Codegen::new().build(&program);
 

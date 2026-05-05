@@ -17,7 +17,7 @@ There are two development shells:
 
 The `docs/manual/.envrc` file automatically loads the `manual` shell when you `cd` into that directory (requires direnv).
 
-**Build:** `cargo build` (the build script in `lib/bombadil/build.rs` runs esbuild to compile TypeScript specs into `target/specification/`)
+**Build:** `cargo build`
 
 **Integration tests:** `cargo test -p integration-tests` (limited to 4 concurrent tests; 120s timeout each)
 
@@ -57,7 +57,7 @@ The project is a Cargo workspace with crates under `lib/`:
   - `verifier.rs` - Loads spec files, runs Boa JS engine, evaluates properties, manages extractors.
   - `worker.rs` - Runs verifier in a separate OS thread with message passing.
   - `ltl.rs` - LTL formula evaluation engine (always, eventually, next, implies, etc.) with violation tracking.
-  - TypeScript files (`index.ts`, `actions.ts`, `defaults.ts`, `internal.ts`) - User-facing API for defining properties, action generators, and extractors. Compiled to ESM by esbuild at build time, embedded via `include_dir`.
+  - TypeScript files (`index.ts`, `actions.ts`, `defaults.ts`, `internal.ts`) - User-facing API for defining properties, action generators, and extractors. Embedded as TypeScript via `include_dir` and transpiled at bundle time by oxc.
 - **tree** (`tree.rs`) - Weighted tree for random action selection. `pick()` traverses using RNG.
 - **instrumentation** (`instrumentation/`) - JS code coverage via edge maps using Oxc. `html.rs` instruments inline scripts.
 - **trace** (`trace/`) - JSONL trace writer with screenshots.
@@ -65,10 +65,11 @@ The project is a Cargo workspace with crates under `lib/`:
 
 ### Rust-TypeScript bridge
 
-1. `lib/bombadil/build.rs` compiles `.ts` files to `.js` ESM modules via esbuild at build time.
-2. At runtime, Boa engine loads the bundled JS modules.
-3. Rust exposes native functions (e.g., `__bombadil_random_bytes()`) to the JS environment.
-4. State snapshots are passed as JSON between layers.
+1. TypeScript source files are embedded directly into the binary via `include_dir`.
+2. At bundle time, the Rust bundler uses oxc to strip TypeScript types and transform ESM to CommonJS.
+3. At runtime, Boa engine loads the bundled JS modules.
+4. Rust exposes native functions (e.g., `__bombadil_random_bytes()`) to the JS environment.
+5. State snapshots are passed as JSON between layers.
 
 ### Async patterns
 

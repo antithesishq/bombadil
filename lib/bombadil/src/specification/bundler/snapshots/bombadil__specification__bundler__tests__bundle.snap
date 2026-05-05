@@ -266,12 +266,11 @@ expression: bundle
     }
     function now(x) {
     	if (typeof x === "function") {
-    		let liftResult2 = function(result) {
-    			return typeof result === "boolean" ? new Pure(pretty, result) : result;
-    		};
-    		var liftResult = liftResult2;
     		const pretty = x.toString().replaceAll(/\t/g, "  ").replaceAll(/(\|\||&&)/g, (_, operator) => "\n  " + operator);
-    		return new Thunk(pretty, () => liftResult2(x()));
+    		function liftResult(result) {
+    			return typeof result === "boolean" ? new Pure(pretty, result) : result;
+    		}
+    		return new Thunk(pretty, () => liftResult(x()));
     	}
     	return x;
     }
@@ -287,36 +286,36 @@ expression: bundle
     function extract(query) {
     	return new ExtractorCell(runtime, query);
     }
-    ;
-    module.exports.ActionGenerator = ActionGenerator;
-    module.exports.Always = Always;
-    module.exports.And = And;
-    module.exports.Eventually = Eventually;
-    module.exports.Formula = Formula;
-    module.exports.Implies = Implies;
-    module.exports.Next = Next;
-    module.exports.Not = Not;
-    module.exports.Or = Or;
-    module.exports.Pure = Pure;
-    module.exports.Thunk = Thunk;
+    module.exports.runtime = runtime;
     module.exports.actions = actions;
-    module.exports.always = always;
-    module.exports.emails = emails;
-    module.exports.eventually = eventually;
-    module.exports.extract = extract;
+    module.exports.weighted = weighted;
+    module.exports.ActionGenerator = ActionGenerator;
     module.exports.from = from;
+    module.exports.strings = strings;
+    module.exports.emails = emails;
     module.exports.integers = integers;
     module.exports.keycodes = keycodes;
-    module.exports.next = next;
+    module.exports.Formula = Formula;
+    module.exports.Pure = Pure;
+    module.exports.And = And;
+    module.exports.Or = Or;
+    module.exports.Implies = Implies;
+    module.exports.Not = Not;
+    module.exports.Next = Next;
+    module.exports.Always = Always;
+    module.exports.Eventually = Eventually;
+    module.exports.Thunk = Thunk;
     module.exports.not = not;
     module.exports.now = now;
-    module.exports.runtime = runtime;
-    module.exports.strings = strings;
-    module.exports.weighted = weighted;
+    module.exports.next = next;
+    module.exports.always = always;
+    module.exports.eventually = eventually;
+    module.exports.extract = extract;
   };
 
   modules["@antithesishq/bombadil/actions"] = function(module, exports, require) {
-    module.exports.__esModule=true;const { from, strings, emails, integers, keycodes, randomRange } = __bombadilRequire("@antithesishq/bombadil/random");
+    module.exports.__esModule=true;__bombadilRequire("@antithesishq/bombadil/random");
+    const { from, strings, emails, integers, keycodes, randomRange } = __bombadilRequire("@antithesishq/bombadil/random");
     function leaf(value) {
     	return { value };
     }
@@ -352,35 +351,34 @@ expression: bundle
     		}));
     	});
     }
-    ;
-    module.exports.ActionGenerator = ActionGenerator;
-    module.exports.actions = actions;
-    module.exports.emails = emails;
     module.exports.from = from;
+    module.exports.strings = strings;
+    module.exports.emails = emails;
     module.exports.integers = integers;
     module.exports.keycodes = keycodes;
     module.exports.randomRange = randomRange;
-    module.exports.strings = strings;
+    module.exports.ActionGenerator = ActionGenerator;
+    module.exports.actions = actions;
     module.exports.weighted = weighted;
   };
 
   modules["@antithesishq/bombadil/internal"] = function(module, exports, require) {
     module.exports.__esModule=true;class ExtractorCell {
+    	name = null;
+    	index;
+    	snapshot;
     	constructor(runtime, extract) {
     		this.runtime = runtime;
     		this.extract = extract;
     		this.index = runtime.registerExtractor(this);
     	}
-    	name = null;
-    	index;
-    	snapshot;
     	update(snapshot) {
     		this.snapshot = snapshot;
     	}
     	get current() {
     		this.runtime.checkNotExtracting();
     		this.runtime.recordAccess(this.index);
-    		if (this.snapshot === void 0) {
+    		if (this.snapshot === undefined) {
     			throw new Error(`snapshot ${this.name} is not set for current state (this is a bug in the runtime)`);
     		} else {
     			return this.snapshot;
@@ -398,7 +396,7 @@ expression: bundle
     	extractors = [];
     	extractingDepth = 0;
     	tracking = false;
-    	accesses = /* @__PURE__ */ new Set();
+    	accesses = new Set();
     	registerExtractor(cell) {
     		const index = this.extractors.length;
     		this.extractors.push(cell);
@@ -435,11 +433,10 @@ expression: bundle
     	}
     	checkNotExtracting() {
     		if (this.extractingDepth > 0) {
-    			throw new Error("Cannot access cell.current from within an extractor. Extractors must only depend on the 'state' parameter. Use shared helper functions to avoid duplication.");
+    			throw new Error("Cannot access cell.current from within an extractor. " + "Extractors must only depend on the 'state' parameter. " + "Use shared helper functions to avoid duplication.");
     		}
     	}
     }
-    ;
     module.exports.ExtractorCell = ExtractorCell;
     module.exports.Runtime = Runtime;
   };
@@ -456,6 +453,8 @@ expression: bundle
     	if (range <= 4294967295) {
     		return min + randomU32() % range;
     	}
+    	// For ranges exceeding 32 bits, generate a uniform float in [0, 1) with
+    	// 53 bits of precision (the maximum for a JS number) and scale it.
     	const view = new DataView(__bombadil_random_bytes(8).buffer);
     	const uniform = ((view.getUint32(0) >>> 5) * 67108864 + (view.getUint32(4) >>> 6)) / 9007199254740992;
     	return min + Math.floor(uniform * range);
@@ -540,14 +539,13 @@ expression: bundle
     		27
     	]);
     }
-    ;
+    module.exports.randomRange = randomRange;
     module.exports.From = From;
-    module.exports.emails = emails;
     module.exports.from = from;
+    module.exports.strings = strings;
+    module.exports.emails = emails;
     module.exports.integers = integers;
     module.exports.keycodes = keycodes;
-    module.exports.randomRange = randomRange;
-    module.exports.strings = strings;
   };
 
   return require("./index.ts");

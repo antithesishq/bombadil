@@ -7,7 +7,7 @@ use std::{
 use include_dir::{Dir, include_dir};
 use oxc_resolver::{ResolveError, ResolveOptions};
 
-static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/target/specification");
+static JS_DIR: Dir = include_dir!("$CARGO_MANIFEST_DIR/src/specification");
 
 #[derive(Debug)]
 pub enum ResolutionError {
@@ -150,7 +150,7 @@ impl Resolver {
             if relative == "" {
                 Ok(ModuleKey::Embedded {
                     specifier: specifier.to_string(),
-                    path: PathBuf::from("index.js"),
+                    path: PathBuf::from("index.ts"),
                 })
             } else {
                 Ok(ModuleKey::Embedded {
@@ -158,7 +158,7 @@ impl Resolver {
                     path: relative
                         .strip_prefix("/")
                         .unwrap_or(relative)
-                        .with_added_extension("js"),
+                        .with_added_extension("ts"),
                 })
             }
         } else {
