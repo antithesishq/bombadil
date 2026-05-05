@@ -253,7 +253,7 @@ impl Verifier {
             ));
         }
 
-        let mut extractors = Extractors::new(&bombadil_exports);
+        let mut extractors = Extractors::default();
 
         let extractors_value = bombadil_exports
             .runtime
@@ -295,11 +295,8 @@ impl Verifier {
         snapshots: &[Snapshot],
         time: ltl::Time,
     ) -> Result<StepResult<A>> {
-        self.extractors.update_from_snapshots(
-            snapshots,
-            time,
-            &mut self.context,
-        )?;
+        self.extractors
+            .update_from_snapshots(snapshots, &mut self.context)?;
         let mut result_properties = Vec::with_capacity(self.properties.len());
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 

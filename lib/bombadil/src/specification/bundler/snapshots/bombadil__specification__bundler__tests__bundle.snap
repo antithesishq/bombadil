@@ -131,7 +131,6 @@ expression: bundle
   modules["@antithesishq/bombadil"] = function(module, exports, require) {
     module.exports.__esModule=true;const { ExtractorCell, Runtime } = __bombadilRequire("@antithesishq/bombadil/internal");
     const runtime = new Runtime();
-    const { time } = __bombadilRequire("@antithesishq/bombadil/internal");
     const { actions, weighted, ActionGenerator, from, strings, emails, integers, keycodes } = __bombadilRequire("@antithesishq/bombadil/actions");
     class Formula {
     	not() {
@@ -313,7 +312,6 @@ expression: bundle
     module.exports.now = now;
     module.exports.runtime = runtime;
     module.exports.strings = strings;
-    module.exports.time = time;
     module.exports.weighted = weighted;
   };
 
@@ -375,32 +373,17 @@ expression: bundle
     	}
     	name = null;
     	index;
-    	snapshots = /* @__PURE__ */ new Map();
-    	update(snapshot, time2) {
-    		this.snapshots.set(time2, snapshot);
+    	snapshot;
+    	update(snapshot) {
+    		this.snapshot = snapshot;
     	}
     	get current() {
     		this.runtime.checkNotExtracting();
     		this.runtime.recordAccess(this.index);
-    		const value = this.snapshots.get(time.current);
-    		if (value === void 0) {
-    			throw new Error(`no cell value available in current state (this is a bug in the runtime)`);
+    		if (this.snapshot === void 0) {
+    			throw new Error(`snapshot ${this.name} is not set for current state (this is a bug in the runtime)`);
     		} else {
-    			return value;
-    		}
-    	}
-    	at(other) {
-    		this.runtime.recordAccess(this.index);
-    		if (other < time.current) {
-    			const value = this.snapshots.get(other);
-    			if (value === void 0) {
-    				throw new Error("cannot get value from unknown time");
-    			}
-    			return value;
-    		} else if (time.current < other) {
-    			throw new Error("cannot get cell value from the future");
-    		} else {
-    			return this.current;
+    			return this.snapshot;
     		}
     	}
     	named(name) {
@@ -411,23 +394,6 @@ expression: bundle
     		return this.extract(state);
     	}
     }
-    class TimeCell {
-    	time = void 0;
-    	constructor() {}
-    	update(_, time2) {
-    		this.time = time2;
-    	}
-    	get current() {
-    		if (this.time === void 0) {
-    			throw new Error("time has not been set");
-    		}
-    		return this.time;
-    	}
-    	at(time2) {
-    		return time2;
-    	}
-    }
-    const time = new TimeCell();
     class Runtime {
     	extractors = [];
     	extractingDepth = 0;
@@ -476,8 +442,6 @@ expression: bundle
     ;
     module.exports.ExtractorCell = ExtractorCell;
     module.exports.Runtime = Runtime;
-    module.exports.TimeCell = TimeCell;
-    module.exports.time = time;
   };
 
   modules["@antithesishq/bombadil/random"] = function(module, exports, require) {

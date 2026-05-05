@@ -277,19 +277,6 @@ async fn run_extractors(
         )
         .await?;
 
-    // Update time cell in browser runtime before running extractors
-    let timestamp_millis = state
-        .timestamp
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_millis() as u64;
-
-    state
-        .evaluate_function_call::<json::Value>(
-            "(timestamp) => { const { time } = __bombadilRequire('@antithesishq/bombadil'); time.update(null, timestamp); return true; }",
-            vec![json::json!(timestamp_millis)],
-        )
-        .await?;
-
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
                 "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
