@@ -6,7 +6,6 @@ use boa_engine::{
 };
 
 use serde::{Deserialize, Serialize};
-use serde_json as json;
 
 use crate::browser::actions::BrowserAction;
 use crate::geometry::Point;
@@ -307,7 +306,6 @@ pub struct BombadilExports {
     pub always: JsValue,
     pub eventually: JsValue,
     pub runtime: JsObject,
-    pub time: JsObject,
     pub action_generator: JsValue,
 }
 
@@ -339,11 +337,6 @@ impl BombadilExports {
                     "runtime is not an object".to_string(),
                 ),
             )?,
-            time: get_export("time")?.as_object().ok_or(
-                SpecificationError::OtherError(
-                    "time is not an object".to_string(),
-                ),
-            )?,
             action_generator: get_export("ActionGenerator")?,
         })
     }
@@ -373,11 +366,6 @@ impl BombadilExports {
                     "runtime is not an object".to_string(),
                 ),
             )?,
-            time: get_export("time")?.as_object().ok_or(
-                SpecificationError::OtherError(
-                    "time is not an object".to_string(),
-                ),
-            )?,
             action_generator: get_export("ActionGenerator")?,
         })
     }
@@ -397,15 +385,11 @@ pub fn module_exports(
 
 pub struct Extractors {
     instances: Vec<JsObject>,
-    time: JsObject,
 }
 
 impl Extractors {
-    pub fn new(bombadil_exports: &BombadilExports) -> Self {
-        Self {
-            instances: vec![],
-            time: bombadil_exports.time.clone(),
-        }
+    pub fn new() -> Self {
+        Self { instances: vec![] }
     }
 
     pub fn register(&mut self, obj: JsObject) {
@@ -419,12 +403,10 @@ impl Extractors {
     pub fn update_from_snapshots(
         &self,
         snapshots: &[Snapshot],
-        time: bombadil_schema::Time,
         context: &mut Context,
     ) -> Result<()> {
         let update = |extractor: &JsObject,
                       value: JsValue,
-                      time: JsValue,
                       context: &mut Context|
          -> Result<()> {
             let method = extractor
@@ -435,32 +417,25 @@ impl Extractors {
                 ))?;
             method.call(
                 &JsValue::from(extractor.clone()),
-                &[value, time],
+                &[value],
                 context,
             )?;
             Ok(())
         };
 
-        let time = JsValue::from_json(
-            &json::Value::Number(
-                json::Number::from_u128(time.as_micros() as u128).ok_or(
-                    SpecificationError::OtherError(
-                        "conversion from Time to number failed".to_string(),
-                    ),
-                )?,
-            ),
-            context,
-        )?;
-
-        update(&self.time, JsValue::null(), time.clone(), context)?;
-
         for (index, snapshot) in snapshots.iter().enumerate() {
             if let Some(obj) = self.get(index) {
                 let js_value = JsValue::from_json(&snapshot.value, context)?;
-                update(obj, js_value, time.clone(), context)?;
+                update(obj, js_value, context)?;
             }
         }
         Ok(())
+    }
+}
+
+impl Default for Extractors {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

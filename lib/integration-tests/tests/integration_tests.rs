@@ -592,30 +592,6 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 }
 
 #[tokio::test]
-async fn test_time_extractor() {
-    BrowserIntegrationTest::new("time-extractor")
-        .time_limit(Duration::from_secs(10))
-        .specification(
-            r##"
-import { actions, extract, now, eventually, time } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
-
-const myTime = extract((state) => time.current);
-
-// Property: time is a reasonable value (after year 2020)
-export const timeIsReasonable = now(() => {
-  const start = myTime.current;
-  return eventually(() =>
-      myTime.current > start
-  );
-});
-"##,
-        )
-        .run()
-        .await;
-}
-
-#[tokio::test]
 async fn test_extractor_exception_stack_trace() {
     BrowserIntegrationTest::new("extractor-exception")
         .expect_error("\n    at throwingFunction")

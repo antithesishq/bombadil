@@ -10,7 +10,7 @@ import {
 export const runtime = new Runtime<State>();
 
 // Reexports
-export { time, type Cell } from "@antithesishq/bombadil/internal";
+export { type Cell } from "@antithesishq/bombadil/internal";
 export {
   actions,
   weighted,
