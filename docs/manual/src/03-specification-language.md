@@ -378,10 +378,10 @@ export const max_notifications_shown = always(() =>
 
 ### Sliding window: constant notification count
 
-This property checks that the notification count doesn't change ---
-that it is the same as in the first state. Note how this property
-evaluates `time.current` in the outer thunk, and then uses that
-time value to look up older values.
+This property checks that the notification count doesn't change --- that it is
+the same as in the first state. Note how this property evaluates
+`notificationCount.current` in the outer thunk, and then uses that in the
+inner thunk to compare against the current value.
 
 ```typescript
 import { extract, always, now, time } from "@antithesishq/bombadil";
@@ -392,9 +392,9 @@ const notificationCount = extract((state) =>
 );
 
 export const constantNotificationCount = now(() => {
-    const start = time.current;
+    const initial = notificationCount.current;
     return always(() => 
-        notificationCount.current === notification_count.at(start),
+        notificationCount.current === initial,
     );
 });
 ```

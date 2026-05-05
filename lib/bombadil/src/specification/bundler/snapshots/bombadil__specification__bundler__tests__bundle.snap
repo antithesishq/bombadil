@@ -389,20 +389,6 @@ expression: bundle
     			return value;
     		}
     	}
-    	at(other) {
-    		this.runtime.recordAccess(this.index);
-    		if (other < time.current) {
-    			const value = this.snapshots.get(other);
-    			if (value === void 0) {
-    				throw new Error("cannot get value from unknown time");
-    			}
-    			return value;
-    		} else if (time.current < other) {
-    			throw new Error("cannot get cell value from the future");
-    		} else {
-    			return this.current;
-    		}
-    	}
     	named(name) {
     		this.name = name;
     		return this;
@@ -422,9 +408,6 @@ expression: bundle
     			throw new Error("time has not been set");
     		}
     		return this.time;
-    	}
-    	at(time2) {
-    		return time2;
     	}
     }
     const time = new TimeCell();

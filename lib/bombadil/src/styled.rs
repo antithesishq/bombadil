@@ -470,9 +470,7 @@ mod tests {
             name: "constantNotificationCount".to_string(),
             violation: Violation::Always {
                 subformula: Box::new(Formula::Always(
-                    Box::new(thunk(
-                        "notificationCount.current === notificationCount.at(start)",
-                    )),
+                    Box::new(thunk("notificationCount.current === initial")),
                     Some(Duration::from_secs(10)),
                 )),
                 start: time_at(0),
@@ -480,16 +478,15 @@ mod tests {
                 time: time_at(120),
                 violation: Box::new(Violation::Always {
                     subformula: Box::new(thunk(
-                        "notificationCount.current === notificationCount.at(start)",
+                        "notificationCount.current === initial",
                     )),
                     start: time_at(120),
                     end: Some(time_at(130)),
                     time: time_at(125),
                     violation: Box::new(Violation::False {
                         time: time_at(125),
-                        condition:
-                            "notificationCount.current === notificationCount.at(start)"
-                                .into(),
+                        condition: "notificationCount.current === initial"
+                            .into(),
                         snapshots: vec![Snapshot {
                             index: 0,
                             name: Some("notificationCount".into()),
