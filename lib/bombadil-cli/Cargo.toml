@@ -8,22 +8,22 @@ name = "bombadil"
 path = "src/main.rs"
 
 [dependencies]
+anyhow.workspace = true
+axum.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
-anyhow = "1.0"
-axum = "0.8.8"
-clap = { version = "4.5.46", features = ["derive"] }
-env_logger = "0.11.8"
-include_dir = "0.7.4"
-log = "0.4"
-mime_guess = "2.0"
-open = "5.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tempfile = "3.22.0"
-tokio = { version = "1.48.0", features = ["full"] }
-url = { version = "2.5.7", features = ["serde"] }
+clap = { workspace = true, features = ["derive"] }
+env_logger.workspace = true
+include_dir.workspace = true
+log.workspace = true
+mime_guess.workspace = true
+open.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full"] }
+url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-proptest = "1.10.0"
+proptest.workspace = true
