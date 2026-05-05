@@ -135,7 +135,6 @@
                   # TS/JS
                   typescript
                   typescript-language-server
-                  esbuild
                   bun
                   biome
 

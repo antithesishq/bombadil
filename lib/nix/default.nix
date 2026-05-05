@@ -4,7 +4,6 @@
   runCommand,
   stdenv,
   pkg-config,
-  esbuild,
   trunk,
   wasm-bindgen-cli,
   binaryen,
@@ -106,7 +105,6 @@ let
   commonArgs = {
     inherit src;
     nativeBuildInputs = [
-      esbuild
       trunk
       wasm-bindgen-cli
       binaryen

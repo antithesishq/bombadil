@@ -2,7 +2,6 @@
 name = "bombadil"
 version.workspace = true
 edition.workspace = true
-build = "build.rs"
 
 [lib]
 name = "bombadil"
@@ -43,6 +42,3 @@ url = { workspace = true, features = ["serde"] }
 indoc.workspace = true
 insta.workspace = true
 proptest.workspace = true
-
-[build-dependencies]
-glob.workspace = true
