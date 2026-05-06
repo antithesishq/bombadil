@@ -325,10 +325,13 @@ impl BrowserState {
                     if (!window.{NAMESPACE}) return null;
 
                     const SIMHASH_BITS = 64;
+
+                    // Stateless version of Splitmix64
                     function hash64(x) {{
-                        let h = BigInt(x) + 0x9e3779b97f4a7c15n;
-                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n;
-                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn;
+                        const M = 0xffffffffffffffffn;
+                        let h = BigInt(x) + 0x9e3779b97f4a7c15n & M;
+                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n & M;
+                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn & M;
                         return h ^ (h >> 31n);
                     }}
 
