@@ -315,25 +315,17 @@ impl<'a, Function: Clone, Error> Evaluator<'a, Function, Error> {
                 Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
             ))),
             Formula::Always(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(
-                        time.checked_add(*duration)
-                            .expect("failed to add bound to time"),
-                    )
-                } else {
-                    None
-                };
+                let end = bound.map(|duration| {
+                    time.checked_add(duration)
+                        .expect("failed to add bound to time")
+                });
                 self.evaluate_always(formula.clone(), time, end, time)
             }
             Formula::Eventually(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(
-                        time.checked_add(*duration)
-                            .expect("failed to add bound to time"),
-                    )
-                } else {
-                    None
-                };
+                let end = bound.map(|duration| {
+                    time.checked_add(duration)
+                        .expect("failed to add bound to time")
+                });
                 self.evaluate_eventually(formula.clone(), time, end, time)
             }
         }
