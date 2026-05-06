@@ -43,25 +43,27 @@ Rust backend + TypeScript specification layer, connected via the Boa JavaScript 
 
 The project is a Cargo workspace with crates under `lib/`:
 
-- **`lib/bombadil/`** - Core library (all modules below)
+- **`lib/bombadil/`** - Core library (see modules below)
+- **`lib/bombadil-ltl/`** - Generic finite LTL syntax and evaluator (standalone, no Bombadil-specific dependencies)
+- **`lib/bombadil-browser-keys/`** - Browser key name definitions
+- **`lib/bombadil-schema/`** - JSON schema definitions
 - **`lib/bombadil-cli/`** - CLI binary (test commands, inspect server)
+- **`lib/bombadil-terminal/`** - Terminal UI
 - **`lib/bombadil-inspect/`** - Yew WASM frontend for Bombadil Inspect
 - **`lib/integration-tests/`** - Integration tests with browser fixtures
-- **`lib/nix/`** - Nix build infrastructure
 
-### Core library modules (`lib/bombadil/src/lib.rs`)
+Non-workspace directories: `lib/nix/` (Nix build infrastructure), `lib/release/`, `lib/experiments/`.
 
-- **runner** (`runner.rs`) - Test orchestration loop. Drives the browser, invokes the verifier, publishes `RunEvent`s (state transitions, violations). The main entrypoint for a test run.
-- **browser** (`browser/`) - Chromium control via CDP (`chromiumoxide`). `state.rs` defines `BrowserState` snapshots (URL, title, console, exceptions, DOM). `actions.rs` defines `BrowserAction` (Click, TypeText, PressKey, Scroll, navigation). `instrumentation.rs` injects coverage tracking JS.
-- **specification** - Split between Rust and TypeScript:
-  - `verifier.rs` - Loads spec files, runs Boa JS engine, evaluates properties, manages extractors.
-  - `worker.rs` - Runs verifier in a separate OS thread with message passing.
-  - `ltl.rs` - LTL formula evaluation engine (always, eventually, next, implies, etc.) with violation tracking.
-  - TypeScript files (`index.ts`, `actions.ts`, `defaults.ts`, `internal.ts`) - User-facing API for defining properties, action generators, and extractors. Embedded as TypeScript via `include_dir` and transpiled at bundle time by oxc.
-- **tree** (`tree.rs`) - Weighted tree for random action selection. `pick()` traverses using RNG.
-- **instrumentation** (`instrumentation/`) - JS code coverage via edge maps using Oxc. `html.rs` instruments inline scripts.
-- **trace** (`trace/`) - JSONL trace writer with screenshots.
-- **url** (`url.rs`) - Domain boundary enforcement.
+### Core library modules (`lib/bombadil/`)
+
+- **runner** - Test orchestration loop. Drives the browser, invokes the verifier, publishes `RunEvent`s.
+- **browser** - Chromium control via CDP. Defines `BrowserState` snapshots and `BrowserAction`s.
+- **specification** - Split between Rust and TypeScript. Rust side loads spec files and runs the Boa JS engine. TypeScript side provides the user-facing API for defining properties, action generators, and extractors.
+- **instrumentation** - JS code coverage via edge maps using Oxc.
+- **tree** - Weighted tree for random action selection.
+- **trace** - JSONL trace writer with screenshots.
+- **geometry** - Geometric primitives (rectangles, points) for element layout.
+- **url** - Domain boundary enforcement.
 
 ### Rust-TypeScript bridge
 
