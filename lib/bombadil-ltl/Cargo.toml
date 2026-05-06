@@ -1,39 +1,24 @@
 [package]
-name = "bombadil"
+name = "bombadil-ltl"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "bombadil"
+name = "bombadil_ltl"
 path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true, features = ["backtrace"] }
 base64.workspace = true
-boa_engine.workspace = true
-bombadil-browser-keys = { path = "../bombadil-browser-keys" }
+# TODO: remove this dependency
 bombadil-schema = { path = "../bombadil-schema" }
-bombadil-ltl = { path = "../bombadil-ltl" }
 bytes.workspace = true
-chromiumoxide.workspace = true
-const_format.workspace = true
 futures.workspace = true
-html5ever.workspace = true
-http.workspace = true
-http-body-util.workspace = true
-include_dir.workspace = true
 log.workspace = true
-markup5ever_rcdom.workspace = true
-oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
-oxc_resolver.workspace = true
-oxc_str.workspace = true
-oxc_traverse.workspace = true
-owo-colors = { workspace = true, features = ["supports-colors"] }
 rand.workspace = true
 rand_chacha.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-supports-color.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-stream = { workspace = true, features = ["sync"] }

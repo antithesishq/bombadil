@@ -11,6 +11,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 axum.workspace = true
 bombadil = { path = "../bombadil" }
+bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 clap = { workspace = true, features = ["derive"] }

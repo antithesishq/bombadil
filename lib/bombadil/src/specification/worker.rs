@@ -3,12 +3,14 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::specification::convert::PrettyFunction;
+use crate::specification::convert::{
+    PrettyFunction, violation_with_pretty_functions,
+};
 use crate::specification::js::RuntimeFunction;
-use crate::specification::ltl::{self};
 use crate::specification::result::SpecificationError;
-use crate::specification::verifier::{Snapshot, Specification, Verifier};
+use crate::specification::verifier::{Specification, Verifier};
 use crate::tree::Tree;
+use bombadil_ltl::ltl::{self, Snapshot};
 
 enum Command {
     GetProperties {
@@ -46,7 +48,7 @@ impl From<&ltl::Value<RuntimeFunction>> for PropertyValue {
         match value {
             ltl::Value::True(_) => PropertyValue::True,
             ltl::Value::False(violation, _) => {
-                PropertyValue::False(violation.with_pretty_functions())
+                PropertyValue::False(violation_with_pretty_functions(violation))
             }
             ltl::Value::Residual(_) => PropertyValue::Residual,
         }

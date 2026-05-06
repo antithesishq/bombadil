@@ -3,15 +3,16 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use anyhow::Error;
 use bombadil_schema::schema::Time;
 
-use crate::specification::{
+use crate::{
     ltl::*,
     stop::{StopDefault, stop_default},
 };
 use proptest::prelude::*;
 
-use crate::specification::syntax::Syntax;
+use crate::syntax::Syntax;
 
 #[derive(Debug)]
 struct State {
@@ -182,7 +183,8 @@ fn check_equivalence(
             Ok((syntax.nnf(), UniqueSnapshots::new()))
         }
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator: Evaluator<'_, Thunk, Error> =
+        Evaluator::new(&mut evaluate_thunk);
 
     let mut time = Time::from_system_time(SystemTime::UNIX_EPOCH);
 

@@ -405,6 +405,7 @@ dependencies = [
  "base64",
  "boa_engine",
  "bombadil-browser-keys",
+ "bombadil-ltl",
  "bombadil-schema",
  "bytes",
  "chromiumoxide",
@@ -447,6 +448,7 @@ dependencies = [
  "axum",
  "bombadil",
  "bombadil-browser-keys",
+ "bombadil-ltl",
  "bombadil-schema",
  "clap",
  "env_logger",
@@ -478,6 +480,29 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "yew",
+]
+
+[[package]]
+name = "bombadil-ltl"
+version = "0.4.5"
+dependencies = [
+ "anyhow",
+ "base64",
+ "bombadil-schema",
+ "bytes",
+ "futures",
+ "indoc",
+ "insta",
+ "log",
+ "proptest",
+ "rand 0.9.4",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "url",
 ]
 
 [[package]]
@@ -1961,6 +1986,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
+ "bombadil-ltl",
  "bombadil-schema",
  "env_logger",
  "indoc",

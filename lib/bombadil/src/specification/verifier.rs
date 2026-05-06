@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 
-use crate::specification::js::{BombadilExports, Extractors, RuntimeFunction};
-use crate::specification::ltl::{
-    Evaluator, Formula, Residual, UniqueSnapshots,
+use crate::specification::js::{
+    BombadilExports, Extractors, RuntimeFunction, syntax_from_value,
 };
-use crate::specification::result::Result;
+use crate::specification::result::{Result, SpecificationError};
 use crate::specification::snapshots::with_snapshot_tracking;
-use crate::specification::syntax::Syntax;
-use crate::specification::{ltl, result::SpecificationError};
 use crate::tree::Tree;
 use boa_engine::{
     Context, JsString, NativeFunction, Source,
@@ -17,8 +14,11 @@ use boa_engine::{
     property::PropertyKey,
 };
 use boa_engine::{JsError, JsObject, JsValue};
-use bombadil_schema::Time;
-use serde::{Deserialize, Serialize};
+use bombadil_ltl::ltl::{self};
+use bombadil_ltl::ltl::{
+    Evaluator, Formula, Residual, Snapshot, UniqueSnapshots,
+};
+use bombadil_ltl::syntax::Syntax;
 use serde_json as json;
 
 #[derive(Clone)]
@@ -34,27 +34,6 @@ pub struct Verifier {
     properties: HashMap<String, Property>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub index: usize,
-    pub name: Option<String>,
-    pub value: json::Value,
-    pub time: Time,
-}
-
-pub fn merge_snapshots(
-    left: &UniqueSnapshots,
-    right: &UniqueSnapshots,
-) -> UniqueSnapshots {
-    let mut merged = left.clone();
-    merged.extend(
-        right
-            .iter()
-            .map(|(index, snapshot)| (*index, snapshot.clone())),
-    );
-    merged
 }
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
@@ -189,11 +168,8 @@ impl Verifier {
             let value =
                 specification_exports_obj.get(key.clone(), &mut context)?;
             if value.instance_of(&bombadil_exports.formula, &mut context)? {
-                let syntax = Syntax::from_value(
-                    &value,
-                    &bombadil_exports,
-                    &mut context,
-                )?;
+                let syntax =
+                    syntax_from_value(&value, &bombadil_exports, &mut context)?;
                 let formula = syntax.nnf();
                 properties.insert(
                     key.to_string(),
@@ -323,7 +299,7 @@ impl Verifier {
                 .map(|snapshot| ((snapshot.index, snapshot.time), snapshot))
                 .collect();
             let syntax =
-                Syntax::from_value(&value, &self.bombadil_exports, context)?;
+                syntax_from_value(&value, &self.bombadil_exports, context)?;
             Ok((
                 (if negated {
                     Syntax::Not(Box::new(syntax))
@@ -448,9 +424,10 @@ impl ActionGenerator {
 mod tests {
     use std::io::Write;
 
+    use bombadil_schema::Time;
     use tempfile::NamedTempFile;
 
-    use crate::specification::stop::{StopDefault, stop_default};
+    use bombadil_ltl::stop::{StopDefault, stop_default};
 
     use super::*;
 

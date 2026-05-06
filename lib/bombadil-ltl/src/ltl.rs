@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use crate::specification::result::{Result, SpecificationError};
-use crate::specification::verifier::{Snapshot, merge_snapshots};
+// TODO: remove this dependency
 pub use bombadil_schema::Time;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json as json;
 
 fn combine_options<T: Clone>(
     left: Option<T>,
@@ -79,8 +79,6 @@ impl<Function: Clone> Formula<Function> {
         }
     }
 }
-
-pub type UniqueSnapshots = BTreeMap<(usize, Time), Snapshot>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value<Function> {
@@ -253,18 +251,19 @@ pub enum Derived<Function> {
     },
 }
 
-pub type EvaluateThunk<'a, Function> =
+pub type EvaluateThunk<'a, Function, Error> =
     &'a mut dyn FnMut(
         &'_ Function,
         bool,
-    ) -> Result<(Formula<Function>, UniqueSnapshots)>;
+    )
+        -> Result<(Formula<Function>, UniqueSnapshots), Error>;
 
-pub struct Evaluator<'a, Function> {
-    evaluate_thunk: EvaluateThunk<'a, Function>,
+pub struct Evaluator<'a, Function, Error> {
+    evaluate_thunk: EvaluateThunk<'a, Function, Error>,
 }
 
-impl<'a, Function: Clone> Evaluator<'a, Function> {
-    pub fn new(evaluate_thunk: EvaluateThunk<'a, Function>) -> Self {
+impl<'a, Function: Clone, Error> Evaluator<'a, Function, Error> {
+    pub fn new(evaluate_thunk: EvaluateThunk<'a, Function, Error>) -> Self {
         Evaluator { evaluate_thunk }
     }
 
@@ -272,7 +271,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         &mut self,
         formula: &Formula<Function>,
         time: Time,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         match formula {
             Formula::Pure { value, pretty } => Ok(if *value {
                 Value::True(UniqueSnapshots::new())
@@ -317,11 +316,10 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             ))),
             Formula::Always(formula, bound) => {
                 let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
+                    Some(
+                        time.checked_add(*duration)
+                            .expect("failed to add bound to time"),
+                    )
                 } else {
                     None
                 };
@@ -329,11 +327,10 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             }
             Formula::Eventually(formula, bound) => {
                 let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
+                    Some(
+                        time.checked_add(*duration)
+                            .expect("failed to add bound to time"),
+                    )
                 } else {
                     None
                 };
@@ -512,7 +509,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         start: Time,
         end: Option<Time>,
         time: Time,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -575,7 +572,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         time: Time,
         left: Value<Function>,
         right: Value<Function>,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -719,7 +716,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         start: Time,
         end: Option<Time>,
         time: Time,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -765,7 +762,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         time: Time,
         left: Value<Function>,
         right: Value<Function>,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -810,7 +807,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         &mut self,
         residual: &Residual<Function>,
         time: Time,
-    ) -> Result<Value<Function>> {
+    ) -> Result<Value<Function>, Error> {
         Ok(match residual {
             Residual::True(references) => Value::True(references.clone()),
             Residual::False(violation) => Value::False(violation.clone(), None),
@@ -985,4 +982,27 @@ fn attach_to_residual<F>(
             Residual::Derived(_, _) => {}
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub index: usize,
+    pub name: Option<String>,
+    pub value: json::Value,
+    pub time: Time,
+}
+
+pub type UniqueSnapshots = BTreeMap<(usize, Time), Snapshot>;
+
+pub fn merge_snapshots(
+    left: &UniqueSnapshots,
+    right: &UniqueSnapshots,
+) -> UniqueSnapshots {
+    let mut merged = left.clone();
+    merged.extend(
+        right
+            .iter()
+            .map(|(index, snapshot)| (*index, snapshot.clone())),
+    );
+    merged
 }

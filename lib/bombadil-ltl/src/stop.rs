@@ -1,6 +1,6 @@
-use crate::specification::{
-    ltl::{Formula, Leaning, Residual, Time, UniqueSnapshots, Violation},
-    verifier::merge_snapshots,
+use crate::ltl::{
+    Formula, Leaning, Residual, Time, UniqueSnapshots, Violation,
+    merge_snapshots,
 };
 
 #[derive(Clone, Debug, PartialEq)]

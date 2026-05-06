@@ -1,12 +1,12 @@
 use std::{collections::BTreeSet, time::Duration};
 
+use anyhow::Error;
 use proptest::prelude::*;
 
-use crate::specification::{
+use crate::{
     ltl::*,
     stop::{StopDefault, stop_default},
     syntax::Syntax,
-    verifier::Snapshot,
 };
 
 fn t0() -> Time {
@@ -121,7 +121,8 @@ fn evaluate_with_state(
             UniqueSnapshots::from([variable_snapshot(variable)]),
         ))
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator: Evaluator<'_, Variable, Error> =
+        Evaluator::new(&mut evaluate_thunk);
     evaluator.evaluate(formula, t0()).unwrap()
 }
 
@@ -145,7 +146,8 @@ fn step_with_state(
             UniqueSnapshots::from([variable_snapshot(variable)]),
         ))
     };
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator: Evaluator<'_, Variable, Error> =
+        Evaluator::new(&mut evaluate_thunk);
     evaluator.step(residual, time).unwrap()
 }
 
@@ -580,7 +582,8 @@ proptest! {
                 UniqueSnapshots::from([((index, snapshot.time), snapshot)]),
             ))
         };
-        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+        let mut evaluator: Evaluator<'_, Variable, Error> =
+            Evaluator::new(&mut evaluate_thunk);
         let value = evaluator.evaluate(&formula, t0()).unwrap();
 
         match (&expected, &value) {
@@ -662,7 +665,8 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
         }
     };
 
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator: Evaluator<'_, Variable, Error> =
+        Evaluator::new(&mut evaluate_thunk);
     let value = evaluator.evaluate(&thunk(Variable::X), t0()).unwrap();
 
     assert!(matches!(value, Value::False(_, _)));
@@ -754,7 +758,8 @@ fn test_always_with_outer_thunk_preserves_snapshots() {
         }
     };
 
-    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut evaluator: Evaluator<'_, Variable, Error> =
+        Evaluator::new(&mut evaluate_thunk);
 
     // T0: should be residual
     let value = evaluator

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::specification::ltl::Formula;
+use crate::ltl::Formula;
 
 /// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]
