@@ -3,8 +3,9 @@ members = [
     "lib/bombadil",
     "lib/bombadil-browser-keys",
     "lib/bombadil-cli",
-    "lib/bombadil-schema",
+    "lib/bombadil-ltl",
     "lib/bombadil-inspect",
+    "lib/bombadil-schema",
     "lib/bombadil-terminal",
     "lib/integration-tests",
 ]

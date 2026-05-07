@@ -405,6 +405,7 @@ dependencies = [
  "base64",
  "boa_engine",
  "bombadil-browser-keys",
+ "bombadil-ltl",
  "bombadil-schema",
  "bytes",
  "chromiumoxide",
@@ -447,6 +448,7 @@ dependencies = [
  "axum",
  "bombadil",
  "bombadil-browser-keys",
+ "bombadil-ltl",
  "bombadil-schema",
  "clap",
  "env_logger",
@@ -478,6 +480,14 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "yew",
+]
+
+[[package]]
+name = "bombadil-ltl"
+version = "0.4.5"
+dependencies = [
+ "anyhow",
+ "proptest",
 ]
 
 [[package]]
@@ -1961,6 +1971,7 @@ dependencies = [
  "anyhow",
  "axum",
  "bombadil",
+ "bombadil-ltl",
  "bombadil-schema",
  "env_logger",
  "indoc",

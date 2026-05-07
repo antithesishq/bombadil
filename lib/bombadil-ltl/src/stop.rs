@@ -1,29 +1,26 @@
-use crate::specification::{
-    ltl::{Formula, Leaning, Residual, Time, UniqueSnapshots, Violation},
-    verifier::merge_snapshots,
-};
+use crate::eval::{Leaning, Residual};
+use crate::formula::{Domain, Formula, State};
+use crate::violation::Violation;
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum StopDefault<Function> {
-    True(UniqueSnapshots),
-    False(Violation<Function>),
+pub enum StopDefault<D: Domain> {
+    True(D::State),
+    False(Violation<D>),
 }
 
-pub fn stop_default<Function: Clone>(
-    residual: &Residual<Function>,
-    time: Time,
-) -> Option<StopDefault<Function>> {
+pub fn stop_default<D: Domain>(
+    residual: &Residual<D>,
+    time: D::Time,
+) -> Option<StopDefault<D>> {
     use Residual::*;
     match residual {
-        True(snapshots) => Some(StopDefault::True(snapshots.clone())),
+        True(state) => Some(StopDefault::True(state.clone())),
         False(violation) => Some(StopDefault::False(violation.clone())),
         Derived(_, leaning) => match leaning {
             Leaning::AssumeFalse(violation) => {
                 Some(StopDefault::False(violation.clone()))
             }
-            Leaning::AssumeTrue => {
-                Some(StopDefault::True(UniqueSnapshots::new()))
-            }
+            Leaning::AssumeTrue => Some(StopDefault::True(D::State::default())),
         },
         And { left, right } => stop_default(left, time).and_then(|s1| {
             stop_default(right, time).map(|s2| stop_and_default(&s1, &s2))
@@ -62,14 +59,14 @@ pub fn stop_default<Function: Clone>(
     }
 }
 
-fn stop_and_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
+fn stop_and_default<D: Domain>(
+    left: &StopDefault<D>,
+    right: &StopDefault<D>,
+) -> StopDefault<D> {
     use StopDefault::*;
     match (left, right) {
-        (True(left_snapshots), True(right_snapshots)) => {
-            True(merge_snapshots(left_snapshots, right_snapshots))
+        (True(left_state), True(right_state)) => {
+            True(left_state.merge(right_state))
         }
         (True(_), right) => right.clone(),
         (left, True(_)) => left.clone(),
@@ -80,17 +77,17 @@ fn stop_and_default<Function: Clone>(
     }
 }
 
-fn stop_or_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
+fn stop_or_default<D: Domain>(
+    left: &StopDefault<D>,
+    right: &StopDefault<D>,
+) -> StopDefault<D> {
     use StopDefault::*;
     match (left, right) {
-        (True(left_snapshots), True(right_snapshots)) => {
-            True(merge_snapshots(left_snapshots, right_snapshots))
+        (True(left_state), True(right_state)) => {
+            True(left_state.merge(right_state))
         }
-        (True(snapshots), _) => True(snapshots.clone()),
-        (_, True(snapshots)) => True(snapshots.clone()),
+        (True(state), _) => True(state.clone()),
+        (_, True(state)) => True(state.clone()),
         (False(left), False(right)) => False(Violation::Or {
             left: Box::new(left.clone()),
             right: Box::new(right.clone()),
@@ -98,33 +95,33 @@ fn stop_or_default<Function: Clone>(
     }
 }
 
-fn stop_implies_default<Function: Clone>(
-    left_formula: &Formula<Function>,
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
+fn stop_implies_default<D: Domain>(
+    left_formula: &Formula<D>,
+    left: &StopDefault<D>,
+    right: &StopDefault<D>,
+) -> StopDefault<D> {
     use StopDefault::*;
     match (left, right) {
-        (False(_), _) => True(UniqueSnapshots::new()),
-        (True(snapshots), False(violation)) => False(Violation::Implies {
+        (False(_), _) => True(D::State::default()),
+        (True(state), False(violation)) => False(Violation::Implies {
             left: left_formula.clone(),
             right: Box::new(violation.clone()),
-            antecedent_snapshots: snapshots.values().cloned().collect(),
+            state: state.clone(),
         }),
-        (True(left_snapshots), True(right_snapshots)) => {
-            True(merge_snapshots(left_snapshots, right_snapshots))
+        (True(left_state), True(right_state)) => {
+            True(left_state.merge(right_state))
         }
     }
 }
 
-fn stop_and_always_default<Function: Clone>(
-    subformula: &Formula<Function>,
-    start: Time,
-    end: Option<Time>,
-    time: Time,
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
+fn stop_and_always_default<D: Domain>(
+    subformula: &Formula<D>,
+    start: D::Time,
+    end: Option<D::Time>,
+    time: D::Time,
+    left: &StopDefault<D>,
+    right: &StopDefault<D>,
+) -> StopDefault<D> {
     use StopDefault::*;
     match (left, right) {
         (True(_), right) => right.clone(),
@@ -138,14 +135,14 @@ fn stop_and_always_default<Function: Clone>(
     }
 }
 
-fn stop_or_eventually_default<Function: Clone>(
-    left: &StopDefault<Function>,
-    right: &StopDefault<Function>,
-) -> StopDefault<Function> {
+fn stop_or_eventually_default<D: Domain>(
+    left: &StopDefault<D>,
+    right: &StopDefault<D>,
+) -> StopDefault<D> {
     use StopDefault::*;
     match (left, right) {
-        (True(snapshots), _) => True(snapshots.clone()),
-        (_, True(snapshots)) => True(snapshots.clone()),
+        (True(state), _) => True(state.clone()),
+        (_, True(state)) => True(state.clone()),
         (_, False(right)) => False(right.clone()),
     }
 }

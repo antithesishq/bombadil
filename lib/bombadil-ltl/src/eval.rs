@@ -1,296 +1,138 @@
-use std::collections::BTreeMap;
-use std::time::Duration;
-
-use crate::specification::result::{Result, SpecificationError};
-use crate::specification::verifier::{Snapshot, merge_snapshots};
-pub use bombadil_schema::Time;
-use serde::Serialize;
-
-fn combine_options<T: Clone>(
-    left: Option<T>,
-    right: Option<T>,
-    combine: fn(T, T) -> T,
-) -> Option<T> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(combine(left, right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
-/// A formula in negation normal form (NNF), up to thunks. Note that `Implies` is preserved for
-/// better error messages.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub enum Formula<Function> {
-    Pure { value: bool, pretty: String },
-    Thunk { function: Function, negated: bool },
-    And(Box<Formula<Function>>, Box<Formula<Function>>),
-    Or(Box<Formula<Function>>, Box<Formula<Function>>),
-    Implies(Box<Formula<Function>>, Box<Formula<Function>>),
-    Next(Box<Formula<Function>>),
-    Always(Box<Formula<Function>>, Option<Duration>),
-    Eventually(Box<Formula<Function>>, Option<Duration>),
-}
-
-impl<Function: Clone> Formula<Function> {
-    pub fn map_function<Result>(
-        &self,
-        f: impl Fn(&Function) -> Result,
-    ) -> Formula<Result> {
-        self.map_function_ref(&f)
-    }
-
-    fn map_function_ref<Result>(
-        &self,
-        f: &impl Fn(&Function) -> Result,
-    ) -> Formula<Result> {
-        match self {
-            Formula::Pure { value, pretty } => Formula::Pure {
-                value: *value,
-                pretty: pretty.clone(),
-            },
-            Formula::Thunk { function, negated } => Formula::Thunk {
-                function: f(function),
-                negated: *negated,
-            },
-            Formula::And(left, right) => Formula::And(
-                Box::new(left.clone().map_function_ref(f)),
-                Box::new(right.clone().map_function_ref(f)),
-            ),
-            Formula::Or(left, right) => Formula::Or(
-                Box::new(left.clone().map_function_ref(f)),
-                Box::new(right.clone().map_function_ref(f)),
-            ),
-            Formula::Implies(left, right) => Formula::Implies(
-                Box::new(left.clone().map_function_ref(f)),
-                Box::new(right.clone().map_function_ref(f)),
-            ),
-            Formula::Next(formula) => {
-                Formula::Next(Box::new(formula.clone().map_function_ref(f)))
-            }
-            Formula::Always(formula, bound) => Formula::Always(
-                Box::new(formula.clone().map_function_ref(f)),
-                *bound,
-            ),
-            Formula::Eventually(formula, bound) => Formula::Eventually(
-                Box::new(formula.clone().map_function_ref(f)),
-                *bound,
-            ),
-        }
-    }
-}
-
-pub type UniqueSnapshots = BTreeMap<(usize, Time), Snapshot>;
+/// This module implements the evaluator for Bombadil's LTL. The main component
+/// is the [Evaluator], with two key methods:
+///
+/// * [Evaluator::evaluate]: this takes a [Formula] and returns a [Value]. A
+///   value is either [Value::True], [Value::False], or [Value::Residual].
+///   The false values are violations, along with a residual to optionally
+///   continue evaluating to possibly collect multiple violations. Residuals
+///   are for when we don't yet have a definitive answer and need to either
+///   decide how to stop (based on [Leaning]), or continue stepping the formula
+///   with more states.
+/// * [Evaluator::step]: given a residual, we step it one step ahead, getting
+///   back another value to inspect.
+///
+/// Those two primitives constitute the main flow of evaluating formulas.
+///
+/// [State]s are not global states, but partial ones. The evaluator tracks the
+/// state values used when evaluating [Thunk]s in order to provide a [Violation]
+/// structure with relevant information. This can be used to render detailed
+/// error messages with only relevant information. It is up to the caller to
+/// return only the relevant state when returning a result from [EvaluateThunk].
+///
+/// [Formula::Thunk] are embedded domain-specific computations in the host
+/// language that return formulas. These are used to implement custom logic
+/// and state usage interleaved with the pure LTL evaluation.
+use crate::formula::{Domain, Formula, State};
+use crate::violation::{EventuallyViolation, Violation};
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Value<Function> {
-    True(UniqueSnapshots),
-    False(Violation<Function>, Option<Residual<Function>>),
-    Residual(Residual<Function>),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-pub enum Violation<Function> {
-    False {
-        time: Time,
-        condition: String,
-        snapshots: Vec<Snapshot>,
-    },
-    Eventually {
-        subformula: Box<Formula<Function>>,
-        reason: EventuallyViolation,
-    },
-    Always {
-        violation: Box<Violation<Function>>,
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        time: Time,
-    },
-    And {
-        left: Box<Violation<Function>>,
-        right: Box<Violation<Function>>,
-    },
-    Or {
-        left: Box<Violation<Function>>,
-        right: Box<Violation<Function>>,
-    },
-    Implies {
-        left: Formula<Function>,
-        right: Box<Violation<Function>>,
-        antecedent_snapshots: Vec<Snapshot>,
-    },
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Serialize)]
-pub enum EventuallyViolation {
-    TimedOut(Time),
-    TestEnded,
-}
-
-impl<Function: Clone> Violation<Function> {
-    pub fn map_function<Result>(
-        &self,
-        f: impl Fn(&Function) -> Result,
-    ) -> Violation<Result> {
-        self.map_function_ref(&f)
-    }
-
-    fn map_function_ref<Result>(
-        &self,
-        f: &impl Fn(&Function) -> Result,
-    ) -> Violation<Result> {
-        match self {
-            Violation::False {
-                time,
-                condition,
-                snapshots,
-            } => Violation::False {
-                time: *time,
-                condition: condition.clone(),
-                snapshots: snapshots.clone(),
-            },
-            Violation::Eventually { subformula, reason } => {
-                Violation::Eventually {
-                    subformula: Box::new(subformula.map_function_ref(f)),
-                    reason: *reason,
-                }
-            }
-            Violation::Always {
-                violation,
-                subformula,
-                start,
-                end,
-                time,
-            } => Violation::Always {
-                violation: Box::new(violation.map_function_ref(f)),
-                subformula: Box::new(subformula.map_function_ref(f)),
-                start: *start,
-                end: *end,
-                time: *time,
-            },
-            Violation::And { left, right } => Violation::And {
-                left: Box::new(left.map_function_ref(f)),
-                right: Box::new(right.map_function_ref(f)),
-            },
-            Violation::Or { left, right } => Violation::Or {
-                left: Box::new(left.map_function_ref(f)),
-                right: Box::new(right.map_function_ref(f)),
-            },
-            Violation::Implies {
-                left,
-                right,
-                antecedent_snapshots,
-            } => Violation::Implies {
-                left: left.map_function_ref(f),
-                right: Box::new(right.map_function_ref(f)),
-                antecedent_snapshots: antecedent_snapshots.clone(),
-            },
-        }
-    }
+pub enum Value<D: Domain> {
+    True(D::State),
+    False(Violation<D>, Option<Residual<D>>),
+    Residual(Residual<D>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Leaning<Function> {
+pub enum Leaning<D: Domain> {
     AssumeTrue,
-    AssumeFalse(Violation<Function>),
+    AssumeFalse(Violation<D>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Residual<Function> {
-    True(UniqueSnapshots),
-    False(Violation<Function>),
-    Derived(Derived<Function>, Leaning<Function>),
+pub enum Residual<D: Domain> {
+    True(D::State),
+    False(Violation<D>),
+    Derived(Derived<D>, Leaning<D>),
     And {
-        left: Box<Residual<Function>>,
-        right: Box<Residual<Function>>,
+        left: Box<Residual<D>>,
+        right: Box<Residual<D>>,
     },
     Or {
-        left: Box<Residual<Function>>,
-        right: Box<Residual<Function>>,
+        left: Box<Residual<D>>,
+        right: Box<Residual<D>>,
     },
     Implies {
-        left_formula: Formula<Function>,
-        left: Box<Residual<Function>>,
-        right: Box<Residual<Function>>,
+        left_formula: Formula<D>,
+        left: Box<Residual<D>>,
+        right: Box<Residual<D>>,
     },
     OrEventually {
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        left: Box<Residual<Function>>,
-        right: Box<Residual<Function>>,
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        left: Box<Residual<D>>,
+        right: Box<Residual<D>>,
     },
     AndAlways {
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
         /// When the left-side residual was first created. Used as
         /// the violation time in the Always wrapper so that "but
         /// at T" reflects when the subformula first started
         /// failing, not when the failure was confirmed.
-        onset: Time,
-        left: Box<Residual<Function>>,
-        right: Box<Residual<Function>>,
+        onset: D::Time,
+        left: Box<Residual<D>>,
+        right: Box<Residual<D>>,
     },
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub enum Derived<Function> {
+pub enum Derived<D: Domain> {
     Once {
-        start: Time,
-        subformula: Box<Formula<Function>>,
+        start: D::Time,
+        subformula: Box<Formula<D>>,
     },
     Always {
-        start: Time,
-        end: Option<Time>,
-        subformula: Box<Formula<Function>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        subformula: Box<Formula<D>>,
     },
     Eventually {
-        start: Time,
-        end: Option<Time>,
-        subformula: Box<Formula<Function>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        subformula: Box<Formula<D>>,
     },
 }
 
-pub type EvaluateThunk<'a, Function> =
+pub type EvaluateThunk<'a, D, Error> =
     &'a mut dyn FnMut(
-        &'_ Function,
+        &'_ <D as Domain>::Function,
         bool,
-    ) -> Result<(Formula<Function>, UniqueSnapshots)>;
+    ) -> Result<(Formula<D>, <D as Domain>::State), Error>;
 
-pub struct Evaluator<'a, Function> {
-    evaluate_thunk: EvaluateThunk<'a, Function>,
+pub struct Evaluator<'a, D: Domain, Error> {
+    evaluate_thunk: EvaluateThunk<'a, D, Error>,
 }
 
-impl<'a, Function: Clone> Evaluator<'a, Function> {
-    pub fn new(evaluate_thunk: EvaluateThunk<'a, Function>) -> Self {
+impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
+    pub fn new(evaluate_thunk: EvaluateThunk<'a, D, Error>) -> Self {
         Evaluator { evaluate_thunk }
     }
 
     pub fn evaluate(
         &mut self,
-        formula: &Formula<Function>,
-        time: Time,
-    ) -> Result<Value<Function>> {
+        formula: &Formula<D>,
+        time: D::Time,
+    ) -> Result<Value<D>, Error> {
         match formula {
             Formula::Pure { value, pretty } => Ok(if *value {
-                Value::True(UniqueSnapshots::new())
+                Value::True(D::State::default())
             } else {
                 Value::False(
                     Violation::False {
                         time,
                         condition: pretty.clone(),
-                        snapshots: vec![],
+                        state: D::State::default(),
                     },
                     None,
                 )
             }),
             Formula::Thunk { function, negated } => {
-                let (formula, snapshots) =
+                let (formula, state) =
                     (self.evaluate_thunk)(function, *negated)?;
                 let mut value = self.evaluate(&formula, time)?;
-                attach_snapshots(&mut value, snapshots);
+                attach_state(&mut value, &state);
                 Ok(value)
             }
             Formula::And(left, right) => {
@@ -313,44 +155,24 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     start: time,
                     subformula: formula.clone(),
                 },
-                Leaning::AssumeTrue, // TODO: expose true/false leaning in TS layer?
+                Leaning::AssumeTrue,
             ))),
             Formula::Always(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
-                } else {
-                    None
-                };
+                let end = bound.map(|duration| time + duration);
                 self.evaluate_always(formula.clone(), time, end, time)
             }
             Formula::Eventually(formula, bound) => {
-                let end = if let Some(duration) = bound {
-                    Some(time.checked_add(*duration).ok_or(
-                        SpecificationError::OtherError(
-                            "failed to add bound to time".to_string(),
-                        ),
-                    )?)
-                } else {
-                    None
-                };
+                let end = bound.map(|duration| time + duration);
                 self.evaluate_eventually(formula.clone(), time, end, time)
             }
         }
     }
 
-    fn evaluate_and(
-        &mut self,
-        left: &Value<Function>,
-        right: &Value<Function>,
-    ) -> Value<Function> {
-        fn combine_and<F: Clone>(
-            left: Residual<F>,
-            right: Residual<F>,
-        ) -> Residual<F> {
+    fn evaluate_and(&mut self, left: &Value<D>, right: &Value<D>) -> Value<D> {
+        fn combine_and<D: Domain>(
+            left: Residual<D>,
+            right: Residual<D>,
+        ) -> Residual<D> {
             Residual::And {
                 left: Box::new(left),
                 right: Box::new(right),
@@ -358,21 +180,15 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         match (left, right) {
-            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                Value::True(merge_snapshots(snapshots_left, snapshots_right))
+            (Value::True(left_state), Value::True(right_state)) => {
+                Value::True(left_state.merge(right_state))
             }
-            (Value::True(snapshots), Value::Residual(residual)) => {
-                Value::Residual(combine_and(
-                    Residual::True(snapshots.clone()),
-                    residual.clone(),
-                ))
-            }
-            (Value::Residual(residual), Value::True(snapshots)) => {
-                Value::Residual(combine_and(
-                    residual.clone(),
-                    Residual::True(snapshots.clone()),
-                ))
-            }
+            (Value::True(state), Value::Residual(residual)) => Value::Residual(
+                combine_and(Residual::True(state.clone()), residual.clone()),
+            ),
+            (Value::Residual(residual), Value::True(state)) => Value::Residual(
+                combine_and(residual.clone(), Residual::True(state.clone())),
+            ),
             (Value::True(_), right) => right.clone(),
             (left, Value::True(_)) => left.clone(),
             (
@@ -411,11 +227,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
     }
 
-    fn evaluate_or(
-        &mut self,
-        left: &Value<Function>,
-        right: &Value<Function>,
-    ) -> Value<Function> {
+    fn evaluate_or(&mut self, left: &Value<D>, right: &Value<D>) -> Value<D> {
         match (left, right) {
             (
                 Value::False(violation_left, residual_left),
@@ -434,11 +246,11 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     },
                 ),
             ),
-            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                Value::True(merge_snapshots(snapshots_left, snapshots_right))
+            (Value::True(left_state), Value::True(right_state)) => {
+                Value::True(left_state.merge(right_state))
             }
-            (Value::True(references), _) => Value::True(references.clone()),
-            (_, Value::True(references)) => Value::True(references.clone()),
+            (Value::True(state), _) => Value::True(state.clone()),
+            (_, Value::True(state)) => Value::True(state.clone()),
             (left, Value::False(_, _)) => left.clone(),
             (Value::False(_, _), right) => right.clone(),
             (Value::Residual(left), Value::Residual(right)) => {
@@ -452,42 +264,39 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
     fn evaluate_implies(
         &mut self,
-        left_formula: &Formula<Function>,
-        left: &Value<Function>,
-        right: &Value<Function>,
-    ) -> Value<Function> {
+        left_formula: &Formula<D>,
+        left: &Value<D>,
+        right: &Value<D>,
+    ) -> Value<D> {
         match (left, right) {
-            (Value::False(_, _), _) => Value::True(UniqueSnapshots::new()),
+            (Value::False(_, _), _) => Value::True(D::State::default()),
             (
-                Value::True(snapshots_left),
+                Value::True(left_state),
                 Value::False(violation, continuation),
             ) => Value::False(
                 Violation::Implies {
                     left: left_formula.clone(),
                     right: Box::new(violation.clone()),
-                    antecedent_snapshots: snapshots_left
-                        .values()
-                        .cloned()
-                        .collect(),
+                    state: left_state.clone(),
                 },
                 continuation.as_ref().map(|c| Residual::Implies {
                     left_formula: left_formula.clone(),
-                    left: Box::new(Residual::True(snapshots_left.clone())),
+                    left: Box::new(Residual::True(left_state.clone())),
                     right: Box::new(c.clone()),
                 }),
             ),
-            (Value::True(snapshots_left), Value::True(snapshots_right)) => {
-                Value::True(merge_snapshots(snapshots_left, snapshots_right))
+            (Value::True(left_state), Value::True(right_state)) => {
+                Value::True(left_state.merge(right_state))
             }
-            (Value::True(snapshots_left), Value::Residual(right)) => {
+            (Value::True(left_state), Value::Residual(right)) => {
                 Value::Residual(Residual::Implies {
                     left_formula: left_formula.clone(),
-                    left: Box::new(Residual::True(snapshots_left.clone())),
+                    left: Box::new(Residual::True(left_state.clone())),
                     right: Box::new(right.clone()),
                 })
             }
-            (Value::Residual(_), Value::True(references)) => {
-                Value::True(references.clone())
+            (Value::Residual(_), Value::True(state)) => {
+                Value::True(state.clone())
             }
             (Value::Residual(left), Value::False(violation, _)) => {
                 Value::Residual(Residual::Implies {
@@ -508,15 +317,15 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
     fn evaluate_always(
         &mut self,
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        time: Time,
-    ) -> Result<Value<Function>> {
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        time: D::Time,
+    ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
         {
-            return Ok(Value::True(UniqueSnapshots::new()));
+            return Ok(Value::True(D::State::default()));
         }
 
         let residual = Residual::Derived(
@@ -528,18 +337,17 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             Leaning::AssumeTrue,
         );
 
-        let wrap_and_always = |inner: Residual<Function>,
-                               always: Residual<Function>|
-         -> Residual<Function> {
-            Residual::AndAlways {
-                subformula: subformula.clone(),
-                start,
-                end,
-                onset: time,
-                left: Box::new(inner),
-                right: Box::new(always),
-            }
-        };
+        let wrap_and_always =
+            |inner: Residual<D>, always: Residual<D>| -> Residual<D> {
+                Residual::AndAlways {
+                    subformula: subformula.clone(),
+                    start,
+                    end,
+                    onset: time,
+                    left: Box::new(inner),
+                    right: Box::new(always),
+                }
+            };
 
         Ok(match self.evaluate(&subformula, time)? {
             Value::True(_) => Value::Residual(residual),
@@ -568,24 +376,24 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     #[allow(clippy::too_many_arguments)]
     fn evaluate_and_always(
         &mut self,
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        onset: Time,
-        time: Time,
-        left: Value<Function>,
-        right: Value<Function>,
-    ) -> Result<Value<Function>> {
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        onset: D::Time,
+        time: D::Time,
+        left: Value<D>,
+        right: Value<D>,
+    ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
         {
-            return Ok(Value::True(UniqueSnapshots::new()));
+            return Ok(Value::True(D::State::default()));
         }
 
-        let wrap_and_always = |onset: Time,
-                               inner: Residual<Function>,
-                               always: Residual<Function>|
-         -> Residual<Function> {
+        let wrap_and_always = |onset: D::Time,
+                               inner: Residual<D>,
+                               always: Residual<D>|
+         -> Residual<D> {
             Residual::AndAlways {
                 subformula: subformula.clone(),
                 start,
@@ -596,7 +404,9 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             }
         };
 
-        fn pending_residual<F>(value: &Value<F>) -> Option<&Residual<F>> {
+        fn pending_residual<D: Domain>(
+            value: &Value<D>,
+        ) -> Option<&Residual<D>> {
             match value {
                 Value::Residual(residual) => Some(residual),
                 Value::False(_, Some(continuation)) => Some(continuation),
@@ -606,7 +416,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
         Ok(match (left, right) {
             (Value::True(_), Value::True(_)) => {
-                Value::True(UniqueSnapshots::new())
+                Value::True(D::State::default())
             }
             (Value::Residual(left), Value::True(_)) => {
                 Value::Residual(Residual::AndAlways {
@@ -615,7 +425,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     end,
                     onset,
                     left: Box::new(left),
-                    right: Box::new(Residual::True(UniqueSnapshots::new())),
+                    right: Box::new(Residual::True(D::State::default())),
                 })
             }
             (Value::True(_), Value::Residual(right)) => {
@@ -624,7 +434,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     start,
                     end,
                     onset: time,
-                    left: Box::new(Residual::True(UniqueSnapshots::new())),
+                    left: Box::new(Residual::True(D::State::default())),
                     right: Box::new(right),
                 })
             }
@@ -661,17 +471,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                     }
                     None => always_residual,
                 };
-                // Unwrap all layers of Always if present, since
-                // we're about to re-wrap. The inner Always wrappers
-                // were produced by prior evaluate_always or
-                // evaluate_and_always calls for the same formula.
-                //
-                // When the left side fails, use onset (when the
-                // left residual was first created) so that "but
-                // at T" reflects when the subformula first
-                // started failing. When the right side fails,
-                // use the time from the innermost Always (set by
-                // evaluate_always at the current step).
                 let (violation, violation_time) = match (&left, &right) {
                     (Value::False(v, _), _) => {
                         let mut current = v;
@@ -715,11 +514,11 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
     fn evaluate_eventually(
         &mut self,
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        time: Time,
-    ) -> Result<Value<Function>> {
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        time: D::Time,
+    ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -745,7 +544,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         );
 
         Ok(match self.evaluate(&subformula, time)? {
-            Value::True(references) => Value::True(references),
+            Value::True(state) => Value::True(state),
             Value::False(_violation, _) => Value::Residual(residual),
             Value::Residual(left) => Value::Residual(Residual::OrEventually {
                 subformula,
@@ -759,13 +558,13 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
     fn evaluate_or_eventually(
         &mut self,
-        subformula: Box<Formula<Function>>,
-        start: Time,
-        end: Option<Time>,
-        time: Time,
-        left: Value<Function>,
-        right: Value<Function>,
-    ) -> Result<Value<Function>> {
+        subformula: Box<Formula<D>>,
+        start: D::Time,
+        end: Option<D::Time>,
+        time: D::Time,
+        left: Value<D>,
+        right: Value<D>,
+    ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
         {
@@ -779,14 +578,10 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
         }
 
         Ok(match (left, right) {
-            (Value::True(references), _) => Value::True(references),
-            (_, Value::True(references)) => Value::True(references),
+            (Value::True(state), _) => Value::True(state),
+            (_, Value::True(state)) => Value::True(state),
             (Value::False(_, _), Value::False(right, _)) => {
-                // NOTE: We ignore the left-side violation in `eventually` in
-                // order to not build up a giant violation tree of all the
-                // non-evidence we've seen (e.g. X was not true in state 1 and
-                // X was not true in state 2 and ...).
-                Value::False(right.clone(), None) // TODO: should this be wrapped in Violation::Eventually?
+                Value::False(right.clone(), None)
             }
             (Value::False(_, _), Value::Residual(residual)) => {
                 Value::Residual(residual.clone())
@@ -808,11 +603,11 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
 
     pub fn step(
         &mut self,
-        residual: &Residual<Function>,
-        time: Time,
-    ) -> Result<Value<Function>> {
+        residual: &Residual<D>,
+        time: D::Time,
+    ) -> Result<Value<D>, Error> {
         Ok(match residual {
-            Residual::True(references) => Value::True(references.clone()),
+            Residual::True(state) => Value::True(state.clone()),
             Residual::False(violation) => Value::False(violation.clone(), None),
             Residual::And { left, right } => {
                 let left = self.step(left, time)?;
@@ -837,10 +632,7 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
                 Derived::Once {
                     start: _,
                     subformula,
-                } => {
-                    // TODO: wrap potential violation in Next wrapper with start time
-                    self.evaluate(subformula, time)?
-                }
+                } => self.evaluate(subformula, time)?,
                 Derived::Always {
                     start,
                     end,
@@ -871,7 +663,6 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
             } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-
                 self.evaluate_or_eventually(
                     subformula.clone(),
                     *start,
@@ -905,40 +696,36 @@ impl<'a, Function: Clone> Evaluator<'a, Function> {
     }
 }
 
-fn attach_snapshots<F>(value: &mut Value<F>, resolved: UniqueSnapshots) {
+fn attach_state<D: Domain>(value: &mut Value<D>, resolved: &D::State) {
     if resolved.is_empty() {
         return;
     }
     match value {
-        Value::True(snapshots) => {
-            snapshots.extend(resolved);
+        Value::True(state) => {
+            *state = state.merge(resolved);
         }
         Value::False(violation, _) => {
-            attach_to_violation(violation, &resolved);
+            attach_to_violation(violation, resolved);
         }
         Value::Residual(residual) => {
-            attach_to_residual(residual, &resolved);
+            attach_to_residual(residual, resolved);
         }
     }
 }
 
-fn attach_to_violation<F>(
-    violation: &mut Violation<F>,
-    resolved: &UniqueSnapshots,
+fn attach_to_violation<D: Domain>(
+    violation: &mut Violation<D>,
+    resolved: &D::State,
 ) {
     let mut queue = vec![violation];
 
     while let Some(v) = queue.pop() {
         match v {
-            Violation::False { snapshots, .. } => {
-                snapshots.extend(resolved.values().cloned());
+            Violation::False { state, .. } => {
+                *state = state.merge(resolved);
             }
-            Violation::Implies {
-                antecedent_snapshots,
-                right,
-                ..
-            } => {
-                antecedent_snapshots.extend(resolved.values().cloned());
+            Violation::Implies { state, right, .. } => {
+                *state = state.merge(resolved);
                 queue.push(right.as_mut());
             }
             Violation::And { left, right } => {
@@ -957,16 +744,16 @@ fn attach_to_violation<F>(
     }
 }
 
-fn attach_to_residual<F>(
-    residual: &mut Residual<F>,
-    resolved: &UniqueSnapshots,
+fn attach_to_residual<D: Domain>(
+    residual: &mut Residual<D>,
+    resolved: &D::State,
 ) {
     let mut queue = vec![residual];
 
     while let Some(r) = queue.pop() {
         match r {
-            Residual::True(snapshots) => {
-                snapshots.extend(resolved.iter().map(|(k, v)| (*k, v.clone())));
+            Residual::True(state) => {
+                *state = state.merge(resolved);
             }
             Residual::False(violation) => {
                 attach_to_violation(violation, resolved);
@@ -984,5 +771,17 @@ fn attach_to_residual<F>(
             }
             Residual::Derived(_, _) => {}
         }
+    }
+}
+
+fn combine_options<T: Clone>(
+    left: Option<T>,
+    right: Option<T>,
+    combine: fn(T, T) -> T,
+) -> Option<T> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(combine(left, right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
     }
 }

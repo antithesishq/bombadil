@@ -6,6 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use bombadil::specification::domain::Snapshot;
 use std::collections::HashMap;
 use std::io::Write;
 use std::{
@@ -24,7 +25,7 @@ use bombadil::{
         actions::BrowserAction,
     },
     runner::Runner,
-    specification::verifier::Specification,
+    specification::{convert::ToSchema, verifier::Specification},
     styled,
 };
 use bombadil_schema::markup;
@@ -273,7 +274,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 _last_action: Option<
                     &bombadil::browser::actions::BrowserAction,
                 >,
-                _snapshots: &[bombadil::specification::verifier::Snapshot],
+                _snapshots: &[Snapshot],
                 violations: &[bombadil::trace::PropertyViolation],
             ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
             {
@@ -281,8 +282,9 @@ impl<'a> BrowserIntegrationTest<'a> {
                     *self.test_start.get_or_insert(state.timestamp);
                 if !violations.is_empty() {
                     for violation in violations {
-                        let api_violation = violation.to_api();
-                        let markup = markup::render_violation(&api_violation);
+                        let schema_violation = violation.to_schema();
+                        let markup =
+                            markup::render_violation(&schema_violation);
                         let rendered = styled::markup_to_styled(
                             &markup,
                             bombadil_schema::Time::from_system_time(test_start),

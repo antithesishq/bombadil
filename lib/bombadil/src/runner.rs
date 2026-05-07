@@ -2,7 +2,9 @@ use crate::browser::actions::BrowserAction;
 use crate::browser::{BrowserEvent, BrowserOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::specification::bundler::bundle;
-use crate::specification::verifier::{Snapshot, Specification};
+use crate::specification::convert::ToSchema;
+use crate::specification::domain::Snapshot;
+use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
 use ::url::Url;
@@ -157,7 +159,7 @@ impl Runner {
                                         PropertyValue::False(violation) => {
                                             violations.push(PropertyViolation {
                                                 name,
-                                                violation,
+                                                violation: violation.to_schema(),
                                             });
                                         }
                                         PropertyValue::Residual

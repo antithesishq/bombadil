@@ -24,6 +24,14 @@ impl<'de> Deserialize<'de> for Time {
     }
 }
 
+impl std::ops::Add<Duration> for Time {
+    type Output = Self;
+    fn add(self, rhs: Duration) -> Self {
+        let duration_micros = rhs.as_micros() as u64;
+        Time(self.0.wrapping_add(duration_micros))
+    }
+}
+
 impl Time {
     pub fn from_system_time(time: SystemTime) -> Self {
         let micros = time

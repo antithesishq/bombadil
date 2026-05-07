@@ -6,7 +6,7 @@ use url::Url;
 
 use crate::{
     browser::{actions::BrowserAction, state::Resources},
-    specification::{convert, ltl, verifier::Snapshot},
+    specification::{convert::ToSchema, domain::Snapshot},
 };
 
 pub mod writer;
@@ -27,20 +27,20 @@ pub struct TraceEntry<'a> {
 #[derive(Debug, Clone, Serialize)]
 pub struct PropertyViolation {
     pub name: String,
-    pub violation: ltl::Violation<convert::PrettyFunction>,
+    pub violation: bombadil_schema::Violation,
 }
 
-impl PropertyViolation {
-    pub fn to_api(&self) -> bombadil_schema::PropertyViolation {
+impl ToSchema<bombadil_schema::PropertyViolation> for PropertyViolation {
+    fn to_schema(&self) -> bombadil_schema::PropertyViolation {
         bombadil_schema::PropertyViolation {
             name: self.name.clone(),
-            violation: self.violation.to_api(),
+            violation: self.violation.clone(),
         }
     }
 }
 
-impl<'a> TraceEntry<'a> {
-    pub fn to_api(&self) -> bombadil_schema::TraceEntry {
+impl<'a> ToSchema<bombadil_schema::TraceEntry> for TraceEntry<'a> {
+    fn to_schema(&self) -> bombadil_schema::TraceEntry {
         bombadil_schema::TraceEntry {
             timestamp: Time::from_system_time(self.timestamp),
             url: self.url.to_string(),
@@ -48,8 +48,8 @@ impl<'a> TraceEntry<'a> {
             hash_current: self.hash_current,
             action: self.action.as_ref().map(|a| a.to_api()),
             screenshot: self.screenshot.to_string_lossy().to_string(),
-            snapshots: self.snapshots.iter().map(|s| s.to_api()).collect(),
-            violations: self.violations.iter().map(|v| v.to_api()).collect(),
+            snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),
+            violations: self.violations.iter().map(|v| v.to_schema()).collect(),
             resources: self.resources.to_api(),
         }
     }

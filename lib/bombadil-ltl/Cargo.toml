@@ -1,0 +1,12 @@
+[package]
+name = "bombadil-ltl"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "bombadil_ltl"
+path = "src/lib.rs"
+
+[dev-dependencies]
+anyhow.workspace = true
+proptest.workspace = true

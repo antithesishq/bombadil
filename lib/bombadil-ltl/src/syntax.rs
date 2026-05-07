@@ -1,27 +1,23 @@
-use std::time::Duration;
+use crate::formula::{Domain, Formula};
 
-use crate::specification::ltl::Formula;
-
-/// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
+/// A formula in its syntactic form. In Bombadil this structure is parsed from
+/// JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Syntax<Function> {
+pub enum Syntax<D: Domain> {
     Pure { value: bool, pretty: String },
-    Thunk(Function),
-    Not(Box<Syntax<Function>>),
-    And(Box<Syntax<Function>>, Box<Syntax<Function>>),
-    Or(Box<Syntax<Function>>, Box<Syntax<Function>>),
-    Implies(Box<Syntax<Function>>, Box<Syntax<Function>>),
-    Next(Box<Syntax<Function>>),
-    Always(Box<Syntax<Function>>, Option<Duration>),
-    Eventually(Box<Syntax<Function>>, Option<Duration>),
+    Thunk(D::Function),
+    Not(Box<Syntax<D>>),
+    And(Box<Syntax<D>>, Box<Syntax<D>>),
+    Or(Box<Syntax<D>>, Box<Syntax<D>>),
+    Implies(Box<Syntax<D>>, Box<Syntax<D>>),
+    Next(Box<Syntax<D>>),
+    Always(Box<Syntax<D>>, Option<D::Duration>),
+    Eventually(Box<Syntax<D>>, Option<D::Duration>),
 }
 
-impl<Function: Clone> Syntax<Function> {
-    pub fn nnf(&self) -> Formula<Function> {
-        fn go<Function: Clone>(
-            node: &Syntax<Function>,
-            negated: bool,
-        ) -> Formula<Function> {
+impl<D: Domain> Syntax<D> {
+    pub fn nnf(&self) -> Formula<D> {
+        fn go<D: Domain>(node: &Syntax<D>, negated: bool) -> Formula<D> {
             match node {
                 Syntax::Pure { value, pretty } => Formula::Pure {
                     value: if negated { !*value } else { *value },

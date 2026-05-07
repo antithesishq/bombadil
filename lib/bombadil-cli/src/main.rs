@@ -4,6 +4,7 @@ mod render;
 
 use ::url::Url;
 use anyhow::Result;
+use bombadil::specification::domain::Snapshot;
 use clap::{Args, Parser};
 use std::{
     path::PathBuf,
@@ -19,7 +20,7 @@ use bombadil::{
     },
     instrumentation::InstrumentationConfig,
     runner::{ControlFlow, RunObserver, Runner},
-    specification::verifier::{Snapshot, Specification},
+    specification::{convert::ToSchema, verifier::Specification},
     styled,
     trace::{PropertyViolation, writer::TraceWriter},
 };
@@ -344,7 +345,7 @@ async fn test(
             self.violations_count += violations.len() as u64;
             for violation in violations {
                 log::info!("violation of property `{}`", violation.name);
-                let api_violation = violation.to_api();
+                let api_violation = violation.to_schema();
                 let markup = markup::render_violation(&api_violation);
                 let text = styled::markup_to_styled(&markup, test_start);
                 println!(

@@ -1,12 +1,13 @@
 use std::{borrow::Cow, path::PathBuf, time::UNIX_EPOCH};
 
+use crate::specification::domain::Snapshot;
 use anyhow::Result;
 use serde_json as json;
 use tokio::{fs::File, io::AsyncWriteExt};
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
-    specification::verifier::Snapshot,
+    specification::convert::ToSchema,
     trace::{PropertyViolation, TraceEntry},
 };
 
@@ -69,7 +70,7 @@ impl TraceWriter {
         self.last_transition_hash = state.transition_hash;
 
         self.trace_file
-            .write_all(json::to_string(&entry.to_api())?.as_bytes())
+            .write_all(json::to_string(&entry.to_schema())?.as_bytes())
             .await?;
         self.trace_file.write_u8(b'\n').await?;
 
