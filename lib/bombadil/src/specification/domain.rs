@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 
-use bombadil_ltl::ltl::{Domain, State};
+use bombadil_ltl::formula::{Domain, State};
 use bombadil_schema::Time;
 use serde::{Deserialize, Serialize};
 use serde_json as json;

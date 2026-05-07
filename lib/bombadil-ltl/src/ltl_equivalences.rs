@@ -3,7 +3,8 @@ use std::{cell::RefCell, ops::Add, time::Duration};
 use anyhow::Error;
 
 use crate::{
-    ltl::*,
+    eval::*,
+    formula::*,
     stop::{StopDefault, stop_default},
 };
 use proptest::prelude::*;

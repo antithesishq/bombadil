@@ -1,4 +1,4 @@
-use crate::ltl::{Domain, Formula};
+use crate::formula::{Domain, Formula};
 
 /// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]

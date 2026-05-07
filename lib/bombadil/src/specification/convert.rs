@@ -2,7 +2,8 @@ use serde::Serialize;
 
 use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
-use bombadil_ltl::ltl::{EventuallyViolation, Formula, Violation};
+use bombadil_ltl::formula::Formula;
+use bombadil_ltl::violation::{EventuallyViolation, Violation};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PrettyFunction(pub String);
@@ -29,7 +30,9 @@ pub trait ToSchema<Output> {
     fn to_schema(&self) -> Output;
 }
 
-impl ToSchema<bombadil_schema::Formula> for Formula<BombadilDomain<PrettyFunction>> {
+impl ToSchema<bombadil_schema::Formula>
+    for Formula<BombadilDomain<PrettyFunction>>
+{
     fn to_schema(&self) -> bombadil_schema::Formula {
         match self {
             Formula::Pure { value, pretty } => bombadil_schema::Formula::Pure {
@@ -73,7 +76,9 @@ impl ToSchema<bombadil_schema::Formula> for Formula<BombadilDomain<PrettyFunctio
     }
 }
 
-impl ToSchema<bombadil_schema::Violation> for Violation<BombadilDomain<PrettyFunction>> {
+impl ToSchema<bombadil_schema::Violation>
+    for Violation<BombadilDomain<PrettyFunction>>
+{
     fn to_schema(&self) -> bombadil_schema::Violation {
         match self {
             Violation::False {

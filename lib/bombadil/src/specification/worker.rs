@@ -3,7 +3,8 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-use bombadil_ltl::ltl;
+use bombadil_ltl::eval;
+use bombadil_ltl::violation;
 use bombadil_schema::Time;
 
 use crate::specification::convert::{
@@ -42,18 +43,18 @@ pub struct StepResult<A> {
 #[derive(Debug, Clone)]
 pub enum PropertyValue {
     True,
-    False(ltl::Violation<BombadilDomain<PrettyFunction>>),
+    False(violation::Violation<BombadilDomain<PrettyFunction>>),
     Residual,
 }
 
-impl From<&ltl::Value<BombadilDomain<RuntimeFunction>>> for PropertyValue {
-    fn from(value: &ltl::Value<BombadilDomain<RuntimeFunction>>) -> Self {
+impl From<&eval::Value<BombadilDomain<RuntimeFunction>>> for PropertyValue {
+    fn from(value: &eval::Value<BombadilDomain<RuntimeFunction>>) -> Self {
         match value {
-            ltl::Value::True(_) => PropertyValue::True,
-            ltl::Value::False(violation, _) => {
+            eval::Value::True(_) => PropertyValue::True,
+            eval::Value::False(violation, _) => {
                 PropertyValue::False(violation_with_pretty_functions(violation))
             }
-            ltl::Value::Residual(_) => PropertyValue::Residual,
+            eval::Value::Residual(_) => PropertyValue::Residual,
         }
     }
 }

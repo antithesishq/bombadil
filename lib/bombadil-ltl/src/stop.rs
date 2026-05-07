@@ -1,4 +1,6 @@
-use crate::ltl::{Domain, Formula, Leaning, Residual, State, Violation};
+use crate::eval::{Leaning, Residual};
+use crate::formula::{Domain, Formula, State};
+use crate::violation::Violation;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StopDefault<D: Domain> {
