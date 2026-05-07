@@ -14,16 +14,15 @@ use boa_engine::{
     property::PropertyKey,
 };
 use boa_engine::{JsError, JsObject, JsValue};
-use bombadil_ltl::ltl::{self};
-use bombadil_ltl::ltl::{
-    Evaluator, Formula, Residual, Snapshot, UniqueSnapshots,
-};
+use bombadil_ltl::ltl::{self, Evaluator, Formula, Residual};
 use bombadil_ltl::syntax::Syntax;
 use serde_json as json;
 
+use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
+
 #[derive(Clone)]
 pub struct StepResult<A> {
-    pub properties: Vec<(String, ltl::Value<RuntimeFunction>)>,
+    pub properties: Vec<(String, ltl::Value<BombadilDomain<RuntimeFunction>>)>,
     pub actions: Tree<A>,
     pub has_pending: bool,
 }
@@ -269,7 +268,7 @@ impl Verifier {
     pub fn step<A: serde::de::DeserializeOwned>(
         &mut self,
         snapshots: &[Snapshot],
-        time: ltl::Time,
+        time: bombadil_schema::Time,
     ) -> Result<StepResult<A>> {
         self.extractors
             .update_from_snapshots(snapshots, &mut self.context)?;
@@ -277,39 +276,37 @@ impl Verifier {
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
         let context = &mut self.context;
-        let mut evaluate_thunk = |function: &RuntimeFunction,
-                                  negated: bool|
-         -> Result<(
-            Formula<RuntimeFunction>,
-            UniqueSnapshots,
-        )> {
-            let (indices, value) = with_snapshot_tracking(
-                context,
-                &self.bombadil_exports,
-                |context| {
-                    function
-                        .object
-                        .call(&JsValue::undefined(), &[], context)
-                        .map_err(Into::into)
-                },
-            )?;
-            let accessed_snapshots: UniqueSnapshots = indices
-                .into_iter()
-                .filter_map(|index| snapshots.get(index).cloned())
-                .map(|snapshot| ((snapshot.index, snapshot.time), snapshot))
-                .collect();
-            let syntax =
-                syntax_from_value(&value, &self.bombadil_exports, context)?;
-            Ok((
-                (if negated {
-                    Syntax::Not(Box::new(syntax))
-                } else {
-                    syntax
-                })
-                .nnf(),
-                accessed_snapshots,
-            ))
-        };
+        let mut evaluate_thunk =
+            |function: &RuntimeFunction,
+             negated: bool|
+             -> Result<(Formula<BombadilDomain<RuntimeFunction>>, UniqueSnapshots)> {
+                let (indices, value) = with_snapshot_tracking(
+                    context,
+                    &self.bombadil_exports,
+                    |context| {
+                        function
+                            .object
+                            .call(&JsValue::undefined(), &[], context)
+                            .map_err(Into::into)
+                    },
+                )?;
+                let accessed_snapshots: UniqueSnapshots = indices
+                    .into_iter()
+                    .filter_map(|index| snapshots.get(index).cloned())
+                    .map(|snapshot| ((snapshot.index, snapshot.time), snapshot))
+                    .collect();
+                let syntax =
+                    syntax_from_value(&value, &self.bombadil_exports, context)?;
+                Ok((
+                    (if negated {
+                        Syntax::Not(Box::new(syntax))
+                    } else {
+                        syntax
+                    })
+                    .nnf(),
+                    accessed_snapshots,
+                ))
+            };
         let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
         for property in self.properties.values_mut() {
@@ -328,7 +325,7 @@ impl Verifier {
                 match value {
                     ltl::Value::True(_) => {
                         property.state = PropertyState::DefinitelyTrue;
-                        ltl::Value::True(UniqueSnapshots::new())
+                        ltl::Value::True(UniqueSnapshots::default())
                     }
                     ltl::Value::False(violation, continuation) => {
                         property.state = match continuation {
@@ -381,8 +378,8 @@ pub struct Property {
 
 #[derive(Debug, Clone)]
 enum PropertyState {
-    Initial(Formula<RuntimeFunction>),
-    Residual(Residual<RuntimeFunction>),
+    Initial(Formula<BombadilDomain<RuntimeFunction>>),
+    Residual(Residual<BombadilDomain<RuntimeFunction>>),
     DefinitelyTrue,
     DefinitelyFalse,
 }

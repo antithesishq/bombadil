@@ -1,10 +1,11 @@
 use serde::Serialize;
 
+use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
-use bombadil_ltl::ltl::{EventuallyViolation, Formula, Snapshot, Violation};
+use bombadil_ltl::ltl::{EventuallyViolation, Formula, Violation};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct PrettyFunction(String);
+pub struct PrettyFunction(pub String);
 
 impl std::fmt::Display for PrettyFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -13,14 +14,14 @@ impl std::fmt::Display for PrettyFunction {
 }
 
 pub fn formula_with_pretty_functions(
-    formula: &Formula<RuntimeFunction>,
-) -> Formula<PrettyFunction> {
+    formula: &Formula<BombadilDomain<RuntimeFunction>>,
+) -> Formula<BombadilDomain<PrettyFunction>> {
     formula.map_function(|f| PrettyFunction(f.pretty.clone()))
 }
 
 pub fn violation_with_pretty_functions(
-    violation: &Violation<RuntimeFunction>,
-) -> Violation<PrettyFunction> {
+    violation: &Violation<BombadilDomain<RuntimeFunction>>,
+) -> Violation<BombadilDomain<PrettyFunction>> {
     violation.map_function(|f| PrettyFunction(f.pretty.clone()))
 }
 
@@ -28,7 +29,7 @@ pub trait ToSchema<Output> {
     fn to_schema(&self) -> Output;
 }
 
-impl ToSchema<bombadil_schema::Formula> for Formula<PrettyFunction> {
+impl ToSchema<bombadil_schema::Formula> for Formula<BombadilDomain<PrettyFunction>> {
     fn to_schema(&self) -> bombadil_schema::Formula {
         match self {
             Formula::Pure { value, pretty } => bombadil_schema::Formula::Pure {
@@ -72,17 +73,17 @@ impl ToSchema<bombadil_schema::Formula> for Formula<PrettyFunction> {
     }
 }
 
-impl ToSchema<bombadil_schema::Violation> for Violation<PrettyFunction> {
+impl ToSchema<bombadil_schema::Violation> for Violation<BombadilDomain<PrettyFunction>> {
     fn to_schema(&self) -> bombadil_schema::Violation {
         match self {
             Violation::False {
                 time,
                 condition,
-                snapshots,
+                state,
             } => bombadil_schema::Violation::False {
                 time: *time,
                 condition: condition.clone(),
-                snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
+                snapshots: state.values().map(|s| s.to_schema()).collect(),
             },
             Violation::Eventually { subformula, reason } => {
                 bombadil_schema::Violation::Eventually {
@@ -111,23 +112,23 @@ impl ToSchema<bombadil_schema::Violation> for Violation<PrettyFunction> {
                 left: Box::new(left.to_schema()),
                 right: Box::new(right.to_schema()),
             },
-            Violation::Implies {
-                left,
-                right,
-                antecedent_snapshots,
-            } => bombadil_schema::Violation::Implies {
-                left: left.to_schema(),
-                right: Box::new(right.to_schema()),
-                antecedent_snapshots: antecedent_snapshots
-                    .iter()
-                    .map(|s| s.to_schema())
-                    .collect(),
-            },
+            Violation::Implies { left, right, state } => {
+                bombadil_schema::Violation::Implies {
+                    left: left.to_schema(),
+                    right: Box::new(right.to_schema()),
+                    antecedent_snapshots: state
+                        .values()
+                        .map(|s| s.to_schema())
+                        .collect(),
+                }
+            }
         }
     }
 }
 
-impl ToSchema<bombadil_schema::EventuallyViolation> for EventuallyViolation {
+impl ToSchema<bombadil_schema::EventuallyViolation>
+    for EventuallyViolation<bombadil_schema::Time>
+{
     fn to_schema(&self) -> bombadil_schema::EventuallyViolation {
         match self {
             EventuallyViolation::TimedOut(time) => {

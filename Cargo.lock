@@ -487,22 +487,7 @@ name = "bombadil-ltl"
 version = "0.4.5"
 dependencies = [
  "anyhow",
- "base64",
- "bombadil-schema",
- "bytes",
- "futures",
- "indoc",
- "insta",
- "log",
  "proptest",
- "rand 0.9.4",
- "rand_chacha",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-stream",
- "url",
 ]
 
 [[package]]

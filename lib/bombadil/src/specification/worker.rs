@@ -3,14 +3,17 @@ use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
+use bombadil_ltl::ltl;
+use bombadil_schema::Time;
+
 use crate::specification::convert::{
     PrettyFunction, violation_with_pretty_functions,
 };
+use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
 use crate::specification::result::SpecificationError;
 use crate::specification::verifier::{Specification, Verifier};
 use crate::tree::Tree;
-use bombadil_ltl::ltl::{self, Snapshot};
 
 enum Command {
     GetProperties {
@@ -18,7 +21,7 @@ enum Command {
     },
     Step {
         snapshots: Arc<[Snapshot]>,
-        time: ltl::Time,
+        time: Time,
         reply: oneshot::Sender<Result<RawStepResult, SpecificationError>>,
     },
 }
@@ -39,12 +42,12 @@ pub struct StepResult<A> {
 #[derive(Debug, Clone)]
 pub enum PropertyValue {
     True,
-    False(ltl::Violation<PrettyFunction>),
+    False(ltl::Violation<BombadilDomain<PrettyFunction>>),
     Residual,
 }
 
-impl From<&ltl::Value<RuntimeFunction>> for PropertyValue {
-    fn from(value: &ltl::Value<RuntimeFunction>) -> Self {
+impl From<&ltl::Value<BombadilDomain<RuntimeFunction>>> for PropertyValue {
+    fn from(value: &ltl::Value<BombadilDomain<RuntimeFunction>>) -> Self {
         match value {
             ltl::Value::True(_) => PropertyValue::True,
             ltl::Value::False(violation, _) => {
@@ -151,7 +154,7 @@ impl VerifierWorker {
     pub async fn step<A: DeserializeOwned>(
         &self,
         snapshots: Arc<[Snapshot]>,
-        time: ltl::Time,
+        time: Time,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx

@@ -7,24 +7,6 @@ edition.workspace = true
 name = "bombadil_ltl"
 path = "src/lib.rs"
 
-[dependencies]
-anyhow = { workspace = true, features = ["backtrace"] }
-base64.workspace = true
-# TODO: remove this dependency
-bombadil-schema = { path = "../bombadil-schema" }
-bytes.workspace = true
-futures.workspace = true
-log.workspace = true
-rand.workspace = true
-rand_chacha.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
-tokio-stream = { workspace = true, features = ["sync"] }
-url = { workspace = true, features = ["serde"] }
-
 [dev-dependencies]
-indoc.workspace = true
-insta.workspace = true
+anyhow.workspace = true
 proptest.workspace = true

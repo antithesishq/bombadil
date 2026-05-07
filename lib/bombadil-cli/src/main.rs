@@ -4,7 +4,7 @@ mod render;
 
 use ::url::Url;
 use anyhow::Result;
-use bombadil_ltl::ltl::Snapshot;
+use bombadil::specification::domain::Snapshot;
 use clap::{Args, Parser};
 use std::{
     path::PathBuf,

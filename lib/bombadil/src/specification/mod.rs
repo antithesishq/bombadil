@@ -1,5 +1,6 @@
 pub mod bundler;
 pub mod convert;
+pub mod domain;
 pub mod js;
 pub mod resolver;
 pub mod result;

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, path::PathBuf, time::UNIX_EPOCH};
 
+use crate::specification::domain::Snapshot;
 use anyhow::Result;
-use bombadil_ltl::ltl::Snapshot;
 use serde_json as json;
 use tokio::{fs::File, io::AsyncWriteExt};
 

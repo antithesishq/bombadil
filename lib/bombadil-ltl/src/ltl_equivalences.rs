@@ -1,10 +1,6 @@
-use std::{
-    cell::RefCell,
-    time::{Duration, SystemTime},
-};
+use std::{cell::RefCell, ops::Add, time::Duration};
 
 use anyhow::Error;
-use bombadil_schema::schema::Time;
 
 use crate::{
     ltl::*,
@@ -14,19 +10,51 @@ use proptest::prelude::*;
 
 use crate::syntax::Syntax;
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+struct TestTime(u64);
+
+impl Ord for TestTime {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl PartialOrd for TestTime {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Add<Duration> for TestTime {
+    type Output = Self;
+    fn add(self, rhs: Duration) -> Self {
+        TestTime(self.0 + rhs.as_millis() as u64)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct TestDomain;
+
+impl Domain for TestDomain {
+    type Function = Thunk;
+    type Time = TestTime;
+    type Duration = Duration;
+    type State = ();
+}
+
 #[derive(Debug)]
-struct State {
+struct TraceState {
     x: bool,
     y: bool,
 }
 
-fn state() -> BoxedStrategy<State> {
+fn state() -> BoxedStrategy<TraceState> {
     any::<(bool, bool)>()
-        .prop_map(|(x, y)| State { x, y })
+        .prop_map(|(x, y)| TraceState { x, y })
         .boxed()
 }
 
-fn trace() -> BoxedStrategy<Vec<State>> {
+fn trace() -> BoxedStrategy<Vec<TraceState>> {
     prop::collection::vec(state(), 1..10).boxed()
 }
 
@@ -48,10 +76,10 @@ fn bound() -> BoxedStrategy<Option<Duration>> {
 #[derive(Clone, Debug, PartialEq)]
 enum Thunk {
     Atomic(Variable),
-    Subformula(Box<Syntax<Thunk>>),
+    Subformula(Box<Syntax<TestDomain>>),
 }
 
-fn syntax() -> BoxedStrategy<Syntax<Thunk>> {
+fn syntax() -> BoxedStrategy<Syntax<TestDomain>> {
     let leaf = prop_oneof![
         // leaf nodes
         any::<bool>().prop_map(|value| Syntax::Pure {
@@ -100,10 +128,10 @@ enum ValueEqMode {
     UpToViolations,
 }
 
-fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
-    value_left: Value<Function>,
-    value_right: Value<Function>,
-    time: Time,
+fn assert_values_eq(
+    value_left: Value<TestDomain>,
+    value_right: Value<TestDomain>,
+    time: TestTime,
     mode: ValueEqMode,
 ) {
     match (&value_left, &value_right) {
@@ -140,9 +168,7 @@ fn assert_values_eq<Function: Clone + PartialEq + std::fmt::Debug>(
     }
 }
 
-fn next_residual<Function: Clone>(
-    value: &Value<Function>,
-) -> Option<Residual<Function>> {
+fn next_residual(value: &Value<TestDomain>) -> Option<Residual<TestDomain>> {
     match value {
         Value::Residual(r) => Some(r.clone()),
         Value::False(_, Some(c)) => Some(c.clone()),
@@ -151,9 +177,9 @@ fn next_residual<Function: Clone>(
 }
 
 fn check_equivalence(
-    formula_left: Formula<Thunk>,
-    formula_right: Formula<Thunk>,
-    trace: Vec<State>,
+    formula_left: Formula<TestDomain>,
+    formula_right: Formula<TestDomain>,
+    trace: Vec<TraceState>,
     mode: ValueEqMode,
 ) {
     let current = RefCell::new(0);
@@ -171,7 +197,7 @@ fn check_equivalence(
                     value,
                     pretty: format!("{}", value),
                 },
-                UniqueSnapshots::new(),
+                (),
             ))
         }
         Thunk::Subformula(syntax) => {
@@ -180,20 +206,20 @@ fn check_equivalence(
             } else {
                 *syntax.clone()
             };
-            Ok((syntax.nnf(), UniqueSnapshots::new()))
+            Ok((syntax.nnf(), ()))
         }
     };
-    let mut evaluator: Evaluator<'_, Thunk, Error> =
+    let mut evaluator: Evaluator<'_, TestDomain, Error> =
         Evaluator::new(&mut evaluate_thunk);
 
-    let mut time = Time::from_system_time(SystemTime::UNIX_EPOCH);
+    let mut time = TestTime(0);
 
     let mut value_left = evaluator.evaluate(&formula_left, time).unwrap();
     let mut value_right = evaluator.evaluate(&formula_right, time).unwrap();
 
     for _ in 1..trace.len() {
         *current.borrow_mut() += 1;
-        time = time.checked_add(Duration::from_millis(1)).unwrap();
+        time = time + Duration::from_millis(1);
 
         let next_left = next_residual(&value_left);
         let next_right = next_residual(&value_right);

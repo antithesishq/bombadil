@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use bombadil_ltl::ltl::Snapshot;
+use bombadil::specification::domain::Snapshot;
 use std::collections::HashMap;
 use std::io::Write;
 use std::{

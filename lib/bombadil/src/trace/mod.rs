@@ -1,13 +1,12 @@
 use std::{borrow::Cow, path::Path, time::SystemTime};
 
-use bombadil_ltl::ltl::{self, Snapshot};
 use bombadil_schema::Time;
 use serde::Serialize;
 use url::Url;
 
 use crate::{
     browser::{actions::BrowserAction, state::Resources},
-    specification::convert::{self, ToSchema},
+    specification::{convert::ToSchema, domain::Snapshot},
 };
 
 pub mod writer;
@@ -28,14 +27,14 @@ pub struct TraceEntry<'a> {
 #[derive(Debug, Clone, Serialize)]
 pub struct PropertyViolation {
     pub name: String,
-    pub violation: ltl::Violation<convert::PrettyFunction>,
+    pub violation: bombadil_schema::Violation,
 }
 
 impl ToSchema<bombadil_schema::PropertyViolation> for PropertyViolation {
     fn to_schema(&self) -> bombadil_schema::PropertyViolation {
         bombadil_schema::PropertyViolation {
             name: self.name.clone(),
-            violation: self.violation.to_schema(),
+            violation: self.violation.clone(),
         }
     }
 }

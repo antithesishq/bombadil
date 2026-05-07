@@ -5,13 +5,13 @@ use boa_engine::{
     Context, JsObject, JsValue, Module, js_string, property::PropertyKey,
 };
 
-use bombadil_ltl::ltl::Snapshot;
 use serde::{Deserialize, Serialize};
 
 use crate::browser::actions::BrowserAction;
 use crate::geometry::Point;
+use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::result::{Result, SpecificationError};
-use bombadil_ltl::syntax::*;
+use bombadil_ltl::syntax::Syntax;
 
 /// TypeScript-friendly action representation with camelCase and f64 for numbers.
 /// This matches the JSON that comes from the JavaScript specification layer.
@@ -151,7 +151,7 @@ pub fn syntax_from_value(
     value: &JsValue,
     bombadil: &BombadilExports,
     context: &mut Context,
-) -> Result<Syntax<RuntimeFunction>> {
+) -> Result<Syntax<BombadilDomain<RuntimeFunction>>> {
     use Syntax::*;
 
     let object =
