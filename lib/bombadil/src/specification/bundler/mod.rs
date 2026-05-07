@@ -191,8 +191,7 @@ pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
             ..Default::default()
         };
 
-        let semantic =
-            SemanticBuilder::new().build(&program);
+        let semantic = SemanticBuilder::new().build(&program);
         let scopes = semantic.semantic.into_scoping();
         let transformer =
             Transformer::new(&allocator, key.path(), &transform_options);
