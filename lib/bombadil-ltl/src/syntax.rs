@@ -1,6 +1,7 @@
 use crate::formula::{Domain, Formula};
 
-/// A formula in its syntactic form, "parsed" from JavaScript runtime objects.
+/// A formula in its syntactic form. In Bombadil this structure is parsed from
+/// JavaScript runtime objects.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Syntax<D: Domain> {
     Pure { value: bool, pretty: String },
