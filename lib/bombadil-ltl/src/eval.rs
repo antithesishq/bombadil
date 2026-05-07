@@ -1,3 +1,27 @@
+/// This module implements the evaluator for Bombadil's LTL. The main component
+/// is the [Evaluator], with two key methods:
+///
+/// * [Evaluator::evaluate]: this takes a [Formula] and returns a [Value]. A
+///   value is either [Value::True], [Value::False], or [Value::Residual].
+///   The false values are violations, along with a residual to optionally
+///   continue evaluating to possibly collect multiple violations. Residuals
+///   are for when we don't yet have a definitive answer and need to either
+///   decide how to stop (based on [Leaning]), or continue stepping the formula
+///   with more states.
+/// * [Evaluator::step]: given a residual, we step it one step ahead, getting
+///   back another value to inspect.
+///
+/// Those two primitives constitute the main flow of evaluating formulas.
+///
+/// [State]s are not global states, but partial ones. The evaluator tracks the
+/// state values used when evaluating [Thunk]s in order to provide a [Violation]
+/// structure with relevant information. This can be used to render detailed
+/// error messages with only relevant information. It is up to the caller to
+/// return only the relevant state when returning a result from [EvaluateThunk].
+///
+/// [Formula::Thunk] are embedded domain-specific computations in the host
+/// language that return formulas. These are used to implement custom logic
+/// and state usage interleaved with the pure LTL evaluation.
 use crate::formula::{Domain, Formula, State};
 use crate::violation::{EventuallyViolation, Violation};
 
