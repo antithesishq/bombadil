@@ -144,7 +144,8 @@ impl std::fmt::Display for Generation {
     }
 }
 
-const QUIESCENCE_BUMP: Duration = Duration::from_millis(10);
+/// Initial idle timeout when no activity signals arrive at all.
+const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(10);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -156,6 +157,7 @@ struct BrowserContext {
     page: Arc<Page>,
     frame_id: FrameId,
     network_activity: activity::NetworkActivity,
+    screencast_activity: activity::ScreencastActivity,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
 }
@@ -330,6 +332,8 @@ impl Browser {
 
         let network_activity =
             activity::NetworkActivity::subscribe(&page).await?;
+        let screencast_activity =
+            activity::ScreencastActivity::subscribe(&page).await?;
 
         let context = BrowserContext {
             sender,
@@ -339,6 +343,7 @@ impl Browser {
             page: page.clone(),
             frame_id,
             network_activity,
+            screencast_activity,
             origin: origin.clone(),
         };
 
@@ -580,13 +585,13 @@ async fn inner_events(
                 let frame_id = frame_id.clone();
                 async move {
                     if nav.frame_id == frame_id {
-                        None
-                    } else {
                         Some(InnerEvent::FrameRequestedNavigation {
                             frame_id: nav.frame_id.clone(),
                             reason: nav.reason.clone(),
                             url: nav.url.clone(),
                         })
+                    } else {
+                        None
                     }
                 }
             }),
@@ -759,7 +764,7 @@ fn run_state_machine(
             let shared = InnerStateShared::default();
             let timer = start_quiescence_timer(
                 &shared,
-                &context.network_activity,
+                &context,
                 &context.inner_events_sender,
             );
             let mut state_current = InnerState {
@@ -851,7 +856,7 @@ async fn process_event(
                 .await?;
             let timer = start_quiescence_timer(
                 &state.shared,
-                &context.network_activity,
+                &context,
                 &context.inner_events_sender,
             );
             capture_browser_state(
@@ -1002,13 +1007,15 @@ async fn process_event(
                         )
                     }
                 }
-                // Force the renderer to flush pending input events
-                // (e.g. focus changes from mouse clicks) before
-                // signalling that the action is done.
+                // Wait for two animation frames so Chrome
+                // finishes paint/composite before we capture state.
                 let _ = page
                     .execute(
                         runtime::EvaluateParams::builder()
-                            .expression("0")
+                            .expression(
+                                "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))",
+                            )
+                            .await_promise(true)
                             .build()
                             .unwrap(),
                     )
@@ -1035,7 +1042,7 @@ async fn process_event(
         ) if shared.generation == generation => {
             let timer = start_quiescence_timer(
                 &shared,
-                &context.network_activity,
+                &context,
                 &context.inner_events_sender,
             );
             InnerState {
@@ -1050,7 +1057,7 @@ async fn process_event(
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
             let timer = start_quiescence_timer(
                 &shared,
-                &context.network_activity,
+                &context,
                 &context.inner_events_sender,
             );
             InnerState {
@@ -1103,7 +1110,7 @@ async fn process_event(
                 );
                 let timer = start_quiescence_timer(
                     &shared,
-                    &context.network_activity,
+                    context,
                     &context.inner_events_sender,
                 );
                 InnerState {
@@ -1147,7 +1154,7 @@ async fn process_event(
                     NavigationType::BackForwardCacheRestore => {
                         let timer = start_quiescence_timer(
                             &state.shared,
-                            &context.network_activity,
+                            context,
                             &context.inner_events_sender,
                         );
                         Running(timer)
@@ -1197,7 +1204,7 @@ async fn process_event(
                 );
                 let timer = start_quiescence_timer(
                     &state.shared,
-                    &context.network_activity,
+                    context,
                     &context.inner_events_sender,
                 );
                 InnerState {
@@ -1216,12 +1223,18 @@ async fn process_event(
 
 fn start_quiescence_timer(
     shared: &InnerStateShared,
-    network_activity: &activity::NetworkActivity,
+    context: &BrowserContext,
     inner_events_sender: &Sender<InnerEvent>,
 ) -> quiescence::QuiescenceTimer {
-    let activity = network_activity.stream();
-    let (timer, quiescent) =
-        quiescence::start(QUIESCENCE_BUMP, QUIESCENCE_TIMEOUT, activity);
+    let activity: activity::ActivityStream = Box::pin(stream::select(
+        context.network_activity.stream(),
+        context.screencast_activity.stream(),
+    ));
+    let (timer, quiescent) = quiescence::start(
+        QUIESCENCE_INITIAL_IDLE,
+        QUIESCENCE_TIMEOUT,
+        activity,
+    );
     let generation = shared.generation;
     let sender = inner_events_sender.clone();
     spawn(async move {
@@ -1237,11 +1250,8 @@ fn retry_with_timer(
     shared: InnerStateShared,
     context: &BrowserContext,
 ) -> InnerState {
-    let timer = start_quiescence_timer(
-        &shared,
-        &context.network_activity,
-        &context.inner_events_sender,
-    );
+    let timer =
+        start_quiescence_timer(&shared, context, &context.inner_events_sender);
     InnerState {
         kind: InnerStateKind::Running(timer),
         shared,

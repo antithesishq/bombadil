@@ -518,9 +518,7 @@ async fn test_browser_lifecycle() {
         }
     }
 
-    browser
-        .apply(BrowserAction::Reload)
-        .unwrap();
+    browser.apply(BrowserAction::Reload).unwrap();
 
     match browser.next_event().await.unwrap() {
         bombadil::browser::BrowserEvent::StateChanged(state) => {

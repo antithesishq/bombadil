@@ -14,12 +14,17 @@ pub struct QuiescenceTimer {
 
 struct QuiescenceWaiter {
     cancel: tokio::sync::oneshot::Receiver<()>,
-    activity: Pin<Box<dyn Stream<Item = ()> + Send>>,
+    activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
     timeout_idle: Duration,
     timeout_max: Duration,
 }
 
 /// Create a quiescence timer driven by an activity stream.
+///
+/// Each item in the stream is a [`Duration`] that bumps the idle
+/// deadline by that amount from now, allowing different activity
+/// sources (network, screencast frames, etc.) to control their own
+/// settling delay.
 ///
 /// Returns a handle and a future. The future resolves with `true`
 /// when the system is quiescent (idle timeout or max timeout
@@ -27,7 +32,7 @@ struct QuiescenceWaiter {
 pub fn start(
     timeout_idle: Duration,
     timeout_max: Duration,
-    activity: Pin<Box<dyn Stream<Item = ()> + Send>>,
+    activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
 ) -> (QuiescenceTimer, impl std::future::Future<Output = bool> + Send) {
     let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
     let waiter = QuiescenceWaiter {
@@ -60,9 +65,9 @@ impl QuiescenceWaiter {
                 }
                 event = self.activity.next() => {
                     match event {
-                        Some(()) => {
+                        Some(bump) => {
                             deadline_idle =
-                                (Instant::now() + self.timeout_idle)
+                                (Instant::now() + bump)
                                     .min(deadline);
                         }
                         None => {
@@ -82,7 +87,7 @@ mod tests {
     use futures::stream;
     use tokio::time::Instant;
 
-    fn empty_activity() -> Pin<Box<dyn Stream<Item = ()> + Send>> {
+    fn empty_activity() -> Pin<Box<dyn Stream<Item = Duration> + Send>> {
         Box::pin(stream::empty())
     }
 
@@ -102,10 +107,11 @@ mod tests {
 
     #[tokio::test]
     async fn stream_activity_extends_idle() {
-        let activity = Box::pin(stream::unfold(0u32, |i| async move {
+        let bump = Duration::from_millis(150);
+        let activity = Box::pin(stream::unfold(0u32, move |i| async move {
             if i < 5 {
                 tokio::time::sleep(Duration::from_millis(80)).await;
-                Some(((), i + 1))
+                Some((bump, i + 1))
             } else {
                 None
             }
@@ -124,9 +130,10 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_max_caps_wait() {
-        let activity = Box::pin(stream::unfold((), |()| async {
+        let bump = Duration::from_millis(100);
+        let activity = Box::pin(stream::unfold((), move |()| async move {
             tokio::time::sleep(Duration::from_millis(20)).await;
-            Some(((), ()))
+            Some((bump, ()))
         }));
 
         let (_timer, wait) = start(
