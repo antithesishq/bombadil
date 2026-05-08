@@ -29,13 +29,13 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
-use crate::browser::quiescence::QuiescenceTimer;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
 
 pub mod actions;
+pub mod activity;
 pub mod evaluation;
 pub mod instrumentation;
 pub mod quiescence;
@@ -68,8 +68,8 @@ enum InnerStateKind {
     Resuming(BrowserAction),
     Navigating { url: String },
     Loading,
-    Running(QuiescenceTimer),
-    Acting(QuiescenceTimer),
+    Running(quiescence::QuiescenceTimer),
+    Acting,
 }
 
 impl std::fmt::Debug for InnerStateKind {
@@ -85,7 +85,7 @@ impl std::fmt::Debug for InnerStateKind {
             }
             Self::Loading => write!(f, "Loading"),
             Self::Running(_) => write!(f, "Running"),
-            Self::Acting(_) => write!(f, "Acting"),
+            Self::Acting => write!(f, "Acting"),
         }
     }
 }
@@ -116,9 +116,6 @@ enum InnerEvent {
     ActionAccepted(BrowserAction),
     ActionApplied(Generation),
     ExceptionThrown(Exception),
-    /// An underlying browser activity (network, DOM mutation, etc.)
-    /// occurred. Used to bump the quiescence timer.
-    Activity,
     /// The quiescence timer has fired — the browser has settled.
     Quiesced(Generation),
     /// The navigation timeout fired — give up waiting for Loaded.
@@ -147,7 +144,7 @@ impl std::fmt::Display for Generation {
     }
 }
 
-const QUIESCENCE_BUMP: Duration = Duration::from_millis(10);
+const QUIESCENCE_BUMP: Duration = Duration::from_millis(50);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -158,6 +155,7 @@ struct BrowserContext {
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
     frame_id: FrameId,
+    network_activity: activity::NetworkActivity,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
 }
@@ -330,6 +328,9 @@ impl Browser {
             .await?
             .ok_or(anyhow!("no main frame available"))?;
 
+        let network_activity =
+            activity::NetworkActivity::subscribe(&page).await?;
+
         let context = BrowserContext {
             sender,
             actions_sender: actions_sender.clone(),
@@ -337,6 +338,7 @@ impl Browser {
             shutdown_receiver,
             page: page.clone(),
             frame_id,
+            network_activity,
             origin: origin.clone(),
         };
 
@@ -733,39 +735,6 @@ async fn inner_events(
             .map(InnerEvent::ActionAccepted),
     );
 
-    // Activity events for quiescence detection.
-    let activity_network_request = Box::pin(
-        context
-            .page
-            .event_listener::<network::EventRequestWillBeSent>()
-            .await?
-            .map(|_| InnerEvent::Activity),
-    ) as InnerEventStream;
-
-    let activity_network_response = Box::pin(
-        context
-            .page
-            .event_listener::<network::EventResponseReceived>()
-            .await?
-            .map(|_| InnerEvent::Activity),
-    ) as InnerEventStream;
-
-    let activity_network_loading_finished = Box::pin(
-        context
-            .page
-            .event_listener::<network::EventLoadingFinished>()
-            .await?
-            .map(|_| InnerEvent::Activity),
-    ) as InnerEventStream;
-
-    let activity_network_loading_failed = Box::pin(
-        context
-            .page
-            .event_listener::<network::EventLoadingFailed>()
-            .await?
-            .map(|_| InnerEvent::Activity),
-    ) as InnerEventStream;
-
     Ok(Box::pin(stream::select_all(vec![
         events_loaded,
         events_paused,
@@ -777,10 +746,6 @@ async fn inner_events(
         events_target_destroyed,
         events_console,
         events_action_accepted,
-        activity_network_request,
-        activity_network_response,
-        activity_network_loading_finished,
-        activity_network_loading_failed,
     ])))
 }
 
@@ -794,6 +759,7 @@ fn run_state_machine(
             let shared = InnerStateShared::default();
             let timer = start_quiescence_timer(
                 &shared,
+                &context.network_activity,
                 &context.inner_events_sender,
             );
             let mut state_current = InnerState {
@@ -885,6 +851,7 @@ async fn process_event(
                 .await?;
             let timer = start_quiescence_timer(
                 &state.shared,
+                &context.network_activity,
                 &context.inner_events_sender,
             );
             capture_browser_state(
@@ -1043,23 +1010,23 @@ async fn process_event(
             });
 
             shared.console_entries.clear();
-            let timer =
-                start_quiescence_timer(&shared, &context.inner_events_sender);
             InnerState {
-                kind: Acting(timer),
+                kind: Acting,
                 shared,
             }
         }
         (
             InnerState {
-                kind: Acting(timer),
+                kind: Acting,
                 shared,
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            // Bump the existing timer — the action completing is
-            // activity, so reset the idle countdown.
-            timer.bump();
+            let timer = start_quiescence_timer(
+                &shared,
+                &context.network_activity,
+                &context.inner_events_sender,
+            );
             InnerState {
                 kind: Running(timer),
                 shared,
@@ -1070,8 +1037,11 @@ async fn process_event(
             state
         }
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
-            let timer =
-                start_quiescence_timer(&shared, &context.inner_events_sender);
+            let timer = start_quiescence_timer(
+                &shared,
+                &context.network_activity,
+                &context.inner_events_sender,
+            );
             InnerState {
                 kind: Running(timer),
                 shared,
@@ -1109,19 +1079,11 @@ async fn process_event(
             }
         }
         (
-            InnerState {
-                kind:
-                    Navigating {
-                        url: url_navigating,
-                    },
-                shared,
-            },
-            InnerEvent::DownloadWillBegin {
-                url: url_download,
-                frame_id,
-            },
+            InnerState { kind, shared },
+            InnerEvent::DownloadWillBegin { frame_id, url },
         ) => {
-            if frame_id == context.frame_id && url_navigating == url_download {
+            if frame_id == context.frame_id {
+                log::debug!("download started: {}", url);
                 let _ = context.inner_events_sender.send(
                     InnerEvent::StateRequested(
                         StateRequestReason::FileDownload,
@@ -1130,6 +1092,7 @@ async fn process_event(
                 );
                 let timer = start_quiescence_timer(
                     &shared,
+                    &context.network_activity,
                     &context.inner_events_sender,
                 );
                 InnerState {
@@ -1137,12 +1100,7 @@ async fn process_event(
                     shared,
                 }
             } else {
-                InnerState {
-                    kind: Navigating {
-                        url: url_navigating,
-                    },
-                    shared,
-                }
+                InnerState { kind, shared }
             }
         }
         (
@@ -1178,6 +1136,7 @@ async fn process_event(
                     NavigationType::BackForwardCacheRestore => {
                         let timer = start_quiescence_timer(
                             &state.shared,
+                            &context.network_activity,
                             &context.inner_events_sender,
                         );
                         Running(timer)
@@ -1198,18 +1157,11 @@ async fn process_event(
                 state
             }
         }
-        (state, InnerEvent::Activity) => {
-            match &state.kind {
-                Running(timer) | Acting(timer) => timer.bump(),
-                _ => {}
-            }
-            state
-        }
         (state, InnerEvent::Quiesced(generation)) => {
             if state.shared.generation != generation {
                 log::debug!("ignoring stale Quiesced event");
                 state
-            } else if matches!(state.kind, Running(_) | Acting(_)) {
+            } else if matches!(state.kind, Running(_)) {
                 log::debug!("quiesced, requesting new state capture");
                 let _ = context.inner_events_sender.send(
                     InnerEvent::StateRequested(
@@ -1234,6 +1186,7 @@ async fn process_event(
                 );
                 let timer = start_quiescence_timer(
                     &state.shared,
+                    &context.network_activity,
                     &context.inner_events_sender,
                 );
                 InnerState {
@@ -1252,18 +1205,36 @@ async fn process_event(
 
 fn start_quiescence_timer(
     shared: &InnerStateShared,
+    network_activity: &activity::NetworkActivity,
     inner_events_sender: &Sender<InnerEvent>,
-) -> QuiescenceTimer {
-    let (timer, waiter) =
-        QuiescenceTimer::new(QUIESCENCE_BUMP, QUIESCENCE_TIMEOUT);
+) -> quiescence::QuiescenceTimer {
+    let activity = network_activity.stream();
+    let (timer, quiescent) =
+        quiescence::start(QUIESCENCE_BUMP, QUIESCENCE_TIMEOUT, activity);
     let generation = shared.generation;
     let sender = inner_events_sender.clone();
     spawn(async move {
-        waiter.wait().await;
-        log::debug!("quiescence timer fired for generation {}", generation);
-        let _ = sender.send(InnerEvent::Quiesced(generation));
+        if quiescent.await {
+            log::debug!("quiescence timer fired for generation {}", generation);
+            let _ = sender.send(InnerEvent::Quiesced(generation));
+        }
     });
     timer
+}
+
+fn retry_with_timer(
+    shared: InnerStateShared,
+    context: &BrowserContext,
+) -> InnerState {
+    let timer = start_quiescence_timer(
+        &shared,
+        &context.network_activity,
+        &context.inner_events_sender,
+    );
+    InnerState {
+        kind: InnerStateKind::Running(timer),
+        shared,
+    }
 }
 
 async fn capture_browser_state(
@@ -1272,21 +1243,12 @@ async fn capture_browser_state(
 ) -> Result<InnerState> {
     log::debug!("pausing, going into next generation...");
 
-    let retry = |shared: InnerStateShared| -> InnerState {
-        let timer =
-            start_quiescence_timer(&shared, &context.inner_events_sender);
-        InnerState {
-            kind: InnerStateKind::Running(timer),
-            shared,
-        }
-    };
-
     let page = context.page.clone();
     let main_execution_context_id = match page.execution_context().await? {
         Some(ctx) => ctx,
         None => {
             log::debug!("no execution context, skipping state capture");
-            return Ok(retry(state.shared));
+            return Ok(retry_with_timer(state.shared, context));
         }
     };
 
@@ -1307,11 +1269,11 @@ async fn capture_browser_state(
         Ok(Ok(data)) => Screenshot { data, format },
         Ok(Err(error)) => {
             log::warn!("screenshot failed: {}, skipping state capture", error);
-            return Ok(retry(state.shared));
+            return Ok(retry_with_timer(state.shared, context));
         }
         Err(_) => {
             log::warn!("screenshot timed out, skipping state capture");
-            return Ok(retry(state.shared));
+            return Ok(retry_with_timer(state.shared, context));
         }
     };
     state.shared.screenshot = Some(screenshot);
