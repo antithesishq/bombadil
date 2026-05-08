@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json as json;
 use std::cmp::max;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::select;
 use tokio::signal::ctrl_c;
 
@@ -210,9 +209,8 @@ impl Runner {
 
                                 let action =
                                     action_tree.pick(&mut rand::rng())?.clone();
-                                let timeout = action_timeout(&action);
                                 log::info!("picked action: {:?}", action);
-                                browser.apply(action.clone(), timeout)?;
+                                browser.apply(action.clone())?;
                                 last_action = Some(action);
                             }
                             BrowserEvent::Error(error) => {
@@ -298,31 +296,6 @@ async fn run_extractors(
         .collect();
 
     Ok(results)
-}
-
-fn action_timeout(action: &BrowserAction) -> Duration {
-    match action {
-        BrowserAction::Back => Duration::from_secs(2),
-        BrowserAction::Forward => Duration::from_secs(2),
-        BrowserAction::Reload => Duration::from_secs(2),
-        BrowserAction::Click { .. } => Duration::from_millis(500),
-        BrowserAction::DoubleClick { delay_millis, .. } => {
-            Duration::from_millis(delay_millis.saturating_add(500))
-        }
-        BrowserAction::TypeText {
-            text, delay_millis, ..
-        } => {
-            // We'll wait for the text to be entered, and an extra 100ms.
-            let text_entry_millis =
-                (*delay_millis).saturating_mul(text.len() as u64);
-            Duration::from_millis(text_entry_millis.saturating_add(100u64))
-        }
-        BrowserAction::PressKey { .. } => Duration::from_millis(50),
-        BrowserAction::ScrollUp { .. } => Duration::from_millis(100),
-        BrowserAction::ScrollDown { .. } => Duration::from_millis(100),
-        BrowserAction::Wait => Duration::from_secs(1),
-        BrowserAction::SetFileInputFiles { .. } => Duration::from_millis(100),
-    }
 }
 
 fn log_coverage_stats_increment(coverage: &Coverage) {

@@ -519,7 +519,7 @@ async fn test_browser_lifecycle() {
     }
 
     browser
-        .apply(BrowserAction::Reload, Duration::from_millis(500))
+        .apply(BrowserAction::Reload)
         .unwrap();
 
     match browser.next_event().await.unwrap() {

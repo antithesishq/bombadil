@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser;
+use chromiumoxide::cdp::browser_protocol::emulation;
 use chromiumoxide::cdp::browser_protocol::network;
 use chromiumoxide::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
 };
 use chromiumoxide::cdp::browser_protocol::target::{self, TargetId};
-use chromiumoxide::cdp::browser_protocol::{dom, emulation};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
 use chromiumoxide::page::ScreenshotParams;
@@ -29,6 +29,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
+use crate::browser::quiescence::QuiescenceTimer;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
@@ -37,6 +38,7 @@ use crate::browser::state::{
 pub mod actions;
 pub mod evaluation;
 pub mod instrumentation;
+pub mod quiescence;
 pub mod state;
 
 #[derive(Debug, Clone)]
@@ -60,15 +62,32 @@ struct InnerState {
     shared: InnerStateShared,
 }
 
-#[derive(Debug)]
 enum InnerStateKind {
     Pausing,
     Paused,
-    Resuming(BrowserAction, Timeout),
+    Resuming(BrowserAction),
     Navigating { url: String },
     Loading,
-    Running,
-    Acting,
+    Running(QuiescenceTimer),
+    Acting(QuiescenceTimer),
+}
+
+impl std::fmt::Debug for InnerStateKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pausing => write!(f, "Pausing"),
+            Self::Paused => write!(f, "Paused"),
+            Self::Resuming(action) => {
+                f.debug_tuple("Resuming").field(action).finish()
+            }
+            Self::Navigating { url } => {
+                f.debug_struct("Navigating").field("url", url).finish()
+            }
+            Self::Loading => write!(f, "Loading"),
+            Self::Running(_) => write!(f, "Running"),
+            Self::Acting(_) => write!(f, "Acting"),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -94,19 +113,23 @@ enum InnerEvent {
     },
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
-    ActionAccepted(BrowserAction, Timeout),
+    ActionAccepted(BrowserAction),
     ActionApplied(Generation),
     ExceptionThrown(Exception),
+    /// An underlying browser activity (network, DOM mutation, etc.)
+    /// occurred. Used to bump the quiescence timer.
+    Activity,
+    /// The quiescence timer has fired — the browser has settled.
+    Quiesced(Generation),
+    /// The navigation timeout fired — give up waiting for Loaded.
+    NavigationTimedOut(Generation),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StateRequestReason {
     Start,
-    Timeout,
-    Loaded,
-    BackForwardCacheRestore,
+    Quiesced,
     FileDownload,
-    Watchdog,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -124,11 +147,13 @@ impl std::fmt::Display for Generation {
     }
 }
 
-type Timeout = Duration;
+const QUIESCENCE_BUMP: Duration = Duration::from_millis(10);
+const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
+const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
-    actions_sender: Sender<(BrowserAction, Timeout)>,
+    actions_sender: Sender<BrowserAction>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
@@ -170,7 +195,7 @@ pub enum DebuggerOptions {
 pub struct Browser {
     receiver: Receiver<BrowserEvent>,
     inner_events_sender: Sender<InnerEvent>,
-    actions_sender: Sender<(BrowserAction, Timeout)>,
+    actions_sender: Sender<BrowserAction>,
     shutdown_sender: Option<oneshot::Sender<()>>,
     done_receiver: Option<oneshot::Receiver<()>>,
     browser: Option<chromiumoxide::Browser>,
@@ -222,7 +247,7 @@ impl Browser {
 
         let (sender, receiver) = channel::<BrowserEvent>(1);
 
-        let (actions_sender, _) = channel::<(BrowserAction, Timeout)>(1);
+        let (actions_sender, _) = channel::<BrowserAction>(1);
 
         let page = if browser_options.create_target {
             Arc::new(browser.new_page("about:blank").await.context(
@@ -236,6 +261,7 @@ impl Browser {
         page.enable_css().await?;
         page.enable_runtime().await?;
         page.enable_debugger().await?;
+        page.execute(network::EnableParams::default()).await?;
 
         if !browser_options.extra_headers.is_empty() {
             page.execute(network::SetExtraHttpHeadersParams::new(
@@ -404,12 +430,8 @@ impl Browser {
         }
     }
 
-    pub fn apply(
-        &mut self,
-        action: BrowserAction,
-        timeout: Timeout,
-    ) -> Result<()> {
-        self.actions_sender.send((action, timeout))?;
+    pub fn apply(&mut self, action: BrowserAction) -> Result<()> {
+        self.actions_sender.send(action)?;
         Ok(())
     }
 
@@ -546,39 +568,67 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
+    let frame_id = context.frame_id.clone();
     let events_frame_requested_navigation = Box::pin(
         context
             .page
             .event_listener::<page::EventFrameRequestedNavigation>()
             .await?
-            .map(|nav| InnerEvent::FrameRequestedNavigation {
-                frame_id: nav.frame_id.clone(),
-                reason: nav.reason.clone(),
-                url: nav.url.clone(),
+            .filter_map(move |nav| {
+                let frame_id = frame_id.clone();
+                async move {
+                    if nav.frame_id == frame_id {
+                        None
+                    } else {
+                        Some(InnerEvent::FrameRequestedNavigation {
+                            frame_id: nav.frame_id.clone(),
+                            reason: nav.reason.clone(),
+                            url: nav.url.clone(),
+                        })
+                    }
+                }
             }),
     ) as InnerEventStream;
 
+    let frame_id_for_nav = context.frame_id.clone();
     let events_frame_navigated = Box::pin(
         context
             .page
             .event_listener::<page::EventFrameNavigated>()
             .await?
-            .map(|nav| {
-                InnerEvent::FrameNavigated(
-                    nav.frame.id.clone(),
-                    nav.r#type.clone(),
-                )
+            .filter_map(move |nav| {
+                let frame_id = frame_id_for_nav.clone();
+                async move {
+                    if nav.frame.id == frame_id {
+                        Some(InnerEvent::FrameNavigated(
+                            nav.frame.id.clone(),
+                            nav.r#type.clone(),
+                        ))
+                    } else {
+                        None
+                    }
+                }
             }),
     ) as InnerEventStream;
 
+    let frame_id_for_dl = context.frame_id.clone();
     let events_download_will_begin = Box::pin(
         context
             .page
             .event_listener::<browser::EventDownloadWillBegin>()
             .await?
-            .map(|event| InnerEvent::DownloadWillBegin {
-                frame_id: event.frame_id.clone(),
-                url: event.url.clone(),
+            .filter_map(move |event| {
+                let frame_id = frame_id_for_dl.clone();
+                async move {
+                    if event.frame_id == frame_id {
+                        Some(InnerEvent::DownloadWillBegin {
+                            frame_id: event.frame_id.clone(),
+                            url: event.url.clone(),
+                        })
+                    } else {
+                        None
+                    }
+                }
             }),
     ) as InnerEventStream;
 
@@ -678,10 +728,43 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let events_action_accepted =
-        Box::pin(receiver_to_stream(context.actions_sender.subscribe()).map(
-            |(action, timeout)| InnerEvent::ActionAccepted(action, timeout),
-        ));
+    let events_action_accepted = Box::pin(
+        receiver_to_stream(context.actions_sender.subscribe())
+            .map(InnerEvent::ActionAccepted),
+    );
+
+    // Activity events for quiescence detection.
+    let activity_network_request = Box::pin(
+        context
+            .page
+            .event_listener::<network::EventRequestWillBeSent>()
+            .await?
+            .map(|_| InnerEvent::Activity),
+    ) as InnerEventStream;
+
+    let activity_network_response = Box::pin(
+        context
+            .page
+            .event_listener::<network::EventResponseReceived>()
+            .await?
+            .map(|_| InnerEvent::Activity),
+    ) as InnerEventStream;
+
+    let activity_network_loading_finished = Box::pin(
+        context
+            .page
+            .event_listener::<network::EventLoadingFinished>()
+            .await?
+            .map(|_| InnerEvent::Activity),
+    ) as InnerEventStream;
+
+    let activity_network_loading_failed = Box::pin(
+        context
+            .page
+            .event_listener::<network::EventLoadingFailed>()
+            .await?
+            .map(|_| InnerEvent::Activity),
+    ) as InnerEventStream;
 
     Ok(Box::pin(stream::select_all(vec![
         events_loaded,
@@ -692,12 +775,12 @@ async fn inner_events(
         events_frame_navigated,
         events_download_will_begin,
         events_target_destroyed,
-        // events_node_inserted,
-        // events_node_count_updated,
-        // events_node_removed,
-        // events_attribute_modified,
         events_console,
         events_action_accepted,
+        activity_network_request,
+        activity_network_response,
+        activity_network_loading_finished,
+        activity_network_loading_failed,
     ])))
 }
 
@@ -708,7 +791,15 @@ fn run_state_machine(
 ) {
     spawn(async move {
         let result = async {
-            let mut state_current = InnerState { kind: InnerStateKind::Running, shared: InnerStateShared::default()};
+            let shared = InnerStateShared::default();
+            let timer = start_quiescence_timer(
+                &shared,
+                &context.inner_events_sender,
+            );
+            let mut state_current = InnerState {
+                kind: InnerStateKind::Running(timer),
+                shared,
+            };
             log::info!("processing events");
             loop {
                 select! {
@@ -792,9 +883,13 @@ async fn process_event(
                 .page
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
+            let timer = start_quiescence_timer(
+                &state.shared,
+                &context.inner_events_sender,
+            );
             capture_browser_state(
                 InnerState {
-                    kind: InnerStateKind::Running,
+                    kind: InnerStateKind::Running(timer),
                     shared: state.shared,
                 },
                 context,
@@ -824,6 +919,7 @@ async fn process_event(
                 exceptions,
                 generation,
                 screenshot,
+                ..
             } = state.shared;
 
             let screenshot = screenshot
@@ -844,16 +940,6 @@ async fn process_event(
 
             let generation = generation.next();
 
-            // Watchdog: if nothing happens for 30s, force a new state capture.
-            let sender = context.inner_events_sender.clone();
-            spawn(async move {
-                sleep(Duration::from_secs(30)).await;
-                let _ = sender.send(InnerEvent::StateRequested(
-                    StateRequestReason::Watchdog,
-                    generation,
-                ));
-            });
-
             InnerState {
                 kind: Paused,
                 shared: InnerStateShared {
@@ -869,14 +955,14 @@ async fn process_event(
                 kind: Paused,
                 shared,
             },
-            InnerEvent::ActionAccepted(browser_action, timeout),
+            InnerEvent::ActionAccepted(browser_action),
         ) => {
             context
                 .page
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
             InnerState {
-                kind: Resuming(browser_action, timeout),
+                kind: Resuming(browser_action),
                 shared,
             }
         }
@@ -885,7 +971,7 @@ async fn process_event(
                 kind: Loading | Navigating { .. } | Pausing,
                 ..
             },
-            InnerEvent::ActionAccepted(action, _),
+            InnerEvent::ActionAccepted(action),
         ) => {
             log::debug!(
                 "ignoring action {:?} received during {:?}",
@@ -909,7 +995,7 @@ async fn process_event(
         }
         (
             InnerState {
-                kind: Running,
+                kind: Running(timer),
                 mut shared,
             },
             InnerEvent::Resumed,
@@ -917,24 +1003,25 @@ async fn process_event(
             log::warn!("running + resumed");
             shared.console_entries.clear();
             InnerState {
-                kind: Running,
+                kind: Running(timer),
                 shared,
             }
         }
         (
             InnerState {
-                kind: Resuming(browser_action, timeout),
+                kind: Resuming(browser_action),
                 mut shared,
             },
             InnerEvent::Resumed,
         ) => {
             let page = context.page.clone();
             let sender = context.inner_events_sender.clone();
-            // We can't block on running the action, in case it synchronously
-            // throws an uncaught exception blocking the evaluation indefinitely.
-            // This gives us a chance to receive the "Debugger.paused" event and
-            // resume (extracting the uncaught exception information).
-            let action_handle = spawn(async move {
+            // We can't block on running the action, in case it
+            // synchronously throws an uncaught exception blocking the
+            // evaluation indefinitely. This gives us a chance to
+            // receive the "Debugger.paused" event and resume
+            // (extracting the uncaught exception information).
+            spawn(async move {
                 log::debug!("applying: {:?}", browser_action);
                 match browser_action.apply(&page).await {
                     Ok(_) => {
@@ -955,54 +1042,38 @@ async fn process_event(
                 }
             });
 
-            let sender = context.inner_events_sender.clone();
-            spawn(async move {
-                sleep(timeout).await;
-                action_handle.abort();
-                log::debug!(
-                    "timeout after {}ms, aborted action, requesting new state",
-                    timeout.as_millis()
-                );
-                if let Err(error) = sender.send(InnerEvent::StateRequested(
-                    StateRequestReason::Timeout,
-                    shared.generation,
-                )) {
-                    log::error!(
-                        "failed to send StateRequested after timeout: {}",
-                        error
-                    );
-                }
-            });
-
             shared.console_entries.clear();
+            let timer =
+                start_quiescence_timer(&shared, &context.inner_events_sender);
             InnerState {
-                kind: Acting,
+                kind: Acting(timer),
                 shared,
             }
         }
         (
             InnerState {
-                kind: Acting,
+                kind: Acting(timer),
                 shared,
             },
             InnerEvent::ActionApplied(generation),
-        ) if shared.generation == generation => InnerState {
-            kind: Running,
-            shared,
-        },
+        ) if shared.generation == generation => {
+            // Bump the existing timer — the action completing is
+            // activity, so reset the idle countdown.
+            timer.bump();
+            InnerState {
+                kind: Running(timer),
+                shared,
+            }
+        }
         (state, InnerEvent::ActionApplied(_)) => {
             log::debug!("ignoring stale ActionApplied");
             state
         }
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
-            context
-                .inner_events_sender
-                .send(InnerEvent::StateRequested(
-                    StateRequestReason::Loaded,
-                    shared.generation,
-                ))?;
+            let timer =
+                start_quiescence_timer(&shared, &context.inner_events_sender);
             InnerState {
-                kind: Running,
+                kind: Running(timer),
                 shared,
             }
         }
@@ -1022,6 +1093,13 @@ async fn process_event(
                     kind,
                     shared.generation,
                 );
+                let generation = shared.generation;
+                let sender = context.inner_events_sender.clone();
+                spawn(async move {
+                    sleep(NAVIGATION_TIMEOUT).await;
+                    let _ =
+                        sender.send(InnerEvent::NavigationTimedOut(generation));
+                });
                 InnerState {
                     kind: Navigating { url },
                     shared,
@@ -1050,8 +1128,12 @@ async fn process_event(
                         shared.generation,
                     ),
                 );
+                let timer = start_quiescence_timer(
+                    &shared,
+                    &context.inner_events_sender,
+                );
                 InnerState {
-                    kind: Running,
+                    kind: Running(timer),
                     shared,
                 }
             } else {
@@ -1083,40 +1165,28 @@ async fn process_event(
         }
         (mut state, InnerEvent::ExceptionThrown(exception)) => {
             state.shared.exceptions.push(exception);
-            if matches!(state.kind, Running) {
+            if matches!(state.kind, Running(_)) {
                 capture_browser_state(state, context).await?
             } else {
                 state
             }
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
-            // Track all nodes.
-            context
-                .page
-                .execute(
-                    dom::GetDocumentParams::builder()
-                        .depth(-1)
-                        .pierce(true)
-                        .build(),
-                )
-                .await?;
             if frame_id == context.frame_id {
-                let shared = state.shared;
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
-                    // Navigating history with bfcache doesn't yield a "loaded"
-                    // event so we jump straight into `Running`.
                     NavigationType::BackForwardCacheRestore => {
-                        context.inner_events_sender.send(
-                            InnerEvent::StateRequested(
-                                StateRequestReason::BackForwardCacheRestore,
-                                shared.generation,
-                            ),
-                        )?;
-                        Running
+                        let timer = start_quiescence_timer(
+                            &state.shared,
+                            &context.inner_events_sender,
+                        );
+                        Running(timer)
                     }
                 };
-                InnerState { kind, shared }
+                InnerState {
+                    kind,
+                    shared: state.shared,
+                }
             } else {
                 state
             }
@@ -1128,10 +1198,72 @@ async fn process_event(
                 state
             }
         }
+        (state, InnerEvent::Activity) => {
+            match &state.kind {
+                Running(timer) | Acting(timer) => timer.bump(),
+                _ => {}
+            }
+            state
+        }
+        (state, InnerEvent::Quiesced(generation)) => {
+            if state.shared.generation != generation {
+                log::debug!("ignoring stale Quiesced event");
+                state
+            } else if matches!(state.kind, Running(_) | Acting(_)) {
+                log::debug!("quiesced, requesting new state capture");
+                let _ = context.inner_events_sender.send(
+                    InnerEvent::StateRequested(
+                        StateRequestReason::Quiesced,
+                        state.shared.generation,
+                    ),
+                );
+                state
+            } else {
+                log::debug!("ignoring Quiesced during {:?}", &state.kind,);
+                state
+            }
+        }
+        (state, InnerEvent::NavigationTimedOut(generation)) => {
+            if state.shared.generation != generation {
+                log::debug!("ignoring stale NavigationTimedOut");
+                state
+            } else if matches!(state.kind, Navigating { .. } | Loading) {
+                log::warn!(
+                    "navigation timed out during {:?}, resuming",
+                    &state.kind,
+                );
+                let timer = start_quiescence_timer(
+                    &state.shared,
+                    &context.inner_events_sender,
+                );
+                InnerState {
+                    kind: Running(timer),
+                    shared: state.shared,
+                }
+            } else {
+                state
+            }
+        }
         (state, event) => {
             bail!("unhandled transition: {:?} + {:?}", state, event);
         }
     })
+}
+
+fn start_quiescence_timer(
+    shared: &InnerStateShared,
+    inner_events_sender: &Sender<InnerEvent>,
+) -> QuiescenceTimer {
+    let (timer, waiter) =
+        QuiescenceTimer::new(QUIESCENCE_BUMP, QUIESCENCE_TIMEOUT);
+    let generation = shared.generation;
+    let sender = inner_events_sender.clone();
+    spawn(async move {
+        waiter.wait().await;
+        log::debug!("quiescence timer fired for generation {}", generation);
+        let _ = sender.send(InnerEvent::Quiesced(generation));
+    });
+    timer
 }
 
 async fn capture_browser_state(
@@ -1140,14 +1272,21 @@ async fn capture_browser_state(
 ) -> Result<InnerState> {
     log::debug!("pausing, going into next generation...");
 
+    let retry = |shared: InnerStateShared| -> InnerState {
+        let timer =
+            start_quiescence_timer(&shared, &context.inner_events_sender);
+        InnerState {
+            kind: InnerStateKind::Running(timer),
+            shared,
+        }
+    };
+
     let page = context.page.clone();
     let main_execution_context_id = match page.execution_context().await? {
         Some(ctx) => ctx,
         None => {
-            log::debug!(
-                "no execution context available, skipping state capture"
-            );
-            return Ok(state);
+            log::debug!("no execution context, skipping state capture");
+            return Ok(retry(state.shared));
         }
     };
 
@@ -1168,19 +1307,15 @@ async fn capture_browser_state(
         Ok(Ok(data)) => Screenshot { data, format },
         Ok(Err(error)) => {
             log::warn!("screenshot failed: {}, skipping state capture", error);
-            return Ok(state);
+            return Ok(retry(state.shared));
         }
         Err(_) => {
             log::warn!("screenshot timed out, skipping state capture");
-            return Ok(state);
+            return Ok(retry(state.shared));
         }
     };
     state.shared.screenshot = Some(screenshot);
 
-    // context
-    //     .page
-    //     .execute(debugger::PauseParams::default())
-    //     .await?;
     let page = context.page.clone();
     spawn(async move {
         let _ = page
