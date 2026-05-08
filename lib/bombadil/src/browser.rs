@@ -578,13 +578,13 @@ async fn inner_events(
                 let frame_id = frame_id.clone();
                 async move {
                     if nav.frame_id == frame_id {
-                        None
-                    } else {
                         Some(InnerEvent::FrameRequestedNavigation {
                             frame_id: nav.frame_id.clone(),
                             reason: nav.reason.clone(),
                             url: nav.url.clone(),
                         })
+                    } else {
+                        None
                     }
                 }
             }),
