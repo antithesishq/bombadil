@@ -144,7 +144,7 @@ impl std::fmt::Display for Generation {
     }
 }
 
-const QUIESCENCE_BUMP: Duration = Duration::from_millis(50);
+const QUIESCENCE_BUMP: Duration = Duration::from_millis(10);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1002,6 +1002,17 @@ async fn process_event(
                         )
                     }
                 }
+                // Force the renderer to flush pending input events
+                // (e.g. focus changes from mouse clicks) before
+                // signalling that the action is done.
+                let _ = page
+                    .execute(
+                        runtime::EvaluateParams::builder()
+                            .expression("0")
+                            .build()
+                            .unwrap(),
+                    )
+                    .await;
                 if let Err(error) =
                     sender.send(InnerEvent::ActionApplied(shared.generation))
                 {
