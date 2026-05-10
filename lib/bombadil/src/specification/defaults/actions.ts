@@ -111,6 +111,8 @@ const clickablePoints = extract((state) => {
     "treeitem",
   ];
 
+  const FORM_CONTROL_TAGS = ["button", "input", "textarea"];
+
   type ClickTarget = {
     name: string;
     content: string;
@@ -210,7 +212,7 @@ const clickablePoints = extract((state) => {
   // Buttons, inputs, textareas, labels
   for (const element of queryAll(
     state.document.body,
-    "button,input,textarea,label[for]",
+    `${FORM_CONTROL_TAGS.join(",")},label[for]`,
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
