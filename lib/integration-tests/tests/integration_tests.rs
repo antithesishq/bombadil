@@ -923,3 +923,19 @@ export const dialogWasAccepted = now(
         .run()
         .await;
 }
+
+#[tokio::test]
+async fn test_disabled_clicks() {
+    BrowserIntegrationTest::new("disabled-clicks")
+        .expect_error("no actions available")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/defaults/actions";
+
+export const keepRunning = always(() => true);
+"#,
+        )
+        .run()
+        .await;
+}
