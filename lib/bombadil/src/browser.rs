@@ -115,9 +115,7 @@ enum InnerEvent {
     ActionAccepted(BrowserAction),
     ActionApplied(Generation),
     ExceptionThrown(Exception),
-    /// The quiescence timer has fired — the browser has settled.
     Quiesced(Generation),
-    /// The navigation timeout fired — give up waiting for Loaded.
     NavigationTimedOut(Generation),
 }
 
@@ -637,14 +635,14 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let frame_id_for_nav = context.frame_id.clone();
+    let frame_id = context.frame_id.clone();
     let events_frame_navigated = Box::pin(
         context
             .page
             .event_listener::<page::EventFrameNavigated>()
             .await?
             .filter_map(move |nav| {
-                let frame_id = frame_id_for_nav.clone();
+                let frame_id = frame_id.clone();
                 async move {
                     if nav.frame.id == frame_id {
                         Some(InnerEvent::FrameNavigated(
@@ -658,14 +656,14 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let frame_id_for_dl = context.frame_id.clone();
+    let frame_id = context.frame_id.clone();
     let events_download_will_begin = Box::pin(
         context
             .page
             .event_listener::<browser::EventDownloadWillBegin>()
             .await?
             .filter_map(move |event| {
-                let frame_id = frame_id_for_dl.clone();
+                let frame_id = frame_id.clone();
                 async move {
                     if event.frame_id == frame_id {
                         Some(InnerEvent::DownloadWillBegin {
@@ -686,67 +684,6 @@ async fn inner_events(
             .await?
             .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone())),
     ) as InnerEventStream;
-
-    // let events_node_inserted = Box::pin(
-    //     context
-    //         .page
-    //         .event_listener::<dom::EventChildNodeInserted>()
-    //         .await?
-    //         .map(|event| {
-    //             InnerEvent::NodeTreeModified(
-    //                 NodeModification::ChildNodeInserted {
-    //                     parent: event.parent_node_id,
-    //                     child: event.node.clone(),
-    //                 },
-    //             )
-    //         }),
-    // ) as InnerEventStream;
-
-    // let events_node_count_updated = Box::pin(
-    //     context
-    //         .page
-    //         .event_listener::<dom::EventChildNodeCountUpdated>()
-    //         .await?
-    //         .map(|event| {
-    //             InnerEvent::NodeTreeModified(
-    //                 NodeModification::ChildNodeCountUpdated {
-    //                     parent: event.node_id,
-    //                     count: event.child_node_count as u64,
-    //                 },
-    //             )
-    //         }),
-    // ) as InnerEventStream;
-
-    // let events_node_removed = Box::pin(
-    //     context
-    //         .page
-    //         .event_listener::<dom::EventChildNodeRemoved>()
-    //         .await?
-    //         .map(|event| {
-    //             InnerEvent::NodeTreeModified(
-    //                 NodeModification::ChildNodeRemoved {
-    //                     parent: event.parent_node_id,
-    //                     child: event.node_id,
-    //                 },
-    //             )
-    //         }),
-    // ) as InnerEventStream;
-
-    // let events_attribute_modified = Box::pin(
-    //     context
-    //         .page
-    //         .event_listener::<dom::EventAttributeModified>()
-    //         .await?
-    //         .map(|event| {
-    //             InnerEvent::NodeTreeModified(
-    //                 NodeModification::AttributeModified {
-    //                     node: event.node_id,
-    //                     name: event.name.clone(),
-    //                     value: event.value.clone(),
-    //                 },
-    //             )
-    //         }),
-    // ) as InnerEventStream;
 
     let events_console = Box::pin(
         context
@@ -1067,7 +1004,6 @@ async fn process_event(
             });
 
             shared.console_entries.clear();
-            // context.screencast_activity.restart().await;
             let activity = Box::pin(stream::select(
                 context.network_activity.stream(),
                 context.screencast_activity.stream(),
@@ -1324,7 +1260,11 @@ async fn capture_browser_state(
         }
     };
 
-    let frame = context.latest_frame.lock().unwrap().clone();
+    let frame = context
+        .latest_frame
+        .lock()
+        .expect("failed getting latest frame from mutex")
+        .clone();
     match frame {
         Some(data) => {
             state.shared.screenshot = Some(Screenshot {
@@ -1333,9 +1273,7 @@ async fn capture_browser_state(
             });
         }
         None => {
-            log::debug!(
-                "no screencast frame available, skipping state capture"
-            );
+            log::warn!("no screencast frame available, skipping state capture");
             return Ok(retry_with_timer(state.shared, context));
         }
     }
