@@ -159,7 +159,6 @@ struct BrowserContext {
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
     frame_id: FrameId,
-    #[allow(unused, reason = "will be exposed in BrowserState")]
     network_activity: activity::NetworkActivity,
     screencast_activity: activity::ScreencastActivity,
     #[allow(unused, reason = "this is going into the scripts soon")]
@@ -1032,8 +1031,11 @@ async fn process_event(
 
             shared.console_entries.clear();
             context.screencast_activity.restart().await;
-            let subscription =
-                quiescence::subscribe(context.screencast_activity.stream());
+            let activity = Box::pin(stream::select(
+                context.network_activity.stream(),
+                context.screencast_activity.stream(),
+            )) as activity::ActivityStream;
+            let subscription = quiescence::subscribe(activity);
             InnerState {
                 kind: Acting(subscription),
                 shared,
@@ -1226,8 +1228,11 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     inner_events_sender: &Sender<InnerEvent>,
 ) -> quiescence::QuiescenceTimer {
-    let subscription =
-        quiescence::subscribe(context.screencast_activity.stream());
+    let activity = Box::pin(stream::select(
+        context.network_activity.stream(),
+        context.screencast_activity.stream(),
+    )) as activity::ActivityStream;
+    let subscription = quiescence::subscribe(activity);
     start_quiescence_timer_from_subscription(
         shared,
         inner_events_sender,
