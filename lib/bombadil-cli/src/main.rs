@@ -56,7 +56,7 @@ struct TestSharedOptions {
     height: u16,
     /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
     /// mode
-    #[arg(long, default_value_t = 2.0)]
+    #[arg(long, default_value_t = 1.0)]
     device_scale_factor: f64,
     /// What types of JavaScript to instrument for coverage tracking.
     /// Comma-separated list of: "files", "inline"
