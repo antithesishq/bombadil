@@ -984,18 +984,6 @@ async fn process_event(
                         )
                     }
                 }
-                // Wait two animation frames so the renderer flushes
-                // pending input events (e.g. focus changes from mouse
-                // clicks) before signalling that the action is done.
-                let _ = page
-                    .execute(
-                        runtime::EvaluateParams::builder()
-                            .expression("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-                            .await_promise(true)
-                            .build()
-                            .unwrap(),
-                    )
-                    .await;
                 if let Err(error) =
                     sender.send(InnerEvent::ActionApplied(shared.generation))
                 {
