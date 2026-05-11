@@ -15,8 +15,8 @@ pub struct QuiescenceSubscription {
 
 /// A handle representing an active quiescence timer.
 ///
-/// Held by the state machine to keep the timer alive. When dropped,
-/// the corresponding waiter resolves as cancelled (not quiescent).
+/// Keeps the timer alive. When dropped, the corresponding waiter resolves as
+/// cancelled (not quiescent).
 pub struct QuiescenceTimer {
     _cancel: tokio::sync::oneshot::Sender<()>,
 }
@@ -70,25 +70,13 @@ impl QuiescenceSubscription {
     }
 }
 
-/// Convenience: subscribe and start in one step.
-pub fn start(
-    timeout_idle: Duration,
-    timeout_max: Duration,
-    activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
-) -> (
-    QuiescenceTimer,
-    impl std::future::Future<Output = bool> + Send,
-) {
-    subscribe(activity).start(timeout_idle, timeout_max)
-}
-
 impl QuiescenceWaiter {
     async fn wait(mut self) -> bool {
-        let deadline = Instant::now() + self.timeout_max;
+        let deadline_max = Instant::now() + self.timeout_max;
         let mut deadline_idle = Instant::now() + self.timeout_idle;
 
         loop {
-            let next = deadline_idle.min(deadline);
+            let next = deadline_idle.min(deadline_max);
             tokio::select! {
                 _ = sleep_until(next) => {
                     return true;
@@ -101,7 +89,7 @@ impl QuiescenceWaiter {
                         Some(bump) => {
                             deadline_idle =
                                 (Instant::now() + bump)
-                                    .min(deadline);
+                                    .min(deadline_max);
                         }
                         None => {
                             self.activity =
@@ -120,13 +108,24 @@ mod tests {
     use futures::stream;
     use tokio::time::Instant;
 
+    pub fn start_immediately(
+        timeout_idle: Duration,
+        timeout_max: Duration,
+        activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
+    ) -> (
+        QuiescenceTimer,
+        impl std::future::Future<Output = bool> + Send,
+    ) {
+        subscribe(activity).start(timeout_idle, timeout_max)
+    }
+
     fn empty_activity() -> Pin<Box<dyn Stream<Item = Duration> + Send>> {
         Box::pin(stream::empty())
     }
 
     #[tokio::test]
     async fn fires_after_timeout_idle_with_no_activity() {
-        let (_timer, wait) = start(
+        let (_timer, wait) = start_immediately(
             Duration::from_millis(100),
             Duration::from_secs(5),
             empty_activity(),
@@ -150,8 +149,11 @@ mod tests {
             }
         }));
 
-        let (_timer, wait) =
-            start(Duration::from_millis(150), Duration::from_secs(5), activity);
+        let (_timer, wait) = start_immediately(
+            Duration::from_millis(150),
+            Duration::from_secs(5),
+            activity,
+        );
         let t = Instant::now();
         assert!(wait.await);
         let elapsed = t.elapsed();
@@ -166,7 +168,7 @@ mod tests {
             Some((bump, ()))
         }));
 
-        let (_timer, wait) = start(
+        let (_timer, wait) = start_immediately(
             Duration::from_millis(100),
             Duration::from_millis(300),
             activity,
@@ -180,7 +182,7 @@ mod tests {
 
     #[tokio::test]
     async fn drop_handle_cancels() {
-        let (timer, wait) = start(
+        let (timer, wait) = start_immediately(
             Duration::from_secs(10),
             Duration::from_secs(10),
             empty_activity(),

@@ -1295,22 +1295,24 @@ fn start_quiescence_timer_from_subscription(
     timer
 }
 
-fn retry_with_timer(
-    shared: InnerStateShared,
-    context: &BrowserContext,
-) -> InnerState {
-    let timer =
-        start_quiescence_timer(&shared, context, &context.inner_events_sender);
-    InnerState {
-        kind: InnerStateKind::Running(timer),
-        shared,
-    }
-}
-
 async fn capture_browser_state(
     mut state: InnerState,
     context: &BrowserContext,
 ) -> Result<InnerState> {
+    fn retry_with_timer(
+        shared: InnerStateShared,
+        context: &BrowserContext,
+    ) -> InnerState {
+        let timer = start_quiescence_timer(
+            &shared,
+            context,
+            &context.inner_events_sender,
+        );
+        InnerState {
+            kind: InnerStateKind::Running(timer),
+            shared,
+        }
+    }
     log::debug!("pausing, going into next generation...");
 
     let page = context.page.clone();
