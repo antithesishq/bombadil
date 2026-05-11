@@ -15,9 +15,9 @@ import {
 import { weighted } from "@antithesishq/bombadil/actions";
 
 export const defaultActions = weighted([
-  [10, clicks],
-  [10, inputs],
-  [5, scroll],
-  [1, navigation],
+  [100, clicks],
+  [100, inputs],
+  [50, scroll],
+  [10, navigation],
   [1, waitOnce],
 ]);

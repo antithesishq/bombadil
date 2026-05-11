@@ -15,8 +15,11 @@ use tokio::sync::broadcast;
 /// it is considered background noise and filtered out.
 const MAX_HITS_PER_URL: u32 = 3;
 
-/// How long a network event extends the quiescence deadline.
-const NETWORK_BUMP: Duration = Duration::from_millis(100);
+/// How long a new outgoing request extends the quiescence deadline.
+const NETWORK_BUMP_REQUEST: Duration = Duration::from_millis(100);
+
+/// How long an incoming response extends the quiescence deadline.
+const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(10);
 
 /// Maximum number of screencast frames that can bump the quiescence
 /// timer in a single window. Prevents perpetual animations (CSS
@@ -30,33 +33,34 @@ const FRAME_BUMP: Duration = Duration::from_millis(32);
 pub type ActivityStream = Pin<Box<dyn Stream<Item = Duration> + Send>>;
 
 pub struct NetworkActivity {
-    sender: broadcast::Sender<String>,
+    sender: broadcast::Sender<(String, Duration)>,
 }
 
 impl NetworkActivity {
     pub async fn subscribe(page: &Arc<Page>) -> Result<Self> {
-        let (sender, _) = broadcast::channel::<String>(256);
+        let (sender, _) = broadcast::channel::<(String, Duration)>(256);
 
         let requests = page
             .event_listener::<network::EventRequestWillBeSent>()
             .await?
-            .map(|event| event.request.url.clone());
+            .map(|event| (event.request.url.clone(), NETWORK_BUMP_REQUEST));
 
         let responses = page
             .event_listener::<network::EventResponseReceived>()
             .await?
-            .map(|event| event.response.url.clone());
+            .map(|event| (event.response.url.clone(), NETWORK_BUMP_RESPONSE));
 
         let merged = stream::select_all(vec![
-            Box::pin(requests) as Pin<Box<dyn Stream<Item = String> + Send>>,
+            Box::pin(requests)
+                as Pin<Box<dyn Stream<Item = (String, Duration)> + Send>>,
             Box::pin(responses),
         ]);
 
         let tx = sender.clone();
         tokio::spawn(async move {
             tokio::pin!(merged);
-            while let Some(url) = merged.next().await {
-                let _ = tx.send(url);
+            while let Some(pair) = merged.next().await {
+                let _ = tx.send(pair);
             }
         });
 
@@ -65,9 +69,9 @@ impl NetworkActivity {
 
     pub fn stream(&self) -> ActivityStream {
         let receiver = self.sender.subscribe();
-        let urls = tokio_stream::wrappers::BroadcastStream::new(receiver)
+        let events = tokio_stream::wrappers::BroadcastStream::new(receiver)
             .filter_map(|result| async { result.ok() });
-        Box::pin(limit_per_url(urls))
+        Box::pin(limit_per_url(events))
     }
 }
 
@@ -164,14 +168,14 @@ impl ScreencastActivity {
 }
 
 fn limit_per_url(
-    urls: impl Stream<Item = String> + Send + 'static,
+    events: impl Stream<Item = (String, Duration)> + Send + 'static,
 ) -> impl Stream<Item = Duration> + Send + 'static {
     let mut counts: HashMap<String, u32> = HashMap::new();
-    urls.filter_map(move |url| {
+    events.filter_map(move |(url, bump)| {
         let count = counts.entry(url).or_insert(0);
         *count += 1;
         if *count <= MAX_HITS_PER_URL {
-            std::future::ready(Some(NETWORK_BUMP))
+            std::future::ready(Some(bump))
         } else {
             std::future::ready(None)
         }
