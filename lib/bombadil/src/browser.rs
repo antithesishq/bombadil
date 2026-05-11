@@ -1161,19 +1161,11 @@ async fn process_event(
                 log::debug!("ignoring stale NavigationTimedOut");
                 state
             } else if matches!(state.kind, Navigating { .. } | Loading) {
-                log::warn!(
-                    "navigation timed out during {:?}, resuming",
+                bail!(
+                    "navigation timed out after {:?} during {:?}",
+                    NAVIGATION_TIMEOUT,
                     &state.kind,
                 );
-                let timer = start_quiescence_timer(
-                    &state.shared,
-                    context,
-                    &context.inner_events_sender,
-                );
-                InnerState {
-                    kind: Running(timer),
-                    shared: state.shared,
-                }
             } else {
                 state
             }
