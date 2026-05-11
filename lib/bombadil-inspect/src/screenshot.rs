@@ -55,10 +55,8 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
                 .as_deref()
                 .and_then(action_point)
                 .map(|point| {
-                    // TODO: this needs to be part of test metadata
-                    let device_scale_factor = 2.0;
-                    let x = point.x * device_scale_factor * transform.scale;
-                    let y = point.y * device_scale_factor * transform.scale;
+                    let x = point.x * transform.scale;
+                    let y = point.y * transform.scale;
                     let radius = 20.0_f64;
                     let diameter = 2.0 * radius;
                     html!(

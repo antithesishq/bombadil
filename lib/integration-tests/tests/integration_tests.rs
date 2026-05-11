@@ -237,7 +237,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 emulation: Emulation {
                     width: 800,
                     height: 600,
-                    device_scale_factor: 2.0,
+                    device_scale_factor: 1.0,
                 },
                 instrumentation: Default::default(),
                 downloads_directory: downloads_directory.path().to_path_buf(),
@@ -489,7 +489,7 @@ async fn test_browser_lifecycle() {
             emulation: Emulation {
                 width: 800,
                 height: 600,
-                device_scale_factor: 2.0,
+                device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
             downloads_directory: downloads_directory.path().to_path_buf(),
@@ -518,9 +518,7 @@ async fn test_browser_lifecycle() {
         }
     }
 
-    browser
-        .apply(BrowserAction::Reload, Duration::from_millis(500))
-        .unwrap();
+    browser.apply(BrowserAction::Reload).unwrap();
 
     match browser.next_event().await.unwrap() {
         bombadil::browser::BrowserEvent::StateChanged(state) => {
