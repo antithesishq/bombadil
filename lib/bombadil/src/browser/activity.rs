@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Result;
 use base64::Engine;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::network;
@@ -14,31 +15,26 @@ use tokio::sync::broadcast;
 /// it is considered background noise and filtered out.
 const MAX_HITS_PER_URL: u32 = 3;
 
+/// How long a network event extends the quiescence deadline.
+const NETWORK_BUMP: Duration = Duration::from_millis(100);
+
 /// Maximum number of screencast frames that can bump the quiescence
 /// timer in a single window. Prevents perpetual animations (CSS
 /// transitions, blinking cursors, etc.) from blocking quiescence
 /// indefinitely.
-const MAX_FRAME_BUMPS: u32 = 10;
-
-/// How long a network event extends the quiescence deadline.
-const NETWORK_BUMP: Duration = Duration::from_millis(100);
+const FRAME_BUMP_COUNT_MAX: u32 = 10;
 
 /// How long a screencast frame extends the quiescence deadline.
 const FRAME_BUMP: Duration = Duration::from_millis(32);
 
 pub type ActivityStream = Pin<Box<dyn Stream<Item = Duration> + Send>>;
 
-/// A shared handle to network activity on a page.  Subscribes to CDP
-/// network events once; each call to [`stream`] returns a fresh,
-/// per-URL-deduplicated activity stream for a new quiescence window.
 pub struct NetworkActivity {
     sender: broadcast::Sender<String>,
 }
 
 impl NetworkActivity {
-    /// Subscribe to CDP network events on `page`.  The returned
-    /// handle is cheap to clone and lives for the browser session.
-    pub async fn subscribe(page: &Arc<Page>) -> anyhow::Result<Self> {
+    pub async fn subscribe(page: &Arc<Page>) -> Result<Self> {
         let (sender, _) = broadcast::channel::<String>(256);
 
         let requests = page
@@ -67,9 +63,6 @@ impl NetworkActivity {
         Ok(NetworkActivity { sender })
     }
 
-    /// Create a new deduplicated activity stream.  Each URL may
-    /// trigger at most [`MAX_HITS_PER_URL`] events before being
-    /// silenced.  The dedup state is local to this stream.
     pub fn stream(&self) -> ActivityStream {
         let receiver = self.sender.subscribe();
         let urls = tokio_stream::wrappers::BroadcastStream::new(receiver)
@@ -78,21 +71,16 @@ impl NetworkActivity {
     }
 }
 
-/// Centralized screencast subscription. Starts `Page.startScreencast`
-/// once, listens for frames, acks them, decodes the image bytes, and
-/// rebroadcasts via a tokio broadcast channel. Both activity tracking
-/// and screenshot capture subscribe to this single source.
 pub struct Screencast {
     sender: broadcast::Sender<Arc<Vec<u8>>>,
 }
 
 impl Screencast {
-    /// Start the screencast and begin listening for frames.
     pub async fn start(
         page: &Arc<Page>,
         width: u16,
         height: u16,
-    ) -> anyhow::Result<Self> {
+    ) -> Result<Self> {
         page.execute(
             page::StartScreencastParams::builder()
                 .format(page::StartScreencastFormat::Jpeg)
@@ -104,12 +92,11 @@ impl Screencast {
         .await?;
 
         let (sender, _) = broadcast::channel::<Arc<Vec<u8>>>(16);
-
         let frames =
             page.event_listener::<page::EventScreencastFrame>().await?;
-
         let tx = sender.clone();
-        let page_for_ack = page.clone();
+        let page = page.clone();
+
         tokio::spawn(async move {
             tokio::pin!(frames);
             log::debug!("screencast: listener started");
@@ -127,8 +114,7 @@ impl Screencast {
                         continue;
                     }
                 };
-                // Acknowledge so Chrome keeps sending frames.
-                match page_for_ack
+                match page
                     .execute(page::ScreencastFrameAckParams::new(
                         event.session_id,
                     ))
@@ -145,16 +131,11 @@ impl Screencast {
         Ok(Screencast { sender })
     }
 
-    /// Subscribe to decoded frame bytes.
     pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<u8>>> {
         self.sender.subscribe()
     }
 }
 
-/// Wraps a [`Screencast`] subscription as a quiescence activity
-/// stream. Each frame bumps the deadline, up to a maximum number
-/// of bumps per window to avoid infinite animations blocking
-/// quiescence.
 pub struct ScreencastActivity {
     screencast: Arc<Screencast>,
 }
@@ -172,7 +153,7 @@ impl ScreencastActivity {
                 .filter_map(|result| async { result.ok() })
                 .filter_map(move |_| {
                     count += 1;
-                    if count <= MAX_FRAME_BUMPS {
+                    if count <= FRAME_BUMP_COUNT_MAX {
                         std::future::ready(Some(FRAME_BUMP))
                     } else {
                         std::future::ready(None)
@@ -182,8 +163,6 @@ impl ScreencastActivity {
     }
 }
 
-/// Filter a stream of URLs, emitting [`NETWORK_BUMP`] for each URL
-/// that has not yet exceeded [`MAX_HITS_PER_URL`].
 fn limit_per_url(
     urls: impl Stream<Item = String> + Send + 'static,
 ) -> impl Stream<Item = Duration> + Send + 'static {
