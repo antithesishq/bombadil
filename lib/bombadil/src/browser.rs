@@ -9,7 +9,6 @@ use chromiumoxide::cdp::browser_protocol::page::{
 use chromiumoxide::cdp::browser_protocol::target::{self, TargetId};
 use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
 use chromiumoxide::cdp::js_protocol::runtime::{self};
-use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::{BrowserConfig, Page};
 use futures::{StreamExt, stream};
 use log;
@@ -17,7 +16,7 @@ use serde_json as json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::RecvError;
@@ -161,6 +160,7 @@ struct BrowserContext {
     frame_id: FrameId,
     network_activity: activity::NetworkActivity,
     screencast_activity: activity::ScreencastActivity,
+    latest_frame: Arc<Mutex<Option<Arc<Vec<u8>>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
 }
@@ -335,8 +335,45 @@ impl Browser {
 
         let network_activity =
             activity::NetworkActivity::subscribe(&page).await?;
+        let screencast = Arc::new(
+            activity::Screencast::start(
+                &page,
+                browser_options.emulation.width,
+                browser_options.emulation.height,
+            )
+            .await?,
+        );
         let screencast_activity =
-            activity::ScreencastActivity::subscribe(&page).await?;
+            activity::ScreencastActivity::new(screencast.clone());
+
+        let latest_frame: Arc<Mutex<Option<Arc<Vec<u8>>>>> =
+            Arc::new(Mutex::new(None));
+
+        // Background task to keep the latest screencast frame updated.
+        {
+            let latest_frame = latest_frame.clone();
+            let mut receiver = screencast.subscribe();
+            spawn(async move {
+                loop {
+                    match receiver.recv().await {
+                        Ok(frame) => {
+                            *latest_frame.lock().unwrap() = Some(frame);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(
+                            n,
+                        )) => {
+                            log::debug!(
+                                "screencast frame receiver lagged by {}",
+                                n
+                            );
+                        }
+                        Err(
+                            tokio::sync::broadcast::error::RecvError::Closed,
+                        ) => break,
+                    }
+                }
+            });
+        }
 
         let context = BrowserContext {
             sender,
@@ -347,6 +384,7 @@ impl Browser {
             frame_id,
             network_activity,
             screencast_activity,
+            latest_frame,
             origin: origin.clone(),
         };
 
@@ -1030,7 +1068,7 @@ async fn process_event(
             });
 
             shared.console_entries.clear();
-            context.screencast_activity.restart().await;
+            // context.screencast_activity.restart().await;
             let activity = Box::pin(stream::select(
                 context.network_activity.stream(),
                 context.screencast_activity.stream(),
@@ -1285,37 +1323,21 @@ async fn capture_browser_state(
         }
     };
 
-    // log::debug!("taking screenshot before pause");
-    // let format = ScreenshotFormat::Webp;
-    // let screenshot_result = tokio::time::timeout(
-    //     Duration::from_secs(2),
-    //     context.page.screenshot(
-    //         ScreenshotParams::builder()
-    //             .omit_background(true)
-    //             .format(format)
-    //             .build(),
-    //     ),
-    // )
-    // .await;
-
-    // let screenshot = match screenshot_result {
-    //     Ok(Ok(data)) => Screenshot { data, format },
-    //     Ok(Err(error)) => {
-    //         log::warn!("screenshot failed: {}, skipping state capture", error);
-    //         return Ok(retry_with_timer(state.shared, context));
-    //     }
-    //     Err(_) => {
-    //         log::warn!("screenshot timed out, skipping state capture");
-    //         return Ok(retry_with_timer(state.shared, context));
-    //     }
-    // };
-    // state.shared.screenshot = Some(screenshot);
-
-    // Fake for now.
-    state.shared.screenshot = Some(Screenshot {
-        format: ScreenshotFormat::Webp,
-        data: vec![],
-    });
+    let frame = context.latest_frame.lock().unwrap().clone();
+    match frame {
+        Some(data) => {
+            state.shared.screenshot = Some(Screenshot {
+                format: ScreenshotFormat::Jpeg,
+                data: (*data).clone(),
+            });
+        }
+        None => {
+            log::debug!(
+                "no screencast frame available, skipping state capture"
+            );
+            return Ok(retry_with_timer(state.shared, context));
+        }
+    }
 
     let page = context.page.clone();
     spawn(async move {

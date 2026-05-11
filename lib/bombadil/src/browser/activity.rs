@@ -78,38 +78,38 @@ impl NetworkActivity {
     }
 }
 
-/// A shared handle to screencast frame activity. Subscribes to
-/// `Page.screencastFrame` events once; each call to [`stream`]
-/// returns a fresh activity stream for a new quiescence window.
-pub struct ScreencastActivity {
-    sender: broadcast::Sender<()>,
-    page: Arc<Page>,
+/// Centralized screencast subscription. Starts `Page.startScreencast`
+/// once, listens for frames, acks them, decodes the image bytes, and
+/// rebroadcasts via a tokio broadcast channel. Both activity tracking
+/// and screenshot capture subscribe to this single source.
+pub struct Screencast {
+    sender: broadcast::Sender<Arc<Vec<u8>>>,
 }
 
-fn screencast_params() -> page::StartScreencastParams {
-    page::StartScreencastParams::builder()
-        .format(page::StartScreencastFormat::Jpeg)
-        .quality(50)
-        .max_width(800)
-        .max_height(600)
-        .build()
-}
+impl Screencast {
+    /// Start the screencast and begin listening for frames.
+    pub async fn start(
+        page: &Arc<Page>,
+        width: u16,
+        height: u16,
+    ) -> anyhow::Result<Self> {
+        page.execute(
+            page::StartScreencastParams::builder()
+                .format(page::StartScreencastFormat::Jpeg)
+                .quality(50)
+                .max_width(width)
+                .max_height(height)
+                .build(),
+        )
+        .await?;
 
-impl ScreencastActivity {
-    /// Start the screencast and subscribe to frame events on `page`.
-    pub async fn subscribe(page: &Arc<Page>) -> anyhow::Result<Self> {
-        page.execute(screencast_params()).await?;
-
-        let (sender, _) = broadcast::channel::<()>(256);
+        let (sender, _) = broadcast::channel::<Arc<Vec<u8>>>(16);
 
         let frames =
             page.event_listener::<page::EventScreencastFrame>().await?;
 
         let tx = sender.clone();
         let page_for_ack = page.clone();
-        let debug_dir = std::path::PathBuf::from("/tmp/bombadil-screencast");
-        let _ = std::fs::create_dir_all(&debug_dir);
-        let mut frame_counter = 0u64;
         tokio::spawn(async move {
             tokio::pin!(frames);
             log::debug!("screencast: listener started");
@@ -118,14 +118,15 @@ impl ScreencastActivity {
                     "screencast: frame received (session_id={})",
                     event.session_id
                 );
-                // Save frame to disk for debugging.
-                let path = debug_dir.join(format!("{:06}.jpg", frame_counter));
-                if let Ok(bytes) =
-                    base64::prelude::BASE64_STANDARD.decode(&event.data)
+                let bytes = match base64::prelude::BASE64_STANDARD
+                    .decode(&event.data)
                 {
-                    let _ = std::fs::write(&path, &bytes);
-                }
-                frame_counter += 1;
+                    Ok(b) => b,
+                    Err(e) => {
+                        log::warn!("screencast: decode failed: {}", e);
+                        continue;
+                    }
+                };
                 // Acknowledge so Chrome keeps sending frames.
                 match page_for_ack
                     .execute(page::ScreencastFrameAckParams::new(
@@ -136,44 +137,40 @@ impl ScreencastActivity {
                     Ok(_) => log::debug!("screencast: ack sent"),
                     Err(e) => log::warn!("screencast: ack failed: {}", e),
                 }
-                let _ = tx.send(());
+                let _ = tx.send(Arc::new(bytes));
             }
             log::debug!("screencast: listener ended");
         });
 
-        Ok(ScreencastActivity {
-            sender,
-            page: page.clone(),
-        })
+        Ok(Screencast { sender })
     }
 
-    /// Re-issue StartScreencast so Chrome resumes sending frames
-    /// (e.g. after a debugger pause/resume cycle).
-    pub async fn restart(&self) {
-        if let Err(e) = self.page.execute(screencast_params()).await {
-            log::warn!("screencast: restart failed: {}", e);
-        }
+    /// Subscribe to decoded frame bytes.
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<u8>>> {
+        self.sender.subscribe()
     }
+}
 
-    /// Stop the screencast so the renderer is free for other
-    /// operations (screenshots, debugger pause).
-    pub async fn stop(&self) {
-        if let Err(e) = self
-            .page
-            .execute(page::StopScreencastParams::default())
-            .await
-        {
-            log::warn!("screencast: stop failed: {}", e);
-        }
+/// Wraps a [`Screencast`] subscription as a quiescence activity
+/// stream. Each frame bumps the deadline, up to a maximum number
+/// of bumps per window to avoid infinite animations blocking
+/// quiescence.
+pub struct ScreencastActivity {
+    screencast: Arc<Screencast>,
+}
+
+impl ScreencastActivity {
+    pub fn new(screencast: Arc<Screencast>) -> Self {
+        ScreencastActivity { screencast }
     }
 
     pub fn stream(&self) -> ActivityStream {
-        let receiver = self.sender.subscribe();
+        let receiver = self.screencast.subscribe();
         let mut count = 0u32;
         Box::pin(
             tokio_stream::wrappers::BroadcastStream::new(receiver)
                 .filter_map(|result| async { result.ok() })
-                .filter_map(move |()| {
+                .filter_map(move |_| {
                     count += 1;
                     if count <= MAX_FRAME_BUMPS {
                         std::future::ready(Some(FRAME_BUMP))
