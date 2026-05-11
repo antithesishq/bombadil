@@ -155,6 +155,18 @@ impl ScreencastActivity {
         }
     }
 
+    /// Stop the screencast so the renderer is free for other
+    /// operations (screenshots, debugger pause).
+    pub async fn stop(&self) {
+        if let Err(e) = self
+            .page
+            .execute(page::StopScreencastParams::default())
+            .await
+        {
+            log::warn!("screencast: stop failed: {}", e);
+        }
+    }
+
     pub fn stream(&self) -> ActivityStream {
         let receiver = self.sender.subscribe();
         let mut count = 0u32;

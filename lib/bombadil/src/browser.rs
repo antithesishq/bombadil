@@ -126,7 +126,6 @@ enum InnerEvent {
 enum StateRequestReason {
     Start,
     Quiesced,
-    FileDownload,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -1104,30 +1103,24 @@ async fn process_event(
             }
         }
         (
-            InnerState { kind, shared },
+            InnerState {
+                kind: Navigating { .. },
+                shared,
+            },
             InnerEvent::DownloadWillBegin { frame_id, url },
-        ) => {
-            if frame_id == context.frame_id {
-                log::debug!("download started: {}", url);
-                let _ = context.inner_events_sender.send(
-                    InnerEvent::StateRequested(
-                        StateRequestReason::FileDownload,
-                        shared.generation,
-                    ),
-                );
-                let timer = start_quiescence_timer(
-                    &shared,
-                    context,
-                    &context.inner_events_sender,
-                );
-                InnerState {
-                    kind: Running(timer),
-                    shared,
-                }
-            } else {
-                InnerState { kind, shared }
+        ) if frame_id == context.frame_id => {
+            log::debug!("download started: {}", url);
+            let timer = start_quiescence_timer(
+                &shared,
+                context,
+                &context.inner_events_sender,
+            );
+            InnerState {
+                kind: Running(timer),
+                shared,
             }
         }
+        (state, InnerEvent::DownloadWillBegin { .. }) => state,
         (
             InnerState {
                 kind: Navigating { url },
