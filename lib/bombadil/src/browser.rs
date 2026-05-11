@@ -142,12 +142,11 @@ impl std::fmt::Display for Generation {
     }
 }
 
-const QUIESCENCE_BUMP: Duration = Duration::from_millis(50);
 /// Initial idle timeout before the first activity signal arrives.
 /// Deliberately long so we don't fire before the browser has produced
-/// any frames; the first screencast bump will replace this with a
-/// much shorter deadline.
-const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(32);
+/// any frames; the first activity event will replace this with a much shorter
+/// deadline.
+const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(500);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
