@@ -358,9 +358,9 @@ impl Browser {
                         Ok(frame) => {
                             *latest_frame.lock().unwrap() = Some(frame);
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(
-                            n,
-                        )) => {
+                        Err(
+                            tokio::sync::broadcast::error::RecvError::Lagged(n),
+                        ) => {
                             log::debug!(
                                 "screencast frame receiver lagged by {}",
                                 n
@@ -896,7 +896,7 @@ async fn process_event(
                 .await?;
             let timer = start_quiescence_timer(
                 &state.shared,
-                &context,
+                context,
                 &context.inner_events_sender,
             );
             capture_browser_state(
@@ -1102,7 +1102,7 @@ async fn process_event(
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
             let timer = start_quiescence_timer(
                 &shared,
-                &context,
+                context,
                 &context.inner_events_sender,
             );
             InnerState {

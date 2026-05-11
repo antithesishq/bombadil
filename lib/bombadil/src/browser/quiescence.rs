@@ -51,8 +51,10 @@ impl QuiescenceSubscription {
         self,
         timeout_idle: Duration,
         timeout_max: Duration,
-    ) -> (QuiescenceTimer, impl std::future::Future<Output = bool> + Send)
-    {
+    ) -> (
+        QuiescenceTimer,
+        impl std::future::Future<Output = bool> + Send,
+    ) {
         let waiter = QuiescenceWaiter {
             cancel: self.cancel_receiver,
             activity: self.activity,
@@ -73,7 +75,10 @@ pub fn start(
     timeout_idle: Duration,
     timeout_max: Duration,
     activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
-) -> (QuiescenceTimer, impl std::future::Future<Output = bool> + Send) {
+) -> (
+    QuiescenceTimer,
+    impl std::future::Future<Output = bool> + Send,
+) {
     subscribe(activity).start(timeout_idle, timeout_max)
 }
 
@@ -145,11 +150,8 @@ mod tests {
             }
         }));
 
-        let (_timer, wait) = start(
-            Duration::from_millis(150),
-            Duration::from_secs(5),
-            activity,
-        );
+        let (_timer, wait) =
+            start(Duration::from_millis(150), Duration::from_secs(5), activity);
         let t = Instant::now();
         assert!(wait.await);
         let elapsed = t.elapsed();
