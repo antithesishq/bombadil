@@ -24,7 +24,7 @@ const MAX_FRAME_BUMPS: u32 = 10;
 const NETWORK_BUMP: Duration = Duration::from_millis(100);
 
 /// How long a screencast frame extends the quiescence deadline.
-const FRAME_BUMP: Duration = Duration::from_millis(100);
+const FRAME_BUMP: Duration = Duration::from_millis(32);
 
 pub type ActivityStream = Pin<Box<dyn Stream<Item = Duration> + Send>>;
 
