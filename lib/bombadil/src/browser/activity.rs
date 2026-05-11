@@ -76,7 +76,7 @@ impl NetworkActivity {
 }
 
 pub struct Screencast {
-    sender: broadcast::Sender<Arc<Vec<u8>>>,
+    sender: broadcast::Sender<Arc<[u8]>>,
 }
 
 impl Screencast {
@@ -95,7 +95,7 @@ impl Screencast {
         )
         .await?;
 
-        let (sender, _) = broadcast::channel::<Arc<Vec<u8>>>(16);
+        let (sender, _) = broadcast::channel::<Arc<[u8]>>(16);
         let frames =
             page.event_listener::<page::EventScreencastFrame>().await?;
         let tx = sender.clone();
@@ -127,7 +127,7 @@ impl Screencast {
                     Ok(_) => log::debug!("screencast: ack sent"),
                     Err(e) => log::warn!("screencast: ack failed: {}", e),
                 }
-                let _ = tx.send(Arc::new(bytes));
+                let _ = tx.send(Arc::from(bytes));
             }
             log::debug!("screencast: listener ended");
         });
@@ -135,7 +135,7 @@ impl Screencast {
         Ok(Screencast { sender })
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Arc<Vec<u8>>> {
+    pub fn subscribe(&self) -> broadcast::Receiver<Arc<[u8]>> {
         self.sender.subscribe()
     }
 }

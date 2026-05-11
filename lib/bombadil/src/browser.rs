@@ -157,7 +157,7 @@ struct BrowserContext {
     frame_id: FrameId,
     network_activity: activity::NetworkActivity,
     screencast_activity: activity::ScreencastActivity,
-    latest_frame: Arc<Mutex<Option<Arc<Vec<u8>>>>>,
+    latest_frame: Arc<Mutex<Option<Arc<[u8]>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
 }
@@ -343,7 +343,7 @@ impl Browser {
         let screencast_activity =
             activity::ScreencastActivity::new(screencast.clone());
 
-        let latest_frame: Arc<Mutex<Option<Arc<Vec<u8>>>>> =
+        let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
             Arc::new(Mutex::new(None));
 
         // Background task to keep the latest screencast frame updated.
@@ -1257,7 +1257,7 @@ async fn capture_browser_state(
         Some(data) => {
             state.shared.screenshot = Some(Screenshot {
                 format: ScreenshotFormat::Jpeg,
-                data: (*data).clone(),
+                data: data.to_vec(),
             });
         }
         None => {
