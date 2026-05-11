@@ -4,6 +4,15 @@ use std::time::Duration;
 use futures::{Stream, StreamExt};
 use tokio::time::{Instant, sleep_until};
 
+/// A subscription that buffers activity signals before the countdown
+/// begins. Call [`start`](QuiescenceSubscription::start) to begin
+/// the actual timer.
+pub struct QuiescenceSubscription {
+    cancel_sender: tokio::sync::oneshot::Sender<()>,
+    cancel_receiver: tokio::sync::oneshot::Receiver<()>,
+    activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
+}
+
 /// A handle representing an active quiescence timer.
 ///
 /// Held by the state machine to keep the timer alive. When dropped,
@@ -19,34 +28,53 @@ struct QuiescenceWaiter {
     timeout_max: Duration,
 }
 
-/// Create a quiescence timer driven by an activity stream.
+/// Begin buffering activity signals without starting the countdown.
 ///
-/// Each item in the stream is a [`Duration`] that bumps the idle
-/// deadline by that amount from now, allowing different activity
-/// sources (network, screencast frames, etc.) to control their own
-/// settling delay.
-///
-/// Returns a handle and a future. The future resolves with `true`
-/// when the system is quiescent (idle timeout or max timeout
-/// elapsed), or `false` if the handle was dropped (cancelled).
+/// The returned [`QuiescenceSubscription`] holds the activity stream
+/// so that signals arriving before [`QuiescenceSubscription::start`]
+/// are not lost.
+pub fn subscribe(
+    activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
+) -> QuiescenceSubscription {
+    let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
+    QuiescenceSubscription {
+        cancel_sender,
+        cancel_receiver,
+        activity,
+    }
+}
+
+impl QuiescenceSubscription {
+    /// Start the countdown. Returns a timer handle and a future that
+    /// resolves with `true` when quiescent, or `false` if cancelled.
+    pub fn start(
+        self,
+        timeout_idle: Duration,
+        timeout_max: Duration,
+    ) -> (QuiescenceTimer, impl std::future::Future<Output = bool> + Send)
+    {
+        let waiter = QuiescenceWaiter {
+            cancel: self.cancel_receiver,
+            activity: self.activity,
+            timeout_idle,
+            timeout_max,
+        };
+        (
+            QuiescenceTimer {
+                _cancel: self.cancel_sender,
+            },
+            waiter.wait(),
+        )
+    }
+}
+
+/// Convenience: subscribe and start in one step.
 pub fn start(
     timeout_idle: Duration,
     timeout_max: Duration,
     activity: Pin<Box<dyn Stream<Item = Duration> + Send>>,
 ) -> (QuiescenceTimer, impl std::future::Future<Output = bool> + Send) {
-    let (cancel_sender, cancel_receiver) = tokio::sync::oneshot::channel();
-    let waiter = QuiescenceWaiter {
-        cancel: cancel_receiver,
-        activity,
-        timeout_idle,
-        timeout_max,
-    };
-    (
-        QuiescenceTimer {
-            _cancel: cancel_sender,
-        },
-        waiter.wait(),
-    )
+    subscribe(activity).start(timeout_idle, timeout_max)
 }
 
 impl QuiescenceWaiter {

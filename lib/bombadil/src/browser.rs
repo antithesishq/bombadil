@@ -69,7 +69,7 @@ enum InnerStateKind {
     Navigating { url: String },
     Loading,
     Running(quiescence::QuiescenceTimer),
-    Acting,
+    Acting(quiescence::QuiescenceSubscription),
 }
 
 impl std::fmt::Debug for InnerStateKind {
@@ -85,7 +85,7 @@ impl std::fmt::Debug for InnerStateKind {
             }
             Self::Loading => write!(f, "Loading"),
             Self::Running(_) => write!(f, "Running"),
-            Self::Acting => write!(f, "Acting"),
+            Self::Acting(_) => write!(f, "Acting"),
         }
     }
 }
@@ -149,7 +149,7 @@ const QUIESCENCE_BUMP: Duration = Duration::from_millis(50);
 /// Deliberately long so we don't fire before the browser has produced
 /// any frames; the first screencast bump will replace this with a
 /// much shorter deadline.
-const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_secs(5);
+const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(32);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1032,22 +1032,25 @@ async fn process_event(
             });
 
             shared.console_entries.clear();
+            context.screencast_activity.restart().await;
+            let subscription =
+                quiescence::subscribe(context.screencast_activity.stream());
             InnerState {
-                kind: Acting,
+                kind: Acting(subscription),
                 shared,
             }
         }
         (
             InnerState {
-                kind: Acting,
+                kind: Acting(subscription),
                 shared,
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            let timer = start_quiescence_timer(
+            let timer = start_quiescence_timer_from_subscription(
                 &shared,
-                &context,
                 &context.inner_events_sender,
+                subscription,
             );
             InnerState {
                 kind: Running(timer),
@@ -1230,13 +1233,22 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     inner_events_sender: &Sender<InnerEvent>,
 ) -> quiescence::QuiescenceTimer {
-    let activity: activity::ActivityStream =
-        context.screencast_activity.stream();
-    let (timer, quiescent) = quiescence::start(
-        QUIESCENCE_INITIAL_IDLE,
-        QUIESCENCE_TIMEOUT,
-        activity,
-    );
+    let subscription =
+        quiescence::subscribe(context.screencast_activity.stream());
+    start_quiescence_timer_from_subscription(
+        shared,
+        inner_events_sender,
+        subscription,
+    )
+}
+
+fn start_quiescence_timer_from_subscription(
+    shared: &InnerStateShared,
+    inner_events_sender: &Sender<InnerEvent>,
+    subscription: quiescence::QuiescenceSubscription,
+) -> quiescence::QuiescenceTimer {
+    let (timer, quiescent) =
+        subscription.start(QUIESCENCE_INITIAL_IDLE, QUIESCENCE_TIMEOUT);
     let generation = shared.generation;
     let sender = inner_events_sender.clone();
     spawn(async move {
@@ -1275,31 +1287,37 @@ async fn capture_browser_state(
         }
     };
 
-    log::debug!("taking screenshot before pause");
-    let format = ScreenshotFormat::Webp;
-    let screenshot_result = tokio::time::timeout(
-        Duration::from_secs(2),
-        context.page.screenshot(
-            ScreenshotParams::builder()
-                .omit_background(true)
-                .format(format)
-                .build(),
-        ),
-    )
-    .await;
+    // log::debug!("taking screenshot before pause");
+    // let format = ScreenshotFormat::Webp;
+    // let screenshot_result = tokio::time::timeout(
+    //     Duration::from_secs(2),
+    //     context.page.screenshot(
+    //         ScreenshotParams::builder()
+    //             .omit_background(true)
+    //             .format(format)
+    //             .build(),
+    //     ),
+    // )
+    // .await;
 
-    let screenshot = match screenshot_result {
-        Ok(Ok(data)) => Screenshot { data, format },
-        Ok(Err(error)) => {
-            log::warn!("screenshot failed: {}, skipping state capture", error);
-            return Ok(retry_with_timer(state.shared, context));
-        }
-        Err(_) => {
-            log::warn!("screenshot timed out, skipping state capture");
-            return Ok(retry_with_timer(state.shared, context));
-        }
-    };
-    state.shared.screenshot = Some(screenshot);
+    // let screenshot = match screenshot_result {
+    //     Ok(Ok(data)) => Screenshot { data, format },
+    //     Ok(Err(error)) => {
+    //         log::warn!("screenshot failed: {}, skipping state capture", error);
+    //         return Ok(retry_with_timer(state.shared, context));
+    //     }
+    //     Err(_) => {
+    //         log::warn!("screenshot timed out, skipping state capture");
+    //         return Ok(retry_with_timer(state.shared, context));
+    //     }
+    // };
+    // state.shared.screenshot = Some(screenshot);
+
+    // Fake for now.
+    state.shared.screenshot = Some(Screenshot {
+        format: ScreenshotFormat::Webp,
+        data: vec![],
+    });
 
     let page = context.page.clone();
     spawn(async move {

@@ -3,6 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use base64::Engine;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::network;
 use chromiumoxide::cdp::browser_protocol::page;
@@ -23,10 +24,7 @@ const MAX_FRAME_BUMPS: u32 = 10;
 const NETWORK_BUMP: Duration = Duration::from_millis(100);
 
 /// How long a screencast frame extends the quiescence deadline.
-/// Just over one frame interval at 60fps (~16.6ms) so that a
-/// subsequent frame arriving on time resets the deadline, but a
-/// single missed frame means the page has stopped painting.
-const FRAME_BUMP: Duration = Duration::from_millis(34);
+const FRAME_BUMP: Duration = Duration::from_millis(100);
 
 pub type ActivityStream = Pin<Box<dyn Stream<Item = Duration> + Send>>;
 
@@ -85,20 +83,22 @@ impl NetworkActivity {
 /// returns a fresh activity stream for a new quiescence window.
 pub struct ScreencastActivity {
     sender: broadcast::Sender<()>,
+    page: Arc<Page>,
+}
+
+fn screencast_params() -> page::StartScreencastParams {
+    page::StartScreencastParams::builder()
+        .format(page::StartScreencastFormat::Jpeg)
+        .quality(50)
+        .max_width(800)
+        .max_height(600)
+        .build()
 }
 
 impl ScreencastActivity {
     /// Start the screencast and subscribe to frame events on `page`.
     pub async fn subscribe(page: &Arc<Page>) -> anyhow::Result<Self> {
-        page.execute(
-            page::StartScreencastParams::builder()
-                .format(page::StartScreencastFormat::Jpeg)
-                .quality(1)
-                .max_width(1)
-                .max_height(1)
-                .build(),
-        )
-        .await?;
+        page.execute(screencast_params()).await?;
 
         let (sender, _) = broadcast::channel::<()>(256);
 
@@ -106,21 +106,53 @@ impl ScreencastActivity {
             page.event_listener::<page::EventScreencastFrame>().await?;
 
         let tx = sender.clone();
-        let page = page.clone();
+        let page_for_ack = page.clone();
+        let debug_dir = std::path::PathBuf::from("/tmp/bombadil-screencast");
+        let _ = std::fs::create_dir_all(&debug_dir);
+        let mut frame_counter = 0u64;
         tokio::spawn(async move {
             tokio::pin!(frames);
+            log::debug!("screencast: listener started");
             while let Some(event) = frames.next().await {
+                log::debug!(
+                    "screencast: frame received (session_id={})",
+                    event.session_id
+                );
+                // Save frame to disk for debugging.
+                let path = debug_dir.join(format!("{:06}.jpg", frame_counter));
+                if let Ok(bytes) =
+                    base64::prelude::BASE64_STANDARD.decode(&event.data)
+                {
+                    let _ = std::fs::write(&path, &bytes);
+                }
+                frame_counter += 1;
                 // Acknowledge so Chrome keeps sending frames.
-                let _ = page
+                match page_for_ack
                     .execute(page::ScreencastFrameAckParams::new(
                         event.session_id,
                     ))
-                    .await;
+                    .await
+                {
+                    Ok(_) => log::debug!("screencast: ack sent"),
+                    Err(e) => log::warn!("screencast: ack failed: {}", e),
+                }
                 let _ = tx.send(());
             }
+            log::debug!("screencast: listener ended");
         });
 
-        Ok(ScreencastActivity { sender })
+        Ok(ScreencastActivity {
+            sender,
+            page: page.clone(),
+        })
+    }
+
+    /// Re-issue StartScreencast so Chrome resumes sending frames
+    /// (e.g. after a debugger pause/resume cycle).
+    pub async fn restart(&self) {
+        if let Err(e) = self.page.execute(screencast_params()).await {
+            log::warn!("screencast: restart failed: {}", e);
+        }
     }
 
     pub fn stream(&self) -> ActivityStream {
