@@ -243,3 +243,75 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
         }
     }
 }
+
+pub trait FromSchema<Output> {
+    fn from_schema(&self) -> Output;
+}
+
+impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
+    fn from_schema(&self) -> BrowserAction {
+        match self {
+            bombadil_schema::BrowserAction::Back => BrowserAction::Back,
+            bombadil_schema::BrowserAction::Forward => BrowserAction::Forward,
+            bombadil_schema::BrowserAction::Click {
+                name,
+                content,
+                point,
+            } => BrowserAction::Click {
+                name: name.clone(),
+                content: content.clone(),
+                point: point.from_schema(),
+            },
+            bombadil_schema::BrowserAction::DoubleClick {
+                name,
+                content,
+                point,
+                delay_millis,
+            } => BrowserAction::DoubleClick {
+                name: name.clone(),
+                content: content.clone(),
+                point: point.from_schema(),
+                delay_millis: *delay_millis,
+            },
+            bombadil_schema::BrowserAction::TypeText { text, delay_millis } => {
+                BrowserAction::TypeText {
+                    text: text.clone(),
+                    delay_millis: *delay_millis,
+                }
+            }
+            bombadil_schema::BrowserAction::PressKey { code } => {
+                BrowserAction::PressKey { code: *code }
+            }
+            bombadil_schema::BrowserAction::ScrollUp { origin, distance } => {
+                BrowserAction::ScrollUp {
+                    origin: origin.from_schema(),
+                    distance: *distance,
+                }
+            }
+            bombadil_schema::BrowserAction::ScrollDown { origin, distance } => {
+                BrowserAction::ScrollDown {
+                    origin: origin.from_schema(),
+                    distance: *distance,
+                }
+            }
+            bombadil_schema::BrowserAction::Reload => BrowserAction::Reload,
+            bombadil_schema::BrowserAction::Wait => BrowserAction::Wait,
+            bombadil_schema::BrowserAction::SetFileInputFiles {
+                selector,
+                files,
+            } => BrowserAction::SetFileInputFiles {
+                selector: selector.clone(),
+                files: files.clone(),
+            },
+        }
+    }
+}
+
+impl FromSchema<Point> for bombadil_schema::Point {
+    fn from_schema(&self) -> Point {
+        Point {
+            x: self.x,
+            y: self.y,
+        }
+    }
+}

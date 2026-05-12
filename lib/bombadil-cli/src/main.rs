@@ -4,7 +4,7 @@ mod render;
 
 use ::url::Url;
 use anyhow::{Result, anyhow, bail};
-use bombadil::specification::domain::Snapshot;
+use bombadil::specification::{convert::FromSchema, domain::Snapshot};
 use clap::{Args, Parser};
 use serde_json as json;
 use std::{
@@ -262,11 +262,11 @@ async fn main() -> Result<()> {
             let actions_prefix = {
                 let trace_file = File::open(trace_file).await?;
                 let mut lines = BufReader::new(trace_file).lines();
-                let mut result: Vec<schema::BrowserAction> = vec![];
+                let mut result: Vec<BrowserAction> = vec![];
                 while let Some(line) = lines.next_line().await? {
                     let entry: schema::TraceEntry = json::from_str(&line)?;
                     if let Some(action) = entry.action {
-                        result.push(action);
+                        result.push(action.from_schema());
                     }
                 }
                 result
@@ -441,7 +441,7 @@ async fn test(
 
 enum TestMode {
     RandomWalk,
-    Reproduce(VecDeque<schema::BrowserAction>),
+    Reproduce(VecDeque<BrowserAction>),
 }
 
 struct MainObserver {
@@ -552,22 +552,31 @@ impl RunObserver for MainObserver {
     ) -> Result<BrowserAction> {
         match &mut self.mode {
             TestMode::RandomWalk => Ok(tree.pick(&mut rand::rng())?.clone()),
-            TestMode::Reproduce(browser_actions) => {
-                if let Some(next) = browser_actions.pop_front() {
-                    let actions_matching = tree
-                        .clone()
-                        .filter(&|action| action.to_schema() == next)
-                        .values();
+            TestMode::Reproduce(actions_original) => {
+                if let Some(action_original) = actions_original.pop_front() {
+                    let available_actions = tree.values();
+                    let action_reconciled = available_actions
+                        .iter()
+                        .filter_map(&|action| {
+                            reconcile_reproducible_action(
+                                action,
+                                &action_original,
+                            )
+                        })
+                        .nth(0);
 
-                    if let Some(action) = actions_matching.first().cloned() {
-                        Ok(action)
+                    if let Some(action) = action_reconciled {
+                        Ok(action.clone())
                     } else {
                         println!(
-                            "\n{}\n\n{:?}\n\nin:\n\n{}",
+                            "\n{}\n\n{}\n\n{}\n\n{}\n",
                             styled::maybe_red(styled::maybe_bold(
-                                "no actions matching:".into()
+                                "no match for original:".into()
                             )),
-                            next,
+                            render::format_action(&action_original),
+                            styled::maybe_red(styled::maybe_bold(
+                                "in the set of available actions:".into()
+                            )),
                             tree.values()
                                 .iter()
                                 .map(render::format_action)
@@ -583,5 +592,78 @@ impl RunObserver for MainObserver {
                 }
             }
         }
+    }
+}
+
+fn reconcile_reproducible_action(
+    candidate: &BrowserAction,
+    original: &BrowserAction,
+) -> Option<BrowserAction> {
+    match (candidate, original) {
+        (BrowserAction::Back, BrowserAction::Back) => Some(BrowserAction::Back),
+        (BrowserAction::Forward, BrowserAction::Forward) => {
+            Some(BrowserAction::Forward)
+        }
+        (
+            BrowserAction::Click {
+                name: candidate_name,
+                content: candidate_content,
+                ..
+            },
+            BrowserAction::Click {
+                name: original_name,
+                content: original_content,
+                ..
+            },
+        ) if candidate_name == original_name
+            && candidate_content == original_content =>
+        {
+            Some(candidate.clone())
+        }
+        (
+            BrowserAction::DoubleClick {
+                name: candidate_name,
+                content: candidate_content,
+                ..
+            },
+            BrowserAction::DoubleClick {
+                name: original_name,
+                content: original_content,
+                ..
+            },
+        ) if candidate_name == original_name
+            && candidate_content == original_content =>
+        {
+            Some(candidate.clone())
+        }
+        (BrowserAction::TypeText { .. }, BrowserAction::TypeText { .. }) => {
+            Some(original.clone())
+        }
+        (BrowserAction::PressKey { .. }, BrowserAction::PressKey { .. }) => {
+            Some(original.clone())
+        }
+        (BrowserAction::ScrollUp { .. }, BrowserAction::ScrollUp { .. }) => {
+            Some(candidate.clone())
+        }
+        (
+            BrowserAction::ScrollDown { .. },
+            BrowserAction::ScrollDown { .. },
+        ) => Some(candidate.clone()),
+        (BrowserAction::Reload, BrowserAction::Reload) => {
+            Some(BrowserAction::Reload)
+        }
+        (BrowserAction::Wait, BrowserAction::Wait) => Some(BrowserAction::Wait),
+        (
+            BrowserAction::SetFileInputFiles {
+                selector: candidate_selector,
+                ..
+            },
+            BrowserAction::SetFileInputFiles {
+                selector: original_selector,
+                ..
+            },
+        ) if candidate_selector == original_selector => Some(original.clone()),
+
+        _ => None,
     }
 }
