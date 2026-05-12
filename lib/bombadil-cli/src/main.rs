@@ -3,15 +3,19 @@ mod inspect_server;
 mod render;
 
 use ::url::Url;
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use bombadil::specification::domain::Snapshot;
 use clap::{Args, Parser};
+use serde_json as json;
 use std::{
-    path::PathBuf,
+    collections::VecDeque,
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
+use tokio::io::AsyncBufReadExt;
+use tokio::{fs::File, io::BufReader};
 
 use bombadil::{
     browser::{
@@ -24,7 +28,7 @@ use bombadil::{
     styled,
     trace::{PropertyViolation, writer::TraceWriter},
 };
-use bombadil_schema::markup;
+use bombadil_schema::{markup, schema};
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
@@ -104,6 +108,18 @@ enum Command {
         /// of starting the test (this should probably be false if you test an Electron app)
         #[arg(long)]
         create_target: bool,
+    },
+    Reproduce {
+        /// Original test's trace file to reproduce
+        trace_file: PathBuf,
+        #[clap(flatten)]
+        shared: TestSharedOptions,
+        /// Whether the browser should run in a visible window or not
+        #[arg(long, default_value_t = false)]
+        headless: bool,
+        /// Disable Chromium sandboxing
+        #[arg(long, default_value_t = false)]
+        no_sandbox: bool,
     },
     /// Launch Bombadil Inspect to inspect a trace file
     Inspect {
@@ -196,23 +212,8 @@ async fn main() -> Result<()> {
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             let output_path = resolve_output_path(&shared)?;
 
-            let browser_options = BrowserOptions {
-                create_target: true,
-                emulation: Emulation {
-                    width: shared.width,
-                    height: shared.height,
-                    device_scale_factor: shared.device_scale_factor,
-                },
-                instrumentation: shared.instrument_javascript.clone(),
-                downloads_directory: output_path.join("downloads"),
-                grant_permissions: shared
-                    .chrome_grant_permissions
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                extra_headers: shared.headers.iter().cloned().collect(),
-            };
+            let browser_options =
+                browser_options_from_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
                     headless,
@@ -222,7 +223,14 @@ async fn main() -> Result<()> {
                     no_sandbox,
                 },
             };
-            test(output_path, shared, browser_options, debugger_options).await
+            test(
+                TestMode::RandomWalk,
+                output_path,
+                shared,
+                browser_options,
+                debugger_options,
+            )
+            .await
         }
         Command::TestExternal {
             shared,
@@ -232,30 +240,89 @@ async fn main() -> Result<()> {
             let output_path = resolve_output_path(&shared)?;
             let browser_options = BrowserOptions {
                 create_target,
-                emulation: Emulation {
-                    width: shared.width,
-                    height: shared.height,
-                    device_scale_factor: shared.device_scale_factor,
-                },
-                instrumentation: shared.instrument_javascript.clone(),
-                downloads_directory: output_path.join("downloads"),
-                grant_permissions: shared
-                    .chrome_grant_permissions
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                extra_headers: shared.headers.iter().cloned().collect(),
+                ..browser_options_from_shared(&shared, &output_path)
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
-            test(output_path, shared, browser_options, debugger_options).await
+            test(
+                TestMode::RandomWalk,
+                output_path,
+                shared,
+                browser_options,
+                debugger_options,
+            )
+            .await
+        }
+        Command::Reproduce {
+            trace_file,
+            shared,
+            headless,
+            no_sandbox,
+        } => {
+            let actions_prefix = {
+                let trace_file = File::open(trace_file).await?;
+                let mut lines = BufReader::new(trace_file).lines();
+                let mut result: Vec<schema::BrowserAction> = vec![];
+                while let Some(line) = lines.next_line().await? {
+                    let entry: schema::TraceEntry = json::from_str(&line)?;
+                    if let Some(action) = entry.action {
+                        result.push(action);
+                    }
+                }
+                result
+            };
+
+            let user_data_directory = TempDir::with_prefix("user_data_")?;
+            let output_path = resolve_output_path(&shared)?;
+
+            let browser_options =
+                browser_options_from_shared(&shared, &output_path);
+            let debugger_options = DebuggerOptions::Managed {
+                launch_options: LaunchOptions {
+                    headless,
+                    user_data_directory: user_data_directory
+                        .path()
+                        .to_path_buf(),
+                    no_sandbox,
+                },
+            };
+            test(
+                TestMode::Reproduce(actions_prefix.into()),
+                output_path,
+                shared,
+                browser_options,
+                debugger_options,
+            )
+            .await
         }
         Command::Inspect {
             trace_path,
             port,
             no_open,
         } => inspect_server::serve(trace_path, port, !no_open).await,
+    }
+}
+
+fn browser_options_from_shared(
+    shared: &TestSharedOptions,
+    output_path: &Path,
+) -> BrowserOptions {
+    BrowserOptions {
+        create_target: true,
+        emulation: Emulation {
+            width: shared.width,
+            height: shared.height,
+            device_scale_factor: shared.device_scale_factor,
+        },
+        instrumentation: shared.instrument_javascript.clone(),
+        downloads_directory: output_path.join("downloads"),
+        grant_permissions: shared
+            .chrome_grant_permissions
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        extra_headers: shared.headers.iter().cloned().collect(),
     }
 }
 
@@ -267,6 +334,7 @@ fn resolve_output_path(shared_options: &TestSharedOptions) -> Result<PathBuf> {
 }
 
 async fn test(
+    mode: TestMode,
     output_path: PathBuf,
     shared_options: TestSharedOptions,
     browser_options: BrowserOptions,
@@ -298,98 +366,6 @@ async fn test(
     )
     .await?;
 
-    struct MainObserver {
-        writer: TraceWriter,
-        exit_on_violation: bool,
-        test_start: Option<bombadil_schema::Time>,
-        deadline: Option<SystemTime>,
-        output_path: PathBuf,
-        violations_count: u64,
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    enum ExitReason {
-        ExitOnViolation,
-        TimeLimit,
-        Interrupted,
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    struct TestResult {
-        exit_reason: ExitReason,
-        violations_count: u64,
-    }
-
-    impl RunObserver for MainObserver {
-        type StopValue = TestResult;
-
-        async fn on_new_state(
-            &mut self,
-            state: &BrowserState,
-            last_action: Option<&BrowserAction>,
-            snapshots: &[Snapshot],
-            violations: &[PropertyViolation],
-        ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
-            let test_start = *self.test_start.get_or_insert(
-                bombadil_schema::Time::from_system_time(state.timestamp),
-            );
-
-            if let Some(action) = last_action {
-                println!(
-                    "{} {}",
-                    render::format_timestamp(state.timestamp, test_start),
-                    render::format_action(action)
-                );
-            }
-
-            self.violations_count += violations.len() as u64;
-            for violation in violations {
-                log::info!("violation of property `{}`", violation.name);
-                let api_violation = violation.to_schema();
-                let markup = markup::render_violation(&api_violation);
-                let text = styled::markup_to_styled(&markup, test_start);
-                println!(
-                    "\n{}\n\n{}\n",
-                    styled::maybe_red(styled::maybe_bold(format!(
-                        "{} was violated:",
-                        violation.name
-                    ))),
-                    text
-                );
-            }
-
-            self.writer
-                .write(state, last_action, snapshots, violations)
-                .await?;
-
-            if self.violations_count > 0 && self.exit_on_violation {
-                return Ok(ControlFlow::Stop(TestResult {
-                    exit_reason: ExitReason::ExitOnViolation,
-                    violations_count: self.violations_count,
-                }));
-            }
-
-            if let Some(deadline) = self.deadline
-                && state.timestamp >= deadline
-            {
-                log::info!("time limit reached, stopping");
-                return Ok(ControlFlow::Stop(TestResult {
-                    exit_reason: ExitReason::TimeLimit,
-                    violations_count: self.violations_count,
-                }));
-            }
-
-            Ok(ControlFlow::Continue)
-        }
-
-        async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
-            Ok(TestResult {
-                exit_reason: ExitReason::Interrupted,
-                violations_count: self.violations_count,
-            })
-        }
-    }
-
     if let Some(duration) = shared_options.time_limit {
         log::info!(
             "test time limit set to {}",
@@ -400,6 +376,7 @@ async fn test(
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
     let mut observer = MainObserver {
+        mode,
         writer: TraceWriter::initialize(output_path.clone()).await?,
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
@@ -431,6 +408,9 @@ async fn test(
             ExitReason::Interrupted => {
                 format!("Test was interrupted by SIGINT{findings}!",)
             }
+            ExitReason::Reproduced => {
+                format!("Reproduction finished{findings}!",)
+            }
         });
 
         if violations_count > 0 {
@@ -457,4 +437,151 @@ async fn test(
     }
 
     Ok(())
+}
+
+enum TestMode {
+    RandomWalk,
+    Reproduce(VecDeque<schema::BrowserAction>),
+}
+
+struct MainObserver {
+    mode: TestMode,
+    writer: TraceWriter,
+    exit_on_violation: bool,
+    test_start: Option<bombadil_schema::Time>,
+    deadline: Option<SystemTime>,
+    output_path: PathBuf,
+    violations_count: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ExitReason {
+    ExitOnViolation,
+    TimeLimit,
+    Interrupted,
+    Reproduced,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TestResult {
+    exit_reason: ExitReason,
+    violations_count: u64,
+}
+
+impl RunObserver for MainObserver {
+    type StopValue = TestResult;
+
+    async fn on_new_state(
+        &mut self,
+        state: &BrowserState,
+        last_action: Option<&BrowserAction>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
+    ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
+        let test_start = *self.test_start.get_or_insert(
+            bombadil_schema::Time::from_system_time(state.timestamp),
+        );
+
+        if let Some(action) = last_action {
+            println!(
+                "{} {}",
+                render::format_timestamp(state.timestamp, test_start),
+                render::format_action(action)
+            );
+        }
+
+        self.violations_count += violations.len() as u64;
+        for violation in violations {
+            log::info!("violation of property `{}`", violation.name);
+            let api_violation = violation.to_schema();
+            let markup = markup::render_violation(&api_violation);
+            let text = styled::markup_to_styled(&markup, test_start);
+            println!(
+                "\n{}\n\n{}\n",
+                styled::maybe_red(styled::maybe_bold(format!(
+                    "{} was violated:",
+                    violation.name
+                ))),
+                text
+            );
+        }
+
+        self.writer
+            .write(state, last_action, snapshots, violations)
+            .await?;
+
+        if self.violations_count > 0 && self.exit_on_violation {
+            return Ok(ControlFlow::Stop(TestResult {
+                exit_reason: ExitReason::ExitOnViolation,
+                violations_count: self.violations_count,
+            }));
+        }
+
+        if let TestMode::Reproduce(browser_actions) = &self.mode
+            && browser_actions.is_empty()
+        {
+            return Ok(ControlFlow::Stop(TestResult {
+                exit_reason: ExitReason::Reproduced,
+                violations_count: self.violations_count,
+            }));
+        }
+
+        if let Some(deadline) = self.deadline
+            && state.timestamp >= deadline
+        {
+            log::info!("time limit reached, stopping");
+            return Ok(ControlFlow::Stop(TestResult {
+                exit_reason: ExitReason::TimeLimit,
+                violations_count: self.violations_count,
+            }));
+        }
+
+        Ok(ControlFlow::Continue)
+    }
+
+    async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
+        Ok(TestResult {
+            exit_reason: ExitReason::Interrupted,
+            violations_count: self.violations_count,
+        })
+    }
+
+    async fn pick_action(
+        &mut self,
+        tree: bombadil::tree::Tree<BrowserAction>,
+    ) -> Result<BrowserAction> {
+        match &mut self.mode {
+            TestMode::RandomWalk => Ok(tree.pick(&mut rand::rng())?.clone()),
+            TestMode::Reproduce(browser_actions) => {
+                if let Some(next) = browser_actions.pop_front() {
+                    let actions_matching = tree
+                        .clone()
+                        .filter(&|action| action.to_schema() == next)
+                        .values();
+
+                    if let Some(action) = actions_matching.first().cloned() {
+                        Ok(action)
+                    } else {
+                        println!(
+                            "\n{}\n\n{:?}\n\nin:\n\n{}",
+                            styled::maybe_red(styled::maybe_bold(
+                                "no actions matching:".into()
+                            )),
+                            next,
+                            tree.values()
+                                .iter()
+                                .map(render::format_action)
+                                .collect::<Vec<String>>()
+                                .join("\n")
+                        );
+                        bail!("reproduction and original test diverged!");
+                    }
+                } else {
+                    bail!(
+                        "no remaining actions in prefix to apply (this is a bug)"
+                    )
+                }
+            }
+        }
+    }
 }

@@ -20,6 +20,7 @@ include_dir.workspace = true
 log.workspace = true
 mime_guess.workspace = true
 open.workspace = true
+rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true

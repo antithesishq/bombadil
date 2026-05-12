@@ -312,6 +312,13 @@ impl<'a> BrowserIntegrationTest<'a> {
             ) -> anyhow::Result<Self::StopValue> {
                 Ok(())
             }
+
+            async fn pick_action(
+                &mut self,
+                tree: bombadil::tree::Tree<BrowserAction>,
+            ) -> anyhow::Result<BrowserAction> {
+                Ok(tree.pick(&mut rand::rng())?.clone())
+            }
         }
 
         let deadline = time_limit.map(|d| SystemTime::now() + d);

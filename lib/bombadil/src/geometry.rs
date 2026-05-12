@@ -18,12 +18,3 @@ impl From<Point> for layout::Point {
         layout::Point { x: val.x, y: val.y }
     }
 }
-
-impl Point {
-    pub fn to_api(&self) -> bombadil_schema::Point {
-        bombadil_schema::Point {
-            x: self.x,
-            y: self.y,
-        }
-    }
-}

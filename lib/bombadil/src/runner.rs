@@ -7,6 +7,7 @@ use crate::specification::domain::Snapshot;
 use crate::specification::verifier::Specification;
 use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
+use crate::tree::Tree;
 use ::url::Url;
 use bombadil_schema::Time;
 use serde::Deserialize;
@@ -45,6 +46,11 @@ pub trait RunObserver {
     ) -> impl std::future::Future<
         Output = anyhow::Result<ControlFlow<Self::StopValue>>,
     >;
+
+    fn pick_action(
+        &mut self,
+        tree: Tree<BrowserAction>,
+    ) -> impl std::future::Future<Output = anyhow::Result<BrowserAction>>;
 
     fn on_interrupted(
         &mut self,
@@ -207,8 +213,7 @@ impl Runner {
                                         anyhow::anyhow!("no actions available")
                                     })?;
 
-                                let action =
-                                    action_tree.pick(&mut rand::rng())?.clone();
+                                let action = observer.pick_action(action_tree).await?;
                                 log::info!("picked action: {:?}", action);
                                 browser.apply(action.clone())?;
                                 last_action = Some(action);
