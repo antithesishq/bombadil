@@ -608,15 +608,17 @@ fn reconcile_reproducible_action(
             BrowserAction::Click {
                 name: candidate_name,
                 content: candidate_content,
-                ..
+                point: candidate_point,
             },
             BrowserAction::Click {
                 name: original_name,
                 content: original_content,
-                ..
+                point: original_point,
             },
         ) if candidate_name == original_name
-            && candidate_content == original_content =>
+            && candidate_content == original_content
+            && (candidate_point.x - original_point.x).abs() < 2.0
+            && (candidate_point.y - original_point.y).abs() < 2.0 =>
         {
             Some(candidate.clone())
         }
@@ -624,15 +626,19 @@ fn reconcile_reproducible_action(
             BrowserAction::DoubleClick {
                 name: candidate_name,
                 content: candidate_content,
+                point: candidate_point,
                 ..
             },
             BrowserAction::DoubleClick {
                 name: original_name,
                 content: original_content,
+                point: original_point,
                 ..
             },
         ) if candidate_name == original_name
-            && candidate_content == original_content =>
+            && candidate_content == original_content
+            && (candidate_point.x - original_point.x).abs() < 2.0
+            && (candidate_point.y - original_point.y).abs() < 2.0 =>
         {
             Some(candidate.clone())
         }
