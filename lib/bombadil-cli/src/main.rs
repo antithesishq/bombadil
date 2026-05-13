@@ -590,16 +590,17 @@ impl RunObserver for MainObserver {
                     let available_actions = tree.values();
                     let action_reconciled = available_actions
                         .iter()
-                        .filter_map(&|action| {
+                        .filter_map(|action| {
                             reconcile_reproducible_action(
                                 action,
                                 &action_original,
                             )
                         })
-                        .nth(0);
+                        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+                        .map(|(action, _)| action);
 
                     if let Some(action) = action_reconciled {
-                        Ok(action.clone())
+                        Ok(action)
                     } else {
                         println!(
                             "\n{}\n\n{}\n\n{}\n\n{}\n",
@@ -628,14 +629,18 @@ impl RunObserver for MainObserver {
     }
 }
 
+const RECONCILE_DISTANCE_MAX: f64 = 500.0;
+
 fn reconcile_reproducible_action(
     candidate: &BrowserAction,
     original: &BrowserAction,
-) -> Option<BrowserAction> {
+) -> Option<(BrowserAction, f64)> {
     match (candidate, original) {
-        (BrowserAction::Back, BrowserAction::Back) => Some(BrowserAction::Back),
+        (BrowserAction::Back, BrowserAction::Back) => {
+            Some((BrowserAction::Back, 0.0))
+        }
         (BrowserAction::Forward, BrowserAction::Forward) => {
-            Some(BrowserAction::Forward)
+            Some((BrowserAction::Forward, 0.0))
         }
         (
             BrowserAction::Click {
@@ -649,11 +654,12 @@ fn reconcile_reproducible_action(
                 point: original_point,
             },
         ) if candidate_name == original_name
-            && candidate_content == original_content
-            && (candidate_point.x - original_point.x).abs() < 2.0
-            && (candidate_point.y - original_point.y).abs() < 2.0 =>
+            && candidate_content == original_content =>
         {
-            Some(candidate.clone())
+            let distance = (candidate_point.x - original_point.x)
+                .hypot(candidate_point.y - original_point.y);
+            (distance < RECONCILE_DISTANCE_MAX)
+                .then(|| (candidate.clone(), distance))
         }
         (
             BrowserAction::DoubleClick {
@@ -669,29 +675,32 @@ fn reconcile_reproducible_action(
                 ..
             },
         ) if candidate_name == original_name
-            && candidate_content == original_content
-            && (candidate_point.x - original_point.x).abs() < 2.0
-            && (candidate_point.y - original_point.y).abs() < 2.0 =>
+            && candidate_content == original_content =>
         {
-            Some(candidate.clone())
+            let distance = (candidate_point.x - original_point.x)
+                .hypot(candidate_point.y - original_point.y);
+            (distance < RECONCILE_DISTANCE_MAX)
+                .then(|| (candidate.clone(), distance))
         }
         (BrowserAction::TypeText { .. }, BrowserAction::TypeText { .. }) => {
-            Some(original.clone())
+            Some((original.clone(), 0.0))
         }
         (BrowserAction::PressKey { .. }, BrowserAction::PressKey { .. }) => {
-            Some(original.clone())
+            Some((original.clone(), 0.0))
         }
         (BrowserAction::ScrollUp { .. }, BrowserAction::ScrollUp { .. }) => {
-            Some(candidate.clone())
+            Some((candidate.clone(), 0.0))
         }
         (
             BrowserAction::ScrollDown { .. },
             BrowserAction::ScrollDown { .. },
-        ) => Some(candidate.clone()),
+        ) => Some((candidate.clone(), 0.0)),
         (BrowserAction::Reload, BrowserAction::Reload) => {
-            Some(BrowserAction::Reload)
+            Some((BrowserAction::Reload, 0.0))
         }
-        (BrowserAction::Wait, BrowserAction::Wait) => Some(BrowserAction::Wait),
+        (BrowserAction::Wait, BrowserAction::Wait) => {
+            Some((BrowserAction::Wait, 0.0))
+        }
         (
             BrowserAction::SetFileInputFiles {
                 selector: candidate_selector,
@@ -701,7 +710,9 @@ fn reconcile_reproducible_action(
                 selector: original_selector,
                 ..
             },
-        ) if candidate_selector == original_selector => Some(original.clone()),
+        ) if candidate_selector == original_selector => {
+            Some((original.clone(), 0.0))
+        }
 
         _ => None,
     }
