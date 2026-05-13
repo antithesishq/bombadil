@@ -244,12 +244,12 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
     }
 }
 
-pub trait FromSchema<Output> {
-    fn from_schema(&self) -> Output;
+pub trait ToInternal<Output> {
+    fn to_internal(&self) -> Output;
 }
 
-impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
-    fn from_schema(&self) -> BrowserAction {
+impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
+    fn to_internal(&self) -> BrowserAction {
         match self {
             bombadil_schema::BrowserAction::Back => BrowserAction::Back,
             bombadil_schema::BrowserAction::Forward => BrowserAction::Forward,
@@ -260,7 +260,7 @@ impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
             } => BrowserAction::Click {
                 name: name.clone(),
                 content: content.clone(),
-                point: point.from_schema(),
+                point: point.to_internal(),
             },
             bombadil_schema::BrowserAction::DoubleClick {
                 name,
@@ -270,7 +270,7 @@ impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
             } => BrowserAction::DoubleClick {
                 name: name.clone(),
                 content: content.clone(),
-                point: point.from_schema(),
+                point: point.to_internal(),
                 delay_millis: *delay_millis,
             },
             bombadil_schema::BrowserAction::TypeText { text, delay_millis } => {
@@ -284,13 +284,13 @@ impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
             }
             bombadil_schema::BrowserAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
-                    origin: origin.from_schema(),
+                    origin: origin.to_internal(),
                     distance: *distance,
                 }
             }
             bombadil_schema::BrowserAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown {
-                    origin: origin.from_schema(),
+                    origin: origin.to_internal(),
                     distance: *distance,
                 }
             }
@@ -307,8 +307,8 @@ impl FromSchema<BrowserAction> for bombadil_schema::BrowserAction {
     }
 }
 
-impl FromSchema<Point> for bombadil_schema::Point {
-    fn from_schema(&self) -> Point {
+impl ToInternal<Point> for bombadil_schema::Point {
+    fn to_internal(&self) -> Point {
         Point {
             x: self.x,
             y: self.y,

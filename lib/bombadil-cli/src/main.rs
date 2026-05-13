@@ -3,8 +3,8 @@ mod inspect_server;
 mod render;
 
 use ::url::Url;
-use anyhow::{Result, anyhow, bail};
-use bombadil::specification::{convert::FromSchema, domain::Snapshot};
+use anyhow::{Result, bail};
+use bombadil::specification::{convert::ToInternal, domain::Snapshot};
 use clap::{Args, Parser};
 use serde_json as json;
 use std::{
@@ -266,7 +266,7 @@ async fn main() -> Result<()> {
                 while let Some(line) = lines.next_line().await? {
                     let entry: schema::TraceEntry = json::from_str(&line)?;
                     if let Some(action) = entry.action {
-                        result.push(action.from_schema());
+                        result.push(action.to_internal());
                     }
                 }
                 result
