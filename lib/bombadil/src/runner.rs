@@ -34,7 +34,7 @@ pub enum ControlFlow<T> {
     Stop(T),
 }
 
-pub trait RunObserver {
+pub trait RunStrategy {
     type StopValue;
 
     fn on_new_state(
@@ -89,10 +89,10 @@ impl Runner {
         })
     }
 
-    pub async fn run<O: RunObserver>(
+    pub async fn run<S: RunStrategy>(
         mut self,
-        observer: &mut O,
-    ) -> anyhow::Result<Option<O::StopValue>> {
+        strategy: &mut S,
+    ) -> anyhow::Result<Option<S::StopValue>> {
         log::info!("starting test of {}", self.origin);
 
         self.browser.initiate().await?;
@@ -102,7 +102,7 @@ impl Runner {
             &self.origin,
             &mut self.browser,
             self.verifier,
-            observer,
+            strategy,
         )
         .await;
 
@@ -116,12 +116,12 @@ impl Runner {
         result
     }
 
-    async fn run_test<O: RunObserver>(
+    async fn run_test<S: RunStrategy>(
         origin: &Url,
         browser: &mut Browser,
         verifier: Arc<VerifierWorker>,
-        observer: &mut O,
-    ) -> anyhow::Result<Option<O::StopValue>> {
+        strategy: &mut S,
+    ) -> anyhow::Result<Option<S::StopValue>> {
         let mut last_action: Option<BrowserAction> = None;
         let mut edges = [0u8; EDGE_MAP_SIZE];
 
@@ -190,7 +190,7 @@ impl Runner {
                                 log_coverage_stats_increment(&state.coverage);
                                 log_coverage_stats_total(&edges);
 
-                                let control = observer
+                                let control = strategy
                                     .on_new_state(
                                         &state,
                                         last_action.as_ref(),
@@ -213,7 +213,7 @@ impl Runner {
                                         anyhow::anyhow!("no actions available")
                                     })?;
 
-                                let action = observer.pick_action(action_tree).await?;
+                                let action = strategy.pick_action(action_tree).await?;
                                 log::info!("picked action: {:?}", action);
                                 browser.apply(action.clone())?;
                                 last_action = Some(action);
@@ -228,7 +228,7 @@ impl Runner {
                     }
                 },
                 _ = ctrl_c() => {
-                    let value = observer.on_interrupted().await?;
+                    let value = strategy.on_interrupted().await?;
                     return Ok(Some(value));
                 },
             }

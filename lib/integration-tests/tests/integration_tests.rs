@@ -259,13 +259,13 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         log::info!("starting runner");
 
-        struct TestObserver {
+        struct TestStrategy {
             collected_violations: Vec<String>,
             test_start: Option<std::time::SystemTime>,
             deadline: Option<SystemTime>,
         }
 
-        impl bombadil::runner::RunObserver for TestObserver {
+        impl bombadil::runner::RunStrategy for TestStrategy {
             type StopValue = ();
 
             async fn on_new_state(
@@ -323,7 +323,7 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         let deadline = time_limit.map(|d| SystemTime::now() + d);
 
-        let mut observer = TestObserver {
+        let mut strategy = TestStrategy {
             collected_violations: Vec::new(),
             test_start: None,
             deadline,
@@ -348,17 +348,17 @@ impl<'a> BrowserIntegrationTest<'a> {
         log::info!("starting runner with infrastructure safety timeout");
         let outcome = match tokio::time::timeout(
             Duration::from_secs(TEST_TIMEOUT_SECONDS),
-            runner.run(&mut observer),
+            runner.run(&mut strategy),
         )
         .await
         {
             Ok(Ok(_)) => {
-                if observer.collected_violations.is_empty() {
+                if strategy.collected_violations.is_empty() {
                     Outcome::Success
                 } else {
                     Outcome::Error(anyhow!(
                         "violations:\n\n{}",
-                        observer.collected_violations.join("")
+                        strategy.collected_violations.join("")
                     ))
                 }
             }

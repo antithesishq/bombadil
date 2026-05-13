@@ -24,7 +24,7 @@ use bombadil::{
         actions::BrowserAction, state::BrowserState,
     },
     instrumentation::InstrumentationConfig,
-    runner::{ControlFlow, RunObserver, Runner},
+    runner::{ControlFlow, RunStrategy, Runner},
     specification::{convert::ToSchema, verifier::Specification},
     styled,
     trace::{PropertyViolation, writer::TraceWriter},
@@ -398,7 +398,7 @@ async fn test(
 
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
-    let mut observer = MainObserver {
+    let mut strategy = MainStrategy {
         mode,
         writer: TraceWriter::initialize(output_path.clone()).await?,
         exit_on_violation: shared_options.exit_on_violation,
@@ -408,7 +408,7 @@ async fn test(
         violations_count: 0,
     };
 
-    let test_result = runner.run(&mut observer).await?;
+    let test_result = runner.run(&mut strategy).await?;
 
     let heading = if let Some(TestResult {
         exit_reason,
@@ -445,7 +445,7 @@ async fn test(
         styled::maybe_bold("Test finished!".to_string())
     };
 
-    let output_display = observer.output_path.display();
+    let output_display = strategy.output_path.display();
     let inspect_command =
         styled::maybe_italic(format!("bombadil inspect {output_display}"));
     println!(
@@ -477,7 +477,7 @@ enum TestMode {
     Reproduce(VecDeque<BrowserAction>),
 }
 
-struct MainObserver {
+struct MainStrategy {
     mode: TestMode,
     writer: TraceWriter,
     exit_on_violation: bool,
@@ -501,7 +501,7 @@ struct TestResult {
     violations_count: u64,
 }
 
-impl RunObserver for MainObserver {
+impl RunStrategy for MainStrategy {
     type StopValue = TestResult;
 
     async fn on_new_state(
