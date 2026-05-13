@@ -39,6 +39,10 @@ struct Cli {
     command: Command,
 }
 
+const DEFAULT_WIDTH: u16 = 1024;
+const DEFAULT_HEIGHT: u16 = 768;
+const DEFAULT_DEVICE_SCALE_FACTOR: f64 = 1.0;
+
 #[derive(Args)]
 struct TestSharedOptions {
     /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
@@ -54,14 +58,14 @@ struct TestSharedOptions {
     #[arg(long)]
     exit_on_violation: bool,
     /// Browser viewport width in pixels
-    #[arg(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = DEFAULT_WIDTH)]
     width: u16,
     /// Browser viewport height in pixels
-    #[arg(long, default_value_t = 768)]
+    #[arg(long, default_value_t = DEFAULT_HEIGHT)]
     height: u16,
     /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
     /// mode
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = DEFAULT_DEVICE_SCALE_FACTOR)]
     device_scale_factor: f64,
     /// What types of JavaScript to instrument for coverage tracking.
     /// Comma-separated list of: "files", "inline"
@@ -204,7 +208,16 @@ async fn main() -> Result<()> {
         } => {
             let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path = output_path::resolve_output_path(&shared.output_path)?;
+            let output_path =
+                output_path::resolve_output_path(&shared.output_path)?;
+
+            let mut reproduce_args = reproduce_command_args("test", &shared);
+            if headless {
+                reproduce_args.push("--headless".into());
+            }
+            if no_sandbox {
+                reproduce_args.push("--no-sandbox".into());
+            }
 
             let browser_options =
                 browser_options_from_shared(&shared, &output_path);
@@ -219,6 +232,7 @@ async fn main() -> Result<()> {
             };
             test(
                 mode,
+                reproduce_args,
                 output_path,
                 shared,
                 browser_options,
@@ -232,7 +246,16 @@ async fn main() -> Result<()> {
             create_target,
         } => {
             let mode = resolve_test_mode(&shared).await?;
-            let output_path = output_path::resolve_output_path(&shared.output_path)?;
+            let output_path =
+                output_path::resolve_output_path(&shared.output_path)?;
+
+            let mut reproduce_args =
+                reproduce_command_args("test-external", &shared);
+            reproduce_args.push(format!("--remote-debugger {remote_debugger}"));
+            if create_target {
+                reproduce_args.push("--create-target".into());
+            }
+
             let browser_options = BrowserOptions {
                 create_target,
                 ..browser_options_from_shared(&shared, &output_path)
@@ -241,6 +264,7 @@ async fn main() -> Result<()> {
                 DebuggerOptions::External { remote_debugger };
             test(
                 mode,
+                reproduce_args,
                 output_path,
                 shared,
                 browser_options,
@@ -279,20 +303,47 @@ fn browser_options_from_shared(
     }
 }
 
+fn reproduce_command_args(
+    subcommand: &str,
+    shared: &TestSharedOptions,
+) -> Vec<String> {
+    let mut args = vec![subcommand.to_string(), shared.origin.url.to_string()];
+    if let Some(path) = &shared.specification_file {
+        args.push(path.display().to_string());
+    }
+    if shared.width != DEFAULT_WIDTH {
+        args.push(format!("--width {}", shared.width));
+    }
+    if shared.height != DEFAULT_HEIGHT {
+        args.push(format!("--height {}", shared.height));
+    }
+    if (shared.device_scale_factor - DEFAULT_DEVICE_SCALE_FACTOR).abs()
+        > f64::EPSILON
+    {
+        args.push(format!(
+            "--device-scale-factor {}",
+            shared.device_scale_factor
+        ));
+    }
+    for (key, value) in &shared.headers {
+        args.push(format!("--header {key}={value}"));
+    }
+    args
+}
+
 async fn resolve_test_mode(
     shared_options: &TestSharedOptions,
 ) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let trace_file_path = output_path::resolve_trace_directory(path)
-                .join("trace.jsonl");
+            let trace_file_path =
+                output_path::resolve_trace_directory(path).join("trace.jsonl");
             let trace_file = File::open(&trace_file_path).await?;
             let mut lines = BufReader::new(trace_file).lines();
             let mut actions: Vec<BrowserAction> = vec![];
             while let Some(line) = lines.next_line().await? {
-                let entry: schema::TraceEntry =
-                    json::from_str(&line)?;
+                let entry: schema::TraceEntry = json::from_str(&line)?;
                 if let Some(action) = entry.action {
                     actions.push(action.to_internal());
                 }
@@ -304,6 +355,7 @@ async fn resolve_test_mode(
 
 async fn test(
     mode: TestMode,
+    reproduce_args: Vec<String>,
     output_path: PathBuf,
     shared_options: TestSharedOptions,
     browser_options: BrowserOptions,
@@ -326,6 +378,8 @@ async fn test(
             module_specifier: "@antithesishq/bombadil/defaults".to_string(),
         }
     };
+
+    let is_reproduce = shared_options.reproduce.is_some();
 
     let runner = Runner::new(
         shared_options.origin.url,
@@ -391,13 +445,23 @@ async fn test(
         styled::maybe_bold("Test finished!".to_string())
     };
 
+    let output_display = observer.output_path.display();
+    let inspect_command =
+        styled::maybe_italic(format!("bombadil inspect {output_display}"));
     println!(
-        "\n{heading}\n\nInspect the test results using:\n\n  {}",
-        styled::maybe_italic(format!(
-            "bombadil inspect {}",
-            observer.output_path.display()
-        ))
+        "\n{heading}\n\nInspect the test results using:\
+         \n\n  {inspect_command}\n",
     );
+    if !is_reproduce {
+        let reproduce_command = styled::maybe_italic(format!(
+            "bombadil {} --reproduce {output_display}",
+            reproduce_args.join(" "),
+        ));
+        println!(
+            "Reproduce this test using:\
+             \n\n  {reproduce_command}\n",
+        );
+    }
 
     if let Some(result) = test_result
         && result.violations_count > 0

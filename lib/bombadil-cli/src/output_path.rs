@@ -16,9 +16,7 @@ pub fn resolve_trace_directory(path: &Path) -> PathBuf {
 
 /// Resolve the output path for a test run. If the user didn't specify
 /// one, create a temporary directory.
-pub fn resolve_output_path(
-    output_path: &Option<PathBuf>,
-) -> Result<PathBuf> {
+pub fn resolve_output_path(output_path: &Option<PathBuf>) -> Result<PathBuf> {
     match output_path {
         Some(path) => Ok(path.clone()),
         None => Ok(TempDir::with_prefix("bombadil_")?.keep().to_path_buf()),
