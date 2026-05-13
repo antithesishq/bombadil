@@ -81,6 +81,10 @@ struct TestSharedOptions {
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     headers: Vec<(String, String)>,
+    /// Reproduce a previous test run from a trace file, instead of random exploration.
+    /// Mutually exclusive with --time-limit and --exit-on-violation.
+    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
+    reproduce: Option<PathBuf>,
 }
 
 #[derive(clap::Subcommand)]
@@ -108,18 +112,6 @@ enum Command {
         /// of starting the test (this should probably be false if you test an Electron app)
         #[arg(long)]
         create_target: bool,
-    },
-    Reproduce {
-        /// Original test's trace file to reproduce
-        trace_file: PathBuf,
-        #[clap(flatten)]
-        shared: TestSharedOptions,
-        /// Whether the browser should run in a visible window or not
-        #[arg(long, default_value_t = false)]
-        headless: bool,
-        /// Disable Chromium sandboxing
-        #[arg(long, default_value_t = false)]
-        no_sandbox: bool,
     },
     /// Launch Bombadil Inspect to inspect a trace file
     Inspect {
@@ -209,6 +201,7 @@ async fn main() -> Result<()> {
             headless,
             no_sandbox,
         } => {
+            let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             let output_path = resolve_output_path(&shared)?;
 
@@ -224,7 +217,7 @@ async fn main() -> Result<()> {
                 },
             };
             test(
-                TestMode::RandomWalk,
+                mode,
                 output_path,
                 shared,
                 browser_options,
@@ -237,6 +230,7 @@ async fn main() -> Result<()> {
             remote_debugger,
             create_target,
         } => {
+            let mode = resolve_test_mode(&shared).await?;
             let output_path = resolve_output_path(&shared)?;
             let browser_options = BrowserOptions {
                 create_target,
@@ -245,49 +239,7 @@ async fn main() -> Result<()> {
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
             test(
-                TestMode::RandomWalk,
-                output_path,
-                shared,
-                browser_options,
-                debugger_options,
-            )
-            .await
-        }
-        Command::Reproduce {
-            trace_file,
-            shared,
-            headless,
-            no_sandbox,
-        } => {
-            let actions_prefix = {
-                let trace_file = File::open(trace_file).await?;
-                let mut lines = BufReader::new(trace_file).lines();
-                let mut result: Vec<BrowserAction> = vec![];
-                while let Some(line) = lines.next_line().await? {
-                    let entry: schema::TraceEntry = json::from_str(&line)?;
-                    if let Some(action) = entry.action {
-                        result.push(action.to_internal());
-                    }
-                }
-                result
-            };
-
-            let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path = resolve_output_path(&shared)?;
-
-            let browser_options =
-                browser_options_from_shared(&shared, &output_path);
-            let debugger_options = DebuggerOptions::Managed {
-                launch_options: LaunchOptions {
-                    headless,
-                    user_data_directory: user_data_directory
-                        .path()
-                        .to_path_buf(),
-                    no_sandbox,
-                },
-            };
-            test(
-                TestMode::Reproduce(actions_prefix.into()),
+                mode,
                 output_path,
                 shared,
                 browser_options,
@@ -330,6 +282,27 @@ fn resolve_output_path(shared_options: &TestSharedOptions) -> Result<PathBuf> {
     match &shared_options.output_path {
         Some(path) => Ok(path.clone()),
         None => Ok(TempDir::with_prefix("bombadil_")?.keep().to_path_buf()),
+    }
+}
+
+async fn resolve_test_mode(
+    shared_options: &TestSharedOptions,
+) -> Result<TestMode> {
+    match &shared_options.reproduce {
+        None => Ok(TestMode::RandomWalk),
+        Some(trace_path) => {
+            let trace_file = File::open(trace_path).await?;
+            let mut lines = BufReader::new(trace_file).lines();
+            let mut actions: Vec<BrowserAction> = vec![];
+            while let Some(line) = lines.next_line().await? {
+                let entry: schema::TraceEntry =
+                    json::from_str(&line)?;
+                if let Some(action) = entry.action {
+                    actions.push(action.to_internal());
+                }
+            }
+            Ok(TestMode::Reproduce(actions.into()))
+        }
     }
 }
 
