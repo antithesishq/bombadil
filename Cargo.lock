@@ -450,6 +450,7 @@ dependencies = [
  "bombadil-browser-keys",
  "bombadil-ltl",
  "bombadil-schema",
+ "bombadil-terminal",
  "clap",
  "env_logger",
  "include_dir",
@@ -506,23 +507,11 @@ version = "0.4.5"
 dependencies = [
  "anyhow",
  "bombadil",
- "bombadil-browser-keys",
- "bombadil-schema",
  "clap",
- "env_logger",
- "glob",
- "include_dir",
- "indoc",
- "insta",
  "libghostty-vt",
- "log",
  "owo-colors",
  "portable-pty",
- "proptest",
  "rand 0.9.4",
- "serde",
- "serde_json",
- "tempfile",
  "tokio",
 ]
 
@@ -1335,12 +1324,6 @@ dependencies = [
  "wasip2",
  "wasip3",
 ]
-
-[[package]]
-name = "glob"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
 
 [[package]]
 name = "gloo"

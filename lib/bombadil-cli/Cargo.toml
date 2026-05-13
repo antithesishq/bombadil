@@ -14,6 +14,7 @@ bombadil = { path = "../bombadil" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-terminal = { path = "../bombadil-terminal" }
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
 include_dir.workspace = true

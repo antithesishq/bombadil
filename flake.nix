@@ -76,14 +76,12 @@
       {
         packages = {
           default = bombadil.bin;
-          terminal = bombadil.terminal;
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
           release = pkgs.callPackage ./lib/release/default.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           aarch64-linux = bombadilAarch64.bin;
-          aarch64-linux-terminal = bombadilAarch64.terminal;
           docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
         };
 

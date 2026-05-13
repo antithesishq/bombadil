@@ -131,6 +131,11 @@ enum Command {
         #[arg(long, default_value_t = false)]
         no_open: bool,
     },
+    /// [EXPERIMENTAL] Property-based testing for terminal UIs
+    Terminal {
+        #[command(subcommand)]
+        command: bombadil_terminal::Command,
+    },
 }
 
 #[derive(Clone)]
@@ -279,6 +284,10 @@ async fn main() -> Result<()> {
             port,
             no_open,
         } => inspect_server::serve(trace_path, port, !no_open).await,
+        Command::Terminal { command } => {
+            bombadil_terminal::run(command).await;
+            Ok(())
+        }
     }
 }
 
