@@ -1,5 +1,6 @@
 mod duration;
 mod inspect_server;
+mod output_path;
 mod render;
 
 use ::url::Url;
@@ -203,7 +204,7 @@ async fn main() -> Result<()> {
         } => {
             let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path = resolve_output_path(&shared)?;
+            let output_path = output_path::resolve_output_path(&shared.output_path)?;
 
             let browser_options =
                 browser_options_from_shared(&shared, &output_path);
@@ -231,7 +232,7 @@ async fn main() -> Result<()> {
             create_target,
         } => {
             let mode = resolve_test_mode(&shared).await?;
-            let output_path = resolve_output_path(&shared)?;
+            let output_path = output_path::resolve_output_path(&shared.output_path)?;
             let browser_options = BrowserOptions {
                 create_target,
                 ..browser_options_from_shared(&shared, &output_path)
@@ -278,20 +279,15 @@ fn browser_options_from_shared(
     }
 }
 
-fn resolve_output_path(shared_options: &TestSharedOptions) -> Result<PathBuf> {
-    match &shared_options.output_path {
-        Some(path) => Ok(path.clone()),
-        None => Ok(TempDir::with_prefix("bombadil_")?.keep().to_path_buf()),
-    }
-}
-
 async fn resolve_test_mode(
     shared_options: &TestSharedOptions,
 ) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
-        Some(trace_path) => {
-            let trace_file = File::open(trace_path).await?;
+        Some(path) => {
+            let trace_file_path = output_path::resolve_trace_directory(path)
+                .join("trace.jsonl");
+            let trace_file = File::open(&trace_file_path).await?;
             let mut lines = BufReader::new(trace_file).lines();
             let mut actions: Vec<BrowserAction> = vec![];
             while let Some(line) = lines.next_line().await? {

@@ -23,14 +23,8 @@ pub async fn serve(
     port: u16,
     open_browser: bool,
 ) -> Result<()> {
-    let trace_directory = if trace_path.is_file() {
-        trace_path
-            .parent()
-            .expect("trace path has no parent")
-            .to_path_buf()
-    } else {
-        trace_path
-    };
+    let trace_directory =
+        crate::output_path::resolve_trace_directory(&trace_path);
 
     let state = AppState { trace_directory };
 
