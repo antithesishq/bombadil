@@ -59,11 +59,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v34
-      - uses: cachix/cachix-action@v15
+      - uses: ./.github/actions/setup-nix
         with:
-          name: bombadil
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: nix flake check .
       - name: Build package
         run: nix build .#${{ matrix.package || 'default' }}
@@ -80,11 +78,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v34
-      - uses: cachix/cachix-action@v15
+      - uses: ./.github/actions/setup-nix
         with:
-          name: bombadil
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build npm package
         run: nix build .#npm-package
       - name: Copy package
@@ -103,11 +99,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: nixbuild/nix-quick-install-action@v34
-      - uses: cachix/cachix-action@v15
+      - uses: ./.github/actions/setup-nix
         with:
-          name: bombadil
-          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Build manual
         run: nix build .#manual
       - name: Create manual archive
