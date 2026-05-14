@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use anyhow::{Result, bail};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -89,6 +91,24 @@ impl<T> Tree<T> {
                 bail!("BUG: no pick available")
             }
         }
+    }
+
+    pub fn values(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        let mut result: Vec<T> = vec![];
+        let mut queue = VecDeque::new();
+        queue.push_front(self);
+        while let Some(next) = queue.pop_front() {
+            match next {
+                Self::Leaf { value } => result.push(value.clone()),
+                Self::Branch { branches } => {
+                    queue.extend(branches.iter().map(|(_, tree)| tree))
+                }
+            }
+        }
+        result
     }
 }
 
@@ -233,5 +253,22 @@ mod tests {
         }
         // With 1000:1 ratio, heavy should dominate
         assert!(heavy_count > 80);
+    }
+
+    #[test]
+    fn test_values() {
+        let tree = Branch {
+            branches: vec![
+                (1, Leaf { value: 1 }),
+                (2, Leaf { value: 2 }),
+                (
+                    3,
+                    Branch {
+                        branches: vec![(1, Leaf { value: 3 })],
+                    },
+                ),
+            ],
+        };
+        assert_eq!(tree.values(), vec![1, 2, 3]);
     }
 }

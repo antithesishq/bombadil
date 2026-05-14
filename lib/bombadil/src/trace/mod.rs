@@ -46,11 +46,11 @@ impl<'a> ToSchema<bombadil_schema::TraceEntry> for TraceEntry<'a> {
             url: self.url.to_string(),
             hash_previous: self.hash_previous,
             hash_current: self.hash_current,
-            action: self.action.as_ref().map(|a| a.to_api()),
+            action: self.action.as_ref().map(|a| a.to_schema()),
             screenshot: self.screenshot.to_string_lossy().to_string(),
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: self.violations.iter().map(|v| v.to_schema()).collect(),
-            resources: self.resources.to_api(),
+            resources: self.resources.to_schema(),
         }
     }
 }

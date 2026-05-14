@@ -1,30 +1,37 @@
 mod duration;
 mod inspect_server;
+mod output_path;
 mod render;
+mod strategy;
 
 use ::url::Url;
 use anyhow::Result;
-use bombadil::specification::domain::Snapshot;
+use bombadil::specification::convert::ToInternal;
 use clap::{Args, Parser};
+use serde_json as json;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
+use tokio::io::AsyncBufReadExt;
+use tokio::{fs::File, io::BufReader};
 
 use bombadil::{
     browser::{
         BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
-        actions::BrowserAction, state::BrowserState,
+        actions::BrowserAction,
     },
     instrumentation::InstrumentationConfig,
-    runner::{ControlFlow, RunObserver, Runner},
-    specification::{convert::ToSchema, verifier::Specification},
+    runner::Runner,
+    specification::verifier::Specification,
     styled,
-    trace::{PropertyViolation, writer::TraceWriter},
+    trace::writer::TraceWriter,
 };
-use bombadil_schema::markup;
+use bombadil_schema::schema;
+
+use crate::strategy::{ExitReason, TestMode, TestResult, TestStrategy};
 
 /// Property-based testing for web UIs
 #[derive(Parser)]
@@ -33,6 +40,10 @@ struct Cli {
     #[command(subcommand)]
     command: Command,
 }
+
+const DEFAULT_WIDTH: u16 = 1024;
+const DEFAULT_HEIGHT: u16 = 768;
+const DEFAULT_DEVICE_SCALE_FACTOR: f64 = 1.0;
 
 #[derive(Args)]
 struct TestSharedOptions {
@@ -49,14 +60,14 @@ struct TestSharedOptions {
     #[arg(long)]
     exit_on_violation: bool,
     /// Browser viewport width in pixels
-    #[arg(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = DEFAULT_WIDTH)]
     width: u16,
     /// Browser viewport height in pixels
-    #[arg(long, default_value_t = 768)]
+    #[arg(long, default_value_t = DEFAULT_HEIGHT)]
     height: u16,
     /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
     /// mode
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = DEFAULT_DEVICE_SCALE_FACTOR)]
     device_scale_factor: f64,
     /// What types of JavaScript to instrument for coverage tracking.
     /// Comma-separated list of: "files", "inline"
@@ -77,6 +88,10 @@ struct TestSharedOptions {
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     headers: Vec<(String, String)>,
+    /// Reproduce a previous test run from a trace file, instead of random exploration.
+    /// Mutually exclusive with --time-limit and --exit-on-violation.
+    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
+    reproduce: Option<PathBuf>,
 }
 
 #[derive(clap::Subcommand)]
@@ -115,6 +130,11 @@ enum Command {
         /// Skip auto-opening browser
         #[arg(long, default_value_t = false)]
         no_open: bool,
+    },
+    /// [EXPERIMENTAL] Property-based testing for terminal UIs
+    Terminal {
+        #[command(subcommand)]
+        command: bombadil_terminal::Command,
     },
 }
 
@@ -193,26 +213,21 @@ async fn main() -> Result<()> {
             headless,
             no_sandbox,
         } => {
+            let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path = resolve_output_path(&shared)?;
+            let output_path =
+                output_path::resolve_output_path(&shared.output_path)?;
 
-            let browser_options = BrowserOptions {
-                create_target: true,
-                emulation: Emulation {
-                    width: shared.width,
-                    height: shared.height,
-                    device_scale_factor: shared.device_scale_factor,
-                },
-                instrumentation: shared.instrument_javascript.clone(),
-                downloads_directory: output_path.join("downloads"),
-                grant_permissions: shared
-                    .chrome_grant_permissions
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                extra_headers: shared.headers.iter().cloned().collect(),
-            };
+            let mut reproduce_args = reproduce_command_args("test", &shared);
+            if headless {
+                reproduce_args.push("--headless".into());
+            }
+            if no_sandbox {
+                reproduce_args.push("--no-sandbox".into());
+            }
+
+            let browser_options =
+                browser_options_from_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
                     headless,
@@ -222,51 +237,136 @@ async fn main() -> Result<()> {
                     no_sandbox,
                 },
             };
-            test(output_path, shared, browser_options, debugger_options).await
+            test(
+                mode,
+                reproduce_args,
+                output_path,
+                shared,
+                browser_options,
+                debugger_options,
+            )
+            .await
         }
         Command::TestExternal {
             shared,
             remote_debugger,
             create_target,
         } => {
-            let output_path = resolve_output_path(&shared)?;
+            let mode = resolve_test_mode(&shared).await?;
+            let output_path =
+                output_path::resolve_output_path(&shared.output_path)?;
+
+            let mut reproduce_args =
+                reproduce_command_args("test-external", &shared);
+            reproduce_args.push(format!("--remote-debugger {remote_debugger}"));
+            if create_target {
+                reproduce_args.push("--create-target".into());
+            }
+
             let browser_options = BrowserOptions {
                 create_target,
-                emulation: Emulation {
-                    width: shared.width,
-                    height: shared.height,
-                    device_scale_factor: shared.device_scale_factor,
-                },
-                instrumentation: shared.instrument_javascript.clone(),
-                downloads_directory: output_path.join("downloads"),
-                grant_permissions: shared
-                    .chrome_grant_permissions
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect(),
-                extra_headers: shared.headers.iter().cloned().collect(),
+                ..browser_options_from_shared(&shared, &output_path)
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
-            test(output_path, shared, browser_options, debugger_options).await
+            test(
+                mode,
+                reproduce_args,
+                output_path,
+                shared,
+                browser_options,
+                debugger_options,
+            )
+            .await
         }
         Command::Inspect {
             trace_path,
             port,
             no_open,
         } => inspect_server::serve(trace_path, port, !no_open).await,
+        Command::Terminal { command } => {
+            bombadil_terminal::run(command).await;
+            Ok(())
+        }
     }
 }
 
-fn resolve_output_path(shared_options: &TestSharedOptions) -> Result<PathBuf> {
-    match &shared_options.output_path {
-        Some(path) => Ok(path.clone()),
-        None => Ok(TempDir::with_prefix("bombadil_")?.keep().to_path_buf()),
+fn browser_options_from_shared(
+    shared: &TestSharedOptions,
+    output_path: &Path,
+) -> BrowserOptions {
+    BrowserOptions {
+        create_target: true,
+        emulation: Emulation {
+            width: shared.width,
+            height: shared.height,
+            device_scale_factor: shared.device_scale_factor,
+        },
+        instrumentation: shared.instrument_javascript.clone(),
+        downloads_directory: output_path.join("downloads"),
+        grant_permissions: shared
+            .chrome_grant_permissions
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        extra_headers: shared.headers.iter().cloned().collect(),
+    }
+}
+
+fn reproduce_command_args(
+    subcommand: &str,
+    shared: &TestSharedOptions,
+) -> Vec<String> {
+    let mut args = vec![subcommand.to_string(), shared.origin.url.to_string()];
+    if let Some(path) = &shared.specification_file {
+        args.push(path.display().to_string());
+    }
+    if shared.width != DEFAULT_WIDTH {
+        args.push(format!("--width {}", shared.width));
+    }
+    if shared.height != DEFAULT_HEIGHT {
+        args.push(format!("--height {}", shared.height));
+    }
+    if (shared.device_scale_factor - DEFAULT_DEVICE_SCALE_FACTOR).abs()
+        > f64::EPSILON
+    {
+        args.push(format!(
+            "--device-scale-factor {}",
+            shared.device_scale_factor
+        ));
+    }
+    for (key, value) in &shared.headers {
+        args.push(format!("--header {key}={value}"));
+    }
+    args
+}
+
+async fn resolve_test_mode(
+    shared_options: &TestSharedOptions,
+) -> Result<TestMode> {
+    match &shared_options.reproduce {
+        None => Ok(TestMode::RandomWalk),
+        Some(path) => {
+            let trace_file_path =
+                output_path::resolve_trace_directory(path).join("trace.jsonl");
+            let trace_file = File::open(&trace_file_path).await?;
+            let mut lines = BufReader::new(trace_file).lines();
+            let mut actions: Vec<BrowserAction> = vec![];
+            while let Some(line) = lines.next_line().await? {
+                let entry: schema::TraceEntry = json::from_str(&line)?;
+                if let Some(action) = entry.action {
+                    actions.push(action.to_internal());
+                }
+            }
+            Ok(TestMode::Reproduce(actions.into()))
+        }
     }
 }
 
 async fn test(
+    mode: TestMode,
+    reproduce_args: Vec<String>,
     output_path: PathBuf,
     shared_options: TestSharedOptions,
     browser_options: BrowserOptions,
@@ -290,6 +390,8 @@ async fn test(
         }
     };
 
+    let is_reproduce = shared_options.reproduce.is_some();
+
     let runner = Runner::new(
         shared_options.origin.url,
         specification,
@@ -297,98 +399,6 @@ async fn test(
         debugger_options,
     )
     .await?;
-
-    struct MainObserver {
-        writer: TraceWriter,
-        exit_on_violation: bool,
-        test_start: Option<bombadil_schema::Time>,
-        deadline: Option<SystemTime>,
-        output_path: PathBuf,
-        violations_count: u64,
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    enum ExitReason {
-        ExitOnViolation,
-        TimeLimit,
-        Interrupted,
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    struct TestResult {
-        exit_reason: ExitReason,
-        violations_count: u64,
-    }
-
-    impl RunObserver for MainObserver {
-        type StopValue = TestResult;
-
-        async fn on_new_state(
-            &mut self,
-            state: &BrowserState,
-            last_action: Option<&BrowserAction>,
-            snapshots: &[Snapshot],
-            violations: &[PropertyViolation],
-        ) -> anyhow::Result<ControlFlow<Self::StopValue>> {
-            let test_start = *self.test_start.get_or_insert(
-                bombadil_schema::Time::from_system_time(state.timestamp),
-            );
-
-            if let Some(action) = last_action {
-                println!(
-                    "{} {}",
-                    render::format_timestamp(state.timestamp, test_start),
-                    render::format_action(action)
-                );
-            }
-
-            self.violations_count += violations.len() as u64;
-            for violation in violations {
-                log::info!("violation of property `{}`", violation.name);
-                let api_violation = violation.to_schema();
-                let markup = markup::render_violation(&api_violation);
-                let text = styled::markup_to_styled(&markup, test_start);
-                println!(
-                    "\n{}\n\n{}\n",
-                    styled::maybe_red(styled::maybe_bold(format!(
-                        "{} was violated:",
-                        violation.name
-                    ))),
-                    text
-                );
-            }
-
-            self.writer
-                .write(state, last_action, snapshots, violations)
-                .await?;
-
-            if self.violations_count > 0 && self.exit_on_violation {
-                return Ok(ControlFlow::Stop(TestResult {
-                    exit_reason: ExitReason::ExitOnViolation,
-                    violations_count: self.violations_count,
-                }));
-            }
-
-            if let Some(deadline) = self.deadline
-                && state.timestamp >= deadline
-            {
-                log::info!("time limit reached, stopping");
-                return Ok(ControlFlow::Stop(TestResult {
-                    exit_reason: ExitReason::TimeLimit,
-                    violations_count: self.violations_count,
-                }));
-            }
-
-            Ok(ControlFlow::Continue)
-        }
-
-        async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
-            Ok(TestResult {
-                exit_reason: ExitReason::Interrupted,
-                violations_count: self.violations_count,
-            })
-        }
-    }
 
     if let Some(duration) = shared_options.time_limit {
         log::info!(
@@ -399,7 +409,8 @@ async fn test(
 
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
 
-    let mut observer = MainObserver {
+    let mut strategy = TestStrategy {
+        mode,
         writer: TraceWriter::initialize(output_path.clone()).await?,
         exit_on_violation: shared_options.exit_on_violation,
         test_start: None,
@@ -408,7 +419,7 @@ async fn test(
         violations_count: 0,
     };
 
-    let test_result = runner.run(&mut observer).await?;
+    let test_result = runner.run(&mut strategy).await?;
 
     let heading = if let Some(TestResult {
         exit_reason,
@@ -431,6 +442,9 @@ async fn test(
             ExitReason::Interrupted => {
                 format!("Test was interrupted by SIGINT{findings}!",)
             }
+            ExitReason::Reproduced => {
+                format!("Reproduction finished{findings}!",)
+            }
         });
 
         if violations_count > 0 {
@@ -442,13 +456,23 @@ async fn test(
         styled::maybe_bold("Test finished!".to_string())
     };
 
+    let output_display = strategy.output_path.display();
+    let inspect_command =
+        styled::maybe_italic(format!("bombadil inspect {output_display}"));
     println!(
-        "\n{heading}\n\nInspect the test results using:\n\n  {}",
-        styled::maybe_italic(format!(
-            "bombadil inspect {}",
-            observer.output_path.display()
-        ))
+        "\n{heading}\n\nInspect the test results using:\
+         \n\n  {inspect_command}\n",
     );
+    if !is_reproduce {
+        let reproduce_command = styled::maybe_italic(format!(
+            "bombadil {} --reproduce {output_display}",
+            reproduce_args.join(" "),
+        ));
+        println!(
+            "Reproduce this test using:\
+             \n\n  {reproduce_command}\n",
+        );
+    }
 
     if let Some(result) = test_result
         && result.violations_count > 0

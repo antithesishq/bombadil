@@ -47,8 +47,8 @@ The project is a Cargo workspace with crates under `lib/`:
 - **`lib/bombadil-ltl/`** - Generic finite LTL syntax and evaluator (standalone, no Bombadil-specific dependencies)
 - **`lib/bombadil-browser-keys/`** - Browser key name definitions
 - **`lib/bombadil-schema/`** - JSON schema definitions
-- **`lib/bombadil-cli/`** - CLI binary (test commands, inspect server)
-- **`lib/bombadil-terminal/`** - Terminal UI
+- **`lib/bombadil-cli/`** - CLI binary (test commands, inspect server, `terminal` subcommand)
+- **`lib/bombadil-terminal/`** - Library backing the `bombadil terminal` subcommand (Ghostty VT)
 - **`lib/bombadil-inspect/`** - Yew WASM frontend for Bombadil Inspect
 - **`lib/integration-tests/`** - Integration tests with browser fixtures
 

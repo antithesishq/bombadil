@@ -1,5 +1,4 @@
 use bombadil::tree::Tree;
-use clap::Parser;
 use owo_colors::OwoColorize;
 use rand::{self, SeedableRng};
 use std::{ffi::OsStr, io::Write, process::exit, time::Duration};
@@ -22,16 +21,8 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 
-/// Property-based testing for terminal UIs
-#[derive(Parser)]
-#[command(name = "bombadil-terminal", version, about, long_about=None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
-}
-
 #[derive(clap::Subcommand)]
-enum Command {
+pub enum Command {
     /// Test the given program and arguments
     Test {
         // The command to run for each test case
@@ -49,22 +40,8 @@ enum Command {
     },
 }
 
-#[derive(Debug, Copy, Clone)]
-struct Size {
-    column_count: u16,
-    row_count: u16,
-}
-
-impl Size {
-    pub fn cell_count(&self) -> u16 {
-        self.column_count * self.row_count
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-    match cli.command {
+pub async fn run(command: Command) {
+    match command {
         Command::Test {
             command,
             test_count,
@@ -95,6 +72,18 @@ async fn main() {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct Size {
+    column_count: u16,
+    row_count: u16,
+}
+
+impl Size {
+    pub fn cell_count(&self) -> u16 {
+        self.column_count * self.row_count
     }
 }
 

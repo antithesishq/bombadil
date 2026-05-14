@@ -739,13 +739,8 @@ fn run_state_machine(
     spawn(async move {
         let result = async {
             let shared = InnerStateShared::default();
-            let timer = start_quiescence_timer(
-                &shared,
-                &context,
-                &context.inner_events_sender,
-            );
             let mut state_current = InnerState {
-                kind: InnerStateKind::Running(timer),
+                kind: InnerStateKind::Navigating { url: context.origin.clone().into() },
                 shared,
             };
             log::info!("processing events");

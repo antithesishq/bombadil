@@ -3,32 +3,12 @@ name = "bombadil-terminal"
 version.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "bombadil-terminal"
-path = "src/main.rs"
-
 [dependencies]
 anyhow.workspace = true
 bombadil = { path = "../bombadil" }
-bombadil-browser-keys = { path = "../bombadil-browser-keys" }
-bombadil-schema = { path = "../bombadil-schema" }
 clap = { workspace = true, features = ["derive"] }
-env_logger.workspace = true
-include_dir.workspace = true
 libghostty-vt = { workspace = true, features = ["link-static"] }
-log.workspace = true
 owo-colors = { workspace = true, features = ["supports-colors"] }
 portable-pty.workspace = true
 rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
-
-[dev-dependencies]
-indoc.workspace = true
-insta.workspace = true
-proptest.workspace = true
-
-[build-dependencies]
-glob.workspace = true
