@@ -170,3 +170,22 @@ This will open a web application in your browser, which has some features to hig
 
 No violations? That's fine, Wikipedia is pretty solid! This confirms that
 Bombadil runs and produces results.
+
+## Reproducing violations
+
+If Bombadil finds a bug in a project you're working on, you might want to
+reproduce that test case when working on a bug fix. That is, have Bombadil
+perform the same sequence of actions to reach the same state.
+
+Use the `--reproduce` option and point it to the output directory of the
+original test run:
+
+
+```bash
+bombadil test --reproduce=my-test http://example.com
+```
+
+Reproductions are not guaranteed to succeed; if they diverge, Bombadil fails
+with an error. For reproductions to succeed, it's important to use the same
+options as in the original test. After a test run, Bombadil prints both the
+`inspect` and `--reproduce` commands you can use.
