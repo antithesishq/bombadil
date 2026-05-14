@@ -1,5 +1,34 @@
 # The Bombadil Changelog
 
+## 0.5.0
+
+Major updates:
+
+* Skip disabled controls in default clicks generator (#175)
+* Add new experimental terminal fuzzer (#162, #164, #179, #180)
+* Add test case reproduction as an option to `test` and `test-external` (#177)
+* Improve test performance greatly by using quiescence timers instead of fixed timeouts (#176)
+* Auto-accept dialogs (#166)
+* Add `--header` option to pass extra request headers (#165)
+
+Breaking changes:
+
+* Remove `.at()` and `time` cell (#167)
+
+Bug fixes:
+
+* Begin browser state machine in navigating (#178)
+* Use mask for edge coverage hashing (#170)
+* Shutdown the browser before awaiting state machine done (#157)
+
+Internals:
+
+* Extract bombadil-ltl crate (#172)
+* Remove esbuild (#169)
+* Centralize all versions into root Cargo.toml (#168)
+* Add spec and CI testing for Inspect UI (#158)
+* Bump oxc deps (#156)
+
 ## 0.4.5
 
 Major updates:

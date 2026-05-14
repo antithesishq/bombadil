@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -438,11 +438,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.4.5"
+version = "0.5.0"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "proptest",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "insta",
  "serde",
@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "bombadil",
@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "integration-tests"
-version = "0.4.5"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "axum",
