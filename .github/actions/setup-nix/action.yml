@@ -4,6 +4,12 @@ description: >
   GitHub Actions cache, and configure cachix as a secondary substituter.
 
 inputs:
+  scope:
+    description: >
+      Cache scope. Use a distinct value per job/closure so parallel jobs
+      don't overwrite or purge each other's caches (e.g. "build-x86_64-linux",
+      "npm-package", "manual").
+    required: true
   cachix-auth-token:
     description: Cachix auth token (optional; cachix still works as a substituter without it)
     required: false
@@ -15,12 +21,12 @@ runs:
 
     - uses: nix-community/cache-nix-action@v6
       with:
-        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/flake.lock', '**/Cargo.lock') }}
-        restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+        primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-${{ hashFiles('**/flake.lock', '**/Cargo.lock') }}
+        restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
         gc-max-store-size-linux: 5G
         gc-max-store-size-macos: 5G
         purge: true
-        purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-
+        purge-prefixes: nix-${{ runner.os }}-${{ runner.arch }}-${{ inputs.scope }}-
         purge-created: 0
         purge-primary-key: never
 
