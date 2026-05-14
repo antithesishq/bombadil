@@ -23,18 +23,18 @@ use tokio::{
 
 #[derive(clap::Subcommand)]
 pub enum Command {
-    /// Test the given program and arguments
+    /// [EXPERIMENTAL] Test the given program and arguments
     Test {
-        // The command to run for each test case
+        /// The command to run for each test case (i.e. program name and arguments, space-separated)
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
-        // How many test cases to run (invocations of command)
+        /// How many test cases to run (invocations of command)
         #[arg(long, default_value = "1")]
         test_count: u64,
         /// Random generator seed
         #[arg(long)]
         seed: Option<u64>,
-        // Whether to append render output (otherwise clear screen before every render)
+        /// Whether to append render output (otherwise clear screen before every render)
         #[arg(long, default_value_t = false)]
         render_append: bool,
     },

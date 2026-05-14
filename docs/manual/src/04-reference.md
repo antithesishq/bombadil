@@ -9,7 +9,8 @@
 | Code | Meaning |
 |-----:|---------|
 | 0 | Test completed normally (including time limit) |
-| 2 | Property violation detected (with `--exit-on-violation`) |
+| 1 | Other error |
+| 2 | Property violation(s) detected |
 
 ### bombadil test
 
@@ -34,6 +35,8 @@
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
 | `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
+| `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
+| `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--headless` | Whether the browser should run in a visible window or not | |
 | `--no-sandbox` | Disable Chromium sandboxing | |
 | `-h, --help` | Print help | |
@@ -61,6 +64,8 @@
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
 | `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
+| `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
+| `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--remote-debugger <REMOTE_DEBUGGER>` | Address to the remote debugger's server, e.g. http://localhost:9222 | |
 | `--create-target` | Whether Bombadil should create a new tab and navigate to the origin URL in it, as part of starting the test (this should probably be false if you test an Electron app) | |
 | `-h, --help` | Print help | |
@@ -81,5 +86,25 @@
 |--------|-------------|---------:|
 | `--port <PORT>` | Port to bind the inspect server to | 1073 |
 | `--no-open` | Skip auto-opening browser | |
+| `-h, --help` | Print help | |
+:::
+
+
+### bombadil terminal test (EXPERIMENTAL!)
+
+`bombadil` `terminal` `test` [`[OPTIONS]`](#options-terminal-test) [`[COMMAND]*`](#arguments-terminal-test)
+
+::: {#arguments-terminal-test}
+| Argument | Description |
+|----------|-------------|
+| `[COMMAND]*` | The command to run for each test case (i.e. program name and arguments, space-separated) |
+:::
+
+::: {#options-terminal-test}
+| Option | Description | Default |
+|--------|-------------|---------:|
+| `--test-count <TEST_COUNT>` | How many test cases to run (invocations of command) | 1 |
+| `--seed <SEED>` | Random generator seed | |
+| `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
 | `-h, --help` | Print help | |
 :::
