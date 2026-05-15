@@ -3,7 +3,7 @@ export {
   noUncaughtExceptions,
   noUnhandledPromiseRejections,
   noConsoleErrors,
-} from "@antithesishq/bombadil/defaults/properties";
+} from "@antithesishq/bombadil/browser/defaults/properties";
 
 import {
   scroll,
@@ -11,7 +11,7 @@ import {
   inputs,
   navigation,
   waitOnce,
-} from "@antithesishq/bombadil/defaults/actions";
+} from "@antithesishq/bombadil/browser/defaults/actions";
 import { weighted } from "@antithesishq/bombadil/browser";
 
 export const defaultActions = weighted([

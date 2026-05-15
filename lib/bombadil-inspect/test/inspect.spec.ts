@@ -4,9 +4,9 @@ import {
   eventually,
   extract,
 } from "@antithesishq/bombadil/browser";
-import { lastAction } from "@antithesishq/bombadil/defaults/actions";
+import { lastAction } from "@antithesishq/bombadil/browser/defaults/actions";
 import { randomRange } from "@antithesishq/bombadil/random";
-export * from "@antithesishq/bombadil/defaults";
+export * from "@antithesishq/bombadil/browser/defaults";
 
 const actionEntries = extract((state) =>
   [...state.document.querySelectorAll(".actions li")].map((element) => ({

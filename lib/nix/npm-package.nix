@@ -22,19 +22,19 @@ let
           types = "./dist/index.d.ts";
         };
         "./browser" = {
-          types = "./dist/browser.d.ts";
+          types = "./dist/browser/index.d.ts";
+        };
+        "./browser/defaults" = {
+          types = "./dist/browser/defaults.d.ts";
+        };
+        "./browser/defaults/actions" = {
+          types = "./dist/browser/defaults/actions.d.ts";
+        };
+        "./browser/defaults/properties" = {
+          types = "./dist/browser/defaults/properties.d.ts";
         };
         "./terminal" = {
-          types = "./dist/terminal.d.ts";
-        };
-        "./defaults" = {
-          types = "./dist/defaults.d.ts";
-        };
-        "./defaults/actions" = {
-          types = "./dist/defaults/actions.d.ts";
-        };
-        "./defaults/properties" = {
-          types = "./dist/defaults/properties.d.ts";
+          types = "./dist/terminal/index.d.ts";
         };
         "./random" = {
           types = "./dist/random.d.ts";
@@ -115,7 +115,7 @@ let
     Or re-export the default properties:
 
     ```typescript
-    export * from "@antithesishq/bombadil/defaults";
+    export * from "@antithesishq/bombadil/browser/defaults";
     ```
 
     ## Documentation

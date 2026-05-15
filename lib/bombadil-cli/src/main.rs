@@ -386,7 +386,7 @@ async fn test(
     } else {
         log::info!("using default specification");
         Specification {
-            module_specifier: "@antithesishq/bombadil/defaults".to_string(),
+            module_specifier: "@antithesishq/bombadil/browser/defaults".to_string(),
             runtime_module: "@antithesishq/bombadil/browser".to_string(),
         }
     };
