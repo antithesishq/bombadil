@@ -6,8 +6,9 @@ use url::Url;
 
 use crate::{
     browser::{actions::BrowserAction, state::Resources},
-    specification::{convert::ToSchema, domain::Snapshot},
+    convert::ToSchema,
 };
+use bombadil::specification::domain::Snapshot;
 
 pub mod writer;
 

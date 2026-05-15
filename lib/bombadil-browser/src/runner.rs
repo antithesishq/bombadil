@@ -1,13 +1,13 @@
 use crate::browser::actions::BrowserAction;
 use crate::browser::{BrowserEvent, BrowserOptions};
+use crate::convert::ToSchema;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::specification::bundler::bundle;
-use crate::specification::convert::ToSchema;
-use crate::specification::domain::Snapshot;
-use crate::specification::verifier::Specification;
-use crate::specification::worker::{PropertyValue, VerifierWorker};
 use crate::trace::PropertyViolation;
-use crate::tree::Tree;
+use bombadil::specification::bundler::bundle;
+use bombadil::specification::domain::Snapshot;
+use bombadil::specification::verifier::Specification;
+use bombadil::specification::worker::{PropertyValue, VerifierWorker};
+use bombadil::tree::Tree;
 use ::url::Url;
 use bombadil_schema::Time;
 use serde::Deserialize;
@@ -143,7 +143,7 @@ impl Runner {
                                     );
                                 }
                                 let step_result = verifier
-                                    .step::<crate::specification::js::JsAction>(
+                                    .step::<crate::js_action::JsAction>(
                                         snapshots.clone(),
                                         bombadil_schema::Time::from_system_time(
                                             state.timestamp,

@@ -19,14 +19,14 @@ use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
 use url::Url;
 
-use bombadil::{
+use bombadil::{specification::verifier::Specification, styled};
+use bombadil_browser::{
     browser::{
         Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
+    convert::ToSchema,
     runner::Runner,
-    specification::{convert::ToSchema, verifier::Specification},
-    styled,
 };
 use bombadil_schema::markup;
 
@@ -265,18 +265,18 @@ impl<'a> BrowserIntegrationTest<'a> {
             deadline: Option<SystemTime>,
         }
 
-        impl bombadil::runner::RunStrategy for TestStrategy {
+        impl bombadil_browser::runner::RunStrategy for TestStrategy {
             type StopValue = ();
 
             async fn on_new_state(
                 &mut self,
-                state: &bombadil::browser::state::BrowserState,
+                state: &bombadil_browser::browser::state::BrowserState,
                 _last_action: Option<
-                    &bombadil::browser::actions::BrowserAction,
+                    &bombadil_browser::browser::actions::BrowserAction,
                 >,
                 _snapshots: &[Snapshot],
-                violations: &[bombadil::trace::PropertyViolation],
-            ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
+                violations: &[bombadil_browser::trace::PropertyViolation],
+            ) -> anyhow::Result<bombadil_browser::runner::ControlFlow<Self::StopValue>>
             {
                 let test_start =
                     *self.test_start.get_or_insert(state.timestamp);
@@ -294,17 +294,17 @@ impl<'a> BrowserIntegrationTest<'a> {
                             violation.name, rendered
                         ));
                     }
-                    return Ok(bombadil::runner::ControlFlow::Stop(()));
+                    return Ok(bombadil_browser::runner::ControlFlow::Stop(()));
                 }
 
                 if let Some(deadline) = self.deadline
                     && state.timestamp >= deadline
                 {
                     log::info!("time limit reached, stopping");
-                    return Ok(bombadil::runner::ControlFlow::Stop(()));
+                    return Ok(bombadil_browser::runner::ControlFlow::Stop(()));
                 }
 
-                Ok(bombadil::runner::ControlFlow::Continue)
+                Ok(bombadil_browser::runner::ControlFlow::Continue)
             }
 
             async fn on_interrupted(
@@ -517,10 +517,10 @@ async fn test_browser_lifecycle() {
     browser.initiate().await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::browser::BrowserEvent::StateChanged(state) => {
+        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::browser::BrowserEvent::Error(error) => {
+        bombadil_browser::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }
@@ -528,10 +528,10 @@ async fn test_browser_lifecycle() {
     browser.apply(BrowserAction::Reload).unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::browser::BrowserEvent::StateChanged(state) => {
+        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::browser::BrowserEvent::Error(error) => {
+        bombadil_browser::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }

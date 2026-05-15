@@ -1,5 +1,6 @@
 ---
-source: src/instrumentation/html.rs
+source: lib/bombadil-browser/src/instrumentation/html.rs
+assertion_line: 136
 expression: output
 ---
 <!DOCTYPE html><html><head></head><body>

@@ -1,6 +1,7 @@
 use bombadil_browser_keys::key_name;
 
-use bombadil::{browser::actions::BrowserAction, styled};
+use bombadil::styled;
+use bombadil_browser::browser::actions::BrowserAction;
 
 pub fn format_timestamp(
     timestamp: std::time::SystemTime,

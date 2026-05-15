@@ -1,33 +1,36 @@
 [package]
-name = "bombadil"
+name = "bombadil-browser"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "bombadil"
+name = "bombadil_browser"
 path = "src/lib.rs"
 
 [dependencies]
 anyhow = { workspace = true, features = ["backtrace"] }
-boa_engine.workspace = true
+base64.workspace = true
+bombadil = { path = "../bombadil" }
+bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-ltl = { path = "../bombadil-ltl" }
-include_dir.workspace = true
+chromiumoxide.workspace = true
+const_format.workspace = true
+futures.workspace = true
+html5ever.workspace = true
 log.workspace = true
+markup5ever_rcdom.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
-oxc_resolver.workspace = true
 oxc_str.workspace = true
 oxc_traverse.workspace = true
-owo-colors = { workspace = true, features = ["supports-colors"] }
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-supports-color.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
+tokio-stream = { workspace = true, features = ["sync"] }
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
-proptest.workspace = true

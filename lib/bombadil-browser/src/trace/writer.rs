@@ -1,13 +1,13 @@
 use std::{borrow::Cow, path::PathBuf, time::UNIX_EPOCH};
 
-use crate::specification::domain::Snapshot;
+use bombadil::specification::domain::Snapshot;
 use anyhow::Result;
 use serde_json as json;
 use tokio::{fs::File, io::AsyncWriteExt};
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
-    specification::convert::ToSchema,
+    convert::ToSchema,
     trace::{PropertyViolation, TraceEntry},
 };
 

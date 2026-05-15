@@ -1,12 +1,12 @@
 use anyhow::{Result, bail};
 use bombadil::specification::domain::Snapshot;
+use bombadil::styled;
 use std::{collections::VecDeque, path::PathBuf, time::SystemTime};
 
-use bombadil::{
+use bombadil_browser::{
     browser::{actions::BrowserAction, state::BrowserState},
+    convert::ToSchema,
     runner::{ControlFlow, RunStrategy},
-    specification::convert::ToSchema,
-    styled,
     trace::{PropertyViolation, writer::TraceWriter},
 };
 use bombadil_schema::markup;

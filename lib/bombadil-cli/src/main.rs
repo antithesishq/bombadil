@@ -6,7 +6,7 @@ mod strategy;
 
 use ::url::Url;
 use anyhow::Result;
-use bombadil::specification::convert::ToInternal;
+use bombadil_browser::convert::ToInternal;
 use clap::{Args, Parser};
 use serde_json as json;
 use std::{
@@ -18,15 +18,14 @@ use tempfile::TempDir;
 use tokio::io::AsyncBufReadExt;
 use tokio::{fs::File, io::BufReader};
 
-use bombadil::{
+use bombadil::{specification::verifier::Specification, styled};
+use bombadil_browser::{
     browser::{
         BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
     instrumentation::InstrumentationConfig,
     runner::Runner,
-    specification::verifier::Specification,
-    styled,
     trace::writer::TraceWriter,
 };
 use bombadil_schema::schema;
