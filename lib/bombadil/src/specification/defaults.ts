@@ -12,7 +12,7 @@ import {
   navigation,
   waitOnce,
 } from "@antithesishq/bombadil/defaults/actions";
-import { weighted } from "@antithesishq/bombadil/actions";
+import { weighted } from "@antithesishq/bombadil/browser";
 
 export const defaultActions = weighted([
   [100, clicks],

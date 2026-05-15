@@ -6,6 +6,8 @@
 
     "paths": {
       "@antithesishq/bombadil": ["./index.ts"],
+      "@antithesishq/bombadil/browser": ["./browser.ts"],
+      "@antithesishq/bombadil/terminal": ["./terminal.ts"],
       "@antithesishq/bombadil/defaults": ["./defaults.ts"],
       "@antithesishq/bombadil/defaults/actions": ["./defaults/actions.ts"],
       "@antithesishq/bombadil/defaults/properties": ["./defaults/properties.ts"],

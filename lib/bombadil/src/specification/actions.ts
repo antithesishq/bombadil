@@ -10,40 +10,15 @@ export {
   randomRange,
 } from "@antithesishq/bombadil/random";
 
-export type Point = {
-  x: number;
-  y: number;
-};
-
-export type Action =
-  | "Back"
-  | "Forward"
-  | "Reload"
-  | "Wait"
-  | { Click: { name: string; content?: string; point: Point } }
-  | {
-      DoubleClick: {
-        name: string;
-        content?: string;
-        point: Point;
-        delayMillis: number;
-      };
-    }
-  | { TypeText: { text: string; delayMillis: number } }
-  | { PressKey: { code: number } }
-  | { ScrollUp: { origin: Point; distance: number } }
-  | { ScrollDown: { origin: Point; distance: number } }
-  | { SetFileInputFiles: { selector: string; files: string[] } };
-
 // Tree
 
 export type Tree<T> = { value: T } | { branches: [number, Tree<T>][] };
 
-function leaf<T>(value: T): Tree<T> {
+export function leaf<T>(value: T): Tree<T> {
   return { value };
 }
 
-function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
+export function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
   for (const [weight] of branches) {
     if (!Number.isInteger(weight) || weight < 0 || weight > 0xffff) {
       throw new RangeError(
@@ -54,15 +29,17 @@ function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
   return { branches };
 }
 
-// Action generators
-
-export class ActionGenerator implements Generator<Tree<Action>> {
-  constructor(public generate: () => Tree<Action>) {}
+// Per-driver action generators are built on top of this class. Each driver
+// submodule re-exports the class (so JS identity is shared across drivers)
+// and supplies its own `actions()` / `weighted()` helpers bound to that
+// driver's action union.
+export class ActionGenerator<A> implements Generator<Tree<A>> {
+  constructor(public generate: () => Tree<A>) {}
 }
 
-export function actions(
-  generate: () => Tree<Action> | Action[],
-): ActionGenerator {
+export function makeActions<A>(
+  generate: () => Tree<A> | A[],
+): ActionGenerator<A> {
   return new ActionGenerator(() => {
     const result = generate();
     if (Array.isArray(result)) {
@@ -72,16 +49,16 @@ export function actions(
   });
 }
 
-export function weighted(
-  value: [number, Action | ActionGenerator][],
-): ActionGenerator {
+export function makeWeighted<A>(
+  value: [number, A | ActionGenerator<A>][],
+): ActionGenerator<A> {
   return new ActionGenerator(() => {
     return branch(
       value.map(([w, x]) => {
         if (x instanceof ActionGenerator) {
-          return [w, x.generate()] as [number, Tree<Action>];
+          return [w, x.generate()] as [number, Tree<A>];
         }
-        return [w, leaf(x)] as [number, Tree<Action>];
+        return [w, leaf(x)] as [number, Tree<A>];
       }),
     );
   });

@@ -81,6 +81,7 @@ impl VerifierWorker {
                     e
                 ))
             })?;
+        let runtime_module = specification.runtime_module.clone();
 
         let (ready_tx, ready_rx) =
             oneshot::channel::<Result<(), SpecificationError>>();
@@ -91,7 +92,7 @@ impl VerifierWorker {
         let _worker_thread = std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024) // 16MB stack to avoid overflows
             .spawn(move || {
-                let mut verifier = match Verifier::new(&bundle_code) {
+                let mut verifier = match Verifier::new(&bundle_code, &runtime_module) {
                     Ok(verifier) => {
                         let _ = ready_tx.send(Ok(()));
                         verifier

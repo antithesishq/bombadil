@@ -1019,7 +1019,7 @@ mod tests {
         spec_file
             .write_all(
                 br#"
-import { extract } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 
 const foo = extract((state) => state.foo);
 const bar = extract((state) => state.bar).named("custom_name");

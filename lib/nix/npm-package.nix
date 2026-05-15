@@ -21,6 +21,12 @@ let
         "." = {
           types = "./dist/index.d.ts";
         };
+        "./browser" = {
+          types = "./dist/browser.d.ts";
+        };
+        "./terminal" = {
+          types = "./dist/terminal.d.ts";
+        };
         "./defaults" = {
           types = "./dist/defaults.d.ts";
         };
@@ -97,7 +103,7 @@ let
     Write custom properties:
 
     ```typescript
-    import { always, eventually, extract } from "@antithesishq/bombadil";
+    import { always, eventually, extract } from "@antithesishq/bombadil/browser";
 
     const title = extract((state) =>
       state.document.querySelector("h1")?.textContent ?? ""

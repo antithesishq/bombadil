@@ -8,7 +8,7 @@ import {
   keycodes,
   type Action,
   Cell,
-} from "@antithesishq/bombadil";
+} from "@antithesishq/bombadil/browser";
 
 const contentType = extract((state) => state.document.contentType);
 

@@ -1,31 +1,6 @@
-import {
-  type JSON,
-  ExtractorCell,
-  Runtime,
-  type TimeUnit,
-  type Cell,
-} from "@antithesishq/bombadil/internal";
+import { type TimeUnit } from "@antithesishq/bombadil/internal";
 
-/** @internal */
-export const runtime = new Runtime<State>();
-
-// Reexports
-export { type Cell } from "@antithesishq/bombadil/internal";
-export {
-  actions,
-  weighted,
-  type Action,
-  type Generator,
-  type Point,
-  ActionGenerator,
-  from,
-  strings,
-  emails,
-  integers,
-  keycodes,
-} from "@antithesishq/bombadil/actions";
-
-import type { Action } from "@antithesishq/bombadil/actions";
+export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
 
 export class Formula {
   not(): Formula {
@@ -218,49 +193,3 @@ export function always(x: IntoFormula): Always {
 export function eventually(x: IntoFormula): Eventually {
   return new Eventually(null, now(x));
 }
-
-export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
-  return new ExtractorCell<T, State>(runtime, query);
-}
-
-export interface State {
-  document: HTMLDocument;
-  window: Window;
-  navigationHistory: {
-    back: NavigationEntry[];
-    current: NavigationEntry;
-    forward: NavigationEntry[];
-  };
-  errors: {
-    uncaughtExceptions: {
-      text: string;
-      line: number;
-      column: number;
-      url: string | null;
-      remote_object: {
-        type_name: string;
-        subtype: string | null;
-        class_name: string | null;
-        description: string | null;
-        value: unknown;
-      } | null;
-      stacktrace:
-        | { name: string; line: number; column: number; url: string }[]
-        | null;
-    }[];
-  };
-  console: ConsoleEntry[];
-  lastAction: Action | null;
-}
-
-export type NavigationEntry = {
-  id: number;
-  title: string;
-  url: string;
-};
-
-export type ConsoleEntry = {
-  timestamp: number;
-  level: "warning" | "error";
-  args: JSON[];
-};

@@ -1,4 +1,9 @@
-import { actions, always, eventually, extract } from "@antithesishq/bombadil";
+import {
+  actions,
+  always,
+  eventually,
+  extract,
+} from "@antithesishq/bombadil/browser";
 import { lastAction } from "@antithesishq/bombadil/defaults/actions";
 import { randomRange } from "@antithesishq/bombadil/random";
 export * from "@antithesishq/bombadil/defaults";
