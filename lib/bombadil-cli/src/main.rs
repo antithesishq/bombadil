@@ -397,14 +397,14 @@ async fn test(
         log::info!("loading specification from file: {}", path.display());
         Specification {
             module_specifier: path.display().to_string(),
-            runtime_module: "@antithesishq/bombadil/browser".to_string(),
+            runtime_module: "@antithesishq/bombadil".to_string(),
         }
     } else {
         log::info!("using default specification");
         Specification {
             module_specifier: "@antithesishq/bombadil/browser/defaults"
                 .to_string(),
-            runtime_module: "@antithesishq/bombadil/browser".to_string(),
+            runtime_module: "@antithesishq/bombadil".to_string(),
         }
     };
 

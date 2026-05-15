@@ -1,46 +1,12 @@
 import {
-  ExtractorCell,
-  Runtime,
+  actions as actionsGeneric,
+  extract as extractGeneric,
+  weighted as weightedGeneric,
+  type ActionGenerator,
   type Cell,
   type JSON,
-} from "@antithesishq/bombadil/internal";
-import {
-  makeActions,
-  makeWeighted,
-  type ActionGenerator,
   type Tree,
-} from "@antithesishq/bombadil/actions";
-
-// Re-export the generic LTL Formula API.
-export {
-  Formula,
-  Pure,
-  Thunk,
-  Not,
-  And,
-  Or,
-  Implies,
-  Next,
-  Always,
-  Eventually,
-  now,
-  next,
-  always,
-  eventually,
-  not,
 } from "@antithesishq/bombadil";
-export type { Cell, JSON } from "@antithesishq/bombadil/internal";
-export {
-  ActionGenerator,
-  type Tree,
-  type Generator,
-  from,
-  strings,
-  emails,
-  integers,
-  keycodes,
-  randomRange,
-} from "@antithesishq/bombadil/actions";
 
 export type Size = {
   columns: number;
@@ -60,30 +26,11 @@ export type Action =
   | { ScrollUp: object }
   | { ScrollDown: object };
 
-export function actions(
-  generate: () => Tree<Action> | Action[],
-): ActionGenerator<Action> {
-  return makeActions(generate);
-}
-
-export function weighted(
-  value: [number, Action | ActionGenerator<Action>][],
-): ActionGenerator<Action> {
-  return makeWeighted(value);
-}
-
-/** @internal */
-export const runtime = new Runtime<State>();
-
-export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
-  return new ExtractorCell<T, State>(runtime, query);
-}
-
 /**
- * The serialized state a specification sees on each step. The Rust terminal
- * driver builds this JSON each tick from its rendered grid + scrollback
- * + last applied action. Field shapes will be expanded as the driver
- * matures.
+ * The serialized state a specification sees on each step. The Rust
+ * terminal driver builds this JSON each tick from its rendered grid +
+ * scrollback + last applied action. Field shapes will be expanded as
+ * the driver matures.
  */
 export interface State {
   size: Size;
@@ -96,4 +43,25 @@ export interface State {
   /** Whether the underlying process has exited. */
   finished: boolean;
   lastAction: Action | null;
+}
+
+// Typed wrappers over the generic factories in `@antithesishq/bombadil`.
+// See the matching block in browser/index.ts for the rationale.
+
+export function extract<T extends JSON>(
+  query: (state: State) => T,
+): Cell<T> {
+  return extractGeneric<State, T>(query);
+}
+
+export function actions(
+  generate: () => Tree<Action> | Action[],
+): ActionGenerator<Action> {
+  return actionsGeneric<Action>(generate);
+}
+
+export function weighted(
+  value: [number, Action | ActionGenerator<Action>][],
+): ActionGenerator<Action> {
+  return weightedGeneric<Action>(value);
 }

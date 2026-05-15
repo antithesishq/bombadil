@@ -222,14 +222,13 @@ impl<'a> BrowserIntegrationTest<'a> {
                         .path()
                         .display()
                         .to_string(),
-                    runtime_module: "@antithesishq/bombadil/browser"
-                        .to_string(),
+                    runtime_module: "@antithesishq/bombadil".to_string(),
                 }
             }
             None => Specification {
                 module_specifier: "@antithesishq/bombadil/browser/defaults"
                     .to_string(),
-                runtime_module: "@antithesishq/bombadil/browser".to_string(),
+                runtime_module: "@antithesishq/bombadil".to_string(),
             },
         };
 
@@ -455,7 +454,8 @@ async fn test_back_from_non_html() {
         .time_limit(Duration::from_secs(30))
         .specification(
             r#"
-import { extract, now, next, eventually } from "@antithesishq/bombadil/browser";
+import { now, next, eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks, back } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const contentType = extract((state) => state.document.contentType);
@@ -551,7 +551,8 @@ async fn test_random_text_input() {
     BrowserIntegrationTest::new("random-text-input")
         .specification(
             r#"
-import { extract, now, eventually } from "@antithesishq/bombadil/browser";
+import { now, eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks, inputs } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const inputValue = extract((state) => {
@@ -574,7 +575,8 @@ async fn test_counter_state_machine() {
         .time_limit(Duration::from_secs(3))
         .specification(
             r#"
-import { extract, now, next, always } from "@antithesishq/bombadil/browser";
+import { now, next, always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const counterValue = extract((state) => {
@@ -630,7 +632,8 @@ async fn test_wait_action() {
         .time_limit(Duration::from_secs(3))
         .specification(
             r#"
-import { actions, extract, always } from "@antithesishq/bombadil/browser";
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
 
 export const waits = actions(() => ["Wait"]);
 
@@ -652,7 +655,8 @@ async fn test_double_click() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r#"
-import { actions, extract, eventually } from "@antithesishq/bombadil/browser";
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
 
 const counterValue = extract((state) => {
   const element = state.document.body.querySelector("\#counter");
@@ -702,7 +706,8 @@ async fn test_module_script() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil/browser";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const outputText = extract((state) => {
@@ -725,7 +730,8 @@ async fn test_snapshot_references_in_violation() {
         .expect_error("pageValue =")
         .specification(
             r#"
-import { extract, always } from "@antithesishq/bombadil/browser";
+import { always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const pageValue = extract((state) => {
@@ -749,7 +755,8 @@ async fn test_module_script_external() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil/browser";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const outputText = extract((state) => {
@@ -772,7 +779,7 @@ async fn test_time_limit() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r#"
-import { always } from "@antithesishq/bombadil/browser";
+import { always } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 export const neverDone = always(() => true);
 "#,
@@ -787,7 +794,8 @@ async fn test_file_download() {
         .time_limit(Duration::from_secs(10))
         .specification(
             r#"
-import { extract, eventually } from "@antithesishq/bombadil/browser";
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const messageText = extract((state) => {
@@ -812,7 +820,8 @@ async fn test_file_picker() {
 
     let specification = format!(
         r#"
-import {{ actions, extract, eventually, weighted }} from "@antithesishq/bombadil/browser";
+import {{ eventually }} from "@antithesishq/bombadil";
+import {{ actions, extract, weighted }} from "@antithesishq/bombadil/browser";
 export {{ clicks }} from "@antithesishq/bombadil/browser/defaults/actions";
 
 const statusText = extract((state) => {{
@@ -856,7 +865,8 @@ async fn test_granted_permissions() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil/browser";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const notificationPermission = extract((state) => {
@@ -896,7 +906,8 @@ async fn test_extra_headers() {
         .time_limit(Duration::from_secs(15))
         .specification(
             r#"
-import { extract, eventually } from "@antithesishq/bombadil/browser";
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const loaded = extract((state) => {
@@ -918,7 +929,8 @@ async fn test_confirm_dialog() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r#"
-import { extract, now } from "@antithesishq/bombadil/browser";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const message = extract((state) => {
@@ -941,7 +953,7 @@ async fn test_disabled_clicks() {
         .expect_error("no actions available")
         .specification(
             r#"
-import { always } from "@antithesishq/bombadil/browser";
+import { always } from "@antithesishq/bombadil";
 export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 export const keepRunning = always(() => true);

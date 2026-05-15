@@ -104,7 +104,7 @@ async fn run_test(
 
     let specification = Specification {
         module_specifier: specification_file.display().to_string(),
-        runtime_module: "@antithesishq/bombadil/terminal".to_string(),
+        runtime_module: "@antithesishq/bombadil".to_string(),
     };
 
     let output_path = resolve_output_path(output_path)?;

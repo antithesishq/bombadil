@@ -1,13 +1,10 @@
+import { strings, emails, integers, keycodes } from "@antithesishq/bombadil";
+import type { Cell } from "@antithesishq/bombadil";
 import {
   actions,
   weighted,
   extract,
-  strings,
-  emails,
-  integers,
-  keycodes,
   type Action,
-  Cell,
 } from "@antithesishq/bombadil/browser";
 
 const contentType = extract((state) => state.document.contentType);

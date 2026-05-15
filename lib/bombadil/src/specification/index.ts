@@ -1,6 +1,86 @@
-import { type TimeUnit } from "@antithesishq/bombadil/internal";
+import {
+  ExtractorCell,
+  Runtime,
+  type Cell,
+  type JSON,
+  type TimeUnit,
+} from "@antithesishq/bombadil/internal";
+// `ActionGenerator` is imported as a type only — re-exported below as a
+// value. Importing the value AND re-exporting it produces a duplicate
+// `const { ActionGenerator } = require(...)` binding after bundling,
+// which throws SyntaxError at eval time and silently unsets
+// __bombadilRequire. The local code only uses it for return-type
+// annotations, so type-import is enough.
+import {
+  makeActions,
+  makeWeighted,
+  type ActionGenerator,
+  type Tree,
+} from "@antithesishq/bombadil/actions";
 
 export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
+export {
+  ActionGenerator,
+  type Tree,
+  type Generator,
+  from,
+  strings,
+  emails,
+  integers,
+  keycodes,
+  randomRange,
+} from "@antithesishq/bombadil/actions";
+
+/**
+ * The runtime singleton that all `extract` calls register into and that
+ * the Rust verifier reads `runExtractors` from. JS erases the `<S>`
+ * parameter, so a single instance shared between drivers is fine —
+ * specs target one interface at a time, and driver modules narrow the
+ * type at their `extract` re-export.
+ *
+ * @internal
+ */
+export const runtime = new Runtime<unknown>();
+
+/**
+ * Untyped extract factory. Driver modules wrap this with a `State`-bound
+ * signature so specs can write `extract((state) => state.foo)` and have
+ * `state` inferred.
+ *
+ * @internal
+ */
+export function extract<S, T extends JSON>(
+  query: (state: S) => T,
+): Cell<T> {
+  return new ExtractorCell<T, unknown>(
+    runtime,
+    query as (state: unknown) => T,
+  );
+}
+
+/**
+ * Untyped actions factory. Driver modules wrap this with their `Action`
+ * union bound so specs get type-checked array literals.
+ *
+ * @internal
+ */
+export function actions<A>(
+  generate: () => Tree<A> | A[],
+): ActionGenerator<A> {
+  return makeActions(generate);
+}
+
+/**
+ * Untyped weighted factory. Driver modules wrap this with their `Action`
+ * union bound.
+ *
+ * @internal
+ */
+export function weighted<A>(
+  value: [number, A | ActionGenerator<A>][],
+): ActionGenerator<A> {
+  return makeWeighted(value);
+}
 
 export class Formula {
   not(): Formula {

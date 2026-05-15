@@ -37,7 +37,8 @@ async fn smoke_eventually_ready() -> Result<()> {
     setup();
 
     let specification_source = r#"
-import { actions, eventually, extract } from "@antithesishq/bombadil/terminal";
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
 
 const screen = extract((state) => state.rows.join("\n"));
 
@@ -57,7 +58,7 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
 
     let specification = Specification {
         module_specifier: specification_file.path().display().to_string(),
-        runtime_module: "@antithesishq/bombadil/terminal".to_string(),
+        runtime_module: "@antithesishq/bombadil".to_string(),
     };
 
     let size = Size {

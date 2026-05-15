@@ -158,7 +158,7 @@ async fn run_extractors(
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
-                "(state) => __bombadilRequire('@antithesishq/bombadil/browser').runtime.runExtractors({ ...state, document, window })",
+                "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],
             )
             .await?;

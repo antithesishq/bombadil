@@ -1,4 +1,5 @@
-import { actions, eventually, extract } from "@antithesishq/bombadil/terminal";
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
 
 // The flattened rendered grid — every row joined by newlines.
 const screen = extract((state) => state.rows.join("\n"));

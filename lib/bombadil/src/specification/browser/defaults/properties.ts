@@ -1,4 +1,5 @@
-import { always, extract } from "@antithesishq/bombadil/browser";
+import { always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
 
 const responseStatus = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];
