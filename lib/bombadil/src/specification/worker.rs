@@ -92,16 +92,17 @@ impl VerifierWorker {
         let _worker_thread = std::thread::Builder::new()
             .stack_size(16 * 1024 * 1024) // 16MB stack to avoid overflows
             .spawn(move || {
-                let mut verifier = match Verifier::new(&bundle_code, &runtime_module) {
-                    Ok(verifier) => {
-                        let _ = ready_tx.send(Ok(()));
-                        verifier
-                    }
-                    Err(error) => {
-                        let _ = ready_tx.send(Err(error));
-                        return;
-                    }
-                };
+                let mut verifier =
+                    match Verifier::new(&bundle_code, &runtime_module) {
+                        Ok(verifier) => {
+                            let _ = ready_tx.send(Ok(()));
+                            verifier
+                        }
+                        Err(error) => {
+                            let _ = ready_tx.send(Err(error));
+                            return;
+                        }
+                    };
                 while let Some(command) = rx.blocking_recv() {
                     match command {
                         Command::GetProperties { reply } => {

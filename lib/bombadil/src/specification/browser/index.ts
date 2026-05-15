@@ -11,8 +11,8 @@ import {
   type Tree,
 } from "@antithesishq/bombadil/actions";
 
-// Re-export the generic LTL Formula API so a spec only needs to import
-// from `@antithesishq/bombadil/browser`.
+// Re-export the generic LTL Formula API so a specification only needs
+// to import from `@antithesishq/bombadil/browser`.
 export {
   Formula,
   Pure,

@@ -95,6 +95,23 @@ struct TestSharedOptions {
 
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Property-based testing for web UIs
+    Browser {
+        // BrowserCommand carries a 300+ byte TestSharedOptions variant
+        // while the Terminal variant is tiny; box it so the enum size
+        // doesn't bloat unrelated dispatch.
+        #[command(subcommand)]
+        command: Box<BrowserCommand>,
+    },
+    /// [EXPERIMENTAL] Property-based testing for terminal UIs
+    Terminal {
+        #[command(subcommand)]
+        command: bombadil_terminal::Command,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum BrowserCommand {
     /// Run a test with a browser managed by Bombadil
     Test {
         #[clap(flatten)]
@@ -129,11 +146,6 @@ enum Command {
         /// Skip auto-opening browser
         #[arg(long, default_value_t = false)]
         no_open: bool,
-    },
-    /// [EXPERIMENTAL] Property-based testing for terminal UIs
-    Terminal {
-        #[command(subcommand)]
-        command: bombadil_terminal::Command,
     },
 }
 
@@ -207,82 +219,86 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match cli.command {
-        Command::Test {
-            shared,
-            headless,
-            no_sandbox,
-        } => {
-            let mode = resolve_test_mode(&shared).await?;
-            let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path =
-                output_path::resolve_output_path(&shared.output_path)?;
-
-            let mut reproduce_args = reproduce_command_args("test", &shared);
-            if headless {
-                reproduce_args.push("--headless".into());
-            }
-            if no_sandbox {
-                reproduce_args.push("--no-sandbox".into());
-            }
-
-            let browser_options =
-                browser_options_from_shared(&shared, &output_path);
-            let debugger_options = DebuggerOptions::Managed {
-                launch_options: LaunchOptions {
-                    headless,
-                    user_data_directory: user_data_directory
-                        .path()
-                        .to_path_buf(),
-                    no_sandbox,
-                },
-            };
-            test(
-                mode,
-                reproduce_args,
-                output_path,
+        Command::Browser { command } => match *command {
+            BrowserCommand::Test {
                 shared,
-                browser_options,
-                debugger_options,
-            )
-            .await
-        }
-        Command::TestExternal {
-            shared,
-            remote_debugger,
-            create_target,
-        } => {
-            let mode = resolve_test_mode(&shared).await?;
-            let output_path =
-                output_path::resolve_output_path(&shared.output_path)?;
+                headless,
+                no_sandbox,
+            } => {
+                let mode = resolve_test_mode(&shared).await?;
+                let user_data_directory = TempDir::with_prefix("user_data_")?;
+                let output_path =
+                    output_path::resolve_output_path(&shared.output_path)?;
 
-            let mut reproduce_args =
-                reproduce_command_args("test-external", &shared);
-            reproduce_args.push(format!("--remote-debugger {remote_debugger}"));
-            if create_target {
-                reproduce_args.push("--create-target".into());
+                let mut reproduce_args =
+                    reproduce_command_args("browser test", &shared);
+                if headless {
+                    reproduce_args.push("--headless".into());
+                }
+                if no_sandbox {
+                    reproduce_args.push("--no-sandbox".into());
+                }
+
+                let browser_options =
+                    browser_options_from_shared(&shared, &output_path);
+                let debugger_options = DebuggerOptions::Managed {
+                    launch_options: LaunchOptions {
+                        headless,
+                        user_data_directory: user_data_directory
+                            .path()
+                            .to_path_buf(),
+                        no_sandbox,
+                    },
+                };
+                test(
+                    mode,
+                    reproduce_args,
+                    output_path,
+                    shared,
+                    browser_options,
+                    debugger_options,
+                )
+                .await
             }
-
-            let browser_options = BrowserOptions {
+            BrowserCommand::TestExternal {
+                shared,
+                remote_debugger,
                 create_target,
-                ..browser_options_from_shared(&shared, &output_path)
-            };
-            let debugger_options =
-                DebuggerOptions::External { remote_debugger };
-            test(
-                mode,
-                reproduce_args,
-                output_path,
-                shared,
-                browser_options,
-                debugger_options,
-            )
-            .await
-        }
-        Command::Inspect {
-            trace_path,
-            port,
-            no_open,
-        } => inspect_server::serve(trace_path, port, !no_open).await,
+            } => {
+                let mode = resolve_test_mode(&shared).await?;
+                let output_path =
+                    output_path::resolve_output_path(&shared.output_path)?;
+
+                let mut reproduce_args =
+                    reproduce_command_args("browser test-external", &shared);
+                reproduce_args
+                    .push(format!("--remote-debugger {remote_debugger}"));
+                if create_target {
+                    reproduce_args.push("--create-target".into());
+                }
+
+                let browser_options = BrowserOptions {
+                    create_target,
+                    ..browser_options_from_shared(&shared, &output_path)
+                };
+                let debugger_options =
+                    DebuggerOptions::External { remote_debugger };
+                test(
+                    mode,
+                    reproduce_args,
+                    output_path,
+                    shared,
+                    browser_options,
+                    debugger_options,
+                )
+                .await
+            }
+            BrowserCommand::Inspect {
+                trace_path,
+                port,
+                no_open,
+            } => inspect_server::serve(trace_path, port, !no_open).await,
+        },
         Command::Terminal { command } => {
             bombadil_terminal::run(command).await;
             Ok(())
@@ -386,7 +402,8 @@ async fn test(
     } else {
         log::info!("using default specification");
         Specification {
-            module_specifier: "@antithesishq/bombadil/browser/defaults".to_string(),
+            module_specifier: "@antithesishq/bombadil/browser/defaults"
+                .to_string(),
             runtime_module: "@antithesishq/bombadil/browser".to_string(),
         }
     };
@@ -458,8 +475,9 @@ async fn test(
     };
 
     let output_display = strategy.output_path.display();
-    let inspect_command =
-        styled::maybe_italic(format!("bombadil inspect {output_display}"));
+    let inspect_command = styled::maybe_italic(format!(
+        "bombadil browser inspect {output_display}"
+    ));
     println!(
         "\n{heading}\n\nInspect the test results using:\
          \n\n  {inspect_command}\n",

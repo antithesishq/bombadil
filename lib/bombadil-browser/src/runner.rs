@@ -12,8 +12,8 @@ use crate::browser::{Browser, BrowserOptions, DebuggerOptions};
 use crate::driver::BrowserDriver;
 
 /// Convenience constructor: starts the verifier worker, launches the
-/// browser, evaluates the bundled spec, and hands back a Runner ready to
-/// `run(&mut strategy)`.
+/// browser, evaluates the bundled specification, and hands back a
+/// Runner ready to `run(&mut strategy)`.
 pub async fn launch(
     origin: Url,
     specification: Specification,

@@ -147,7 +147,7 @@ impl Resolver {
         if let Ok(relative) =
             PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
         {
-            let base = relative.strip_prefix("/").unwrap_or(&relative);
+            let base = relative.strip_prefix("/").unwrap_or(relative);
             // Bare "@antithesishq/bombadil" → "index.ts".
             // Subpath "@antithesishq/bombadil/<x>" → first "<x>.ts", then
             // fall back to "<x>/index.ts" (Node-style directory

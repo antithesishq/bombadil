@@ -80,7 +80,7 @@ export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
 }
 
 /**
- * The serialized state a spec sees on each step. The Rust terminal
+ * The serialized state a specification sees on each step. The Rust terminal
  * driver builds this JSON each tick from its rendered grid + scrollback
  * + last applied action. Field shapes will be expanded as the driver
  * matures.

@@ -56,9 +56,7 @@ impl InterfaceDriver for BrowserDriver {
             Some(BrowserEvent::StateChanged(state)) => {
                 Some(DriverEvent::StateChanged(state))
             }
-            Some(BrowserEvent::Error(error)) => {
-                Some(DriverEvent::Error(error))
-            }
+            Some(BrowserEvent::Error(error)) => Some(DriverEvent::Error(error)),
             None => None,
         }
     }
@@ -219,4 +217,3 @@ fn log_coverage_stats_total(edges: &[u8]) {
         );
     }
 }
-

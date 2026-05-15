@@ -68,7 +68,8 @@ pub fn Timeline(
                         .duration_since(*test_start)
                         .expect("couldn't calculate offset time")
                         .as_micros() as f64;
-                    series_heap.push((x, entry.state.resources.js_heap_used as f64));
+                    series_heap
+                        .push((x, entry.state.resources.js_heap_used as f64));
 
                     let cpu = if i > 0
                         && let Some(entry_previous) = entries.get(i - 1)

@@ -529,12 +529,14 @@ dependencies = [
  "bombadil",
  "bombadil-schema",
  "clap",
+ "env_logger",
  "libghostty-vt",
  "log",
  "portable-pty",
  "rand 0.9.4",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

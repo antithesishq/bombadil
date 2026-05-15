@@ -99,8 +99,8 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
-    fn specification(mut self, spec: &'a str) -> Self {
-        self.specification = Some(spec);
+    fn specification(mut self, specification: &'a str) -> Self {
+        self.specification = Some(specification);
         self
     }
 
@@ -215,8 +215,8 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         let specification = match specification {
-            Some(spec) => {
-                specification_file.write_all(spec.as_bytes()).unwrap();
+            Some(source) => {
+                specification_file.write_all(source.as_bytes()).unwrap();
                 Specification {
                     module_specifier: specification_file
                         .path()
@@ -227,7 +227,8 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
             }
             None => Specification {
-                module_specifier: "@antithesishq/bombadil/browser/defaults".to_string(),
+                module_specifier: "@antithesishq/bombadil/browser/defaults"
+                    .to_string(),
                 runtime_module: "@antithesishq/bombadil/browser".to_string(),
             },
         };
@@ -269,9 +270,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             deadline: Option<SystemTime>,
         }
 
-        impl bombadil_browser::runner::RunStrategy<BrowserDriver>
-            for TestStrategy
-        {
+        impl bombadil_browser::runner::RunStrategy<BrowserDriver> for TestStrategy {
             type StopValue = ();
 
             async fn on_new_state(
@@ -282,8 +281,9 @@ impl<'a> BrowserIntegrationTest<'a> {
                 >,
                 _snapshots: &[Snapshot],
                 violations: &[bombadil_browser::runner::PropertyViolation],
-            ) -> anyhow::Result<bombadil_browser::runner::ControlFlow<Self::StopValue>>
-            {
+            ) -> anyhow::Result<
+                bombadil_browser::runner::ControlFlow<Self::StopValue>,
+            > {
                 let test_start =
                     *self.test_start.get_or_insert(state.timestamp);
                 if !violations.is_empty() {
@@ -810,7 +810,7 @@ async fn test_file_picker() {
     std::fs::write(test_file.path(), b"test file content").unwrap();
     let file_path = test_file.path().display();
 
-    let spec = format!(
+    let specification = format!(
         r#"
 import {{ actions, extract, eventually, weighted }} from "@antithesishq/bombadil/browser";
 export {{ clicks }} from "@antithesishq/bombadil/browser/defaults/actions";
@@ -845,7 +845,7 @@ export const fileUploaded = eventually(
 
     BrowserIntegrationTest::new("file-picker")
         .time_limit(Duration::from_secs(30))
-        .specification(&spec)
+        .specification(&specification)
         .run()
         .await;
 }

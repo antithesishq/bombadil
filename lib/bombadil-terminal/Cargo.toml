@@ -15,4 +15,9 @@ portable-pty.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+env_logger.workspace = true
+tempfile.workspace = true

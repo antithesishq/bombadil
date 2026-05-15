@@ -148,7 +148,7 @@ pub async fn instrument_js_coverage(
 
                 // Exclude headers that are invalidated by instrumentation
                 // or connection-specific (hop-by-hop headers per HTTP
-                // spec)
+                // specification)
                 let excluded_headers = [
                     "content-length",
                     "content-encoding",

@@ -75,12 +75,9 @@ impl<D: InterfaceDriver> Runner<D> {
         // Box::pin the inner loop so its (potentially large) future is
         // heap-allocated rather than living on the test thread's modest
         // 2 MB stack.
-        let result = Box::pin(Self::run_test(
-            &mut self.driver,
-            self.verifier,
-            strategy,
-        ))
-        .await;
+        let result =
+            Box::pin(Self::run_test(&mut self.driver, self.verifier, strategy))
+                .await;
 
         log::debug!("test finished");
 

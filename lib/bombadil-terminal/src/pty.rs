@@ -1,11 +1,14 @@
-use std::{ffi::OsStr, io::Write};
+use std::{
+    ffi::OsStr,
+    io::{Read, Write},
+};
 
 use anyhow::Result;
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
 };
-use tokio::{join, sync::mpsc::channel};
+use tokio::sync::mpsc::channel;
 
 use crate::driver::Size;
 
@@ -13,7 +16,7 @@ pub struct PtyProcess {
     child: Box<dyn Child + Send + Sync>,
     input_write: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send + 'static>,
-    reader: Option<tokio::task::JoinHandle<()>>,
+    reader: Option<std::thread::JoinHandle<()>>,
 }
 
 impl PtyProcess {
@@ -36,29 +39,38 @@ impl PtyProcess {
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
-        let (output_write, output_read) = channel(64);
+        let (output_write, output_read) = channel::<String>(64);
         let mut reader = pair
             .master
             .try_clone_reader()
             .expect("couldn't clone master reader");
-        let reader = tokio::spawn(async move {
-            let mut buffer = [0u8; 1024];
-            loop {
-                match reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let output = String::from_utf8_lossy(&buffer[..n]);
-                        if output_write.send(output.into()).await.is_err() {
+        // The PTY reader uses blocking sync I/O. Running it on a
+        // dedicated OS thread (rather than `tokio::spawn`) means it
+        // doesn't pin a tokio worker — TerminalWorker runs a
+        // current_thread runtime, and a blocked `read` on that runtime
+        // would stall every other in-flight future (next_event, the
+        // command-receive loop) and deadlock long-running programs.
+        let reader = std::thread::Builder::new()
+            .name("bombadil-pty-reader".to_string())
+            .spawn(move || {
+                let mut buffer = [0u8; 1024];
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let chunk =
+                                String::from_utf8_lossy(&buffer[..n]).into();
+                            if output_write.blocking_send(chunk).is_err() {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            log::warn!("PTY read error: {error}");
                             break;
                         }
                     }
-                    Err(error) => {
-                        log::warn!("PTY read error: {error}");
-                        break;
-                    }
                 }
-            }
-        });
+            })?;
 
         Ok((
             Self {
@@ -90,7 +102,7 @@ impl PtyProcess {
         let status = self.child.wait()?;
         drop(self.master);
         if let Some(reader) = self.reader.take() {
-            join!(reader).0?;
+            let _ = reader.join();
         }
         Ok(status)
     }

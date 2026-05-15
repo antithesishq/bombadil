@@ -67,20 +67,23 @@ async fn trace_handler(
     let entries: Vec<BrowserTraceEntry> = content
         .lines()
         .filter(|line| !line.is_empty())
-        .map(|line| -> Result<BrowserTraceEntry, axum::http::StatusCode> {
-            let mut entry: BrowserTraceEntry =
-                serde_json::from_str(line).map_err(|error| {
+        .map(
+            |line| -> Result<BrowserTraceEntry, axum::http::StatusCode> {
+                let mut entry: BrowserTraceEntry = serde_json::from_str(line)
+                    .map_err(|error| {
                     log::error!("Failed to parse trace entry: {}", error);
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR
                 })?;
-            let filename = std::path::Path::new(&entry.state.screenshot)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("")
-                .to_string();
-            entry.state.screenshot = format!("/api/screenshots/{}", filename);
-            Ok(entry)
-        })
+                let filename = std::path::Path::new(&entry.state.screenshot)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                entry.state.screenshot =
+                    format!("/api/screenshots/{}", filename);
+                Ok(entry)
+            },
+        )
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(entries))
