@@ -101,90 +101,95 @@ impl<D: InterfaceDriver> Runner<D> {
 
         loop {
             let verifier = verifier.clone();
-            select! {
-                event = driver.next_event() => {
-                    match event {
-                        Some(DriverEvent::StateChanged(state)) => {
-                            driver.observe_state(&state);
-
-                            let snapshots: Arc<[Snapshot]> = driver
-                                .extract_snapshots(&state, last_action.as_ref())
-                                .await?
-                                .into();
-                            for value in snapshots.iter() {
-                                log::debug!(
-                                    "snapshot {}: {}",
-                                    value.name.as_deref().unwrap_or("<unnamed>"),
-                                    value.value
-                                );
-                            }
-
-                            let step_result = verifier
-                                .step::<D::JsAction>(
-                                    snapshots.clone(),
-                                    Time::from_system_time(D::state_timestamp(&state)),
-                                )
-                                .await?;
-
-                            let action_tree = step_result
-                                .actions
-                                .try_map(&mut |js| D::js_action_to_action(js))?;
-
-                            let mut violations =
-                                Vec::with_capacity(step_result.properties.len());
-                            for (name, value) in step_result.properties {
-                                match value {
-                                    PropertyValue::False(violation) => {
-                                        violations.push(PropertyViolation {
-                                            name,
-                                            violation: violation.to_schema(),
-                                        });
-                                    }
-                                    PropertyValue::Residual | PropertyValue::True => {}
-                                }
-                            }
-
-                            let action_tree = driver.filter_actions(&state, action_tree);
-
-                            let control = strategy
-                                .on_new_state(
-                                    &state,
-                                    last_action.as_ref(),
-                                    &snapshots,
-                                    &violations,
-                                )
-                                .await?;
-
-                            if let ControlFlow::Stop(value) = control {
-                                return Ok(Some(value));
-                            }
-
-                            if !step_result.has_pending {
-                                log::info!("all properties are definite, stopping");
-                                return Ok(None);
-                            }
-
-                            let action_tree = action_tree
-                                .prune()
-                                .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
-
-                            let action = strategy.pick_action(action_tree).await?;
-                            log::info!("picked action: {:?}", action);
-                            driver.apply(action.clone())?;
-                            last_action = Some(action);
-                        }
-                        Some(DriverEvent::Error(error)) => {
-                            anyhow::bail!("driver error: {}", error);
-                        }
-                        None => {
-                            anyhow::bail!("driver closed");
-                        }
-                    }
-                },
+            // Box::pin each in-loop trait-method await so the per-iteration
+            // future state stays small. With three async-in-trait calls
+            // (next_event, extract_snapshots, on_new_state, pick_action)
+            // plus the verifier worker step, the inlined state machine
+            // grows past the test thread's 2 MB stack on heavier specs.
+            let event = select! {
+                event = Box::pin(driver.next_event()) => event,
                 _ = ctrl_c() => {
                     let value = strategy.on_interrupted().await?;
                     return Ok(Some(value));
-                },
+                }
+            };
+            match event {
+                Some(DriverEvent::StateChanged(state)) => {
+                    driver.observe_state(&state);
+
+                    let snapshots: Arc<[Snapshot]> = Box::pin(
+                        driver.extract_snapshots(&state, last_action.as_ref()),
+                    )
+                    .await?
+                    .into();
+                    for value in snapshots.iter() {
+                        log::debug!(
+                            "snapshot {}: {}",
+                            value.name.as_deref().unwrap_or("<unnamed>"),
+                            value.value
+                        );
+                    }
+
+                    let step_result = Box::pin(verifier.step::<D::JsAction>(
+                        snapshots.clone(),
+                        Time::from_system_time(D::state_timestamp(&state)),
+                    ))
+                    .await?;
+
+                    let action_tree = step_result
+                        .actions
+                        .try_map(&mut |js| D::js_action_to_action(js))?;
+
+                    let mut violations =
+                        Vec::with_capacity(step_result.properties.len());
+                    for (name, value) in step_result.properties {
+                        match value {
+                            PropertyValue::False(violation) => {
+                                violations.push(PropertyViolation {
+                                    name,
+                                    violation: violation.to_schema(),
+                                });
+                            }
+                            PropertyValue::Residual | PropertyValue::True => {}
+                        }
+                    }
+
+                    let action_tree =
+                        driver.filter_actions(&state, action_tree);
+
+                    let control = Box::pin(strategy.on_new_state(
+                        &state,
+                        last_action.as_ref(),
+                        &snapshots,
+                        &violations,
+                    ))
+                    .await?;
+
+                    if let ControlFlow::Stop(value) = control {
+                        return Ok(Some(value));
+                    }
+
+                    if !step_result.has_pending {
+                        log::info!("all properties are definite, stopping");
+                        return Ok(None);
+                    }
+
+                    let action_tree = action_tree.prune().ok_or_else(|| {
+                        anyhow::anyhow!("no actions available")
+                    })?;
+
+                    let action =
+                        Box::pin(strategy.pick_action(action_tree)).await?;
+                    log::info!("picked action: {:?}", action);
+                    driver.apply(action.clone())?;
+                    last_action = Some(action);
+                }
+                Some(DriverEvent::Error(error)) => {
+                    anyhow::bail!("driver error: {}", error);
+                }
+                None => {
+                    anyhow::bail!("driver closed");
+                }
             }
         }
     }

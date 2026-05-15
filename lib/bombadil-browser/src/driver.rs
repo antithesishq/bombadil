@@ -18,14 +18,18 @@ use crate::url::is_within_domain;
 
 pub struct BrowserDriver {
     inner: Browser,
-    edges: [u8; EDGE_MAP_SIZE],
+    // Heap-allocated so the 64 KB edge map doesn't inflate the
+    // BrowserDriver / Runner / run-future on the stack. Box::new([0u8; N])
+    // would still build the array on the stack first in debug builds,
+    // so use a Vec.
+    edges: Vec<u8>,
 }
 
 impl BrowserDriver {
     pub fn new(browser: Browser) -> Self {
         Self {
             inner: browser,
-            edges: [0u8; EDGE_MAP_SIZE],
+            edges: vec![0u8; EDGE_MAP_SIZE],
         }
     }
 
@@ -156,7 +160,7 @@ async fn run_extractors(
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
-                "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
+                "(state) => __bombadilRequire('@antithesishq/bombadil/browser').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()],
             )
             .await?;
@@ -191,7 +195,7 @@ fn log_coverage_stats_increment(coverage: &Coverage) {
     }
 }
 
-fn log_coverage_stats_total(edges: &[u8; EDGE_MAP_SIZE]) {
+fn log_coverage_stats_total(edges: &[u8]) {
     if log::log_enabled!(log::Level::Debug) {
         let mut buckets = [0u64; 8];
         let mut hits_total: u64 = 0;

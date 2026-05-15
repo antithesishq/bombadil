@@ -5,9 +5,9 @@ import {
   type JSON,
 } from "@antithesishq/bombadil/internal";
 import {
-  ActionGenerator,
   makeActions,
   makeWeighted,
+  type ActionGenerator,
   type Tree,
 } from "@antithesishq/bombadil/actions";
 
