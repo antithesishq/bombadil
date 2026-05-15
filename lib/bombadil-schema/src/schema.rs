@@ -67,15 +67,22 @@ impl Time {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TraceEntry {
+pub struct TraceEntry<A, S> {
     pub timestamp: Time,
+    pub action: Option<A>,
+    pub state: S,
+    pub snapshots: Vec<Snapshot>,
+    pub violations: Vec<PropertyViolation>,
+}
+
+pub type BrowserTraceEntry = TraceEntry<BrowserAction, BrowserStateSummary>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BrowserStateSummary {
     pub url: String,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
-    pub action: Option<BrowserAction>,
     pub screenshot: String,
-    pub snapshots: Vec<Snapshot>,
-    pub violations: Vec<PropertyViolation>,
     pub resources: Resources,
 }
 

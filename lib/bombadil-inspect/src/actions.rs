@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use bombadil_browser_keys::key_name;
-use bombadil_schema::{Point, Time, TraceEntry};
+use bombadil_schema::{BrowserTraceEntry, Point, Time};
 use yew::component;
 use yew::prelude::*;
 
@@ -11,7 +11,7 @@ use crate::time::Duration;
 
 #[derive(PartialEq, Properties)]
 pub struct ActionsListProps {
-    pub trace: Rc<[TraceEntry]>,
+    pub trace: Rc<[BrowserTraceEntry]>,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
 }
@@ -43,7 +43,7 @@ pub fn ActionsList(props: &ActionsListProps) -> Html {
 #[derive(PartialEq, Properties)]
 struct HistoryEntryProps {
     pub test_start: Time,
-    pub entry: Rc<TraceEntry>,
+    pub entry: Rc<BrowserTraceEntry>,
     pub index: usize,
     pub is_selected: bool,
     pub on_select: Callback<usize>,

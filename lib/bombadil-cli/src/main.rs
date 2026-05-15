@@ -354,7 +354,7 @@ async fn resolve_test_mode(
             let mut lines = BufReader::new(trace_file).lines();
             let mut actions: Vec<BrowserAction> = vec![];
             while let Some(line) = lines.next_line().await? {
-                let entry: schema::TraceEntry = json::from_str(&line)?;
+                let entry: schema::BrowserTraceEntry = json::from_str(&line)?;
                 if let Some(action) = entry.action {
                     actions.push(action.to_internal());
                 }

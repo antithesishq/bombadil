@@ -39,18 +39,20 @@ impl ToSchema<bombadil_schema::PropertyViolation> for PropertyViolation {
     }
 }
 
-impl<'a> ToSchema<bombadil_schema::TraceEntry> for TraceEntry<'a> {
-    fn to_schema(&self) -> bombadil_schema::TraceEntry {
+impl<'a> ToSchema<bombadil_schema::BrowserTraceEntry> for TraceEntry<'a> {
+    fn to_schema(&self) -> bombadil_schema::BrowserTraceEntry {
         bombadil_schema::TraceEntry {
             timestamp: Time::from_system_time(self.timestamp),
-            url: self.url.to_string(),
-            hash_previous: self.hash_previous,
-            hash_current: self.hash_current,
             action: self.action.as_ref().map(|a| a.to_schema()),
-            screenshot: self.screenshot.to_string_lossy().to_string(),
+            state: bombadil_schema::BrowserStateSummary {
+                url: self.url.to_string(),
+                hash_previous: self.hash_previous,
+                hash_current: self.hash_current,
+                screenshot: self.screenshot.to_string_lossy().to_string(),
+                resources: self.resources.to_schema(),
+            },
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: self.violations.iter().map(|v| v.to_schema()).collect(),
-            resources: self.resources.to_schema(),
         }
     }
 }
