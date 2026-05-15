@@ -525,12 +525,16 @@ name = "bombadil-terminal"
 version = "0.5.0"
 dependencies = [
  "anyhow",
+ "boa_engine",
  "bombadil",
+ "bombadil-schema",
  "clap",
  "libghostty-vt",
- "owo-colors",
+ "log",
  "portable-pty",
  "rand 0.9.4",
+ "serde",
+ "serde_json",
  "tokio",
 ]
 

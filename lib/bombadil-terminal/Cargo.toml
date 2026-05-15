@@ -5,10 +5,14 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+boa_engine.workspace = true
 bombadil = { path = "../bombadil" }
+bombadil-schema = { path = "../bombadil-schema" }
 clap = { workspace = true, features = ["derive"] }
 libghostty-vt = { workspace = true, features = ["link-static"] }
-owo-colors = { workspace = true, features = ["supports-colors"] }
+log.workspace = true
 portable-pty.workspace = true
 rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 tokio = { workspace = true, features = ["full"] }
