@@ -480,6 +480,10 @@ impl Browser {
         Ok(())
     }
 
+    pub fn origin(&self) -> &Url {
+        &self.origin
+    }
+
     pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
         let _ = self.page.evaluate_on_new_document(script).await?;
 

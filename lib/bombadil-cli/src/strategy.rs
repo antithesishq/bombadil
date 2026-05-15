@@ -6,8 +6,9 @@ use std::{collections::VecDeque, path::PathBuf, time::SystemTime};
 use bombadil_browser::{
     browser::{actions::BrowserAction, state::BrowserState},
     convert::ToSchema,
-    runner::{ControlFlow, RunStrategy},
-    trace::{PropertyViolation, writer::TraceWriter},
+    driver::BrowserDriver,
+    runner::{ControlFlow, PropertyViolation, RunStrategy},
+    trace::writer::TraceWriter,
 };
 use bombadil_schema::markup;
 
@@ -42,7 +43,7 @@ pub struct TestResult {
     pub violations_count: u64,
 }
 
-impl RunStrategy for TestStrategy {
+impl RunStrategy<BrowserDriver> for TestStrategy {
     type StopValue = TestResult;
 
     async fn on_new_state(

@@ -25,7 +25,7 @@ use bombadil_browser::{
         actions::BrowserAction,
     },
     instrumentation::InstrumentationConfig,
-    runner::Runner,
+    runner::launch as launch_browser_runner,
     trace::writer::TraceWriter,
 };
 use bombadil_schema::schema;
@@ -391,7 +391,7 @@ async fn test(
 
     let is_reproduce = shared_options.reproduce.is_some();
 
-    let runner = Runner::new(
+    let runner = launch_browser_runner(
         shared_options.origin.url,
         specification,
         browser_options,

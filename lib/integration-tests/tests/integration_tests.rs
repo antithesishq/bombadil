@@ -26,7 +26,8 @@ use bombadil_browser::{
         actions::BrowserAction,
     },
     convert::ToSchema,
-    runner::Runner,
+    driver::BrowserDriver,
+    runner::launch as launch_browser_runner,
 };
 use bombadil_schema::markup;
 
@@ -229,7 +230,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
 
         let downloads_directory = TempDir::new().unwrap();
-        let runner = Runner::new(
+        let runner = launch_browser_runner(
             origin,
             specification,
             BrowserOptions {
@@ -265,7 +266,9 @@ impl<'a> BrowserIntegrationTest<'a> {
             deadline: Option<SystemTime>,
         }
 
-        impl bombadil_browser::runner::RunStrategy for TestStrategy {
+        impl bombadil_browser::runner::RunStrategy<BrowserDriver>
+            for TestStrategy
+        {
             type StopValue = ();
 
             async fn on_new_state(
@@ -275,7 +278,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     &bombadil_browser::browser::actions::BrowserAction,
                 >,
                 _snapshots: &[Snapshot],
-                violations: &[bombadil_browser::trace::PropertyViolation],
+                violations: &[bombadil_browser::runner::PropertyViolation],
             ) -> anyhow::Result<bombadil_browser::runner::ControlFlow<Self::StopValue>>
             {
                 let test_start =

@@ -4,6 +4,8 @@ use bombadil_schema::Time;
 use serde::Serialize;
 use url::Url;
 
+pub use bombadil::runner::PropertyViolation;
+
 use crate::{
     browser::{actions::BrowserAction, state::Resources},
     convert::ToSchema,
@@ -23,21 +25,6 @@ pub struct TraceEntry<'a> {
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
     pub resources: Cow<'a, Resources>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PropertyViolation {
-    pub name: String,
-    pub violation: bombadil_schema::Violation,
-}
-
-impl ToSchema<bombadil_schema::PropertyViolation> for PropertyViolation {
-    fn to_schema(&self) -> bombadil_schema::PropertyViolation {
-        bombadil_schema::PropertyViolation {
-            name: self.name.clone(),
-            violation: self.violation.clone(),
-        }
-    }
 }
 
 impl<'a> ToSchema<bombadil_schema::BrowserTraceEntry> for TraceEntry<'a> {
