@@ -1,4 +1,3 @@
-use serde::de::DeserializeOwned;
 use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -10,6 +9,7 @@ use bombadil_schema::Time;
 use crate::specification::convert::{
     PrettyFunction, violation_with_pretty_functions,
 };
+use crate::driver::FromGeneratedAction;
 use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
 use crate::specification::result::SpecificationError;
@@ -154,7 +154,7 @@ impl VerifierWorker {
         reply_rx.await.map_err(|_| WorkerError::WorkerGone)
     }
 
-    pub async fn step<A: DeserializeOwned>(
+    pub async fn step<A: FromGeneratedAction>(
         &self,
         snapshots: Arc<[Snapshot]>,
         time: Time,
@@ -173,9 +173,9 @@ impl VerifierWorker {
             .map_err(|_| WorkerError::WorkerGone)?
             .map_err(WorkerError::SpecificationError)?;
         let actions = result.actions.try_map(&mut |v| {
-            json::from_value(v).map_err(|e| {
+            A::from_generated(v).map_err(|e| {
                 WorkerError::SpecificationError(SpecificationError::OtherError(
-                    format!("failed to deserialize action: {}", e),
+                    format!("failed to convert generated action: {}", e),
                 ))
             })
         })?;

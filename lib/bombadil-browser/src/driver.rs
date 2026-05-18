@@ -13,7 +13,6 @@ use crate::browser::actions::BrowserAction;
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, BrowserEvent};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::js_action::JsAction;
 use crate::url::is_within_domain;
 
 pub struct BrowserDriver {
@@ -40,7 +39,6 @@ impl BrowserDriver {
 
 impl InterfaceDriver for BrowserDriver {
     type Action = BrowserAction;
-    type JsAction = JsAction;
     type State = BrowserState;
 
     async fn initiate(&mut self) -> Result<()> {
@@ -71,10 +69,6 @@ impl InterfaceDriver for BrowserDriver {
         last_action: Option<&BrowserAction>,
     ) -> Result<Vec<Snapshot>> {
         run_extractors(state, last_action).await
-    }
-
-    fn js_action_to_action(js: JsAction) -> Result<BrowserAction> {
-        js.to_browser_action()
     }
 
     fn state_timestamp(state: &BrowserState) -> SystemTime {

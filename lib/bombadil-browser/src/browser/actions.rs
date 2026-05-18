@@ -1,12 +1,15 @@
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
+use bombadil::driver::FromGeneratedAction;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{dom, input, page};
 use serde::{Deserialize, Serialize};
+use serde_json as json;
 use tokio::time::sleep;
 
 use crate::geometry::Point;
+use crate::js_action::JsAction;
 use bombadil_browser_keys::key_name;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,6 +48,13 @@ pub enum BrowserAction {
         selector: String,
         files: Vec<String>,
     },
+}
+
+impl FromGeneratedAction for BrowserAction {
+    fn from_generated(value: json::Value) -> Result<Self> {
+        let js_action: JsAction = json::from_value(value)?;
+        js_action.to_browser_action()
+    }
 }
 
 impl BrowserAction {

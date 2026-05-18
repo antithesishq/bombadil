@@ -127,15 +127,11 @@ impl<D: InterfaceDriver> Runner<D> {
                         );
                     }
 
-                    let step_result = Box::pin(verifier.step::<D::JsAction>(
+                    let step_result = Box::pin(verifier.step::<D::Action>(
                         snapshots.clone(),
                         Time::from_system_time(D::state_timestamp(&state)),
                     ))
                     .await?;
-
-                    let action_tree = step_result
-                        .actions
-                        .try_map(&mut |js| D::js_action_to_action(js))?;
 
                     let mut violations =
                         Vec::with_capacity(step_result.properties.len());
@@ -150,9 +146,6 @@ impl<D: InterfaceDriver> Runner<D> {
                             PropertyValue::Residual | PropertyValue::True => {}
                         }
                     }
-
-                    let action_tree =
-                        driver.filter_actions(&state, action_tree);
 
                     let control = Box::pin(strategy.on_new_state(
                         &state,
@@ -171,9 +164,12 @@ impl<D: InterfaceDriver> Runner<D> {
                         return Ok(None);
                     }
 
-                    let action_tree = action_tree.prune().ok_or_else(|| {
-                        anyhow::anyhow!("no actions available")
-                    })?;
+                    let action_tree = driver
+                        .filter_actions(&state, step_result.actions)
+                        .prune()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("no actions available")
+                        })?;
 
                     let action =
                         Box::pin(strategy.pick_action(action_tree)).await?;

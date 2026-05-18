@@ -6,7 +6,7 @@ use boa_engine::{
     Context, JsError, JsObject, JsString, JsValue, NativeFunction, Source,
     context::ContextBuilder, js_string,
 };
-use bombadil::driver::{DriverEvent, InterfaceDriver};
+use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
@@ -64,6 +64,12 @@ pub enum TerminalAction {
     },
     ScrollUp {},
     ScrollDown {},
+}
+
+impl FromGeneratedAction for TerminalAction {
+    fn from_generated(value: json::Value) -> Result<Self> {
+        Ok(json::from_value(value)?)
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -601,7 +607,6 @@ impl TerminalDriver {
 
 impl InterfaceDriver for TerminalDriver {
     type Action = TerminalAction;
-    type JsAction = TerminalAction;
     type State = TerminalState;
 
     async fn initiate(&mut self) -> Result<()> {
@@ -658,10 +663,6 @@ impl InterfaceDriver for TerminalDriver {
         _last_action: Option<&TerminalAction>,
     ) -> Result<Vec<Snapshot>> {
         self.extractor.run_extractors(state).await
-    }
-
-    fn js_action_to_action(js: TerminalAction) -> Result<TerminalAction> {
-        Ok(js)
     }
 
     fn state_timestamp(state: &TerminalState) -> SystemTime {
