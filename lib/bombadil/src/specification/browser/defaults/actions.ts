@@ -316,6 +316,10 @@ export const inputs = actions(() => {
 
   switch (type) {
     case "text":
+    case "password":
+    case "search":
+    case "tel":
+    case "url":
       return weighted([
         [1, { PressKey: { code: keycodes().generate() } }],
         [
