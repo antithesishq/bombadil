@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::process::Stdio;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -16,6 +17,9 @@ pub struct ModelDrivenState {
     pub user_prompt: String,
     pub claude_model: String,
     pub last_state: Option<StateSummary>,
+    /// Snapshots from the round before the one in `last_state`. Used by
+    /// `build_prompt` to render only the snapshots whose values changed.
+    pub previous_snapshots: HashMap<String, json::Value>,
     /// Carried into the next consultation when the previous rollout was rejected so the
     /// model can adjust. Driver-level apply failures are reported here when we observe
     /// them; today the runner bails on those, so this only covers rollouts invalidated
@@ -31,6 +35,7 @@ impl ModelDrivenState {
             user_prompt,
             claude_model,
             last_state: None,
+            previous_snapshots: HashMap::new(),
             pending_feedback: None,
             client: None,
         }
@@ -41,6 +46,9 @@ impl ModelDrivenState {
         state: &BrowserState,
         snapshots: &[Snapshot],
     ) {
+        if let Some(previous) = self.last_state.take() {
+            self.previous_snapshots = previous.snapshots.into_iter().collect();
+        }
         self.last_state = Some(StateSummary::from_browser(state, snapshots));
     }
 }
@@ -48,8 +56,6 @@ impl ModelDrivenState {
 pub struct StateSummary {
     pub url: String,
     pub title: String,
-    pub console_errors: Vec<String>,
-    pub uncaught_exceptions: Vec<String>,
     pub snapshots: Vec<(String, json::Value)>,
 }
 
@@ -58,26 +64,6 @@ impl StateSummary {
         Self {
             url: state.url.to_string(),
             title: state.title.clone(),
-            console_errors: state
-                .console_entries
-                .iter()
-                .map(|entry| {
-                    entry
-                        .args
-                        .iter()
-                        .map(|arg| match arg {
-                            json::Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .collect(),
-            uncaught_exceptions: state
-                .exceptions
-                .iter()
-                .map(|exception| exception.text.clone())
-                .collect(),
             snapshots: snapshots
                 .iter()
                 .map(|snapshot| {
@@ -93,25 +79,21 @@ impl StateSummary {
         }
     }
 
-    fn render(&self) -> String {
+    fn render(
+        &self,
+        previous_snapshots: &HashMap<String, json::Value>,
+    ) -> String {
         let mut out = String::new();
         out.push_str(&format!("URL: {}\n", self.url));
         out.push_str(&format!("Title: {}\n", self.title));
-        if !self.console_errors.is_empty() {
-            out.push_str("Console errors:\n");
-            for line in &self.console_errors {
-                out.push_str(&format!("  - {line}\n"));
-            }
-        }
-        if !self.uncaught_exceptions.is_empty() {
-            out.push_str("Uncaught exceptions:\n");
-            for line in &self.uncaught_exceptions {
-                out.push_str(&format!("  - {line}\n"));
-            }
-        }
-        if !self.snapshots.is_empty() {
-            out.push_str("Snapshots:\n");
-            for (name, value) in &self.snapshots {
+        let changed: Vec<_> = self
+            .snapshots
+            .iter()
+            .filter(|(name, value)| previous_snapshots.get(name) != Some(value))
+            .collect();
+        if !changed.is_empty() {
+            out.push_str("Snapshots (changed since last turn):\n");
+            for (name, value) in changed {
                 out.push_str(&format!("  {name}: {value}\n"));
             }
         }
@@ -250,7 +232,7 @@ fn build_prompt(
 
     prompt.push_str("--- Current state ---\n");
     if let Some(summary) = &state.last_state {
-        prompt.push_str(&summary.render());
+        prompt.push_str(&summary.render(&state.previous_snapshots));
     } else {
         prompt.push_str("(no state observed yet)\n");
     }
