@@ -21,12 +21,19 @@ pub struct ModelDrivenState {
     /// `build_prompt` to render only the snapshots whose values changed.
     pub previous_snapshots: HashMap<String, json::Value>,
     /// Carried into the next consultation when the previous rollout was rejected so the
-    /// model can adjust. Driver-level apply failures are reported here when we observe
-    /// them; today the runner bails on those, so this only covers rollouts invalidated
-    /// by the new state's available action set.
-    pub pending_feedback: Option<String>,
+    /// model can adjust. Captured at rejection time and surfaced on the next prompt as
+    /// a self-contained "your plan failed; here is what was actually there" block.
+    pub pending_feedback: Option<RolloutRejection>,
     /// Lazily spawned on the first consultation; reused for every subsequent turn.
     pub client: Option<ModelClient>,
+}
+
+/// Snapshot of the world at the moment a queued action failed reconciliation.
+/// Built once at rejection time and rendered into the next consultation's prompt.
+pub struct RolloutRejection {
+    pub failed_action: BrowserAction,
+    pub state_diff: String,
+    pub available_actions: Vec<BrowserAction>,
 }
 
 impl ModelDrivenState {
@@ -50,6 +57,23 @@ impl ModelDrivenState {
             self.previous_snapshots = previous.snapshots.into_iter().collect();
         }
         self.last_state = Some(StateSummary::from_browser(state, snapshots));
+    }
+
+    pub fn reject_rollout(
+        &mut self,
+        failed_action: BrowserAction,
+        available_actions: Vec<BrowserAction>,
+    ) {
+        let state_diff = self
+            .last_state
+            .as_ref()
+            .map(|summary| summary.render(&self.previous_snapshots))
+            .unwrap_or_else(|| "(no state observed yet)\n".to_string());
+        self.pending_feedback = Some(RolloutRejection {
+            failed_action,
+            state_diff,
+            available_actions,
+        });
     }
 }
 
@@ -113,6 +137,12 @@ pub async fn consult_model(
     if available_actions.is_empty() {
         bail!("no actions available to offer the model");
     }
+    log::debug!(
+        "available actions ({}): {}",
+        available_actions.len(),
+        json::to_string(&available_actions)
+            .unwrap_or_else(|_| format!("{:?}", available_actions))
+    );
 
     if state.client.is_none() {
         let system_prompt = build_system_prompt(&state.user_prompt);
@@ -131,6 +161,7 @@ pub async fn consult_model(
         .send(&prompt)
         .await
         .context("sending prompt to claude streaming client")?;
+    log::debug!("model raw response: {result_text}");
 
     let rollout = parse_rollout(&result_text, &available_actions).with_context(|| {
         format!(
@@ -146,6 +177,11 @@ pub async fn consult_model(
         );
         return Ok(None);
     }
+    log::debug!(
+        "model rollout ({} actions): {}",
+        rollout.len(),
+        json::to_string(&rollout).unwrap_or_else(|_| format!("{:?}", rollout))
+    );
     Ok(Some(rollout))
 }
 
@@ -224,22 +260,34 @@ fn build_prompt(
 ) -> String {
     let mut prompt = String::new();
 
-    if let Some(feedback) = &state.pending_feedback {
-        prompt.push_str("--- Previous rollout was rejected ---\n");
-        prompt.push_str(feedback);
-        prompt.push_str("\n\n");
-    }
+    let (state_text, actions_to_list): (String, &[BrowserAction]) =
+        if let Some(rejection) = &state.pending_feedback {
+            prompt.push_str("--- Previous rollout was rejected ---\n");
+            let failed_json = json::to_string(&rejection.failed_action)
+                .unwrap_or_else(|_| format!("{:?}", rejection.failed_action));
+            prompt.push_str(&format!(
+                "The next queued action could not be reconciled with \
+                 the new action list, so the rest of the rollout was \
+                 discarded:\n  {failed_json}\n\nThe state and action \
+                 list below were captured at the moment of failure. \
+                 Pick a new rollout from them.\n\n",
+            ));
+            (rejection.state_diff.clone(), &rejection.available_actions)
+        } else {
+            let diff = state
+                .last_state
+                .as_ref()
+                .map(|summary| summary.render(&state.previous_snapshots))
+                .unwrap_or_else(|| "(no state observed yet)\n".to_string());
+            (diff, available_actions)
+        };
 
     prompt.push_str("--- Current state ---\n");
-    if let Some(summary) = &state.last_state {
-        prompt.push_str(&summary.render(&state.previous_snapshots));
-    } else {
-        prompt.push_str("(no state observed yet)\n");
-    }
+    prompt.push_str(&state_text);
     prompt.push('\n');
 
     prompt.push_str("--- Available actions ---\n");
-    for (index, action) in available_actions.iter().enumerate() {
+    for (index, action) in actions_to_list.iter().enumerate() {
         let action_json = json::to_string(action).unwrap_or_else(|_| {
             format!("<unserializable action: {:?}>", action)
         });

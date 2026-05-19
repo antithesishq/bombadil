@@ -153,11 +153,7 @@ impl RunStrategy<BrowserDriver> for TestStrategy {
                     log::info!(
                         "queued action could not be reconciled with the new state; dropping rest of rollout"
                     );
-                    model_state.pending_feedback = Some(format!(
-                        "The next queued action {} could not be reconciled with any action in the new state's action list, so the rest of the rollout was discarded. Pick a new rollout from the actions listed below.",
-                        serde_json::to_string(&next)
-                            .unwrap_or_else(|_| format!("{:?}", next))
-                    ));
+                    model_state.reject_rollout(next, available_actions.clone());
                     queued.clear();
                 }
                 if let Some(test_start) = self.test_start {
