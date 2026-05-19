@@ -29,7 +29,12 @@ pub trait FromGeneratedAction: Sized {
 /// not satisfy a Send bound here. Self itself is still required to be
 /// Send so Runner can be moved across awaits.
 pub trait InterfaceDriver: Send {
-    type Action: Clone + Debug + Serialize + FromGeneratedAction + Send + 'static;
+    type Action: Clone
+        + Debug
+        + Serialize
+        + FromGeneratedAction
+        + Send
+        + 'static;
     type State: Debug + Send + 'static;
 
     fn initiate(&mut self) -> impl std::future::Future<Output = Result<()>>;

@@ -6,10 +6,10 @@ use bombadil_ltl::eval;
 use bombadil_ltl::violation;
 use bombadil_schema::Time;
 
+use crate::driver::FromGeneratedAction;
 use crate::specification::convert::{
     PrettyFunction, violation_with_pretty_functions,
 };
-use crate::driver::FromGeneratedAction;
 use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
 use crate::specification::result::SpecificationError;

@@ -1,5 +1,6 @@
 mod duration;
 mod inspect_server;
+mod model_driven;
 mod output_path;
 mod render;
 mod strategy;
@@ -91,6 +92,18 @@ struct TestSharedOptions {
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
     reproduce: Option<PathBuf>,
+    /// Drive action selection with a Claude Code model session. The prompt is sent once
+    /// to the model and becomes the system context for the test run. At each new state
+    /// the model is asked to produce a rollout of one or more actions to apply before
+    /// the next consultation. The model chooses how far ahead to plan. Requires the
+    /// `claude` CLI on PATH. Mutually exclusive with --reproduce.
+    #[arg(long, value_name = "PROMPT", conflicts_with = "reproduce")]
+    prompt: Option<String>,
+    /// Model alias or full model id passed to `claude --model` when running in
+    /// --prompt mode. Defaults to "haiku" for latency; pass "sonnet" or a
+    /// fully-qualified model id (e.g. claude-sonnet-4-6) to override.
+    #[arg(long, value_name = "MODEL", default_value = "haiku")]
+    claude_model: String,
 }
 
 #[derive(clap::Subcommand)]
@@ -360,6 +373,15 @@ fn reproduce_command_args(
 async fn resolve_test_mode(
     shared_options: &TestSharedOptions,
 ) -> Result<TestMode> {
+    if let Some(prompt) = &shared_options.prompt {
+        return Ok(TestMode::ModelDriven {
+            state: Box::new(model_driven::ModelDrivenState::new(
+                prompt.clone(),
+                shared_options.claude_model.clone(),
+            )),
+            queued: std::collections::VecDeque::new(),
+        });
+    }
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
