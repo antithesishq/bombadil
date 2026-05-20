@@ -8,7 +8,7 @@ export {
 import {
   scroll,
   clicks,
-  inputs,
+  typing,
   navigation,
   waitOnce,
 } from "@antithesishq/bombadil/browser/defaults/actions";
@@ -16,7 +16,7 @@ import { weighted } from "@antithesishq/bombadil/browser";
 
 export const defaultActions = weighted([
   [100, clicks],
-  [100, inputs],
+  [100, typing],
   [50, scroll],
   [10, navigation],
   [1, waitOnce],

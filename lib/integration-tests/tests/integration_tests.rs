@@ -553,7 +553,7 @@ async fn test_random_text_input() {
             r#"
 import { now, eventually } from "@antithesishq/bombadil";
 import { extract } from "@antithesishq/bombadil/browser";
-export { clicks, inputs } from "@antithesishq/bombadil/browser/defaults/actions";
+export { clicks, typing } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const inputValue = extract((state) => {
   const input = state.document.querySelector("\#text-input");

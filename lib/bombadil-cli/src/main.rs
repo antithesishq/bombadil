@@ -100,9 +100,8 @@ struct TestSharedOptions {
     #[arg(long, value_name = "PROMPT", conflicts_with = "reproduce")]
     prompt: Option<String>,
     /// Model alias or full model id passed to `claude --model` when running in
-    /// --prompt mode. Defaults to "haiku" for latency; pass "sonnet" or a
-    /// fully-qualified model id (e.g. claude-sonnet-4-6) to override.
-    #[arg(long, value_name = "MODEL", default_value = "haiku")]
+    /// --prompt mode.
+    #[arg(long, value_name = "MODEL", default_value = "sonnet")]
     claude_model: String,
 }
 
