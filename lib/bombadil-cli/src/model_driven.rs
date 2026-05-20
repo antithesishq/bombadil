@@ -125,14 +125,24 @@ impl StateSummary {
     }
 }
 
+/// Result of a model consultation: the actions to execute and whether the
+/// model signalled that it is done (via a trailing `"done"` sentinel).
+pub struct Rollout {
+    pub actions: Vec<BrowserAction>,
+    /// When `true` the model considers its goals accomplished. The caller
+    /// should execute any remaining actions and then hand over to random
+    /// exploration.
+    pub done: bool,
+}
+
 /// Ask the model for a fresh rollout for the current state. The caller is
-/// responsible for reconciling the first action against the live action list,
-/// queueing the rest, and handling the empty-rollout (`Ok(None)`) handover
-/// signal. Returns `Ok(None)` when the model returned an empty array.
+/// responsible for reconciling the first action against the live action list
+/// and queueing the rest. When `rollout.done` is true *and* the action list
+/// is empty the model is signalling immediate handover.
 pub async fn consult_model(
     state: &mut ModelDrivenState,
     tree: &Tree<BrowserAction>,
-) -> Result<Option<Vec<BrowserAction>>> {
+) -> Result<Rollout> {
     let available_actions = tree.values();
     if available_actions.is_empty() {
         bail!("no actions available to offer the model");
@@ -163,26 +173,33 @@ pub async fn consult_model(
         .context("sending prompt to claude streaming client")?;
     log::debug!("model raw response: {result_text}");
 
-    let rollout = parse_rollout(&result_text, &available_actions).with_context(|| {
-        format!(
-            "parsing model response as JSON array of actions or indices: {:?}",
-            result_text
-        )
-    })?;
+    let rollout = parse_rollout(&result_text, &available_actions)
+        .with_context(|| {
+            format!(
+                "parsing model response as JSON array of actions or indices: {:?}",
+                result_text
+            )
+        })?;
 
     state.pending_feedback = None;
-    if rollout.is_empty() {
+    if rollout.done && rollout.actions.is_empty() {
         log::info!(
-            "model returned an empty rollout; handing over to random walk"
+            "model returned done with no actions; handing over to random walk"
         );
-        return Ok(None);
+    } else if rollout.done {
+        log::info!(
+            "model returned done after {} action(s); will hand over after executing them",
+            rollout.actions.len()
+        );
     }
     log::debug!(
-        "model rollout ({} actions): {}",
-        rollout.len(),
-        json::to_string(&rollout).unwrap_or_else(|_| format!("{:?}", rollout))
+        "model rollout ({} actions, done={}): {}",
+        rollout.actions.len(),
+        rollout.done,
+        json::to_string(&rollout.actions)
+            .unwrap_or_else(|_| format!("{:?}", rollout.actions))
     );
-    Ok(Some(rollout))
+    Ok(rollout)
 }
 
 fn build_system_prompt(user_prompt: &str) -> String {
@@ -203,14 +220,19 @@ fn build_system_prompt(user_prompt: &str) -> String {
            list below (cheap and easy; perfect for the first step).\n\
          - a full BrowserAction OBJECT (needed for speculative actions \
            whose exact shape doesn't appear in the current list, e.g. \
-           typing text that hasn't been suggested yet).\n\n\
+           typing text that hasn't been suggested yet).\n\
+         - the string \"done\" as the LAST element to signal that you \
+           have accomplished your goals.\n\n\
          You can mix both forms freely in one array.\n\n\
          When you have accomplished the goals above and have nothing \
-         meaningful left to drive, return an EMPTY array (`[]`). That \
-         hands the rest of the test over to random exploration - the run \
-         keeps going (so the existing properties keep getting checked) \
-         but you are not consulted again. Use this whenever further \
-         planning would be unproductive; do not return `[]` just because \
+         meaningful left to drive, add \"done\" as the last element \
+         of your array (e.g. `[0, 2, \"done\"]`). Everything before \
+         it is executed normally; \"done\" then hands the rest of the \
+         test over to random exploration - the run keeps going (so \
+         the existing properties keep getting checked) but you are \
+         not consulted again. Return `[\"done\"]` with no actions to \
+         hand over immediately. Use this whenever further planning \
+         would be unproductive; do not return \"done\" just because \
          you are unsure.\n\n\
          Action shapes use the serde representation of `BrowserAction`. \
          The 'Available actions' section below shows real examples for the \
@@ -439,14 +461,14 @@ impl ModelClient {
 }
 
 /// Pull a rollout from the model's free-form text. Each element may be either a
-/// full `BrowserAction` object or an integer index into `available_actions`
-/// (handy for picking among already-listed actions without re-typing them).
-/// Tolerates surrounding prose / markdown fences by scanning for the first
-/// top-level `[ ... ]` substring that parses as `Vec<json::Value>`.
+/// full `BrowserAction` object, an integer index into `available_actions`, or
+/// the string `"done"` which signals that the model considers its goals
+/// accomplished. Tolerates surrounding prose / markdown fences by scanning for
+/// the first top-level `[ ... ]` substring that parses as `Vec<json::Value>`.
 fn parse_rollout(
     text: &str,
     available_actions: &[BrowserAction],
-) -> Result<Vec<BrowserAction>> {
+) -> Result<Rollout> {
     let trimmed = text.trim();
     if let Ok(values) = json::from_str::<Vec<json::Value>>(trimmed) {
         return resolve_rollout(values, available_actions);
@@ -489,28 +511,45 @@ fn parse_rollout(
 fn resolve_rollout(
     values: Vec<json::Value>,
     available_actions: &[BrowserAction],
-) -> Result<Vec<BrowserAction>> {
-    values
-        .into_iter()
-        .map(|value| match value {
+) -> Result<Rollout> {
+    let mut actions = Vec::new();
+    let mut done = false;
+    for value in values {
+        match &value {
+            json::Value::String(s) if s == "done" => {
+                done = true;
+                break;
+            }
             json::Value::Number(number) if number.is_u64() => {
                 let index = number.as_u64().unwrap() as usize;
-                available_actions.get(index).cloned().ok_or_else(|| {
-                    anyhow!(
-                        "model returned action index {} but only {} actions are listed",
-                        index,
-                        available_actions.len()
-                    )
-                })
+                actions.push(
+                    available_actions.get(index).cloned().ok_or_else(
+                        || {
+                            anyhow!(
+                                "model returned action index {} but only \
+                                 {} actions are listed",
+                                index,
+                                available_actions.len()
+                            )
+                        },
+                    )?,
+                );
             }
-            other => json::from_value::<BrowserAction>(other.clone()).with_context(|| {
-                format!(
-                    "rollout element is neither an index nor a BrowserAction object: {}",
-                    other
-                )
-            }),
-        })
-        .collect()
+            _ => {
+                actions.push(
+                    json::from_value::<BrowserAction>(value.clone())
+                        .with_context(|| {
+                            format!(
+                                "rollout element is neither an index, a \
+                                 BrowserAction object, nor \"done\": {}",
+                                value
+                            )
+                        })?,
+                );
+            }
+        }
+    }
+    Ok(Rollout { actions, done })
 }
 
 #[cfg(test)]
@@ -533,35 +572,45 @@ mod tests {
 
     #[test]
     fn parse_rollout_plain_array_of_objects() {
-        let text = r#"[{"TypeText":{"text":"hi","delay_millis":50}},"Reload"]"#;
+        let text =
+            r#"[{"TypeText":{"text":"hi","delay_millis":50}},"Reload"]"#;
         let rollout = parse_rollout(text, &sample_available()).unwrap();
+        assert!(!rollout.done);
         assert!(
-            matches!(rollout[0], BrowserAction::TypeText { .. })
-                && matches!(rollout[1], BrowserAction::Reload)
+            matches!(rollout.actions[0], BrowserAction::TypeText { .. })
+                && matches!(rollout.actions[1], BrowserAction::Reload)
         );
     }
 
     #[test]
     fn parse_rollout_array_of_indices() {
-        let rollout = parse_rollout("[5, 5, 5]", &sample_available()).unwrap();
-        assert_eq!(rollout.len(), 3);
-        assert!(matches!(rollout[0], BrowserAction::TypeText { .. }));
+        let rollout =
+            parse_rollout("[5, 5, 5]", &sample_available()).unwrap();
+        assert_eq!(rollout.actions.len(), 3);
+        assert!(!rollout.done);
+        assert!(
+            matches!(rollout.actions[0], BrowserAction::TypeText { .. })
+        );
     }
 
     #[test]
     fn parse_rollout_with_markdown_fence_and_indices() {
         let text = "```json\n[5, 5, 5]\n```";
         let rollout = parse_rollout(text, &sample_available()).unwrap();
-        assert_eq!(rollout.len(), 3);
+        assert_eq!(rollout.actions.len(), 3);
+        assert!(!rollout.done);
     }
 
     #[test]
     fn parse_rollout_mixed_indices_and_objects() {
         let text = r#"[0, {"PressKey":{"code":27}}, 1]"#;
         let rollout = parse_rollout(text, &sample_available()).unwrap();
-        assert!(matches!(rollout[0], BrowserAction::Reload));
-        assert!(matches!(rollout[1], BrowserAction::PressKey { code: 27 }));
-        assert!(matches!(rollout[2], BrowserAction::Wait));
+        assert!(!rollout.done);
+        assert!(matches!(rollout.actions[0], BrowserAction::Reload));
+        assert!(
+            matches!(rollout.actions[1], BrowserAction::PressKey { code: 27 })
+        );
+        assert!(matches!(rollout.actions[2], BrowserAction::Wait));
     }
 
     #[test]
@@ -569,7 +618,40 @@ mod tests {
         let text = r#"Sure! Here you go: [{"PressKey":{"code":13}}]
 Thanks."#;
         let rollout = parse_rollout(text, &sample_available()).unwrap();
-        assert!(matches!(rollout[0], BrowserAction::PressKey { code: 13 }));
+        assert!(!rollout.done);
+        assert!(
+            matches!(
+                rollout.actions[0],
+                BrowserAction::PressKey { code: 13 }
+            )
+        );
+    }
+
+    #[test]
+    fn parse_rollout_done_only() {
+        let rollout =
+            parse_rollout(r#"["done"]"#, &sample_available()).unwrap();
+        assert!(rollout.done);
+        assert!(rollout.actions.is_empty());
+    }
+
+    #[test]
+    fn parse_rollout_actions_then_done() {
+        let rollout =
+            parse_rollout(r#"[0, 1, "done"]"#, &sample_available())
+                .unwrap();
+        assert!(rollout.done);
+        assert_eq!(rollout.actions.len(), 2);
+        assert!(matches!(rollout.actions[0], BrowserAction::Reload));
+        assert!(matches!(rollout.actions[1], BrowserAction::Wait));
+    }
+
+    #[test]
+    fn parse_rollout_no_done_means_not_done() {
+        let rollout =
+            parse_rollout("[0, 1]", &sample_available()).unwrap();
+        assert!(!rollout.done);
+        assert_eq!(rollout.actions.len(), 2);
     }
 
     #[test]

@@ -166,31 +166,32 @@ impl RunStrategy<BrowserDriver> for TestStrategy {
                         ))
                     );
                 }
-                match consult_model(model_state, &tree).await? {
-                    Some(mut rollout) => {
-                        let first_proposed = rollout.remove(0);
-                        let first = reconcile_in_actions(
-                            &first_proposed,
-                            &available_actions,
+                let rollout = consult_model(model_state, &tree).await?;
+                let done = rollout.done;
+                let result = if rollout.actions.is_empty() {
+                    log::info!("model handed over; switching to RandomWalk");
+                    Ok(tree.pick(&mut rand::rng())?.clone())
+                } else {
+                    let mut actions = rollout.actions;
+                    let first_proposed = actions.remove(0);
+                    let first = reconcile_in_actions(
+                        &first_proposed,
+                        &available_actions,
+                    )
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "model's first action did not reconcile against the current action list: {}",
+                            serde_json::to_string(&first_proposed)
+                                .unwrap_or_else(|_| format!("{:?}", first_proposed))
                         )
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "model's first action did not reconcile against the current action list: {}",
-                                serde_json::to_string(&first_proposed)
-                                    .unwrap_or_else(|_| format!("{:?}", first_proposed))
-                            )
-                        })?;
-                        queued.extend(rollout);
-                        Ok(first)
-                    }
-                    None => {
-                        log::info!(
-                            "model handed over; switching to RandomWalk for the rest of the test"
-                        );
-                        self.mode = TestMode::RandomWalk;
-                        Ok(tree.pick(&mut rand::rng())?.clone())
-                    }
+                    })?;
+                    queued.extend(actions);
+                    Ok(first)
+                };
+                if done {
+                    self.mode = TestMode::RandomWalk;
                 }
+                result
             }
             TestMode::Reproduce(actions_original) => {
                 if let Some(action_original) = actions_original.pop_front() {
