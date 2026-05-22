@@ -137,20 +137,20 @@ jobs:
       - name: Generate report
         run: |
           chmod +x bombadil
-          ./bombadil test lib/integration-tests/tests/console-error/index.html \
+          ./bombadil browser test lib/integration-tests/tests/console-error/index.html \
             --headless --no-sandbox \
             --output-path report \
             --exit-on-violation \
             --time-limit 30s || true
       - name: Test inspect UI
         run: |
-          ./bombadil inspect report --no-open --port 1073 &
+          ./bombadil browser inspect report --no-open --port 1073 &
           for i in $(seq 1 30); do
             if curl -sf http://localhost:1073 > /dev/null 2>&1; then break; fi
             sleep 1
           done
           export RUST_LOG=debug
-          ./bombadil test \
+          ./bombadil browser test \
             --headless --no-sandbox \
             --instrument-javascript="" \
             --output-path inspect-test-output \
@@ -176,6 +176,7 @@ jobs:
             artifact: bombadil-aarch64-darwin
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -184,7 +185,7 @@ jobs:
           chmod +x bombadil
           ./bombadil --version
       - name: Test terminal subcommand
-        run: ./bombadil terminal test head -n 100
+        run: ./bombadil terminal test --specification lib/bombadil-terminal/examples/cat.ts head -n 100
 
   test-npm-package:
     name: Test npm package (${{ matrix.os }})
@@ -223,7 +224,15 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check-version, build, build-npm-package, build-manual, smoke-test, test-npm-package]
+    needs:
+      [
+        check-version,
+        build,
+        build-npm-package,
+        build-manual,
+        smoke-test,
+        test-npm-package,
+      ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

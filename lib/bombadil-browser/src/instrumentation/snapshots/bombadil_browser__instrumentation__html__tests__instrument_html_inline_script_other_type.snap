@@ -1,0 +1,14 @@
+---
+source: lib/bombadil-browser/src/instrumentation/html.rs
+assertion_line: 175
+expression: output
+---
+<!DOCTYPE html><html><head></head><body>
+<script type="text/other">
+if (foo) {
+    this_is_not_a_script();
+}
+</script>
+
+
+</body></html>

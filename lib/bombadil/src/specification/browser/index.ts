@@ -1,0 +1,95 @@
+import {
+  type ActionGenerator,
+  type Cell,
+  type JSON,
+  type Tree,
+} from "@antithesishq/bombadil";
+import * as bombadil from "@antithesishq/bombadil";
+
+export type Point = {
+  x: number;
+  y: number;
+};
+
+export type Action =
+  | "Back"
+  | "Forward"
+  | "Reload"
+  | "Wait"
+  | { Click: { name: string; content?: string; point: Point } }
+  | {
+    DoubleClick: {
+      name: string;
+      content?: string;
+      point: Point;
+      delayMillis: number;
+    };
+  }
+  | { TypeText: { text: string; delayMillis: number } }
+  | { PressKey: { code: number } }
+  | { ScrollUp: { origin: Point; distance: number } }
+  | { ScrollDown: { origin: Point; distance: number } }
+  | { SetFileInputFiles: { selector: string; files: string[] } };
+
+export interface State {
+  document: HTMLDocument;
+  window: Window;
+  navigationHistory: {
+    back: NavigationEntry[];
+    current: NavigationEntry;
+    forward: NavigationEntry[];
+  };
+  errors: {
+    uncaughtExceptions: {
+      text: string;
+      line: number;
+      column: number;
+      url: string | null;
+      remote_object: {
+        type_name: string;
+        subtype: string | null;
+        class_name: string | null;
+        description: string | null;
+        value: unknown;
+      } | null;
+      stacktrace:
+      | { name: string; line: number; column: number; url: string }[]
+      | null;
+    }[];
+  };
+  console: ConsoleEntry[];
+  lastAction: Action | null;
+}
+
+export type NavigationEntry = {
+  id: number;
+  title: string;
+  url: string;
+};
+
+export type ConsoleEntry = {
+  timestamp: number;
+  level: "warning" | "error";
+  args: JSON[];
+};
+
+// Specifically-typed wrappers over the generic factory functions in
+// `@antithesishq/bombadil`.
+
+export function extract<T extends JSON>(
+  query: (state: State) => T,
+): Cell<T> {
+  return bombadil.extract<State, T>(query);
+}
+
+export function actions(
+  generate: () => Tree<Action> | Action[],
+): ActionGenerator<Action> {
+  return bombadil.actions<Action>(generate);
+}
+
+export function weighted(
+  value: [number, Action | ActionGenerator<Action>][],
+): ActionGenerator<Action> {
+  return bombadil.weighted<Action>(value);
+}

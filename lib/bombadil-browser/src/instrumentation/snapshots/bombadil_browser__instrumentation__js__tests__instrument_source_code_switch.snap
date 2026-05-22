@@ -1,0 +1,39 @@
+---
+source: lib/bombadil-browser/src/instrumentation/js.rs
+assertion_line: 459
+expression: code
+---
+window.__bombadil__ = window.__bombadil__ || {
+    edges_previous: new Uint8Array(65536),
+    edges_current: new Uint8Array(65536),
+    previous: 0,
+};
+function foo() {
+	let bar = get();
+	while (true) {
+		switch (bar) {
+			case 1:
+				__bombadil__.edges_current[(0x76be999e3e25b400 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x76be999e3e25b400 >> 1;
+				return bar;
+			case 2:
+				__bombadil__.edges_current[(0x7359aa1156ce8800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x7359aa1156ce8800 >> 1;
+				break;
+			case "foo":
+				__bombadil__.edges_current[(0xeaf7d87e9d1ee800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0xeaf7d87e9d1ee800 >> 1;
+			case "bar":
+				__bombadil__.edges_current[(0x7f8ce92d548e8c0 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x7f8ce92d548e8c0 >> 1;
+			case "baz":
+				__bombadil__.edges_current[(0x6881f435bc0ca800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x6881f435bc0ca800 >> 1;
+				continue;
+			default:
+				__bombadil__.edges_current[(0xb71d6a24ef50e800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0xb71d6a24ef50e800 >> 1;
+				return no;
+		}
+	}
+}

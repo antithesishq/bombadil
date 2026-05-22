@@ -130,8 +130,19 @@ expression: bundle
 
   modules["@antithesishq/bombadil"] = function(module, exports, require) {
     module.exports.__esModule=true;const { ExtractorCell, Runtime } = __bombadilRequire("@antithesishq/bombadil/internal");
+    __bombadilRequire("@antithesishq/bombadil/actions");
+    const bombadilActions = __bombadilRequire("@antithesishq/bombadil/actions");
+    const { ActionGenerator, from, strings, emails, integers, keycodes, randomRange } = __bombadilRequire("@antithesishq/bombadil/actions");
     const runtime = new Runtime();
-    const { actions, weighted, ActionGenerator, from, strings, emails, integers, keycodes } = __bombadilRequire("@antithesishq/bombadil/actions");
+    function extract(query) {
+    	return new ExtractorCell(runtime, query);
+    }
+    function actions(generate) {
+    	return bombadilActions.actions(generate);
+    }
+    function weighted(value) {
+    	return bombadilActions.weighted(value);
+    }
     class Formula {
     	not() {
     		return new Not(this);
@@ -283,18 +294,17 @@ expression: bundle
     function eventually(x) {
     	return new Eventually(null, now(x));
     }
-    function extract(query) {
-    	return new ExtractorCell(runtime, query);
-    }
-    module.exports.runtime = runtime;
-    module.exports.actions = actions;
-    module.exports.weighted = weighted;
     module.exports.ActionGenerator = ActionGenerator;
     module.exports.from = from;
     module.exports.strings = strings;
     module.exports.emails = emails;
     module.exports.integers = integers;
     module.exports.keycodes = keycodes;
+    module.exports.randomRange = randomRange;
+    module.exports.runtime = runtime;
+    module.exports.extract = extract;
+    module.exports.actions = actions;
+    module.exports.weighted = weighted;
     module.exports.Formula = Formula;
     module.exports.Pure = Pure;
     module.exports.And = And;
@@ -310,7 +320,6 @@ expression: bundle
     module.exports.next = next;
     module.exports.always = always;
     module.exports.eventually = eventually;
-    module.exports.extract = extract;
   };
 
   modules["@antithesishq/bombadil/actions"] = function(module, exports, require) {
@@ -357,6 +366,8 @@ expression: bundle
     module.exports.integers = integers;
     module.exports.keycodes = keycodes;
     module.exports.randomRange = randomRange;
+    module.exports.leaf = leaf;
+    module.exports.branch = branch;
     module.exports.ActionGenerator = ActionGenerator;
     module.exports.actions = actions;
     module.exports.weighted = weighted;

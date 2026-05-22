@@ -147,20 +147,25 @@ impl Resolver {
         if let Ok(relative) =
             PathBuf::from(specifier).strip_prefix("@antithesishq/bombadil")
         {
-            if relative == "" {
-                Ok(ModuleKey::Embedded {
-                    specifier: specifier.to_string(),
-                    path: PathBuf::from("index.ts"),
-                })
+            let base = relative.strip_prefix("/").unwrap_or(relative);
+            // Bare "@antithesishq/bombadil" → "index.ts".
+            // Subpath "@antithesishq/bombadil/<x>" → first "<x>.ts", then
+            // fall back to "<x>/index.ts" (Node-style directory
+            // resolution) so callers can address either form.
+            let path = if base.as_os_str().is_empty() {
+                PathBuf::from("index.ts")
             } else {
-                Ok(ModuleKey::Embedded {
-                    specifier: specifier.to_string(),
-                    path: relative
-                        .strip_prefix("/")
-                        .unwrap_or(relative)
-                        .with_added_extension("ts"),
-                })
-            }
+                let file = base.with_added_extension("ts");
+                if JS_DIR.get_file(&file).is_some() {
+                    file
+                } else {
+                    base.join("index.ts")
+                }
+            };
+            Ok(ModuleKey::Embedded {
+                specifier: specifier.to_string(),
+                path,
+            })
         } else {
             let resolution = self.resolver.resolve(path, specifier);
             match resolution {

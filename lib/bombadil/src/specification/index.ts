@@ -1,31 +1,58 @@
 import {
-  type JSON,
   ExtractorCell,
   Runtime,
-  type TimeUnit,
   type Cell,
+  type JSON,
+  type TimeUnit,
 } from "@antithesishq/bombadil/internal";
 
-/** @internal */
-export const runtime = new Runtime<State>();
+import {
+  type ActionGenerator,
+  type Tree,
+} from "@antithesishq/bombadil/actions";
+import * as bombadilActions from "@antithesishq/bombadil/actions";
 
-// Reexports
-export { type Cell } from "@antithesishq/bombadil/internal";
+export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
 export {
-  actions,
-  weighted,
-  type Action,
-  type Generator,
-  type Point,
   ActionGenerator,
+  type Tree,
+  type Generator,
   from,
   strings,
   emails,
   integers,
   keycodes,
+  randomRange,
 } from "@antithesishq/bombadil/actions";
 
-import type { Action } from "@antithesishq/bombadil/actions";
+/**
+ * The runtime singleton that all `extract` calls register into and that
+ * is used from the Rust-side verifier.
+ *
+ * @internal
+ */
+export const runtime = new Runtime<unknown>();
+
+export function extract<S, T extends JSON>(
+  query: (state: S) => T,
+): Cell<T> {
+  return new ExtractorCell<T, unknown>(
+    runtime,
+    query as (state: unknown) => T,
+  );
+}
+
+export function actions<A>(
+  generate: () => Tree<A> | A[],
+): ActionGenerator<A> {
+  return bombadilActions.actions(generate);
+}
+
+export function weighted<A>(
+  value: [number, A | ActionGenerator<A>][],
+): ActionGenerator<A> {
+  return bombadilActions.weighted(value);
+}
 
 export class Formula {
   not(): Formula {
@@ -218,49 +245,3 @@ export function always(x: IntoFormula): Always {
 export function eventually(x: IntoFormula): Eventually {
   return new Eventually(null, now(x));
 }
-
-export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
-  return new ExtractorCell<T, State>(runtime, query);
-}
-
-export interface State {
-  document: HTMLDocument;
-  window: Window;
-  navigationHistory: {
-    back: NavigationEntry[];
-    current: NavigationEntry;
-    forward: NavigationEntry[];
-  };
-  errors: {
-    uncaughtExceptions: {
-      text: string;
-      line: number;
-      column: number;
-      url: string | null;
-      remote_object: {
-        type_name: string;
-        subtype: string | null;
-        class_name: string | null;
-        description: string | null;
-        value: unknown;
-      } | null;
-      stacktrace:
-        | { name: string; line: number; column: number; url: string }[]
-        | null;
-    }[];
-  };
-  console: ConsoleEntry[];
-  lastAction: Action | null;
-}
-
-export type NavigationEntry = {
-  id: number;
-  title: string;
-  url: string;
-};
-
-export type ConsoleEntry = {
-  timestamp: number;
-  level: "warning" | "error";
-  args: JSON[];
-};

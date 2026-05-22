@@ -6,9 +6,11 @@
 
     "paths": {
       "@antithesishq/bombadil": ["./index.ts"],
-      "@antithesishq/bombadil/defaults": ["./defaults.ts"],
-      "@antithesishq/bombadil/defaults/actions": ["./defaults/actions.ts"],
-      "@antithesishq/bombadil/defaults/properties": ["./defaults/properties.ts"],
+      "@antithesishq/bombadil/browser": ["./browser/index.ts"],
+      "@antithesishq/bombadil/browser/defaults": ["./browser/defaults.ts"],
+      "@antithesishq/bombadil/browser/defaults/actions": ["./browser/defaults/actions.ts"],
+      "@antithesishq/bombadil/browser/defaults/properties": ["./browser/defaults/properties.ts"],
+      "@antithesishq/bombadil/terminal": ["./terminal/index.ts"],
       "@antithesishq/bombadil/internal": ["./internal.ts"],
       "@antithesishq/bombadil/random": ["./random.ts"],
       "@antithesishq/bombadil/actions": ["./actions.ts"]

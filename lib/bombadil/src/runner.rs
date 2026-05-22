@@ -1,345 +1,173 @@
-use crate::browser::actions::BrowserAction;
-use crate::browser::{BrowserEvent, BrowserOptions};
-use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::specification::bundler::bundle;
-use crate::specification::convert::ToSchema;
-use crate::specification::domain::Snapshot;
-use crate::specification::verifier::Specification;
-use crate::specification::worker::{PropertyValue, VerifierWorker};
-use crate::trace::PropertyViolation;
-use crate::tree::Tree;
-use ::url::Url;
-use bombadil_schema::Time;
-use serde::Deserialize;
-use serde_json as json;
-use std::cmp::max;
 use std::sync::Arc;
+
+use anyhow::Result;
+use bombadil_schema::Time;
+use serde::Serialize;
 use tokio::select;
 use tokio::signal::ctrl_c;
 
-use crate::browser::state::{BrowserState, Coverage};
-use crate::browser::{Browser, DebuggerOptions};
-use crate::url::is_within_domain;
-
-#[derive(Debug, Clone, Deserialize)]
-struct PartialSnapshot {
-    index: usize,
-    name: Option<String>,
-    value: json::Value,
-}
+use crate::driver::{DriverEvent, InterfaceDriver};
+use crate::specification::convert::ToSchema;
+use crate::specification::domain::Snapshot;
+use crate::specification::worker::{PropertyValue, VerifierWorker};
+use crate::tree::Tree;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ControlFlow<T> {
-    Continue,
+pub enum ControlFlow<T, A> {
+    Continue(A),
     Stop(T),
 }
 
-pub trait RunStrategy {
+#[derive(Debug, Clone, Serialize)]
+pub struct PropertyViolation {
+    pub name: String,
+    pub violation: bombadil_schema::Violation,
+}
+
+impl ToSchema<bombadil_schema::PropertyViolation> for PropertyViolation {
+    fn to_schema(&self) -> bombadil_schema::PropertyViolation {
+        bombadil_schema::PropertyViolation {
+            name: self.name.clone(),
+            violation: self.violation.clone(),
+        }
+    }
+}
+
+pub struct PropertiesState<'a> {
+    pub violations: &'a [PropertyViolation],
+    pub all_definite: bool,
+}
+
+pub trait RunStrategy<D: InterfaceDriver> {
     type StopValue;
 
     fn on_new_state(
         &mut self,
-        state: &BrowserState,
-        last_action: Option<&BrowserAction>,
+        state: &D::State,
+        tree: Tree<D::Action>,
+        last_action: Option<&D::Action>,
         snapshots: &[Snapshot],
-        violations: &[PropertyViolation],
+        properties: PropertiesState,
     ) -> impl std::future::Future<
-        Output = anyhow::Result<ControlFlow<Self::StopValue>>,
+        Output = Result<ControlFlow<Self::StopValue, D::Action>>,
     >;
-
-    fn pick_action(
-        &mut self,
-        tree: Tree<BrowserAction>,
-    ) -> impl std::future::Future<Output = anyhow::Result<BrowserAction>>;
 
     fn on_interrupted(
         &mut self,
-    ) -> impl std::future::Future<Output = anyhow::Result<Self::StopValue>>;
+    ) -> impl std::future::Future<Output = Result<Self::StopValue>>;
 }
 
-pub struct Runner {
-    origin: Url,
-    browser: Browser,
+pub struct Runner<D: InterfaceDriver> {
+    driver: D,
     verifier: Arc<VerifierWorker>,
 }
 
-impl Runner {
-    pub async fn new(
-        origin: Url,
-        specification: Specification,
-        browser_options: BrowserOptions,
-        debugger_options: DebuggerOptions,
-    ) -> anyhow::Result<Self> {
-        let verifier = VerifierWorker::start(specification.clone()).await?;
-
-        let browser =
-            Browser::new(origin.clone(), browser_options, debugger_options)
-                .await?;
-
-        browser
-            .ensure_script_evaluated(
-                &bundle(".", &specification.module_specifier).await?,
-            )
-            .await?;
-
-        Ok(Runner {
-            origin,
-            browser,
-            verifier,
-        })
+impl<D: InterfaceDriver> Runner<D> {
+    pub fn new(driver: D, verifier: Arc<VerifierWorker>) -> Self {
+        Self { driver, verifier }
     }
 
-    pub async fn run<S: RunStrategy>(
+    pub async fn run<S: RunStrategy<D>>(
         mut self,
         strategy: &mut S,
-    ) -> anyhow::Result<Option<S::StopValue>> {
-        log::info!("starting test of {}", self.origin);
+    ) -> Result<Option<S::StopValue>> {
+        log::info!("starting test");
+        self.driver.initiate().await?;
+        log::debug!("driver initiated");
 
-        self.browser.initiate().await?;
-        log::debug!("browser initiated");
-
-        let result = Runner::run_test(
-            &self.origin,
-            &mut self.browser,
-            self.verifier,
-            strategy,
-        )
-        .await;
+        let result =
+            Box::pin(Self::run_test(&mut self.driver, self.verifier, strategy))
+                .await;
 
         log::debug!("test finished");
 
-        self.browser
+        self.driver
             .terminate()
             .await
-            .expect("browser failed to terminate");
+            .expect("driver failed to terminate");
 
         result
     }
 
-    async fn run_test<S: RunStrategy>(
-        origin: &Url,
-        browser: &mut Browser,
+    async fn run_test<S: RunStrategy<D>>(
+        driver: &mut D,
         verifier: Arc<VerifierWorker>,
         strategy: &mut S,
-    ) -> anyhow::Result<Option<S::StopValue>> {
-        let mut last_action: Option<BrowserAction> = None;
-        let mut edges = [0u8; EDGE_MAP_SIZE];
+    ) -> Result<Option<S::StopValue>> {
+        let mut last_action: Option<D::Action> = None;
 
         loop {
             let verifier = verifier.clone();
-            select! {
-                event = browser.next_event() => {
-                    match event {
-                        Some(event) => match event {
-                            BrowserEvent::StateChanged(state) => {
-                                // Step formulas and collect violations.
-                                let snapshots: Arc<[Snapshot]> =
-                                    run_extractors(&state, &last_action).await?.into();
-                                for value in snapshots.iter() {
-                                    log::debug!(
-                                        "snapshot {}: {}",
-                                        value.name.as_deref().unwrap_or("<unnamed>"),
-                                        value.value
-                                    );
-                                }
-                                let step_result = verifier
-                                    .step::<crate::specification::js::JsAction>(
-                                        snapshots.clone(),
-                                        bombadil_schema::Time::from_system_time(
-                                            state.timestamp,
-                                        ),
-                                    )
-                                    .await?;
-
-                                // Convert JsAction tree to BrowserAction tree
-                                let action_tree =
-                                    step_result.actions.try_map(&mut |js_action| {
-                                        js_action.to_browser_action()
-                                    })?;
-
-                                let mut violations =
-                                    Vec::with_capacity(step_result.properties.len());
-                                for (name, value) in step_result.properties {
-                                    match value {
-                                        PropertyValue::False(violation) => {
-                                            violations.push(PropertyViolation {
-                                                name,
-                                                violation: violation.to_schema(),
-                                            });
-                                        }
-                                        PropertyValue::Residual
-                                        | PropertyValue::True => {}
-                                    }
-                                }
-
-                                // Make sure we stay within origin.
-                                let action_tree =
-                                    if !is_within_domain(&state.url, origin) {
-                                        action_tree.filter(&|a| {
-                                            matches!(a, BrowserAction::Back)
-                                        })
-                                    } else {
-                                        action_tree
-                                    };
-
-                                // Update global edges.
-                                for (index, bucket) in &state.coverage.edges_new {
-                                    edges[*index as usize] =
-                                        max(edges[*index as usize], *bucket);
-                                }
-                                log_coverage_stats_increment(&state.coverage);
-                                log_coverage_stats_total(&edges);
-
-                                let control = strategy
-                                    .on_new_state(
-                                        &state,
-                                        last_action.as_ref(),
-                                        &snapshots,
-                                        &violations,
-                                    )
-                                    .await?;
-
-                                if let ControlFlow::Stop(value) = control {
-                                    return Ok(Some(value));
-                                }
-
-                                if !step_result.has_pending {
-                                    log::info!("all properties are definite, stopping");
-                                    return Ok(None);
-                                }
-
-                                let action_tree =
-                                    action_tree.prune().ok_or_else(|| {
-                                        anyhow::anyhow!("no actions available")
-                                    })?;
-
-                                let action = strategy.pick_action(action_tree).await?;
-                                log::info!("picked action: {:?}", action);
-                                browser.apply(action.clone())?;
-                                last_action = Some(action);
-                            }
-                            BrowserEvent::Error(error) => {
-                                anyhow::bail!("state machine error: {}", error)
-                            }
-                        },
-                        None => {
-                            anyhow::bail!("browser closed")
-                        }
-                    }
-                },
+            let event = select! {
+                event = Box::pin(driver.next_event()) => event,
                 _ = ctrl_c() => {
                     let value = strategy.on_interrupted().await?;
                     return Ok(Some(value));
-                },
-            }
-        }
-    }
-}
-
-async fn run_extractors(
-    state: &BrowserState,
-    last_action: &Option<BrowserAction>,
-) -> anyhow::Result<Vec<Snapshot>> {
-    let console_entries: Vec<json::Value> = state
-        .console_entries
-        .iter()
-        .map(|entry| {
-            json::json!({
-                "timestamp": entry.timestamp,
-                "level": format!("{:?}", entry.level).to_ascii_lowercase(),
-                "args": entry.args,
-            })
-        })
-        .collect();
-
-    let state_partial = json::json!({
-        "errors": {
-            "uncaughtExceptions": &state.exceptions,
-        },
-        "console": console_entries,
-        "navigationHistory": &state.navigation_history,
-        "lastAction": json::to_value(last_action)?,
-    });
-
-    // Ensure __bombadilRequire is available (wait for bundle script to execute
-    // after reload/navigation). Use async/await to avoid blocking the event loop.
-    state
-        .evaluate_function_call::<json::Value>(
-            r#"
-            async () => {
-                const start = Date.now();
-                const timeout = 5000;
-                while (typeof globalThis.__bombadilRequire !== 'function') {
-                    if (Date.now() - start > timeout) {
-                        throw new Error('__bombadilRequire not available after ' + timeout + 'ms');
+                }
+            };
+            match event {
+                Some(DriverEvent::StateChanged(state)) => {
+                    let snapshots: Arc<[Snapshot]> = Box::pin(
+                        driver.extract_snapshots(&state, last_action.as_ref()),
+                    )
+                    .await?
+                    .into();
+                    for value in snapshots.iter() {
+                        log::debug!(
+                            "snapshot {}: {}",
+                            value.name.as_deref().unwrap_or("<unnamed>"),
+                            value.value
+                        );
                     }
-                    await new Promise(resolve => setTimeout(resolve, 10));
+
+                    let step_result = Box::pin(verifier.step::<D::Action>(
+                        snapshots.clone(),
+                        Time::from_system_time(D::state_timestamp(&state)),
+                    ))
+                    .await?;
+
+                    let mut violations =
+                        Vec::with_capacity(step_result.properties.len());
+                    for (name, value) in step_result.properties {
+                        match value {
+                            PropertyValue::False(violation) => {
+                                violations.push(PropertyViolation {
+                                    name,
+                                    violation: violation.to_schema(),
+                                });
+                            }
+                            PropertyValue::Residual | PropertyValue::True => {}
+                        }
+                    }
+
+                    let control = Box::pin(strategy.on_new_state(
+                        &state,
+                        step_result.actions,
+                        last_action.as_ref(),
+                        &snapshots,
+                        PropertiesState {
+                            violations: &violations,
+                            all_definite: step_result.all_definite,
+                        },
+                    ))
+                    .await?;
+
+                    match control {
+                        ControlFlow::Stop(value) => return Ok(Some(value)),
+                        ControlFlow::Continue(action) => {
+                            log::info!("picked action: {:?}", action);
+                            driver.apply(action.clone()).await?;
+                            last_action = Some(action);
+                        }
+                    }
                 }
-                return true;
-            }
-            "#,
-            vec![],
-        )
-        .await?;
-
-    let partial_snapshots: Vec<PartialSnapshot> = state
-            .evaluate_function_call(
-                "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
-                vec![state_partial.clone()],
-            )
-            .await?;
-
-    let time = Time::from_system_time(state.timestamp);
-    let results: Vec<Snapshot> = partial_snapshots
-        .into_iter()
-        .map(|partial| Snapshot {
-            index: partial.index,
-            name: partial.name,
-            value: partial.value,
-            time,
-        })
-        .collect();
-
-    Ok(results)
-}
-
-fn log_coverage_stats_increment(coverage: &Coverage) {
-    if log::log_enabled!(log::Level::Debug) {
-        let (added, removed) = coverage.edges_new.iter().fold(
-            (0usize, 0usize),
-            |(added, removed), (_, bucket)| {
-                if *bucket > 0 {
-                    (added + 1, removed)
-                } else {
-                    (added, removed + 1)
+                Some(DriverEvent::Error(error)) => {
+                    anyhow::bail!("driver error: {}", error);
                 }
-            },
-        );
-        log::debug!("edge delta: +{}/-{}", added, removed);
-    }
-}
-
-fn log_coverage_stats_total(edges: &[u8; EDGE_MAP_SIZE]) {
-    if log::log_enabled!(log::Level::Debug) {
-        let mut buckets = [0u64; 8];
-        let mut hits_total: u64 = 0;
-        for bucket in edges {
-            if *bucket > 0 {
-                buckets[*bucket as usize - 1] += 1;
-                hits_total += 1;
+                None => {
+                    anyhow::bail!("driver closed");
+                }
             }
         }
-        log::debug!("total hits: {}", hits_total);
-        log::debug!(
-            "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
-            buckets[0],
-            buckets[1],
-            buckets[2],
-            buckets[3],
-            buckets[4],
-            buckets[5],
-            buckets[6],
-            buckets[7],
-        );
     }
 }

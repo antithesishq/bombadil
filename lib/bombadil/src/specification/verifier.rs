@@ -25,7 +25,7 @@ use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
 pub struct StepResult<A> {
     pub properties: Vec<(String, eval::Value<BombadilDomain<RuntimeFunction>>)>,
     pub actions: Tree<A>,
-    pub has_pending: bool,
+    pub all_definite: bool,
 }
 
 pub struct Verifier {
@@ -355,17 +355,17 @@ impl Verifier {
             branches: generator_branches,
         };
 
-        let has_pending = self.properties.values().any(|p| {
+        let all_definite = self.properties.values().all(|p| {
             matches!(
                 &p.state,
-                PropertyState::Initial(_) | PropertyState::Residual(_)
+                PropertyState::DefinitelyTrue | PropertyState::DefinitelyFalse
             )
         });
 
         Ok(StepResult {
             properties: result_properties,
             actions: action_tree,
-            has_pending,
+            all_definite,
         })
     }
 }
@@ -461,7 +461,7 @@ mod tests {
     fn test_property_names() {
         let verifier = verifier(
             r#"
-            import { actions, always, extract } from "@antithesishq/bombadil";
+            import { always, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             // Invariant
@@ -482,7 +482,7 @@ mod tests {
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, now } from "@antithesishq/bombadil";
+            import { now,  actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -514,7 +514,7 @@ mod tests {
     fn test_property_evaluation_and() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, now } from "@antithesishq/bombadil";
+            import { now,  actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -555,7 +555,7 @@ mod tests {
     fn test_property_evaluation_or() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, now } from "@antithesishq/bombadil";
+            import { now, actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -596,7 +596,7 @@ mod tests {
     fn test_property_evaluation_implies() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, now } from "@antithesishq/bombadil";
+            import { now, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -637,7 +637,7 @@ mod tests {
     fn test_property_evaluation_next() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, next } from "@antithesishq/bombadil";
+            import { next, actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -683,7 +683,7 @@ mod tests {
     fn test_property_evaluation_always() {
         let mut verifier = verifier(
             r#"
-            import { extract, always, actions } from "@antithesishq/bombadil";
+            import { always, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -761,7 +761,7 @@ mod tests {
     fn test_property_evaluation_always_bounded() {
         let mut verifier = verifier(
             r#"
-            import { extract, always, actions } from "@antithesishq/bombadil";
+            import { always, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -814,7 +814,7 @@ mod tests {
     fn test_property_evaluation_eventually() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            import { eventually, actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -879,7 +879,7 @@ mod tests {
     fn test_property_evaluation_eventually_bounded() {
         let mut verifier = verifier(
             r#"
-            import { actions, extract, eventually } from "@antithesishq/bombadil";
+            import { eventually, actions, extract  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -932,7 +932,7 @@ mod tests {
     fn test_always_resets_after_violation() {
         let mut verifier = verifier(
             r#"
-            import { extract, always, actions } from "@antithesishq/bombadil";
+            import { always, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -1025,7 +1025,7 @@ mod tests {
     fn test_now_false_is_terminal() {
         let mut verifier = verifier(
             r#"
-            import { extract, now, actions } from "@antithesishq/bombadil";
+            import { now,  extract, actions  } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);
@@ -1073,14 +1073,14 @@ mod tests {
             "expected no properties after terminal False, got: {:?}",
             result.properties,
         );
-        assert!(!result.has_pending);
+        assert!(result.all_definite);
     }
 
     #[test]
     fn test_always_bounded_continues_after_violation() {
         let mut verifier = verifier(
             r#"
-            import { extract, always, actions } from "@antithesishq/bombadil";
+            import { always, actions, extract } from "@antithesishq/bombadil";
             export const _actions = actions(() => []);
 
             const foo = extract((state) => state.foo);

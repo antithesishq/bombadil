@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Duration;
 
-use bombadil_schema::{PropertyViolation, Time, TraceEntry};
+use bombadil_schema::{BrowserTraceEntry, PropertyViolation, Time};
 use yew::component;
 use yew::prelude::*;
 
@@ -28,7 +28,7 @@ const T: f64 = K * K * K * K;
 
 #[derive(PartialEq, Properties)]
 pub struct TimelineProps {
-    pub entries: Rc<[TraceEntry]>,
+    pub entries: Rc<[BrowserTraceEntry]>,
     pub test_start: Time,
     pub selected_index: usize,
     pub on_select: Callback<usize>,
@@ -68,18 +68,19 @@ pub fn Timeline(
                         .duration_since(*test_start)
                         .expect("couldn't calculate offset time")
                         .as_micros() as f64;
-                    series_heap.push((x, entry.resources.js_heap_used as f64));
+                    series_heap
+                        .push((x, entry.state.resources.js_heap_used as f64));
 
                     let cpu = if i > 0
                         && let Some(entry_previous) = entries.get(i - 1)
                     {
-                        let wall = entry.resources.timestamp
-                            - entry_previous.resources.timestamp;
+                        let wall = entry.state.resources.timestamp
+                            - entry_previous.state.resources.timestamp;
                         if wall <= 0.0 {
                             0.0
                         } else {
-                            let cpu = entry.resources.thread_time
-                                - entry_previous.resources.thread_time;
+                            let cpu = entry.state.resources.thread_time
+                                - entry_previous.state.resources.thread_time;
                             (cpu / wall).clamp(0.0, 1.0)
                         }
                     } else {

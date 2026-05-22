@@ -67,15 +67,22 @@ impl Time {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TraceEntry {
+pub struct TraceEntry<A, S> {
     pub timestamp: Time,
+    pub action: Option<A>,
+    pub state: S,
+    pub snapshots: Vec<Snapshot>,
+    pub violations: Vec<PropertyViolation>,
+}
+
+pub type BrowserTraceEntry = TraceEntry<BrowserAction, BrowserStateSummary>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BrowserStateSummary {
     pub url: String,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
-    pub action: Option<BrowserAction>,
     pub screenshot: String,
-    pub snapshots: Vec<Snapshot>,
-    pub violations: Vec<PropertyViolation>,
     pub resources: Resources,
 }
 
@@ -129,6 +136,21 @@ pub enum BrowserAction {
         selector: String,
         files: Vec<String>,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalStateSummary {
+    pub size: TerminalSize,
+    pub rows: Vec<String>,
+    pub scrollback: Vec<String>,
+    pub scroll_offset: u32,
+    pub terminated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalSize {
+    pub columns: u16,
+    pub rows: u16,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

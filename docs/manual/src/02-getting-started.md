@@ -26,7 +26,7 @@ Add a script to your `package.json` to run Bombadil:
 ```json
 {
   "scripts": {
-    "test": "bombadil test https://your-app.example.com"
+    "test": "bombadil browser test https://your-app.example.com"
   }
 }
 ```
@@ -142,7 +142,7 @@ release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 With the CLI installed, let's run a test just to see that things are working:
 
 ```bash
-bombadil test https://en.wikipedia.org --output-path my-test
+bombadil browser test https://en.wikipedia.org --output-path my-test
 ```
 
 This will run until you shut it down using <kbd>CTRL</kbd>+<kbd>C</kbd>. Any
@@ -153,7 +153,7 @@ Launch the *Bombadil Inspect* tool to see what happened in the test you
 just ran:
 
 ```bash
-bombadil inspect my-test
+bombadil browser inspect my-test
 ```
 
 This will open a web application in your browser, which has some features to highlight:
@@ -182,7 +182,7 @@ original test run:
 
 
 ```bash
-bombadil test --reproduce=my-test http://example.com
+bombadil browser test --reproduce=my-test http://example.com
 ```
 
 Reproductions are not guaranteed to succeed; if they diverge, Bombadil fails

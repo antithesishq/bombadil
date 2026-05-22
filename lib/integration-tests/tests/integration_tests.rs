@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use bombadil::specification::domain::Snapshot;
+use bombadil_schema::{Time, markup};
 use std::collections::HashMap;
 use std::io::Write;
 use std::{
@@ -19,16 +19,16 @@ use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
 use url::Url;
 
-use bombadil::{
+use bombadil::{specification::verifier::Specification, styled};
+use bombadil_browser::{
     browser::{
         Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
         actions::BrowserAction,
     },
-    runner::Runner,
-    specification::{convert::ToSchema, verifier::Specification},
-    styled,
+    convert::ToSchema,
+    runner,
+    strategy::{TestStrategy, TraceWriter},
 };
-use bombadil_schema::markup;
 
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
 /// causing a test to hang, so we limit parallelism.
@@ -98,8 +98,8 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
-    fn specification(mut self, spec: &'a str) -> Self {
-        self.specification = Some(spec);
+    fn specification(mut self, specification: &'a str) -> Self {
+        self.specification = Some(specification);
         self
     }
 
@@ -214,8 +214,8 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         let specification = match specification {
-            Some(spec) => {
-                specification_file.write_all(spec.as_bytes()).unwrap();
+            Some(source) => {
+                specification_file.write_all(source.as_bytes()).unwrap();
                 Specification {
                     module_specifier: specification_file
                         .path()
@@ -224,13 +224,14 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
             }
             None => Specification {
-                module_specifier: "@antithesishq/bombadil/defaults".to_string(),
+                module_specifier: "@antithesishq/bombadil/browser/defaults"
+                    .to_string(),
             },
         };
 
         let downloads_directory = TempDir::new().unwrap();
-        let runner = Runner::new(
-            origin,
+        let runner = runner::launch(
+            origin.clone(),
             specification,
             BrowserOptions {
                 create_target: true,
@@ -259,74 +260,39 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         log::info!("starting runner");
 
-        struct TestStrategy {
-            collected_violations: Vec<String>,
-            test_start: Option<std::time::SystemTime>,
-            deadline: Option<SystemTime>,
+        let test_start = SystemTime::now();
+        let deadline = time_limit.map(|d| test_start + d);
+
+        #[derive(Default)]
+        struct ViolationsCollectingWriter {
+            violations: Vec<bombadil::runner::PropertyViolation>,
         }
 
-        impl bombadil::runner::RunStrategy for TestStrategy {
-            type StopValue = ();
-
-            async fn on_new_state(
+        impl TraceWriter for ViolationsCollectingWriter {
+            async fn write(
                 &mut self,
-                state: &bombadil::browser::state::BrowserState,
-                _last_action: Option<
-                    &bombadil::browser::actions::BrowserAction,
-                >,
-                _snapshots: &[Snapshot],
-                violations: &[bombadil::trace::PropertyViolation],
-            ) -> anyhow::Result<bombadil::runner::ControlFlow<Self::StopValue>>
-            {
-                let test_start =
-                    *self.test_start.get_or_insert(state.timestamp);
-                if !violations.is_empty() {
-                    for violation in violations {
-                        let schema_violation = violation.to_schema();
-                        let markup =
-                            markup::render_violation(&schema_violation);
-                        let rendered = styled::markup_to_styled(
-                            &markup,
-                            bombadil_schema::Time::from_system_time(test_start),
-                        );
-                        self.collected_violations.push(format!(
-                            "{}:\n{}\n\n",
-                            violation.name, rendered
-                        ));
-                    }
-                    return Ok(bombadil::runner::ControlFlow::Stop(()));
-                }
-
-                if let Some(deadline) = self.deadline
-                    && state.timestamp >= deadline
-                {
-                    log::info!("time limit reached, stopping");
-                    return Ok(bombadil::runner::ControlFlow::Stop(()));
-                }
-
-                Ok(bombadil::runner::ControlFlow::Continue)
-            }
-
-            async fn on_interrupted(
-                &mut self,
-            ) -> anyhow::Result<Self::StopValue> {
+                _state: &bombadil_browser::browser::state::BrowserState,
+                _last_action: Option<&BrowserAction>,
+                _snapshots: &[bombadil::specification::domain::Snapshot],
+                violations: &[bombadil::runner::PropertyViolation],
+            ) -> anyhow::Result<()> {
+                self.violations.extend_from_slice(violations);
                 Ok(())
             }
-
-            async fn pick_action(
-                &mut self,
-                tree: bombadil::tree::Tree<BrowserAction>,
-            ) -> anyhow::Result<BrowserAction> {
-                Ok(tree.pick(&mut rand::rng())?.clone())
-            }
         }
 
-        let deadline = time_limit.map(|d| SystemTime::now() + d);
+        let output_path = TempDir::new().unwrap();
+        let writer = ViolationsCollectingWriter::default();
 
         let mut strategy = TestStrategy {
-            collected_violations: Vec::new(),
-            test_start: None,
+            test_start: Some(Time::from_system_time(test_start)),
             deadline,
+            mode: bombadil_browser::strategy::TestMode::RandomWalk,
+            writer,
+            exit_on_violation: true,
+            origin,
+            output_path: output_path.path().to_path_buf(),
+            violations_count: 0,
         };
 
         enum Outcome {
@@ -353,12 +319,27 @@ impl<'a> BrowserIntegrationTest<'a> {
         .await
         {
             Ok(Ok(_)) => {
-                if strategy.collected_violations.is_empty() {
+                if strategy.violations_count == 0 {
                     Outcome::Success
                 } else {
+                    let mut violations = vec![];
+
+                    for violation in strategy.writer.violations {
+                        let markup =
+                            markup::render_violation(&violation.to_schema());
+                        let rendered = styled::markup_to_styled(
+                            &markup,
+                            Time::from_system_time(test_start),
+                        );
+                        violations.push(format!(
+                            "{}:\n{}\n\n",
+                            violation.name, rendered
+                        ));
+                    }
+
                     Outcome::Error(anyhow!(
                         "violations:\n\n{}",
-                        strategy.collected_violations.join("")
+                        violations.join("")
                     ))
                 }
             }
@@ -449,8 +430,9 @@ async fn test_back_from_non_html() {
         .time_limit(Duration::from_secs(30))
         .specification(
             r#"
-import { extract, now, next, eventually } from "@antithesishq/bombadil";
-export { clicks, back } from "@antithesishq/bombadil/defaults/actions";
+import { now, next, eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks, back } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const contentType = extract((state) => state.document.contentType);
 
@@ -517,10 +499,10 @@ async fn test_browser_lifecycle() {
     browser.initiate().await.unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::browser::BrowserEvent::StateChanged(state) => {
+        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::browser::BrowserEvent::Error(error) => {
+        bombadil_browser::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }
@@ -528,10 +510,10 @@ async fn test_browser_lifecycle() {
     browser.apply(BrowserAction::Reload).unwrap();
 
     match browser.next_event().await.unwrap() {
-        bombadil::browser::BrowserEvent::StateChanged(state) => {
+        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
-        bombadil::browser::BrowserEvent::Error(error) => {
+        bombadil_browser::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
     }
@@ -545,8 +527,9 @@ async fn test_random_text_input() {
     BrowserIntegrationTest::new("random-text-input")
         .specification(
             r#"
-import { extract, now, eventually } from "@antithesishq/bombadil";
-export { clicks, inputs } from "@antithesishq/bombadil/defaults/actions";
+import { now, eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks, inputs } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const inputValue = extract((state) => {
   const input = state.document.querySelector("\#text-input");
@@ -568,8 +551,9 @@ async fn test_counter_state_machine() {
         .time_limit(Duration::from_secs(3))
         .specification(
             r#"
-import { extract, now, next, always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { now, next, always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const counterValue = extract((state) => {
   const element = state.document.body.querySelector("\#counter");
@@ -604,8 +588,8 @@ async fn test_extractor_exception_stack_trace() {
         .expect_error("\n    at throwingFunction")
         .specification(
             r##"
-import { extract } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 function throwingFunction() {
   throw new Error("extractor stack trace test");
@@ -624,7 +608,8 @@ async fn test_wait_action() {
         .time_limit(Duration::from_secs(3))
         .specification(
             r#"
-import { actions, extract, always } from "@antithesishq/bombadil";
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
 
 export const waits = actions(() => ["Wait"]);
 
@@ -646,7 +631,8 @@ async fn test_double_click() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r#"
-import { actions, extract, eventually } from "@antithesishq/bombadil";
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
 
 const counterValue = extract((state) => {
   const element = state.document.body.querySelector("\#counter");
@@ -676,8 +662,8 @@ async fn test_extractor_guard() {
         .expect_error("Cannot access cell.current from within an extractor")
         .specification(
             r##"
-import { actions, extract } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 // First extractor
 const foo = extract((state) => state.document.title);
@@ -696,8 +682,9 @@ async fn test_module_script() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const outputText = extract((state) => {
   const output = state.document.querySelector("#output");
@@ -719,8 +706,9 @@ async fn test_snapshot_references_in_violation() {
         .expect_error("pageValue =")
         .specification(
             r#"
-import { extract, always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const pageValue = extract((state) => {
   return parseInt(
@@ -743,8 +731,9 @@ async fn test_module_script_external() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const outputText = extract((state) => {
   const output = state.document.querySelector("#output");
@@ -767,7 +756,7 @@ async fn test_time_limit() {
         .specification(
             r#"
 import { always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 export const neverDone = always(() => true);
 "#,
         )
@@ -781,8 +770,9 @@ async fn test_file_download() {
         .time_limit(Duration::from_secs(10))
         .specification(
             r#"
-import { extract, eventually } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const messageText = extract((state) => {
   const message = state.document.querySelector("\#message");
@@ -804,10 +794,11 @@ async fn test_file_picker() {
     std::fs::write(test_file.path(), b"test file content").unwrap();
     let file_path = test_file.path().display();
 
-    let spec = format!(
+    let specification = format!(
         r#"
-import {{ actions, extract, eventually, weighted }} from "@antithesishq/bombadil";
-export {{ clicks }} from "@antithesishq/bombadil/defaults/actions";
+import {{ eventually }} from "@antithesishq/bombadil";
+import {{ actions, extract, weighted }} from "@antithesishq/bombadil/browser";
+export {{ clicks }} from "@antithesishq/bombadil/browser/defaults/actions";
 
 const statusText = extract((state) => {{
   const status = state.document.querySelector("\#status");
@@ -839,7 +830,7 @@ export const fileUploaded = eventually(
 
     BrowserIntegrationTest::new("file-picker")
         .time_limit(Duration::from_secs(30))
-        .specification(&spec)
+        .specification(&specification)
         .run()
         .await;
 }
@@ -850,8 +841,9 @@ async fn test_granted_permissions() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r##"
-import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const notificationPermission = extract((state) => {
   const element = state.document.querySelector("#notification-permission");
@@ -890,8 +882,9 @@ async fn test_extra_headers() {
         .time_limit(Duration::from_secs(15))
         .specification(
             r#"
-import { extract, eventually } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const loaded = extract((state) => {
   return state.document.querySelector('#secret-loaded') !== null;
@@ -912,8 +905,9 @@ async fn test_confirm_dialog() {
         .time_limit(Duration::from_secs(5))
         .specification(
             r#"
-import { extract, now } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+import { now } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 const message = extract((state) => {
   const element = state.document.querySelector("\#message");
@@ -936,7 +930,7 @@ async fn test_disabled_clicks() {
         .specification(
             r#"
 import { always } from "@antithesishq/bombadil";
-export { clicks } from "@antithesishq/bombadil/defaults/actions";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 
 export const keepRunning = always(() => true);
 "#,

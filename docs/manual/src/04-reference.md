@@ -12,7 +12,7 @@
 | 1 | Other error |
 | 2 | Property violation(s) detected |
 
-### bombadil test
+### bombadil browser test
 
 `bombadil` `test` [`[OPTIONS]`](#options-test) [`<ORIGIN>`](#arguments-test) [`[SPECIFICATION_FILE]`](#arguments-test)
 
@@ -42,7 +42,7 @@
 | `-h, --help` | Print help | |
 :::
 
-### bombadil test-external
+### bombadil browser test-external
 
 `bombadil` `test-external` [`[OPTIONS]`](#options-test-external) [`<ORIGIN>`](#arguments-test-external) [`[SPECIFICATION_FILE]`](#arguments-test-external)
 
@@ -71,7 +71,7 @@
 | `-h, --help` | Print help | |
 :::
 
-### bombadil inspect
+### bombadil browser inspect
 
 `bombadil` `inspect` [`[OPTIONS]`](#options-inspect) [`<TRACE_PATH>`](#arguments-inspect)
 

@@ -7,7 +7,7 @@ Bombadil to export *properties* and *action generators*.
 Here's how you run Bombadil with a custom specification:
 
 ```bash
-bombadil test https://example.com example.ts
+bombadil browser test https://example.com example.ts
 ```
 
 For a full listing of CLI options, see [the reference](#command-line-interface).

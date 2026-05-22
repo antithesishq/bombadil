@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use bombadil_schema::TraceEntry;
+use bombadil_schema::BrowserTraceEntry;
 use include_dir::{Dir, include_dir};
 
 static INSPECT_ASSETS: Dir =
@@ -51,7 +51,7 @@ pub async fn serve(
 
 async fn trace_handler(
     State(state): State<AppState>,
-) -> Result<Json<Vec<TraceEntry>>, axum::http::StatusCode> {
+) -> Result<Json<Vec<BrowserTraceEntry>>, axum::http::StatusCode> {
     let trace_file = state.trace_directory.join("trace.jsonl");
     // TODO: this should be streamed line-by-line over a websocket or SSE
     // rather than loaded into memory and sent as JSON. OK for now, but
@@ -64,23 +64,26 @@ async fn trace_handler(
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-    let entries: Vec<TraceEntry> = content
+    let entries: Vec<BrowserTraceEntry> = content
         .lines()
         .filter(|line| !line.is_empty())
-        .map(|line| -> Result<TraceEntry, axum::http::StatusCode> {
-            let mut entry: TraceEntry =
-                serde_json::from_str(line).map_err(|error| {
+        .map(
+            |line| -> Result<BrowserTraceEntry, axum::http::StatusCode> {
+                let mut entry: BrowserTraceEntry = serde_json::from_str(line)
+                    .map_err(|error| {
                     log::error!("Failed to parse trace entry: {}", error);
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR
                 })?;
-            let filename = std::path::Path::new(&entry.screenshot)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("")
-                .to_string();
-            entry.screenshot = format!("/api/screenshots/{}", filename);
-            Ok(entry)
-        })
+                let filename = std::path::Path::new(&entry.state.screenshot)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                entry.state.screenshot =
+                    format!("/api/screenshots/{}", filename);
+                Ok(entry)
+            },
+        )
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(entries))

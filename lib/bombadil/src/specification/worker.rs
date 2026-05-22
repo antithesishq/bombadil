@@ -1,4 +1,3 @@
-use serde::de::DeserializeOwned;
 use serde_json as json;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -7,6 +6,7 @@ use bombadil_ltl::eval;
 use bombadil_ltl::violation;
 use bombadil_schema::Time;
 
+use crate::driver::FromGeneratedAction;
 use crate::specification::convert::{
     PrettyFunction, violation_with_pretty_functions,
 };
@@ -30,14 +30,14 @@ enum Command {
 struct RawStepResult {
     properties: Vec<(String, PropertyValue)>,
     actions: Tree<json::Value>,
-    has_pending: bool,
+    all_definite: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct StepResult<A> {
     pub properties: Vec<(String, PropertyValue)>,
     pub actions: Tree<A>,
-    pub has_pending: bool,
+    pub all_definite: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +126,7 @@ impl VerifierWorker {
                                             })
                                             .collect(),
                                         actions: result.actions,
-                                        has_pending: result.has_pending,
+                                        all_definite: result.all_definite,
                                     }),
                             );
                         }
@@ -152,7 +152,7 @@ impl VerifierWorker {
         reply_rx.await.map_err(|_| WorkerError::WorkerGone)
     }
 
-    pub async fn step<A: DeserializeOwned>(
+    pub async fn step<A: FromGeneratedAction>(
         &self,
         snapshots: Arc<[Snapshot]>,
         time: Time,
@@ -171,16 +171,16 @@ impl VerifierWorker {
             .map_err(|_| WorkerError::WorkerGone)?
             .map_err(WorkerError::SpecificationError)?;
         let actions = result.actions.try_map(&mut |v| {
-            json::from_value(v).map_err(|e| {
+            A::from_generated(v).map_err(|e| {
                 WorkerError::SpecificationError(SpecificationError::OtherError(
-                    format!("failed to deserialize action: {}", e),
+                    format!("failed to convert generated action: {}", e),
                 ))
             })
         })?;
         Ok(StepResult {
             properties: result.properties,
             actions,
-            has_pending: result.has_pending,
+            all_definite: result.all_definite,
         })
     }
 }

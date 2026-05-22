@@ -58,7 +58,7 @@ Non-workspace directories: `lib/nix/` (Nix build infrastructure), `lib/release/`
 
 - **runner** - Test orchestration loop. Drives the browser, invokes the verifier, publishes `RunEvent`s.
 - **browser** - Chromium control via CDP. Defines `BrowserState` snapshots and `BrowserAction`s.
-- **specification** - Split between Rust and TypeScript. Rust side loads spec files and runs the Boa JS engine. TypeScript side provides the user-facing API for defining properties, action generators, and extractors.
+- **specification** - Split between Rust and TypeScript. Rust side loads specification files and runs the Boa JS engine. TypeScript side provides the user-facing API for defining properties, action generators, and extractors.
 - **instrumentation** - JS code coverage via edge maps using Oxc.
 - **tree** - Weighted tree for random action selection.
 - **trace** - JSONL trace writer with screenshots.

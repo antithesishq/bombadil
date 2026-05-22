@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use bombadil_schema::BrowserAction;
+use bombadil_schema::BrowserTraceEntry;
 use bombadil_schema::Point;
-use bombadil_schema::TraceEntry;
 use wasm_bindgen::JsCast;
 use yew::component;
 use yew::prelude::*;
@@ -11,7 +11,7 @@ use crate::container_size::use_container_size;
 
 #[derive(PartialEq, Properties)]
 pub struct ScreenshotProps {
-    pub entry: Rc<TraceEntry>,
+    pub entry: Rc<BrowserTraceEntry>,
     #[prop_or_default]
     pub action: Option<Rc<BrowserAction>>,
 }
@@ -94,7 +94,7 @@ pub fn Screenshot(props: &ScreenshotProps) -> Html {
         <div class="screenshot" ref={container_ref}>
             <div class="img-container" style={inner_style}>
                 <img
-                    src={props.entry.screenshot.clone()}
+                    src={props.entry.state.screenshot.clone()}
                     onload={on_load}
                     alt="Screenshot"
                 />

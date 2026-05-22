@@ -21,14 +21,20 @@ let
         "." = {
           types = "./dist/index.d.ts";
         };
-        "./defaults" = {
-          types = "./dist/defaults.d.ts";
+        "./browser" = {
+          types = "./dist/browser/index.d.ts";
         };
-        "./defaults/actions" = {
-          types = "./dist/defaults/actions.d.ts";
+        "./browser/defaults" = {
+          types = "./dist/browser/defaults.d.ts";
         };
-        "./defaults/properties" = {
-          types = "./dist/defaults/properties.d.ts";
+        "./browser/defaults/actions" = {
+          types = "./dist/browser/defaults/actions.d.ts";
+        };
+        "./browser/defaults/properties" = {
+          types = "./dist/browser/defaults/properties.d.ts";
+        };
+        "./terminal" = {
+          types = "./dist/terminal/index.d.ts";
         };
         "./random" = {
           types = "./dist/random.d.ts";
@@ -86,7 +92,7 @@ let
     ```json
     {
       "scripts": {
-        "test": "bombadil test https://your-app.example.com"
+        "test": "bombadil browser test https://your-app.example.com"
       }
     }
     ```
@@ -97,7 +103,7 @@ let
     Write custom properties:
 
     ```typescript
-    import { always, eventually, extract } from "@antithesishq/bombadil";
+    import { always, eventually, extract } from "@antithesishq/bombadil/browser";
 
     const title = extract((state) =>
       state.document.querySelector("h1")?.textContent ?? ""
@@ -109,7 +115,7 @@ let
     Or re-export the default properties:
 
     ```typescript
-    export * from "@antithesishq/bombadil/defaults";
+    export * from "@antithesishq/bombadil/browser/defaults";
     ```
 
     ## Documentation
