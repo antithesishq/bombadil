@@ -8,7 +8,7 @@ anyhow.workspace = true
 boa_engine.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-schema = { path = "../bombadil-schema" }
-libghostty-vt = { workspace = true, features = ["link-static"] }
+libghostty-vt.workspace = true
 log.workspace = true
 portable-pty.workspace = true
 rand.workspace = true

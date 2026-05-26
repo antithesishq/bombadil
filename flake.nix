@@ -61,8 +61,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "6590196661f769dd8f2b3e85d6c98262c4ec5b3b";
-          sha256 = "0bxq9pv568zr6ns5szmhg18id7f68mbkhqaygm641c3cw1df0w8w";
+          rev = "b869a6e5ab0a50ce01e8eb5aa408a02b3cbe4f3a";
+          sha256 = "0zi9p816616w711zkwbqycg0c042jdbcnyg9gqxcf2h3q669xbp8";
         };
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc;

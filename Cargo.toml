@@ -38,7 +38,7 @@ include_dir = "0.7.4"
 indoc = "2.0.7"
 insta = "1.43.1"
 js-sys = "0.3"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "269c5459c1cb0e1fa30a31d77e27b0bb74b0f0aa" }
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "455c34200da92e4ef9d56650ab5d716ae639f54d" }
 log = "0.4.29"
 markup5ever_rcdom = "0.36.0"
 mime_guess = "2.0"
