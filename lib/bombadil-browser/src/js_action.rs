@@ -51,7 +51,7 @@ pub enum JsAction {
 }
 
 impl JsAction {
-    pub fn to_browser_action(self) -> anyhow::Result<BrowserAction> {
+    pub fn into_browser_action(self) -> anyhow::Result<BrowserAction> {
         use anyhow::bail;
 
         Ok(match self {
@@ -161,7 +161,7 @@ mod tests {
             text: "hello".to_string(),
             delay_millis: 43.9,
         };
-        let browser_action = js_action.to_browser_action().unwrap();
+        let browser_action = js_action.into_browser_action().unwrap();
         match browser_action {
             BrowserAction::TypeText { delay_millis, .. } => {
                 assert_eq!(delay_millis, 43);
@@ -173,7 +173,7 @@ mod tests {
     #[test]
     fn test_to_browser_action_validates_code_range() {
         let js_action = JsAction::PressKey { code: 256.0 };
-        let result = js_action.to_browser_action();
+        let result = js_action.into_browser_action();
         assert!(result.is_err());
         assert!(
             result
@@ -183,7 +183,7 @@ mod tests {
         );
 
         let js_action = JsAction::PressKey { code: 13.5 };
-        let result = js_action.to_browser_action();
+        let result = js_action.into_browser_action();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("integer"));
     }
@@ -194,7 +194,7 @@ mod tests {
             text: "hello".to_string(),
             delay_millis: -10.0,
         };
-        let result = js_action.to_browser_action();
+        let result = js_action.into_browser_action();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("non-negative"));
 
@@ -202,7 +202,7 @@ mod tests {
             text: "hello".to_string(),
             delay_millis: f64::NAN,
         };
-        let result = js_action.to_browser_action();
+        let result = js_action.into_browser_action();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("finite"));
     }

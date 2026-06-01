@@ -53,7 +53,7 @@ pub enum BrowserAction {
 impl FromGeneratedAction for BrowserAction {
     fn from_generated(value: json::Value) -> Result<Self> {
         let js_action: JsAction = json::from_value(value)?;
-        js_action.to_browser_action()
+        js_action.into_browser_action()
     }
 }
 

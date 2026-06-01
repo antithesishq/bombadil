@@ -25,9 +25,9 @@ const TERMINAL_WORKER_STACK_SIZE: usize = 4 * 1024 * 1024;
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Size {
-    pub columns: u16,
-    pub rows: u16,
+pub struct Size<T = u16> {
+    pub columns: T,
+    pub rows: T,
 }
 
 impl Size {
@@ -54,9 +54,50 @@ pub enum TerminalAction {
     ScrollDown {},
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum JsAction {
+    #[serde(rename_all = "camelCase")]
+    TypeText {
+        text: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    PressKey {
+        code: f64,
+    },
+    #[serde(rename_all = "camelCase")]
+    Resize {
+        size: Size<f64>,
+    },
+    ScrollUp {},
+    ScrollDown {},
+}
+
+impl JsAction {
+    fn into_terminal_action(self) -> Result<TerminalAction> {
+        match self {
+            JsAction::TypeText { text } => {
+                Ok(TerminalAction::TypeText { text })
+            }
+            JsAction::PressKey { code } => {
+                Ok(TerminalAction::PressKey { code: code as u32 })
+            }
+            JsAction::Resize { size } => Ok(TerminalAction::Resize {
+                size: Size {
+                    columns: size.columns as u16,
+                    rows: size.rows as u16,
+                },
+            }),
+
+            JsAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
+            JsAction::ScrollDown {} => Ok(TerminalAction::ScrollDown {}),
+        }
+    }
+}
+
 impl FromGeneratedAction for TerminalAction {
     fn from_generated(value: json::Value) -> Result<Self> {
-        Ok(json::from_value(value)?)
+        let js_action: JsAction = json::from_value(value)?;
+        js_action.into_terminal_action()
     }
 }
 
