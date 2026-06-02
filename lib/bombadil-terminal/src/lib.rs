@@ -79,14 +79,6 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
 
-        if let Some(action) = last_action {
-            println!(
-                "{} {}",
-                format_timestamp(state.timestamp, test_start),
-                render::format_action(action),
-            );
-        }
-
         println!();
         for row in &state.rows {
             println!("{}", row);
@@ -139,7 +131,14 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
             return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
         }
 
-        Ok(ControlFlow::Continue(self.pick_action(tree).await?))
+        let action = self.pick_action(tree).await?;
+        println!(
+            "{} {}",
+            format_timestamp(state.timestamp, test_start),
+            render::format_action(&action),
+        );
+
+        Ok(ControlFlow::Continue(action))
     }
 
     async fn on_interrupted(&mut self) -> Result<Self::StopValue> {

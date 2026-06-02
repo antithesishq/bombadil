@@ -132,14 +132,6 @@ impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
 
-        if let Some(action) = last_action {
-            println!(
-                "{} {}",
-                format_timestamp(state.timestamp, test_start),
-                format_action(action)
-            );
-        }
-
         self.violations_count += properties.violations.len() as u64;
         for violation in properties.violations {
             log::info!("violation of property `{}`", violation.name);
@@ -194,7 +186,14 @@ impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
             }));
         }
 
-        Ok(ControlFlow::Continue(self.pick_action(state, tree).await?))
+        let action = self.pick_action(state, tree).await?;
+        println!(
+            "{} {}",
+            format_timestamp(state.timestamp, test_start),
+            format_action(&action)
+        );
+
+        Ok(ControlFlow::Continue(action))
     }
 
     async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
