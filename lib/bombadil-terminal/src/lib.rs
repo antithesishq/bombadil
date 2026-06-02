@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::render::format_timestamp;
@@ -29,6 +30,8 @@ pub struct TerminalStrategy {
     pub writer: Option<TraceWriter>,
     pub test_start: Option<bombadil_schema::Time>,
     pub violations_count: u64,
+    pub exit_on_violation: bool,
+    pub deadline: Option<SystemTime>,
 }
 
 impl TerminalStrategy {
@@ -36,6 +39,9 @@ impl TerminalStrategy {
         &mut self,
         tree: Tree<TerminalAction>,
     ) -> Result<TerminalAction> {
+        let tree = tree
+            .prune()
+            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TerminalTestMode::RandomWalk => {
                 Ok(tree.pick(&mut rand::rng())?.clone())
@@ -59,7 +65,7 @@ impl TerminalStrategy {
 }
 
 impl RunStrategy<TerminalDriver> for TerminalStrategy {
-    type StopValue = ();
+    type StopValue = ExitReason;
 
     async fn on_new_state(
         &mut self,
@@ -68,7 +74,7 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         last_action: Option<&TerminalAction>,
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> Result<ControlFlow<(), TerminalAction>> {
+    ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
         let test_start = *self.test_start.get_or_insert(
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
@@ -80,6 +86,12 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
                 render::format_action(action),
             );
         }
+
+        println!();
+        for row in &state.rows {
+            println!("{}", row);
+        }
+        println!();
 
         self.violations_count += properties.violations.len() as u64;
         for violation in properties.violations {
@@ -104,25 +116,46 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
                 .await?;
         }
 
+        if self.violations_count > 0 && self.exit_on_violation {
+            return Ok(ControlFlow::Stop(ExitReason::ExitOnViolation));
+        }
+
         if let TerminalTestMode::Reproduce(remaining) = &self.mode
             && remaining.is_empty()
         {
             log::info!("reproduction complete, stopping");
-            return Ok(ControlFlow::Stop(()));
+            return Ok(ControlFlow::Stop(ExitReason::Reproduced));
         }
 
         if state.terminated {
             log::info!("process terminated, stopping");
-            return Ok(ControlFlow::Stop(()));
+            return Ok(ControlFlow::Stop(ExitReason::Terminated));
         }
+
+        if let Some(deadline) = self.deadline
+            && state.timestamp >= deadline
+        {
+            log::info!("time limit reached, stopping");
+            return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
+        }
+
         Ok(ControlFlow::Continue(self.pick_action(tree).await?))
     }
 
-    async fn on_interrupted(&mut self) -> Result<()> {
-        Ok(())
+    async fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+        Ok(ExitReason::Interrupted)
     }
 }
 
 fn actions_match(a: &TerminalAction, b: &TerminalAction) -> bool {
     serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+}
+
+pub enum ExitReason {
+    ExitOnViolation,
+    TimeLimit,
+    Interrupted,
+    Terminated,
+    Reproduced,
+    AllDefinite,
 }
