@@ -14,9 +14,11 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::duration;
 
-const DEFAULT_COLUMNS: u16 = 100;
-const DEFAULT_ROWS: u16 = 40;
-const MAX_SCROLLBACK: usize = 1_000;
+mod defaults {
+    pub const COLUMNS: u16 = 100;
+    pub const ROWS: u16 = 40;
+    pub const SCROLLBACK_LINES_MAX: u16 = 100;
+}
 
 #[derive(clap::Subcommand)]
 pub enum Command {
@@ -35,11 +37,14 @@ pub enum Command {
         #[arg(long, value_parser = duration::parse_duration)]
         time_limit: Option<Duration>,
         /// Terminal columns at startup
-        #[arg(long, default_value_t = DEFAULT_COLUMNS)]
+        #[arg(long, default_value_t = defaults::COLUMNS)]
         columns: u16,
         /// Terminal rows at startup
-        #[arg(long, default_value_t = DEFAULT_ROWS)]
+        #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
+        /// Maximum line count to keep in scrollback buffer
+        #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
+        scrollback_lines_max: u16,
         /// Where to store output data (trace.jsonl). Defaults to a
         /// fresh temporary directory.
         #[arg(long)]
@@ -64,6 +69,7 @@ pub async fn run(command: Command) {
             time_limit,
             columns,
             rows,
+            scrollback_lines_max,
             output_path,
             reproduce,
             command,
@@ -102,7 +108,7 @@ pub async fn run(command: Command) {
                 let (driver, verifier) = TerminalDriver::launch(
                     specification,
                     Size { columns, rows },
-                    MAX_SCROLLBACK,
+                    scrollback_lines_max as usize,
                     program,
                     args,
                 )

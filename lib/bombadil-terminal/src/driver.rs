@@ -238,7 +238,7 @@ impl TerminalWorkerState {
 // This needs to be single-threaded (but async) due to !Send resources.
 fn run_terminal_worker(
     size: Size,
-    max_scrollback: usize,
+    scrollback_lines_max: usize,
     program: String,
     args: Vec<String>,
     mut command_receive: mpsc::Receiver<TerminalCommand>,
@@ -259,7 +259,7 @@ fn run_terminal_worker(
         let terminal = match Terminal::new(TerminalOptions {
             cols: size.columns,
             rows: size.rows,
-            max_scrollback,
+            max_scrollback: scrollback_lines_max,
         }) {
             Ok(t) => t,
             Err(error) => {
@@ -323,7 +323,7 @@ impl TerminalDriver {
     pub async fn launch(
         specification: Specification,
         size: Size,
-        max_scrollback: usize,
+        scrollback_lines_max: usize,
         program: &str,
         arguments: &[String],
     ) -> Result<(Self, Arc<VerifierWorker>)> {
@@ -346,7 +346,7 @@ impl TerminalDriver {
             .spawn(move || {
                 run_terminal_worker(
                     size,
-                    max_scrollback,
+                    scrollback_lines_max,
                     program,
                     arguments,
                     command_recv,
