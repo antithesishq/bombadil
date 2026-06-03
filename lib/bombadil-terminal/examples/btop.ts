@@ -106,13 +106,13 @@ export const typeRandom = weighted([
   [1, actions(() => [{
     Resize: {
       size: {
-        columns: integers().min(40).max(80).generate(),
-        rows: integers().min(10).max(30).generate(),
+        columns: integers().min(80).max(120).generate(),
+        rows: integers().min(24).max(48).generate(),
       },
     }
   }])],
 ]);
 
-export const hasLineColumnIndicator = always(() =>
-  !!statusLine.current && statusLine.current.text.split(/\s+/).some(word => !!word.match(/\d+:\d+/))
-);
+// export const hasLineColumnIndicator = always(() =>
+//   !!statusLine.current && statusLine.current.text.split(/\s+/).some(word => !!word.match(/\d+:\d+/))
+// );

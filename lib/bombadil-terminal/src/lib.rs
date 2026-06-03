@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::io::Write;
 use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
@@ -8,7 +9,10 @@ use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
 use bombadil::tree::Tree;
-use bombadil_schema::TerminalCell;
+use bombadil_schema::{
+    TerminalAttributes, TerminalCell, TerminalColor, TerminalStyle,
+};
+use owo_colors::{OwoColorize, XtermColors};
 
 use crate::driver::{TerminalAction, TerminalDriver};
 use crate::state::TerminalState;
@@ -80,16 +84,17 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
 
-        println!();
+        print!("\x1b[2J\x1b[H");
         for row_index in 0..state.grid.size.rows {
             for column_index in 0..state.grid.size.columns {
                 match &state.grid[(row_index, column_index)] {
                     TerminalCell::Occupied {
                         contents,
                         wide: _,
-                        style: _,
+                        style,
                     } => {
-                        print!("{}", contents.as_str());
+                        let style: owo_colors::Style = to_owo_style(style);
+                        print!("{}", contents.as_str().style(style));
                     }
                     TerminalCell::Continuation => {}
                     TerminalCell::Empty => print!(" "),
@@ -146,11 +151,12 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         }
 
         let action = self.pick_action(tree).await?;
-        println!(
+        print!(
             "{} {}",
             format_timestamp(state.timestamp, test_start),
             render::format_action(&action),
         );
+        std::io::stdout().flush()?;
 
         Ok(ControlFlow::Continue(action))
     }
@@ -171,4 +177,51 @@ pub enum ExitReason {
     Terminated,
     Reproduced,
     AllDefinite,
+}
+
+fn to_owo_style(value: &TerminalStyle) -> owo_colors::Style {
+    let mut style = owo_colors::Style::new();
+
+    if let Some(color) = to_owo_color(&value.foreground_color) {
+        style = style.color(color);
+    }
+    if let Some(color) = to_owo_color(&value.background_color) {
+        style = style.on_color(color);
+    }
+
+    if value.attributes.contains(TerminalAttributes::BOLD) {
+        style = style.bold();
+    }
+    if value.attributes.contains(TerminalAttributes::ITALIC) {
+        style = style.italic();
+    }
+    if value.attributes.contains(TerminalAttributes::BLINK) {
+        style = style.blink();
+    }
+    if value.attributes.contains(TerminalAttributes::INVERSE) {
+        // unsupported?
+    }
+    if value.attributes.contains(TerminalAttributes::STRIKETHROUGH) {
+        style = style.strikethrough();
+    }
+    if value.attributes.contains(TerminalAttributes::DIM) {
+        style = style.dimmed();
+    }
+
+    if !matches!(value.underline, bombadil_schema::TerminalUnderline::None) {
+        style = style.underline();
+    }
+
+    style
+}
+
+fn to_owo_color(value: &TerminalColor) -> Option<owo_colors::DynColors> {
+    use owo_colors::DynColors;
+    match value {
+        TerminalColor::None => None,
+        TerminalColor::Palette(index) => {
+            Some(DynColors::Xterm(XtermColors::from(*index)))
+        }
+        TerminalColor::RGB { r, g, b } => Some(DynColors::Rgb(*r, *g, *b)),
+    }
 }

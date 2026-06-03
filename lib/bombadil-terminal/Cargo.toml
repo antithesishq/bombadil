@@ -10,6 +10,7 @@ bombadil = { path = "../bombadil" }
 bombadil-schema = { path = "../bombadil-schema" }
 libghostty-vt.workspace = true
 log.workspace = true
+owo-colors.workspace = true
 portable-pty.workspace = true
 rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
