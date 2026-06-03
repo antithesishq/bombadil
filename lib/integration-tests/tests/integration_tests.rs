@@ -938,3 +938,60 @@ export const keepRunning = always(() => true);
         .run()
         .await;
 }
+
+#[tokio::test]
+async fn test_mouse_drag() {
+    BrowserIntegrationTest::new("mouse-drag")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+const status = extract((state) => {
+  const element = state.document.body.querySelector("#status");
+  return element?.textContent ?? "";
+});
+
+export const drag = actions(() => [
+  {
+    MouseDrag: {
+      from: { x: 100, y: 200 },
+      to: { x: 400, y: 200 },
+      steps: 5,
+      delayMillis: 10,
+    },
+  },
+]);
+
+export const wasDragged = eventually(() => status.current === "dragged");
+"##,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_set_viewport() {
+    BrowserIntegrationTest::new("set-viewport")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+const size = extract((state) => {
+  const element = state.document.body.querySelector("#size");
+  return element?.textContent ?? "";
+});
+
+export const resize = actions(() => [
+  { SetViewport: { width: 1024, height: 768 } },
+]);
+
+export const viewportApplied = eventually(() => size.current === "1024x768");
+"##,
+        )
+        .run()
+        .await;
+}

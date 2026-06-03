@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::FromGeneratedAction;
 use chromiumoxide::Page;
-use chromiumoxide::cdp::browser_protocol::{dom, input, page};
+use chromiumoxide::cdp::browser_protocol::{dom, emulation, input, page};
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 use tokio::time::sleep;
@@ -47,6 +47,16 @@ pub enum BrowserAction {
     SetFileInputFiles {
         selector: String,
         files: Vec<String>,
+    },
+    MouseDrag {
+        from: Point,
+        to: Point,
+        steps: u32,
+        delay_millis: u64,
+    },
+    SetViewport {
+        width: u32,
+        height: u32,
     },
 }
 
@@ -186,6 +196,74 @@ impl BrowserAction {
                     dom::SetFileInputFilesParams::builder()
                         .files(files.clone())
                         .node_id(node.node_id)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                )
+                .await?;
+            }
+            BrowserAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => {
+                // `buttons: 1` (left held) must be set on every event during
+                // the drag so JS sees the held button on mousemove. Chrome
+                // doesn't track button state across CDP events.
+                let dispatch = |event_type, point: Point, buttons: i64| {
+                    input::DispatchMouseEventParams::builder()
+                        .r#type(event_type)
+                        .x(point.x)
+                        .y(point.y)
+                        .button(input::MouseButton::Left)
+                        .buttons(buttons)
+                        .click_count(1)
+                        .build()
+                        .map_err(|err| anyhow!(err))
+                };
+                page.execute(dispatch(
+                    input::DispatchMouseEventType::MousePressed,
+                    *from,
+                    1,
+                )?)
+                .await?;
+                let delay = Duration::from_millis(*delay_millis);
+                let steps = (*steps).max(1);
+                for step in 1..=steps {
+                    let t = step as f64 / steps as f64;
+                    let point = Point {
+                        x: from.x + (to.x - from.x) * t,
+                        y: from.y + (to.y - from.y) * t,
+                    };
+                    if !delay.is_zero() {
+                        sleep(delay).await;
+                    }
+                    page.execute(dispatch(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point,
+                        1,
+                    )?)
+                    .await?;
+                }
+                page.execute(dispatch(
+                    input::DispatchMouseEventType::MouseReleased,
+                    *to,
+                    0,
+                )?)
+                .await?;
+            }
+            BrowserAction::SetViewport { width, height } => {
+                // device_scale_factor is hardcoded to 1.0 here: the launch-time
+                // value isn't reachable from apply()'s &Page-only signature,
+                // and spec authors fuzzing viewports rarely also want to vary
+                // DPR. Add a separate action if that need arises.
+                page.execute(
+                    emulation::SetDeviceMetricsOverrideParams::builder()
+                        .width(*width)
+                        .height(*height)
+                        .device_scale_factor(1.0)
+                        .mobile(false)
+                        .scale(1)
                         .build()
                         .map_err(|err| anyhow!(err))?,
                 )

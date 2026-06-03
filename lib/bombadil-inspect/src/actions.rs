@@ -172,6 +172,27 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Files", format!("{} file(s)", files.len())),
                     ]),
                 ),
+                bombadil_schema::BrowserAction::MouseDrag {
+                    from,
+                    to,
+                    steps,
+                    delay_millis,
+                } => (
+                    html!(<span class="action-name">{"Mouse drag"}</span>),
+                    Some(vec![
+                        ("From", format_point(from)),
+                        ("To", format_point(to)),
+                        ("Steps", steps.to_string()),
+                        ("Delay", format!("{}ms", delay_millis)),
+                    ]),
+                ),
+                bombadil_schema::BrowserAction::SetViewport {
+                    width,
+                    height,
+                } => (
+                    html!(<span class="action-name">{"Set viewport"}</span>),
+                    Some(vec![("Size", format!("{width}x{height}"))]),
+                ),
             },
             None => return html! {},
         };

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Set Viewport Test</title>
+</head>
+<body>
+    <h1>Set Viewport Test</h1>
+    <div id="size">0x0</div>
+    <script>
+        const sizeElement = document.getElementById('size');
+        function update() {
+            sizeElement.textContent = `${window.innerWidth}x${window.innerHeight}`;
+        }
+        update();
+        window.addEventListener('resize', update);
+    </script>
+</body>
+</html>

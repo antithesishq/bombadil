@@ -102,5 +102,30 @@ pub fn format_action(action: &BrowserAction) -> String {
                 styled::maybe_blue(format!("{}", files.len()))
             )
         }
+        BrowserAction::MouseDrag {
+            from,
+            to,
+            steps,
+            delay_millis,
+        } => {
+            format!(
+                "{} from (x: {}, y: {}) to (x: {}, y: {}) ({} steps, delay: {})",
+                styled::maybe_bold("Dragging".to_string()),
+                styled::maybe_blue(format!("{:.1}", from.x)),
+                styled::maybe_blue(format!("{:.1}", from.y)),
+                styled::maybe_blue(format!("{:.1}", to.x)),
+                styled::maybe_blue(format!("{:.1}", to.y)),
+                styled::maybe_blue(format!("{steps}")),
+                styled::maybe_blue(format!("{delay_millis}ms"))
+            )
+        }
+        BrowserAction::SetViewport { width, height } => {
+            format!(
+                "{} to {}x{}",
+                styled::maybe_bold("Setting viewport".to_string()),
+                styled::maybe_blue(format!("{width}")),
+                styled::maybe_blue(format!("{height}"))
+            )
+        }
     }
 }

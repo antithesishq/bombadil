@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mouse Drag Test</title>
+</head>
+<body>
+    <h1>Mouse Drag Test</h1>
+    <div id="status">pending</div>
+    <div id="surface" style="width:600px;height:400px;background:#eef;position:relative;"></div>
+    <script>
+        const surface = document.getElementById('surface');
+        const status = document.getElementById('status');
+        let down = false;
+        let moves = 0;
+
+        surface.addEventListener('mousedown', () => {
+            down = true;
+            moves = 0;
+        });
+        surface.addEventListener('mousemove', (event) => {
+            if (down && event.buttons & 1) {
+                moves++;
+            }
+        });
+        surface.addEventListener('mouseup', () => {
+            if (down && moves > 0) {
+                status.textContent = 'dragged';
+            }
+            down = false;
+        });
+    </script>
+</body>
+</html>

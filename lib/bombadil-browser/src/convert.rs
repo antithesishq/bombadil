@@ -86,6 +86,23 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
                     files: files.clone(),
                 }
             }
+            BrowserAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => bombadil_schema::BrowserAction::MouseDrag {
+                from: from.to_schema(),
+                to: to.to_schema(),
+                steps: *steps,
+                delay_millis: *delay_millis,
+            },
+            BrowserAction::SetViewport { width, height } => {
+                bombadil_schema::BrowserAction::SetViewport {
+                    width: *width,
+                    height: *height,
+                }
+            }
         }
     }
 }
@@ -145,6 +162,23 @@ impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
                 selector: selector.clone(),
                 files: files.clone(),
             },
+            bombadil_schema::BrowserAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => BrowserAction::MouseDrag {
+                from: from.to_internal(),
+                to: to.to_internal(),
+                steps: *steps,
+                delay_millis: *delay_millis,
+            },
+            bombadil_schema::BrowserAction::SetViewport { width, height } => {
+                BrowserAction::SetViewport {
+                    width: *width,
+                    height: *height,
+                }
+            }
         }
     }
 }

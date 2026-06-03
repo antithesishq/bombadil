@@ -48,6 +48,18 @@ pub enum JsAction {
         selector: String,
         files: Vec<String>,
     },
+    #[serde(rename_all = "camelCase")]
+    MouseDrag {
+        from: Point,
+        to: Point,
+        steps: f64,
+        delay_millis: f64,
+    },
+    #[serde(rename_all = "camelCase")]
+    SetViewport {
+        width: f64,
+        height: f64,
+    },
 }
 
 impl JsAction {
@@ -125,6 +137,58 @@ impl JsAction {
             JsAction::Wait => BrowserAction::Wait,
             JsAction::SetFileInputFiles { selector, files } => {
                 BrowserAction::SetFileInputFiles { selector, files }
+            }
+            JsAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => {
+                if !steps.is_finite()
+                    || !(1.0..=10_000.0).contains(&steps)
+                    || steps.fract() != 0.0
+                {
+                    bail!(
+                        "steps must be an integer between 1 and 10000, got {}",
+                        steps
+                    );
+                }
+                if !delay_millis.is_finite() || delay_millis < 0.0 {
+                    bail!(
+                        "delayMillis must be a non-negative finite number, got {}",
+                        delay_millis
+                    );
+                }
+                if delay_millis > 1000.0 {
+                    bail!(
+                        "delayMillis must be at most 1000, got {}",
+                        delay_millis
+                    );
+                }
+                BrowserAction::MouseDrag {
+                    from,
+                    to,
+                    steps: steps as u32,
+                    delay_millis: delay_millis as u64,
+                }
+            }
+            JsAction::SetViewport { width, height } => {
+                for (name, value) in [("width", width), ("height", height)] {
+                    if !value.is_finite()
+                        || !(1.0..=10_000.0).contains(&value)
+                        || value.fract() != 0.0
+                    {
+                        bail!(
+                            "{} must be an integer between 1 and 10000, got {}",
+                            name,
+                            value
+                        );
+                    }
+                }
+                BrowserAction::SetViewport {
+                    width: width as u32,
+                    height: height as u32,
+                }
             }
         })
     }
@@ -205,5 +269,68 @@ mod tests {
         let result = js_action.into_browser_action();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("finite"));
+    }
+
+    #[test]
+    fn test_mouse_drag_round_trip() {
+        let json = r#"{"MouseDrag": {"from": {"x": 1.0, "y": 2.0}, "to": {"x": 100.0, "y": 200.0}, "steps": 10.0, "delayMillis": 5.0}}"#;
+        let action: JsAction = serde_json::from_str(json).unwrap();
+        let browser_action = action.into_browser_action().unwrap();
+        match browser_action {
+            BrowserAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => {
+                assert_eq!((from.x, from.y), (1.0, 2.0));
+                assert_eq!((to.x, to.y), (100.0, 200.0));
+                assert_eq!(steps, 10);
+                assert_eq!(delay_millis, 5);
+            }
+            _ => panic!("expected MouseDrag"),
+        }
+    }
+
+    #[test]
+    fn test_mouse_drag_validates_steps() {
+        let make = |steps: f64| JsAction::MouseDrag {
+            from: Point { x: 0.0, y: 0.0 },
+            to: Point { x: 1.0, y: 1.0 },
+            steps,
+            delay_millis: 0.0,
+        };
+
+        assert!(make(0.0).into_browser_action().is_err());
+        assert!(make(10_001.0).into_browser_action().is_err());
+        assert!(make(1.5).into_browser_action().is_err());
+        assert!(make(f64::NAN).into_browser_action().is_err());
+    }
+
+    #[test]
+    fn test_set_viewport_round_trip() {
+        let json = r#"{"SetViewport": {"width": 1024.0, "height": 768.0}}"#;
+        let action: JsAction = serde_json::from_str(json).unwrap();
+        let browser_action = action.into_browser_action().unwrap();
+        match browser_action {
+            BrowserAction::SetViewport { width, height } => {
+                assert_eq!(width, 1024);
+                assert_eq!(height, 768);
+            }
+            _ => panic!("expected SetViewport"),
+        }
+    }
+
+    #[test]
+    fn test_set_viewport_validates_dimensions() {
+        let make =
+            |width: f64, height: f64| JsAction::SetViewport { width, height };
+
+        assert!(make(0.0, 600.0).into_browser_action().is_err());
+        assert!(make(800.0, 0.0).into_browser_action().is_err());
+        assert!(make(-1.0, 600.0).into_browser_action().is_err());
+        assert!(make(10_001.0, 600.0).into_browser_action().is_err());
+        assert!(make(800.5, 600.0).into_browser_action().is_err());
+        assert!(make(f64::NAN, 600.0).into_browser_action().is_err());
     }
 }

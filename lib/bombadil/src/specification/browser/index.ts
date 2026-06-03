@@ -29,7 +29,16 @@ export type Action =
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: number } }
   | { ScrollDown: { origin: Point; distance: number } }
-  | { SetFileInputFiles: { selector: string; files: string[] } };
+  | { SetFileInputFiles: { selector: string; files: string[] } }
+  | {
+    MouseDrag: {
+      from: Point;
+      to: Point;
+      steps: number;
+      delayMillis: number;
+    };
+  }
+  | { SetViewport: { width: number; height: number } };
 
 export interface State {
   document: HTMLDocument;
