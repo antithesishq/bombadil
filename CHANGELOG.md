@@ -1,5 +1,14 @@
 # The Bombadil Changelog
 
+## 0.5.1
+
+* added MouseDrag & SetViewPort
+* Log chosen action, not last action (#186)
+* Add missing terminal CLI args (#185)
+* chore(deps): update libghostty-vt (#184)
+* Decouple browser and make terminal driver first-class (#183)
+* try hybrid nix caching approach (#182)
+
 ## 0.5.0
 
 Major updates:
