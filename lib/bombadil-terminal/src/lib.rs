@@ -17,6 +17,7 @@ pub mod driver;
 pub mod extractors;
 pub mod pty;
 pub mod render;
+pub mod small_string;
 pub mod state;
 pub mod trace;
 

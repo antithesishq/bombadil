@@ -532,6 +532,7 @@ dependencies = [
  "libghostty-vt",
  "log",
  "portable-pty",
+ "proptest",
  "rand 0.9.4",
  "serde",
  "serde_json",
