@@ -4,9 +4,15 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
+use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::specification::worker::VerifierWorker;
+use bombadil_schema::{
+    TerminalAttributes, TerminalCell, TerminalColor, TerminalGrid,
+    TerminalSize, TerminalStyle, TerminalUnderline,
+};
+use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
@@ -14,6 +20,7 @@ use libghostty_vt::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
+use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::extractors::ExtractorWorker;
@@ -30,9 +37,12 @@ pub struct Size<T = u16> {
     pub rows: T,
 }
 
-impl Size {
-    pub fn cell_count(&self) -> u32 {
-        self.columns as u32 * self.rows as u32
+impl ToSchema<bombadil_schema::TerminalSize> for Size {
+    fn to_schema(&self) -> bombadil_schema::TerminalSize {
+        bombadil_schema::TerminalSize {
+            columns: self.columns,
+            rows: self.rows,
+        }
     }
 }
 
@@ -140,20 +150,29 @@ impl TerminalWorkerState {
         let snapshot = render_state.update(&self.terminal)?;
         let mut row_iter = row_iter_state.update(&snapshot)?;
 
-        let mut rows = Vec::with_capacity(self.size.rows as usize);
+        let mut grid = TerminalGrid::with_size(self.size.to_schema());
+        let mut row_index = 0;
         while let Some(row) = row_iter.next() {
             let mut cell_iter = cell_iter_state.update(row)?;
-            let mut line =
-                String::with_capacity(self.size.columns as usize * 2);
+            let mut column_index = 0;
             while let Some(cell) = cell_iter.next() {
                 let graphemes: Vec<char> = cell.graphemes()?;
-                if graphemes.is_empty() {
-                    line.push(' ');
+                let style = style_from_ghostty(&cell.style()?);
+                grid[(row_index, column_index)] = if graphemes.is_empty()
+                    && style == TerminalStyle::default()
+                {
+                    TerminalCell::Empty
                 } else {
-                    line.extend(graphemes);
-                }
+                    let contents: String = graphemes.iter().collect();
+                    TerminalCell::Occupied {
+                        contents: SmallString::from(contents.as_str()),
+                        wide: false,
+                        style,
+                    }
+                };
+                column_index += 1;
             }
-            rows.push(line);
+            row_index += 1;
         }
 
         let scroll_offset = self
@@ -164,9 +183,11 @@ impl TerminalWorkerState {
 
         Ok(TerminalState {
             timestamp: SystemTime::now(),
-            size: self.size,
-            rows,
-            scrollback: Vec::new(),
+            grid,
+            scrollback: TerminalGrid::with_size(TerminalSize {
+                rows: 0,
+                ..self.size.to_schema()
+            }),
             scroll_offset,
             terminated,
             last_action: self.last_action.clone(),
@@ -431,5 +452,65 @@ impl InterfaceDriver for TerminalDriver {
 
     fn state_timestamp(state: &TerminalState) -> SystemTime {
         state.timestamp
+    }
+}
+
+fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
+    let mut result = TerminalStyle::default();
+
+    result.foreground_color = color_from_ghostty(&value.fg_color);
+    result.background_color = color_from_ghostty(&value.bg_color);
+    result.underline_color = color_from_ghostty(&value.underline_color);
+
+    result.underline = match value.underline {
+        ghostty_style::Underline::None => TerminalUnderline::None,
+        ghostty_style::Underline::Single => TerminalUnderline::Single,
+        ghostty_style::Underline::Double => TerminalUnderline::Double,
+        ghostty_style::Underline::Curly => TerminalUnderline::Curly,
+        ghostty_style::Underline::Dotted => TerminalUnderline::Dotted,
+        ghostty_style::Underline::Dashed => TerminalUnderline::Dashed,
+        _ => {
+            log::warn!("got unknown underline type from ghostty");
+            TerminalUnderline::None
+        }
+    };
+
+    result.attributes.set(TerminalAttributes::BOLD, value.bold);
+    result
+        .attributes
+        .set(TerminalAttributes::ITALIC, value.italic);
+    result
+        .attributes
+        .set(TerminalAttributes::BLINK, value.blink);
+    result
+        .attributes
+        .set(TerminalAttributes::INVERSE, value.inverse);
+    result
+        .attributes
+        .set(TerminalAttributes::STRIKETHROUGH, value.strikethrough);
+    result.attributes.set(TerminalAttributes::DIM, value.faint);
+    result
+        .attributes
+        .set(TerminalAttributes::INVISIBLE, value.invisible);
+    result
+        .attributes
+        .set(TerminalAttributes::OVERLINE, value.overline);
+
+    result
+}
+
+fn color_from_ghostty(value: &ghostty_style::StyleColor) -> TerminalColor {
+    match value {
+        ghostty_style::StyleColor::None => TerminalColor::None,
+        ghostty_style::StyleColor::Palette(ghostty_style::PaletteIndex(
+            index,
+        )) => TerminalColor::Palette(*index),
+        ghostty_style::StyleColor::Rgb(ghostty_style::RgbColor { r, g, b }) => {
+            TerminalColor::RGB {
+                r: *r,
+                g: *g,
+                b: *b,
+            }
+        }
     }
 }

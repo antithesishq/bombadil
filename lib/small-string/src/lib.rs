@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+// TODO: make this a type level parameter of SmallString instead of a constant?
 const STRING_INLINE_SIZE_MAX: usize = 4;
 
 /// A string stored inline for small grapheme clusters (most common), and on the
@@ -49,7 +50,7 @@ impl<'de> Deserialize<'de> for SmallString {
 }
 
 impl From<&str> for SmallString {
-    fn from(input: &str) -> SmallString {
+    fn from(input: &str) -> Self {
         let source = input.as_bytes();
         let source_size = source.len();
         if source_size <= STRING_INLINE_SIZE_MAX {
@@ -65,6 +66,12 @@ impl From<&str> for SmallString {
     }
 }
 
+impl From<String> for SmallString {
+    fn from(input: String) -> Self {
+        Self::from(input.as_str())
+    }
+}
+
 impl std::ops::Deref for SmallString {
     type Target = str;
     fn deref(&self) -> &str {
@@ -76,7 +83,7 @@ impl std::ops::Deref for SmallString {
 mod tests {
     use proptest::proptest;
 
-    use crate::small_string::{STRING_INLINE_SIZE_MAX, SmallString};
+    use super::{STRING_INLINE_SIZE_MAX, SmallString};
 
     proptest! {
         #[test]

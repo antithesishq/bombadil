@@ -4,7 +4,7 @@ use anyhow::Result;
 use bombadil::runner::PropertyViolation;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
-use bombadil_schema::{TerminalSize, TerminalStateSummary, Time, TraceEntry};
+use bombadil_schema::{TerminalStateSummary, Time, TraceEntry};
 use serde_json as json;
 use tokio::{fs::File, io::AsyncWriteExt};
 
@@ -53,11 +53,7 @@ impl TraceWriter {
 
 pub fn state_summary_from_state(state: &TerminalState) -> TerminalStateSummary {
     TerminalStateSummary {
-        size: TerminalSize {
-            columns: state.size.columns,
-            rows: state.size.rows,
-        },
-        rows: state.rows.clone(),
+        grid: state.grid.clone(),
         scrollback: state.scrollback.clone(),
         scroll_offset: state.scroll_offset,
         terminated: state.terminated,

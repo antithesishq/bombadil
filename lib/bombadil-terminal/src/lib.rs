@@ -8,6 +8,7 @@ use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
 use bombadil::tree::Tree;
+use bombadil_schema::TerminalCell;
 
 use crate::driver::{TerminalAction, TerminalDriver};
 use crate::state::TerminalState;
@@ -17,7 +18,6 @@ pub mod driver;
 pub mod extractors;
 pub mod pty;
 pub mod render;
-pub mod small_string;
 pub mod state;
 pub mod trace;
 
@@ -81,8 +81,21 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         );
 
         println!();
-        for row in &state.rows {
-            println!("{}", row);
+        for row_index in 0..state.grid.size.rows {
+            for column_index in 0..state.grid.size.columns {
+                match &state.grid[(row_index, column_index)] {
+                    TerminalCell::Occupied {
+                        contents,
+                        wide: _,
+                        style: _,
+                    } => {
+                        print!("{}", contents.as_str());
+                    }
+                    TerminalCell::Continuation => {}
+                    TerminalCell::Empty => print!(" "),
+                }
+            }
+            println!();
         }
         println!();
 

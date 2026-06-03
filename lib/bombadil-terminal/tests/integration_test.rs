@@ -35,7 +35,19 @@ async fn test_eventually_ready() -> Result<()> {
 import { eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
 
-const screen = extract((state) => state.rows.join("\n"));
+function cellToString(cell) {
+    switch (cell) {
+        case "Empty":
+            return " ";
+        case "Continuation":
+            return "";
+        default:
+            return cell.Occupied.contents;
+    }
+}
+
+const screen = extract((state) =>
+    state.grid.rows.flatMap(row => row.map(cellToString)).join("\n"));
 
 export const eventuallyReady = eventually(
     () => screen.current.includes("ready"),

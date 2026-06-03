@@ -235,9 +235,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.11.1"
+version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4512299f36f043ab09a583e57bceb5a5aab7a73db1805848e8fef3c9e8c78b3"
+checksum = "84d7ced0ae9557296835c32bf1b1e02b44c746701f898460fb000d7eaa84f00a"
 
 [[package]]
 name = "block-buffer"
@@ -262,7 +262,7 @@ name = "boa_ast"
 version = "1.0.0-dev"
 source = "git+https://github.com/boa-dev/boa?rev=8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4#8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "boa_interner",
  "boa_macros",
  "boa_string",
@@ -280,7 +280,7 @@ dependencies = [
  "aligned-vec",
  "arrayvec",
  "async-channel",
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "boa_ast",
  "boa_gc",
  "boa_interner",
@@ -372,7 +372,7 @@ name = "boa_parser"
 version = "1.0.0-dev"
 source = "git+https://github.com/boa-dev/boa?rev=8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4#8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "boa_ast",
  "boa_interner",
  "boa_macros",
@@ -515,9 +515,11 @@ dependencies = [
 name = "bombadil-schema"
 version = "0.5.0"
 dependencies = [
+ "bitflags 2.12.1",
  "insta",
  "serde",
  "serde_json",
+ "small-string",
 ]
 
 [[package]]
@@ -536,6 +538,7 @@ dependencies = [
  "rand 0.9.4",
  "serde",
  "serde_json",
+ "small-string",
  "tempfile",
  "tokio",
 ]
@@ -2156,7 +2159,7 @@ name = "libghostty-vt"
 version = "0.1.1"
 source = "git+https://github.com/Uzaaft/libghostty-rs?rev=455c34200da92e4ef9d56650ab5d716ae639f54d#455c34200da92e4ef9d56650ab5d716ae639f54d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "int-enum",
  "libghostty-vt-sys",
 ]
@@ -2298,7 +2301,7 @@ version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab2156c4fce2f8df6c499cc1c763e4394b7482525bf2a9701c9d79d215f519e4"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "cfg-if",
  "cfg_aliases",
  "libc",
@@ -2513,7 +2516,7 @@ version = "0.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcd098e18245c41bb94b79bcd4bc1ae02b00cfb805fe6c345210f369d51359e7"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "oxc_allocator",
  "oxc_ast_macros",
  "oxc_data_structures",
@@ -2555,7 +2558,7 @@ version = "0.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f645e560c9ee5518df28578cad12ebe9d259faf90c40deffca9c64725babbfa0"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "cow-utils",
  "dragonbox_ecma",
  "itoa",
@@ -2642,7 +2645,7 @@ version = "0.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f5a07182628017d9ff227a759ceb848030b8d75d8da907633fa02087580bb92"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "cow-utils",
  "memchr",
  "num-bigint",
@@ -2666,7 +2669,7 @@ version = "0.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acdcbaf3009ca3acca6f9e43047839edfab2fc50a4685f47deedea7d8f6f5eea"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "oxc_allocator",
  "oxc_ast_macros",
  "oxc_diagnostics",
@@ -2770,7 +2773,7 @@ version = "0.125.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc45d59f9d82e49b63430ddf08cf84e127aa48211bab05975ddfa8fef5460fad"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "cow-utils",
  "dragonbox_ecma",
  "nonmax",
@@ -3165,7 +3168,7 @@ checksum = "4b45fcc2344c680f5025fe57779faef368840d0bd1f42f216291f0dc4ace4744"
 dependencies = [
  "bit-set",
  "bit-vec",
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "num-traits",
  "rand 0.9.4",
  "rand_chacha",
@@ -3264,7 +3267,7 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
 ]
 
 [[package]]
@@ -3386,7 +3389,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -3650,6 +3653,15 @@ name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
+
+[[package]]
+name = "small-string"
+version = "0.5.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "small_btree"
@@ -4113,7 +4125,7 @@ version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "bytes",
  "futures-core",
  "futures-util",
@@ -4446,7 +4458,7 @@ version = "0.244.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47b807c72e1bac69382b3a6fb3dbe8ea4c0ed87ff5629b8685ae6b9a611028fe"
 dependencies = [
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "hashbrown 0.15.5",
  "indexmap",
  "semver 1.0.28",
@@ -4720,7 +4732,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d66ea20e9553b30172b5e831994e35fbde2d165325bec84fc43dbf6f4eb9cb2"
 dependencies = [
  "anyhow",
- "bitflags 2.11.1",
+ "bitflags 2.12.1",
  "indexmap",
  "log",
  "serde",

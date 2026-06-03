@@ -1,13 +1,11 @@
 [package]
-name = "bombadil-schema"
+name = "small-string"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-bitflags.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-small-string = { path = "../small-string" }
 
 [dev-dependencies]
-insta.workspace = true
+proptest.workspace = true

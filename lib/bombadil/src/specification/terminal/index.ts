@@ -18,10 +18,23 @@ export type Action =
   | { ScrollUp: object }
   | { ScrollDown: object };
 
-export interface State {
+export interface Grid {
+  rows: GridCell[][];
   size: Size;
-  rows: string[];
-  scrollback: string[];
+}
+
+export type GridCell =
+  | { Occupied: { contents: string, wide: boolean, style: Style } }
+  | "Empty"
+  | "Continuation"
+
+export interface Style {
+  // TODO
+}
+
+export interface State {
+  grid: Grid;
+  scrollback: Grid;
   scrollOffset: number;
   terminated: boolean;
   lastAction: Action | null;
