@@ -20,6 +20,7 @@ use libghostty_vt::{
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
+use unicode_width::UnicodeWidthStr;
 
 use crate::extractors::ExtractorWorker;
 use crate::pty::{PtyOutput, PtyProcess};
@@ -84,20 +85,34 @@ impl TerminalWorkerState {
             let mut column_index = 0;
             while let Some(cell) = cell_iter.next() {
                 let graphemes: Vec<char> = cell.graphemes()?;
+                if graphemes.contains(&'\u{FFFD}') {
+                    eprintln!(
+                        "replacement char at ({}, {}): {:?}",
+                        row_index, column_index, graphemes
+                    );
+                }
+                let contents: String = graphemes.iter().collect();
+                let wide = UnicodeWidthStr::width(contents.as_str()) == 2;
                 let style = style_from_ghostty(&cell.style()?);
                 grid[(row_index, column_index)] = if graphemes.is_empty()
                     && style == TerminalStyle::default()
                 {
                     TerminalCell::Empty
                 } else {
-                    let contents: String = graphemes.iter().collect();
                     TerminalCell::Occupied {
                         contents: SmallString::from(contents.as_str()),
-                        wide: false,
+                        wide,
                         style,
                     }
                 };
                 column_index += 1;
+
+                if wide {
+                    cell_iter.next(); // ignored and handled directly
+                    grid[(row_index, column_index)] =
+                        TerminalCell::Continuation;
+                    column_index += 1;
+                }
             }
             row_index += 1;
         }

@@ -542,6 +542,7 @@ dependencies = [
  "small-string",
  "tempfile",
  "tokio",
+ "unicode-width",
 ]
 
 [[package]]
