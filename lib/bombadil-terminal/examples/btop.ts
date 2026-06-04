@@ -88,6 +88,7 @@ export const typeRandom = weighted([
     return [{ TypeText: { text } }];
   })],
   [20, { TypeText: { text: from(KEYS).generate() } }],
+  [20, { TypeText: { text: "\n" } }],
   [1, actions(() => {
     const line = statusLine.current?.line;
     if (!line) return [];

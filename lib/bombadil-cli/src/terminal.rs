@@ -4,8 +4,8 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
-use bombadil_schema::Time;
-use bombadil_terminal::driver::{Size, TerminalAction, TerminalDriver};
+use bombadil_schema::{TerminalSize, Time};
+use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::trace::{TerminalTraceEntry, TraceWriter};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use tempfile::TempDir;
@@ -107,7 +107,7 @@ pub async fn run(command: Command) {
 
                 let (driver, verifier) = TerminalDriver::launch(
                     specification,
-                    Size { columns, rows },
+                    TerminalSize { columns, rows },
                     scrollback_lines_max as usize,
                     program,
                     args,

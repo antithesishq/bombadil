@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
+use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
-use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::specification::worker::VerifierWorker;
@@ -19,7 +18,6 @@ use libghostty_vt::{
     terminal::ScrollViewport,
 };
 use serde::{Deserialize, Serialize};
-use serde_json as json;
 use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
 
@@ -31,84 +29,13 @@ const QUIESCENCE_IDLE: Duration = Duration::from_millis(1);
 const TERMINAL_WORKER_STACK_SIZE: usize = 4 * 1024 * 1024;
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Size<T = u16> {
-    pub columns: T,
-    pub rows: T,
-}
-
-impl ToSchema<bombadil_schema::TerminalSize> for Size {
-    fn to_schema(&self) -> bombadil_schema::TerminalSize {
-        bombadil_schema::TerminalSize {
-            columns: self.columns,
-            rows: self.rows,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TerminalAction {
-    #[serde(rename_all = "camelCase")]
-    TypeText {
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    PressKey {
-        code: u32,
-    },
-    #[serde(rename_all = "camelCase")]
-    Resize {
-        size: Size,
-    },
+    TypeText { text: String },
+    PressKey { code: u32 },
+    Resize { size: TerminalSize },
     ScrollUp {},
     ScrollDown {},
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum JsAction {
-    #[serde(rename_all = "camelCase")]
-    TypeText {
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    PressKey {
-        code: f64,
-    },
-    #[serde(rename_all = "camelCase")]
-    Resize {
-        size: Size<f64>,
-    },
-    ScrollUp {},
-    ScrollDown {},
-}
-
-impl JsAction {
-    fn into_terminal_action(self) -> Result<TerminalAction> {
-        match self {
-            JsAction::TypeText { text } => {
-                Ok(TerminalAction::TypeText { text })
-            }
-            JsAction::PressKey { code } => {
-                Ok(TerminalAction::PressKey { code: code as u32 })
-            }
-            JsAction::Resize { size } => Ok(TerminalAction::Resize {
-                size: Size {
-                    columns: size.columns as u16,
-                    rows: size.rows as u16,
-                },
-            }),
-
-            JsAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
-            JsAction::ScrollDown {} => Ok(TerminalAction::ScrollDown {}),
-        }
-    }
-}
-
-impl FromGeneratedAction for TerminalAction {
-    fn from_generated(value: json::Value) -> Result<Self> {
-        let js_action: JsAction = json::from_value(value)?;
-        js_action.into_terminal_action()
-    }
 }
 
 enum TerminalCommand {
@@ -131,7 +58,7 @@ struct TerminalWorkerState {
     terminal: Terminal<'static, 'static>,
     process: PtyProcess,
     output: PtyOutput,
-    size: Size,
+    size: TerminalSize,
     last_action: Option<TerminalAction>,
 }
 
@@ -150,7 +77,7 @@ impl TerminalWorkerState {
         let snapshot = render_state.update(&self.terminal)?;
         let mut row_iter = row_iter_state.update(&snapshot)?;
 
-        let mut grid = TerminalGrid::with_size(self.size.to_schema());
+        let mut grid = TerminalGrid::with_size(self.size);
         let mut row_index = 0;
         while let Some(row) = row_iter.next() {
             let mut cell_iter = cell_iter_state.update(row)?;
@@ -186,7 +113,7 @@ impl TerminalWorkerState {
             grid,
             scrollback: TerminalGrid::with_size(TerminalSize {
                 rows: 0,
-                ..self.size.to_schema()
+                ..self.size
             }),
             scroll_offset,
             terminated,
@@ -258,7 +185,7 @@ impl TerminalWorkerState {
 
 // This needs to be single-threaded (but async) due to !Send resources.
 fn run_terminal_worker(
-    size: Size,
+    size: TerminalSize,
     scrollback_lines_max: usize,
     program: String,
     args: Vec<String>,
@@ -343,7 +270,7 @@ pub struct TerminalDriver {
 impl TerminalDriver {
     pub async fn launch(
         specification: Specification,
-        size: Size,
+        size: TerminalSize,
         scrollback_lines_max: usize,
         program: &str,
         arguments: &[String],

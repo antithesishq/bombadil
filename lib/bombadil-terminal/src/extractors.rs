@@ -6,12 +6,12 @@ use boa_engine::{
     context::ContextBuilder, js_string,
 };
 use bombadil::specification::domain::Snapshot;
-use bombadil_schema::{TerminalCell, TerminalGrid, TerminalSize, Time};
-use serde::{Deserialize, Serialize};
+use bombadil_schema::Time;
+use serde::Deserialize;
 use serde_json as json;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{driver::TerminalAction, state::TerminalState};
+use crate::{js::JsTerminalState, state::TerminalState};
 
 const EXTRACTOR_STACK_SIZE: usize = 16 * 1024 * 1024;
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
@@ -248,51 +248,4 @@ fn format_console_args(args: &[JsValue]) -> String {
 
 fn from_js_error(error: JsError) -> anyhow::Error {
     anyhow!("{}", error)
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsTerminalState {
-    pub grid: JsTerminalGrid,
-    pub scrollback: JsTerminalGrid,
-    pub scroll_offset: u32,
-    pub terminated: bool,
-    pub last_action: Option<TerminalAction>,
-}
-
-impl From<TerminalState> for JsTerminalState {
-    fn from(value: TerminalState) -> Self {
-        JsTerminalState {
-            grid: value.grid.into(),
-            scrollback: value.scrollback.into(),
-            scroll_offset: value.scroll_offset,
-            terminated: value.terminated,
-            last_action: value.last_action,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsTerminalGrid {
-    rows: Vec<Vec<TerminalCell>>,
-    size: TerminalSize,
-}
-
-impl From<TerminalGrid> for JsTerminalGrid {
-    fn from(value: TerminalGrid) -> Self {
-        let mut rows = Vec::with_capacity(value.size.rows as usize);
-        for row_index in 0..value.size.rows {
-            let mut row = Vec::with_capacity(value.size.columns as usize);
-            for column_index in 0..value.size.columns {
-                row.push(value[(row_index, column_index)].clone())
-            }
-            rows.push(row);
-        }
-
-        JsTerminalGrid {
-            rows,
-            size: value.size,
-        }
-    }
 }

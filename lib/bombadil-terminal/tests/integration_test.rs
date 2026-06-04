@@ -7,7 +7,8 @@ use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy, Runner};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
-use bombadil_terminal::driver::{Size, TerminalAction, TerminalDriver};
+use bombadil_schema::TerminalSize;
+use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::state::TerminalState;
 use tempfile::NamedTempFile;
 
@@ -63,7 +64,7 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
         module_specifier: specification_file.path().display().to_string(),
     };
 
-    let size = Size {
+    let size = TerminalSize {
         columns: 80,
         rows: 24,
     };

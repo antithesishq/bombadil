@@ -6,9 +6,7 @@ use serde::Serialize;
 use crate::driver::TerminalAction;
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TerminalState {
-    #[serde(skip)]
     pub timestamp: SystemTime,
     pub grid: TerminalGrid,
     pub scrollback: TerminalGrid,

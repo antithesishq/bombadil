@@ -4,13 +4,12 @@ use std::{
 };
 
 use anyhow::Result;
+use bombadil_schema::TerminalSize;
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
 };
 use tokio::sync::mpsc::channel;
-
-use crate::driver::Size;
 
 pub struct PtyProcess {
     child: Box<dyn Child + Send + Sync>,
@@ -21,7 +20,7 @@ pub struct PtyProcess {
 
 impl PtyProcess {
     pub async fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
-        size: Size,
+        size: TerminalSize,
         command: &str,
         args: I,
     ) -> Result<(Self, PtyOutput)> {
@@ -84,7 +83,7 @@ impl PtyProcess {
         }
     }
 
-    pub fn resize(&mut self, size: Size) -> Result<()> {
+    pub fn resize(&mut self, size: TerminalSize) -> Result<()> {
         self.master.resize(PtySize {
             cols: size.columns,
             rows: size.rows,
