@@ -27,7 +27,7 @@ use tokio::{select, spawn};
 use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
-use crate::browser::actions::BrowserAction;
+use crate::browser::actions::{ActionOptions, BrowserAction};
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
@@ -160,6 +160,7 @@ struct BrowserContext {
     latest_frame: Arc<Mutex<Option<Arc<[u8]>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
+    browser_options: BrowserOptions,
 }
 
 #[derive(Clone)]
@@ -383,6 +384,7 @@ impl Browser {
             screencast_activity,
             latest_frame,
             origin: origin.clone(),
+            browser_options: browser_options.clone(),
         };
 
         instrumentation::instrument_js_coverage(
@@ -964,6 +966,12 @@ async fn process_event(
         ) => {
             let page = context.page.clone();
             let sender = context.inner_events_sender.clone();
+            let action_options = ActionOptions {
+                device_scale_factor: context
+                    .browser_options
+                    .emulation
+                    .device_scale_factor,
+            };
             // We can't block on running the action, in case it
             // synchronously throws an uncaught exception blocking the
             // evaluation indefinitely. This gives us a chance to
@@ -971,7 +979,7 @@ async fn process_event(
             // (extracting the uncaught exception information).
             spawn(async move {
                 log::debug!("applying: {:?}", browser_action);
-                match browser_action.apply(&page).await {
+                match browser_action.apply(&page, action_options).await {
                     Ok(_) => {
                         log::debug!("applied: {:?}", browser_action);
                     }

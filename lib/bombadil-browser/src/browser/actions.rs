@@ -12,6 +12,11 @@ use crate::geometry::Point;
 use crate::js_action::JsAction;
 use bombadil_browser_keys::key_name;
 
+#[derive(Clone, Copy, Debug)]
+pub struct ActionOptions {
+    pub device_scale_factor: f64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum BrowserAction {
     Back,
@@ -68,7 +73,11 @@ impl FromGeneratedAction for BrowserAction {
 }
 
 impl BrowserAction {
-    pub async fn apply(&self, page: &Page) -> Result<()> {
+    pub async fn apply(
+        &self,
+        page: &Page,
+        options: ActionOptions,
+    ) -> Result<()> {
         match self {
             BrowserAction::Back => {
                 let history =
@@ -253,15 +262,11 @@ impl BrowserAction {
                 .await?;
             }
             BrowserAction::SetViewport { width, height } => {
-                // device_scale_factor is hardcoded to 1.0 here: the launch-time
-                // value isn't reachable from apply()'s &Page-only signature,
-                // and spec authors fuzzing viewports rarely also want to vary
-                // DPR. Add a separate action if that need arises.
                 page.execute(
                     emulation::SetDeviceMetricsOverrideParams::builder()
                         .width(u32::from(*width))
                         .height(u32::from(*height))
-                        .device_scale_factor(1.0)
+                        .device_scale_factor(options.device_scale_factor)
                         .mobile(false)
                         .scale(1)
                         .build()
