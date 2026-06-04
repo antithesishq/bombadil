@@ -38,7 +38,7 @@ impl PtyProcess {
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
-        let (output_write, output_read) = channel::<String>(64);
+        let (output_write, output_read) = channel::<Vec<u8>>(64);
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -52,8 +52,7 @@ impl PtyProcess {
                     match reader.read(&mut buffer) {
                         Ok(0) => break,
                         Ok(n) => {
-                            let chunk =
-                                String::from_utf8_lossy(&buffer[..n]).into();
+                            let chunk = buffer[..n].to_vec();
                             if output_write.blocking_send(chunk).is_err() {
                                 break;
                             }
@@ -111,15 +110,15 @@ impl PtyProcess {
 }
 
 pub struct PtyOutput {
-    output_read: tokio::sync::mpsc::Receiver<String>,
+    output_read: tokio::sync::mpsc::Receiver<Vec<u8>>,
 }
 
 impl PtyOutput {
-    pub async fn read(&mut self) -> Result<Option<String>> {
+    pub async fn read(&mut self) -> Result<Option<Vec<u8>>> {
         Ok(self.output_read.recv().await)
     }
 
-    pub fn try_read(&mut self) -> Option<String> {
+    pub fn try_read(&mut self) -> Option<Vec<u8>> {
         self.output_read.try_recv().ok()
     }
 }

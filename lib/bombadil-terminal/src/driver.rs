@@ -66,7 +66,7 @@ struct TerminalWorkerState {
 impl TerminalWorkerState {
     fn drain_output(&mut self) {
         while let Some(data) = self.output.try_read() {
-            self.terminal.vt_write(&data.into_bytes());
+            self.terminal.vt_write(&data);
         }
     }
 
@@ -143,7 +143,7 @@ impl TerminalWorkerState {
                 .await
             {
                 Ok(Ok(Some(data))) => {
-                    self.terminal.vt_write(&data.into_bytes());
+                    self.terminal.vt_write(&data);
                     self.drain_output();
                 }
                 Ok(Ok(None)) => {
