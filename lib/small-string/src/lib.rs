@@ -1,33 +1,46 @@
+use std::fmt::Write;
+
 use serde::{Deserialize, Serialize};
 
 // TODO: make this a type level parameter of SmallString instead of a constant?
-const STRING_INLINE_SIZE_MAX: usize = 4;
+const STRING_INLINE_CHARS_COUNT_MAX: usize = 4;
 
 /// A string stored inline for small grapheme clusters (most common), and on the
 /// heap for larger clusters.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum SmallString {
     Inline {
-        buffer: [u8; STRING_INLINE_SIZE_MAX],
+        buffer: [char; STRING_INLINE_CHARS_COUNT_MAX],
         size: u8,
     },
-    Heap(Box<str>),
+    Heap(Vec<char>),
 }
 
 impl SmallString {
-    pub fn as_str(&self) -> &str {
-        match self {
-            SmallString::Inline { buffer, size } => {
-                std::str::from_utf8(&buffer[..*size as usize]).unwrap()
+    pub fn null_with_size(size: usize) -> Self {
+        if size <= STRING_INLINE_CHARS_COUNT_MAX {
+            SmallString::Inline {
+                buffer: ['\0'; STRING_INLINE_CHARS_COUNT_MAX],
+                size: size as u8,
             }
-            SmallString::Heap(string) => string,
+        } else {
+            SmallString::Heap(vec!['\0'; size])
         }
     }
 }
 
 impl std::fmt::Debug for SmallString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.as_str().fmt(f)
+        std::fmt::Display::fmt(self, f)
+    }
+}
+
+impl std::fmt::Display for SmallString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for c in self.iter() {
+            f.write_char(*c)?;
+        }
+        Ok(())
     }
 }
 
@@ -36,7 +49,7 @@ impl Serialize for SmallString {
     where
         S: serde::Serializer,
     {
-        self.as_str().serialize(serializer)
+        self.to_string().serialize(serializer)
     }
 }
 
@@ -45,37 +58,53 @@ impl<'de> Deserialize<'de> for SmallString {
     where
         D: serde::Deserializer<'de>,
     {
-        Ok(SmallString::from(<&str>::deserialize(deserializer)?))
+        let chars = <Vec<char>>::deserialize(deserializer)?;
+        Ok(SmallString::from(chars.as_slice()))
     }
 }
 
-impl From<&str> for SmallString {
-    fn from(input: &str) -> Self {
-        let source = input.as_bytes();
-        let source_size = source.len();
-        if source_size <= STRING_INLINE_SIZE_MAX {
-            let mut buffer = [0; STRING_INLINE_SIZE_MAX];
-            buffer[..source_size].copy_from_slice(source);
+impl From<&[char]> for SmallString {
+    fn from(input: &[char]) -> Self {
+        let source_size = input.len();
+        if source_size <= STRING_INLINE_CHARS_COUNT_MAX {
+            let mut buffer = ['\0'; STRING_INLINE_CHARS_COUNT_MAX];
+            for (i, char) in input.iter().enumerate() {
+                buffer[i] = *char;
+            }
             SmallString::Inline {
                 buffer,
                 size: source_size as u8,
             }
         } else {
-            SmallString::Heap(input.into())
+            SmallString::Heap(input.to_vec())
         }
     }
 }
 
-impl From<String> for SmallString {
-    fn from(input: String) -> Self {
-        Self::from(input.as_str())
+// impl From<String> for SmallString {
+//     fn from(input: String) -> Self {
+//         Self::from(input.as_str())
+//     }
+// }
+
+impl std::ops::Deref for SmallString {
+    type Target = [char];
+    fn deref(&self) -> &[char] {
+        match self {
+            SmallString::Inline { buffer, size } => &buffer[..*size as usize],
+            SmallString::Heap(chars) => chars,
+        }
     }
 }
 
-impl std::ops::Deref for SmallString {
-    type Target = str;
-    fn deref(&self) -> &str {
-        self.as_str()
+impl std::ops::DerefMut for SmallString {
+    fn deref_mut(&mut self) -> &mut [char] {
+        match self {
+            SmallString::Inline { buffer, size } => {
+                &mut buffer[..*size as usize]
+            }
+            SmallString::Heap(chars) => chars,
+        }
     }
 }
 
@@ -83,21 +112,23 @@ impl std::ops::Deref for SmallString {
 mod tests {
     use proptest::proptest;
 
-    use super::{STRING_INLINE_SIZE_MAX, SmallString};
+    use super::{STRING_INLINE_CHARS_COUNT_MAX, SmallString};
 
     proptest! {
         #[test]
         fn test_string_roundtrip(input in ".*") {
-            let small = SmallString::from(input.as_str());
-            assert_eq!(small.as_str(), input.as_str());
+            let chars: Vec<char> = input.chars().collect();
+            let small = SmallString::from(chars.as_slice());
+            assert_eq!(&*small, &chars);
         }
 
         #[test]
         fn test_inline_vs_heap(input in ".*") {
-            let small = SmallString::from(input.as_str());
+            let chars: Vec<char> = input.chars().collect();
+            let small = SmallString::from(chars.as_slice());
             match &small {
-                SmallString::Inline { size, .. } => assert!(input.len() <= STRING_INLINE_SIZE_MAX, "should be heap: len={}", *size),
-                SmallString::Heap(_) => assert!(input.len() > STRING_INLINE_SIZE_MAX),
+                SmallString::Inline { size, .. } => assert!(input.len() <= STRING_INLINE_CHARS_COUNT_MAX, "should be heap: len={}", *size),
+                SmallString::Heap(_) => assert!(input.len() > STRING_INLINE_CHARS_COUNT_MAX),
             }
         }
     }

@@ -20,7 +20,7 @@ use libghostty_vt::{
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthChar;
 
 use crate::extractors::ExtractorWorker;
 use crate::pty::{PtyOutput, PtyProcess};
@@ -84,23 +84,29 @@ impl TerminalWorkerState {
             let mut cell_iter = cell_iter_state.update(row)?;
             let mut column_index = 0;
             while let Some(cell) = cell_iter.next() {
-                let graphemes: Vec<char> = cell.graphemes()?;
-                if graphemes.contains(&'\u{FFFD}') {
+                let mut contents =
+                    SmallString::null_with_size(cell.graphemes_len()?);
+                cell.graphemes_buf(&mut contents[0..cell.graphemes_len()?])?;
+                if contents.contains(&'\u{FFFD}') {
                     eprintln!(
                         "replacement char at ({}, {}): {:?}",
-                        row_index, column_index, graphemes
+                        row_index, column_index, contents
                     );
                 }
-                let contents: String = graphemes.iter().collect();
-                let wide = UnicodeWidthStr::width(contents.as_str()) == 2;
+                let wide = contents
+                    .iter()
+                    .map(|c| c.width().unwrap_or(0))
+                    .sum::<usize>()
+                    == 2usize;
+
                 let style = style_from_ghostty(&cell.style()?);
-                grid[(row_index, column_index)] = if graphemes.is_empty()
+                grid[(row_index, column_index)] = if contents.is_empty()
                     && style == TerminalStyle::default()
                 {
                     TerminalCell::Empty
                 } else {
                     TerminalCell::Occupied {
-                        contents: SmallString::from(contents.as_str()),
+                        contents,
                         wide,
                         style,
                     }

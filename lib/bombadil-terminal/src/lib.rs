@@ -101,13 +101,15 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
                             style,
                         } => {
                             let style: owo_colors::Style = to_owo_style(style);
-                            let padded = if contents.is_empty() {
-                                " "
+                            if contents.is_empty() {
+                                write!(buffer, "{}", " ".style(style))?;
                             } else {
-                                contents.as_str()
+                                write!(
+                                    buffer,
+                                    "{}",
+                                    format!("{}", contents).style(style)
+                                )?;
                             };
-
-                            write!(buffer, "{}", padded.style(style))?;
                         }
                         TerminalCell::Continuation => {}
                         TerminalCell::Empty => {
