@@ -530,6 +530,7 @@ dependencies = [
  "boa_engine",
  "bombadil",
  "bombadil-schema",
+ "bytes",
  "env_logger",
  "libghostty-vt",
  "log",
