@@ -81,29 +81,43 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
+        use std::fmt::Write;
+        let mut buffer =
+            String::with_capacity(state.grid.size.cell_count() as usize * 4);
+        write!(buffer, "\x1b[2J\x1b[H")?;
+
         let test_start = *self.test_start.get_or_insert(
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
 
-        print!("\x1b[2J\x1b[H");
-        for row_index in 0..state.grid.size.rows {
-            for column_index in 0..state.grid.size.columns {
-                match &state.grid[(row_index, column_index)] {
-                    TerminalCell::Occupied {
-                        contents,
-                        wide: _,
-                        style,
-                    } => {
-                        let style: owo_colors::Style = to_owo_style(style);
-                        print!("{}", contents.as_str().style(style));
-                    }
-                    TerminalCell::Continuation => {}
-                    TerminalCell::Empty => print!(" "),
+        // Render currently visible grid
+        {
+            for row_index in 0..state.grid.size.rows {
+                for column_index in 0..state.grid.size.columns {
+                    match &state.grid[(row_index, column_index)] {
+                        TerminalCell::Occupied {
+                            contents,
+                            wide: _,
+                            style,
+                        } => {
+                            let style: owo_colors::Style = to_owo_style(style);
+                            let padded = if contents.is_empty() {
+                                " "
+                            } else {
+                                contents.as_str()
+                            };
+
+                            write!(buffer, "{}", padded.style(style))?;
+                        }
+                        TerminalCell::Continuation => {}
+                        TerminalCell::Empty => {
+                            write!(buffer, " ")?;
+                        }
+                    };
                 }
+                writeln!(buffer)?;
             }
-            println!();
         }
-        println!();
 
         self.violations_count += properties.violations.len() as u64;
         for violation in properties.violations {
@@ -152,11 +166,14 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         }
 
         let action = self.pick_action(tree).await?;
-        print!(
+        writeln!(
+            buffer,
             "{} {}",
             format_timestamp(state.timestamp, test_start),
             render::format_action(&action),
-        );
+        )?;
+
+        print!("{}", buffer);
         std::io::stdout().flush()?;
 
         Ok(ControlFlow::Continue(action))
