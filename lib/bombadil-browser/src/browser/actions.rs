@@ -55,8 +55,8 @@ pub enum BrowserAction {
         delay_millis: u64,
     },
     SetViewport {
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
     },
 }
 
@@ -259,8 +259,8 @@ impl BrowserAction {
                 // DPR. Add a separate action if that need arises.
                 page.execute(
                     emulation::SetDeviceMetricsOverrideParams::builder()
-                        .width(*width)
-                        .height(*height)
+                        .width(u32::from(*width))
+                        .height(u32::from(*height))
                         .device_scale_factor(1.0)
                         .mobile(false)
                         .scale(1)

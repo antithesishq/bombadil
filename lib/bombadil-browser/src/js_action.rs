@@ -186,8 +186,8 @@ impl JsAction {
                     }
                 }
                 BrowserAction::SetViewport {
-                    width: width as u32,
-                    height: height as u32,
+                    width: width as u16,
+                    height: height as u16,
                 }
             }
         })

@@ -143,8 +143,8 @@ pub enum BrowserAction {
         delay_millis: u64,
     },
     SetViewport {
-        width: u32,
-        height: u32,
+        width: u16,
+        height: u16,
     },
 }
 
