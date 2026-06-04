@@ -398,23 +398,23 @@ impl InterfaceDriver for TerminalDriver {
 }
 
 fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
-    let mut result = TerminalStyle::default();
-
-    result.foreground_color = color_from_ghostty(&value.fg_color);
-    result.background_color = color_from_ghostty(&value.bg_color);
-    result.underline_color = color_from_ghostty(&value.underline_color);
-
-    result.underline = match value.underline {
-        ghostty_style::Underline::None => TerminalUnderline::None,
-        ghostty_style::Underline::Single => TerminalUnderline::Single,
-        ghostty_style::Underline::Double => TerminalUnderline::Double,
-        ghostty_style::Underline::Curly => TerminalUnderline::Curly,
-        ghostty_style::Underline::Dotted => TerminalUnderline::Dotted,
-        ghostty_style::Underline::Dashed => TerminalUnderline::Dashed,
-        _ => {
-            log::warn!("got unknown underline type from ghostty");
-            TerminalUnderline::None
-        }
+    let mut result = TerminalStyle {
+        foreground_color: color_from_ghostty(&value.fg_color),
+        background_color: color_from_ghostty(&value.bg_color),
+        underline_color: color_from_ghostty(&value.underline_color),
+        underline: match value.underline {
+            ghostty_style::Underline::None => TerminalUnderline::None,
+            ghostty_style::Underline::Single => TerminalUnderline::Single,
+            ghostty_style::Underline::Double => TerminalUnderline::Double,
+            ghostty_style::Underline::Curly => TerminalUnderline::Curly,
+            ghostty_style::Underline::Dotted => TerminalUnderline::Dotted,
+            ghostty_style::Underline::Dashed => TerminalUnderline::Dashed,
+            _ => {
+                log::warn!("got unknown underline type from ghostty");
+                TerminalUnderline::None
+            }
+        },
+        ..TerminalStyle::default()
     };
 
     result.attributes.set(TerminalAttributes::BOLD, value.bold);

@@ -199,8 +199,7 @@ impl Index<(u16, u16)> for TerminalGrid {
             self.size.rows,
             self.size.columns
         );
-        &self
-            .cells
+        self.cells
             .get((row * self.size.columns + column) as usize)
             .expect("grid index out of bounds")
     }
@@ -218,11 +217,13 @@ impl IndexMut<(u16, u16)> for TerminalGrid {
         );
         self.cells
             .get_mut((row * self.size.columns + column) as usize)
-            .expect(&format!(
-                "grid index {:?} out of bounds [0, {})",
-                (row, column),
-                self.size.cell_count()
-            ))
+            .unwrap_or_else(|| {
+                panic!(
+                    "grid index {:?} out of bounds [0, {})",
+                    (row, column),
+                    self.size.cell_count()
+                )
+            })
     }
 }
 
