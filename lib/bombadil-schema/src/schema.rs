@@ -139,7 +139,7 @@ pub enum BrowserAction {
     MouseDrag {
         from: Point,
         to: Point,
-        steps: u32,
+        steps: u8,
         delay_millis: u64,
     },
     SetViewport {

@@ -145,11 +145,11 @@ impl JsAction {
                 delay_millis,
             } => {
                 if !steps.is_finite()
-                    || !(1.0..=10_000.0).contains(&steps)
+                    || !(1.0..=255.0).contains(&steps)
                     || steps.fract() != 0.0
                 {
                     bail!(
-                        "steps must be an integer between 1 and 10000, got {}",
+                        "steps must be an integer between 1 and 255, got {}",
                         steps
                     );
                 }
@@ -168,7 +168,7 @@ impl JsAction {
                 BrowserAction::MouseDrag {
                     from,
                     to,
-                    steps: steps as u32,
+                    steps: steps as u8,
                     delay_millis: delay_millis as u64,
                 }
             }
@@ -302,7 +302,7 @@ mod tests {
         };
 
         assert!(make(0.0).into_browser_action().is_err());
-        assert!(make(10_001.0).into_browser_action().is_err());
+        assert!(make(256.0).into_browser_action().is_err());
         assert!(make(1.5).into_browser_action().is_err());
         assert!(make(f64::NAN).into_browser_action().is_err());
     }

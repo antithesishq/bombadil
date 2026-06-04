@@ -51,7 +51,7 @@ pub enum BrowserAction {
     MouseDrag {
         from: Point,
         to: Point,
-        steps: u32,
+        steps: u8,
         delay_millis: u64,
     },
     SetViewport {
@@ -230,10 +230,10 @@ impl BrowserAction {
                 let delay = Duration::from_millis(*delay_millis);
                 let steps = (*steps).max(1);
                 for step in 1..=steps {
-                    let t = step as f64 / steps as f64;
+                    let progress = step as f64 / steps as f64;
                     let point = Point {
-                        x: from.x + (to.x - from.x) * t,
-                        y: from.y + (to.y - from.y) * t,
+                        x: from.x + (to.x - from.x) * progress,
+                        y: from.y + (to.y - from.y) * progress,
                     };
                     if !delay.is_zero() {
                         sleep(delay).await;
