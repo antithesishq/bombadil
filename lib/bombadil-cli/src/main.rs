@@ -30,9 +30,8 @@ enum Command {
     },
 }
 
-#[tokio::main]
 #[hotpath::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     let env = env_logger::Env::default().default_filter_or("warn");
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
@@ -43,9 +42,15 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match cli.command {
-        Command::Browser { command } => browser::run(command).await,
+        // The browser path is async (CDP control, inspect server). The terminal
+        // path is fully synchronous and its driver blocks on channels, which
+        // panics inside a Tokio runtime — so we scope the runtime to the browser
+        // subcommand rather than wrapping all of `main`.
+        Command::Browser { command } => {
+            tokio::runtime::Runtime::new()?.block_on(browser::run(command))
+        }
         Command::Terminal { command } => {
-            terminal::run(command).await;
+            terminal::run(command);
             Ok(())
         }
     }

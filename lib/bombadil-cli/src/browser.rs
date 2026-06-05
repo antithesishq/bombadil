@@ -363,14 +363,6 @@ async fn browser_test(
 
     let is_reproduce = shared_options.reproduce.is_some();
 
-    let runner = bombadil_browser::runner::launch(
-        shared_options.origin.url.clone(),
-        specification,
-        browser_options,
-        debugger_options,
-    )
-    .await?;
-
     if let Some(duration) = shared_options.time_limit {
         log::info!(
             "test time limit set to {}",
@@ -379,19 +371,35 @@ async fn browser_test(
     }
 
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
+    let origin = shared_options.origin.url;
+    let exit_on_violation = shared_options.exit_on_violation;
+    let strategy_output_path = output_path.clone();
 
-    let mut strategy = TestStrategy {
-        mode,
-        writer: FileTraceWriter::initialize(output_path.clone()).await?,
-        exit_on_violation: shared_options.exit_on_violation,
-        test_start: None,
-        deadline,
-        output_path: output_path.clone(),
-        violations_count: 0,
-        origin: shared_options.origin.url,
-    };
+    // The driver and runner are synchronous (the browser runs on its own
+    // worker thread/runtime), so run them on a blocking thread to avoid
+    // blocking the async runtime.
+    let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
+        let runner = bombadil_browser::runner::launch(
+            origin.clone(),
+            specification,
+            browser_options,
+            debugger_options,
+        )?;
 
-    let test_result = runner.run(&mut strategy).await?;
+        let mut strategy = TestStrategy {
+            mode,
+            writer: FileTraceWriter::initialize(strategy_output_path.clone())?,
+            exit_on_violation,
+            test_start: None,
+            deadline,
+            output_path: strategy_output_path,
+            violations_count: 0,
+            origin,
+        };
+
+        runner.run(&mut strategy)
+    })
+    .await??;
 
     let heading = if let Some(TestResult {
         exit_reason,
@@ -431,7 +439,7 @@ async fn browser_test(
         styled::maybe_bold("Test finished!".to_string())
     };
 
-    let output_display = strategy.output_path.display();
+    let output_display = output_path.display();
     let inspect_command = styled::maybe_italic(format!(
         "bombadil browser inspect {output_display}"
     ));

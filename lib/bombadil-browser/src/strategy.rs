@@ -28,7 +28,7 @@ pub trait TraceWriter {
         last_action: Option<&BrowserAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
-    ) -> impl std::future::Future<Output = Result<()>> + Send;
+    ) -> Result<()>;
 }
 
 pub struct TestStrategy<Writer: TraceWriter> {
@@ -58,7 +58,7 @@ pub struct TestResult {
 }
 
 impl<Writer: TraceWriter> TestStrategy<Writer> {
-    async fn pick_action(
+    fn pick_action(
         &mut self,
         state: &BrowserState,
         tree: Tree<BrowserAction>,
@@ -120,7 +120,7 @@ impl<Writer: TraceWriter> TestStrategy<Writer> {
 impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
     type StopValue = TestResult;
 
-    async fn on_new_state(
+    fn on_new_state(
         &mut self,
         state: &BrowserState,
         tree: Tree<BrowserAction>,
@@ -148,9 +148,12 @@ impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
             );
         }
 
-        self.writer
-            .write(state, last_action, snapshots, properties.violations)
-            .await?;
+        self.writer.write(
+            state,
+            last_action,
+            snapshots,
+            properties.violations,
+        )?;
 
         if self.violations_count > 0 && self.exit_on_violation {
             return Ok(ControlFlow::Stop(TestResult {
@@ -186,7 +189,7 @@ impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
             }));
         }
 
-        let action = self.pick_action(state, tree).await?;
+        let action = self.pick_action(state, tree)?;
         println!(
             "{} {}",
             format_timestamp(state.timestamp, test_start),
@@ -196,7 +199,7 @@ impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
         Ok(ControlFlow::Continue(action))
     }
 
-    async fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
+    fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
         Ok(TestResult {
             exit_reason: ExitReason::Interrupted,
             violations_count: self.violations_count,

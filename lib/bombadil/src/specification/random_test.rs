@@ -41,9 +41,7 @@ fn load_random_module(
         )
         .map_err(|e| e.to_string())?;
 
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    let bundle_code = rt
-        .block_on(bundle(".", "@antithesishq/bombadil/random"))
+    let bundle_code = bundle(".", "@antithesishq/bombadil/random")
         .map_err(|e| e.to_string())?;
 
     let specification_exports_value = context

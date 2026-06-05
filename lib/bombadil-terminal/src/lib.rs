@@ -42,7 +42,7 @@ pub struct TerminalStrategy {
 }
 
 impl TerminalStrategy {
-    async fn pick_action(
+    fn pick_action(
         &mut self,
         tree: Tree<TerminalAction>,
     ) -> Result<TerminalAction> {
@@ -75,7 +75,7 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
     type StopValue = ExitReason;
 
     #[hotpath::measure]
-    async fn on_new_state(
+    fn on_new_state(
         &mut self,
         state: &TerminalState,
         tree: Tree<TerminalAction>,
@@ -144,9 +144,12 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         }
 
         if let Some(writer) = self.writer.as_mut() {
-            writer
-                .write(state, last_action, snapshots, properties.violations)
-                .await?;
+            writer.write(
+                state,
+                last_action,
+                snapshots,
+                properties.violations,
+            )?;
         }
 
         if self.violations_count > 0 && self.exit_on_violation {
@@ -172,7 +175,7 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
             return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
         }
 
-        let action = self.pick_action(tree).await?;
+        let action = self.pick_action(tree)?;
         writeln!(
             buffer,
             "{} {}",
@@ -186,7 +189,7 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         Ok(ControlFlow::Continue(action))
     }
 
-    async fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+    fn on_interrupted(&mut self) -> Result<Self::StopValue> {
         Ok(ExitReason::Interrupted)
     }
 }

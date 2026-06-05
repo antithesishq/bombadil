@@ -71,29 +71,35 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
     let program = "sh";
     let args = vec!["-c".to_string(), "printf 'ready\\n'".to_string()];
 
-    let (driver, verifier) = TerminalDriver::launch(
-        specification,
-        size,
-        MAX_SCROLLBACK,
-        program,
-        &args,
-    )
-    .await?;
+    // The driver and runner are synchronous and block on channels, which
+    // panics inside a Tokio runtime, so run them on a blocking thread. The
+    // timeout around the join handle is an infrastructure safety net.
+    let run_handle = tokio::task::spawn_blocking(move || -> Result<u64> {
+        let (driver, verifier) = TerminalDriver::launch(
+            specification,
+            size,
+            MAX_SCROLLBACK,
+            program,
+            &args,
+        )?;
+        let runner = Runner::new(driver, verifier);
+        let mut strategy = IntegrationTestStrategy::default();
+        runner.run(&mut strategy)?;
+        Ok(strategy.violations_count)
+    });
 
-    let runner = Runner::new(driver, verifier);
-    let mut strategy = IntegrationTestStrategy::default();
-
-    let result = tokio::time::timeout(TEST_TIMEOUT, runner.run(&mut strategy))
+    let violations_count = tokio::time::timeout(TEST_TIMEOUT, run_handle)
         .await
         .map_err(|_| {
-            anyhow!("terminal integration test test hung past {TEST_TIMEOUT:?}")
-        })?;
-    result?;
+            anyhow!("terminal integration test hung past {TEST_TIMEOUT:?}")
+        })?
+        .map_err(|join_error| {
+            anyhow!("runner task panicked: {join_error}")
+        })??;
 
     assert_eq!(
-        strategy.violations_count, 0,
-        "expected zero violations, got {}",
-        strategy.violations_count
+        violations_count, 0,
+        "expected zero violations, got {violations_count}"
     );
     Ok(())
 }
@@ -106,7 +112,7 @@ struct IntegrationTestStrategy {
 impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
     type StopValue = ();
 
-    async fn on_new_state(
+    fn on_new_state(
         &mut self,
         state: &TerminalState,
         tree: Tree<TerminalAction>,
@@ -124,7 +130,7 @@ impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
         Ok(ControlFlow::Continue(tree.pick(&mut rand::rng())?.clone()))
     }
 
-    async fn on_interrupted(&mut self) -> Result<()> {
+    fn on_interrupted(&mut self) -> Result<()> {
         Ok(())
     }
 }

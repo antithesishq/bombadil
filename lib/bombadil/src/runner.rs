@@ -3,13 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use bombadil_schema::Time;
 use serde::Serialize;
-use tokio::select;
-use tokio::signal::ctrl_c;
 
 use crate::driver::{DriverEvent, InterfaceDriver};
 use crate::specification::convert::ToSchema;
 use crate::specification::domain::Snapshot;
-use crate::specification::worker::{PropertyValue, VerifierWorker};
+use crate::specification::verifier::Verifier;
+use crate::specification::worker::PropertyValue;
 use crate::tree::Tree;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,72 +47,52 @@ pub trait RunStrategy<D: InterfaceDriver> {
         last_action: Option<&D::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
-    ) -> impl std::future::Future<
-        Output = Result<ControlFlow<Self::StopValue, D::Action>>,
-    >;
+    ) -> Result<ControlFlow<Self::StopValue, D::Action>>;
 
-    fn on_interrupted(
-        &mut self,
-    ) -> impl std::future::Future<Output = Result<Self::StopValue>>;
+    fn on_interrupted(&mut self) -> Result<Self::StopValue>;
 }
 
 pub struct Runner<D: InterfaceDriver> {
     driver: D,
-    verifier: Arc<VerifierWorker>,
+    verifier: Verifier,
 }
 
 impl<D: InterfaceDriver> Runner<D> {
-    pub fn new(driver: D, verifier: Arc<VerifierWorker>) -> Self {
+    pub fn new(driver: D, verifier: Verifier) -> Self {
         Self { driver, verifier }
     }
 
-    pub async fn run<S: RunStrategy<D>>(
+    pub fn run<S: RunStrategy<D>>(
         mut self,
         strategy: &mut S,
     ) -> Result<Option<S::StopValue>> {
         log::info!("starting test");
-        self.driver.initiate().await?;
+        self.driver.initiate()?;
         log::debug!("driver initiated");
 
-        let result =
-            Box::pin(Self::run_test(&mut self.driver, self.verifier, strategy))
-                .await;
+        let result = Self::run_test(&mut self.driver, self.verifier, strategy);
 
         log::debug!("test finished");
 
-        self.driver
-            .terminate()
-            .await
-            .expect("driver failed to terminate");
+        self.driver.terminate().expect("driver failed to terminate");
 
         result
     }
 
-    async fn run_test<S: RunStrategy<D>>(
+    fn run_test<S: RunStrategy<D>>(
         driver: &mut D,
-        verifier: Arc<VerifierWorker>,
+        mut verifier: Verifier,
         strategy: &mut S,
     ) -> Result<Option<S::StopValue>> {
         let mut last_action: Option<D::Action> = None;
 
         loop {
-            let verifier = verifier.clone();
-            let event = select! {
-                event = Box::pin(driver.next_event()) => event,
-                _ = ctrl_c() => {
-                    let value = strategy.on_interrupted().await?;
-                    return Ok(Some(value));
-                }
-            };
+            let event = driver.next_event();
             match event {
                 Some(DriverEvent::StateChanged(state)) => {
                     let state = Arc::new(state);
-                    let snapshots: Arc<[Snapshot]> =
-                        Box::pin(driver.extract_snapshots(
-                            state.clone(),
-                            last_action.as_ref(),
-                        ))
-                        .await?
+                    let snapshots: Arc<[Snapshot]> = driver
+                        .extract_snapshots(state.clone(), last_action.as_ref())?
                         .into();
                     for value in snapshots.iter() {
                         log::debug!(
@@ -123,16 +102,15 @@ impl<D: InterfaceDriver> Runner<D> {
                         );
                     }
 
-                    let step_result = Box::pin(verifier.step::<D::Action>(
-                        snapshots.clone(),
+                    let step_result = verifier.step::<D::Action>(
+                        &snapshots,
                         Time::from_system_time(D::state_timestamp(&state)),
-                    ))
-                    .await?;
+                    )?;
 
                     let mut violations =
                         Vec::with_capacity(step_result.properties.len());
                     for (name, value) in step_result.properties {
-                        match value {
+                        match PropertyValue::from(&value) {
                             PropertyValue::False(violation) => {
                                 violations.push(PropertyViolation {
                                     name,
@@ -143,7 +121,7 @@ impl<D: InterfaceDriver> Runner<D> {
                         }
                     }
 
-                    let control = Box::pin(strategy.on_new_state(
+                    let control = strategy.on_new_state(
                         &state,
                         step_result.actions,
                         last_action.as_ref(),
@@ -152,14 +130,13 @@ impl<D: InterfaceDriver> Runner<D> {
                             violations: &violations,
                             all_definite: step_result.all_definite,
                         },
-                    ))
-                    .await?;
+                    )?;
 
                     match control {
                         ControlFlow::Stop(value) => return Ok(Some(value)),
                         ControlFlow::Continue(action) => {
                             log::info!("picked action: {:?}", action);
-                            driver.apply(action.clone()).await?;
+                            driver.apply(action.clone())?;
                             last_action = Some(action);
                         }
                     }

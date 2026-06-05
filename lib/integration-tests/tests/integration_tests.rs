@@ -230,35 +230,25 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
 
         let downloads_directory = TempDir::new().unwrap();
-        let runner = runner::launch(
-            origin.clone(),
-            specification,
-            BrowserOptions {
-                create_target: true,
-                emulation: Emulation {
-                    width: 800,
-                    height: 600,
-                    device_scale_factor: 1.0,
-                },
-                instrumentation: Default::default(),
-                downloads_directory: downloads_directory.path().to_path_buf(),
-                grant_permissions,
-                extra_headers,
+        let browser_options = BrowserOptions {
+            create_target: true,
+            emulation: Emulation {
+                width: 800,
+                height: 600,
+                device_scale_factor: 1.0,
             },
-            DebuggerOptions::Managed {
-                launch_options: LaunchOptions {
-                    headless: true,
-                    no_sandbox: true,
-                    user_data_directory: user_data_directory
-                        .path()
-                        .to_path_buf(),
-                },
+            instrumentation: Default::default(),
+            downloads_directory: downloads_directory.path().to_path_buf(),
+            grant_permissions,
+            extra_headers,
+        };
+        let debugger_options = DebuggerOptions::Managed {
+            launch_options: LaunchOptions {
+                headless: true,
+                no_sandbox: true,
+                user_data_directory: user_data_directory.path().to_path_buf(),
             },
-        )
-        .await
-        .expect("run_test failed");
-
-        log::info!("starting runner");
+        };
 
         let test_start = SystemTime::now();
         let deadline = time_limit.map(|d| test_start + d);
@@ -269,7 +259,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         }
 
         impl TraceWriter for ViolationsCollectingWriter {
-            async fn write(
+            fn write(
                 &mut self,
                 _state: &bombadil_browser::browser::state::BrowserState,
                 _last_action: Option<&BrowserAction>,
@@ -282,18 +272,8 @@ impl<'a> BrowserIntegrationTest<'a> {
         }
 
         let output_path = TempDir::new().unwrap();
+        let output_path_buf = output_path.path().to_path_buf();
         let writer = ViolationsCollectingWriter::default();
-
-        let mut strategy = TestStrategy {
-            test_start: Some(Time::from_system_time(test_start)),
-            deadline,
-            mode: bombadil_browser::strategy::TestMode::RandomWalk,
-            writer,
-            exit_on_violation: true,
-            origin,
-            output_path: output_path.path().to_path_buf(),
-            violations_count: 0,
-        };
 
         enum Outcome {
             Success,
@@ -312,38 +292,65 @@ impl<'a> BrowserIntegrationTest<'a> {
         }
 
         log::info!("starting runner with infrastructure safety timeout");
-        let outcome = match tokio::time::timeout(
-            Duration::from_secs(TEST_TIMEOUT_SECONDS),
-            runner.run(&mut strategy),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                if strategy.violations_count == 0 {
-                    Outcome::Success
-                } else {
-                    let mut violations = vec![];
+        // The driver and runner are synchronous (the browser runs on its own
+        // worker thread/runtime), so build and run them on a blocking thread.
+        let run_handle = tokio::task::spawn_blocking(move || {
+            let runner = runner::launch(
+                origin.clone(),
+                specification,
+                browser_options,
+                debugger_options,
+            )
+            .expect("run_test failed");
 
-                    for violation in strategy.writer.violations {
-                        let markup =
-                            markup::render_violation(&violation.to_schema());
-                        let rendered = styled::markup_to_styled(
-                            &markup,
-                            Time::from_system_time(test_start),
-                        );
-                        violations.push(format!(
-                            "{}:\n{}\n\n",
-                            violation.name, rendered
-                        ));
-                    }
+            let mut strategy = TestStrategy {
+                test_start: Some(Time::from_system_time(test_start)),
+                deadline,
+                mode: bombadil_browser::strategy::TestMode::RandomWalk,
+                writer,
+                exit_on_violation: true,
+                origin,
+                output_path: output_path_buf,
+                violations_count: 0,
+            };
 
+            match runner.run(&mut strategy) {
+                Err(error) => Outcome::Error(error),
+                Ok(_) if strategy.violations_count == 0 => Outcome::Success,
+                Ok(_) => {
+                    let violations: Vec<String> = strategy
+                        .writer
+                        .violations
+                        .iter()
+                        .map(|violation| {
+                            let markup = markup::render_violation(
+                                &violation.to_schema(),
+                            );
+                            let rendered = styled::markup_to_styled(
+                                &markup,
+                                Time::from_system_time(test_start),
+                            );
+                            format!("{}:\n{}\n\n", violation.name, rendered)
+                        })
+                        .collect();
                     Outcome::Error(anyhow!(
                         "violations:\n\n{}",
                         violations.join("")
                     ))
                 }
             }
-            Ok(Err(error)) => Outcome::Error(error),
+        });
+
+        let outcome = match tokio::time::timeout(
+            Duration::from_secs(TEST_TIMEOUT_SECONDS),
+            run_handle,
+        )
+        .await
+        {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(join_error)) => {
+                panic!("runner task panicked: {join_error}")
+            }
             Err(_elapsed) => panic!(
                 "test infrastructure timeout — test hung for {}s",
                 TEST_TIMEOUT_SECONDS

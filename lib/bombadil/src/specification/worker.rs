@@ -74,7 +74,6 @@ impl VerifierWorker {
         use crate::specification::bundler::bundle;
 
         let bundle_code = bundle(".", &specification.module_specifier)
-            .await
             .map_err(|e| {
                 SpecificationError::OtherError(format!(
                     "Failed to bundle specification: {}",
@@ -153,22 +152,21 @@ impl VerifierWorker {
     }
 
     #[hotpath::measure]
-    pub async fn step<A: FromGeneratedAction>(
+    pub fn step<A: FromGeneratedAction>(
         &self,
         snapshots: Arc<[Snapshot]>,
         time: Time,
     ) -> Result<StepResult<A>, WorkerError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
-            .send(Command::Step {
+            .blocking_send(Command::Step {
                 reply: reply_tx,
                 snapshots,
                 time,
             })
-            .await
             .map_err(|_| WorkerError::WorkerGone)?;
         let result = reply_rx
-            .await
+            .blocking_recv()
             .map_err(|_| WorkerError::WorkerGone)?
             .map_err(WorkerError::SpecificationError)?;
         let actions = result.actions.try_map(&mut |v| {

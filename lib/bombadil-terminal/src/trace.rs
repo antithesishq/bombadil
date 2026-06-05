@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
 
 use anyhow::Result;
 use bombadil::runner::PropertyViolation;
@@ -7,7 +7,7 @@ use bombadil::specification::domain::Snapshot;
 use bombadil_schema::{TerminalGrid, Time, TraceEntry};
 use serde::Serialize;
 use serde_json as json;
-use tokio::{fs::File, io::AsyncWriteExt};
+use std::fs::File;
 
 use crate::{driver::TerminalAction, state::TerminalState};
 
@@ -37,14 +37,13 @@ struct TerminalStateSummary<'a> {
 }
 
 impl TraceWriter {
-    pub async fn initialize(root_path: PathBuf) -> Result<Self> {
-        tokio::fs::create_dir_all(&root_path).await?;
+    pub fn initialize(root_path: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&root_path)?;
         let trace_path = root_path.join("trace.jsonl");
         let trace_file = File::options()
             .append(true)
             .create(true)
-            .open(&trace_path)
-            .await?;
+            .open(&trace_path)?;
         log::info!("storing trace in {}", root_path.display());
         Ok(Self {
             trace_file,
@@ -53,7 +52,7 @@ impl TraceWriter {
     }
 
     #[hotpath::measure]
-    pub async fn write(
+    pub fn write(
         &mut self,
         state: &TerminalState,
         last_action: Option<&TerminalAction>,
@@ -75,7 +74,7 @@ impl TraceWriter {
         self.buffer.clear();
         json::to_writer(&mut self.buffer, &entry)?;
         self.buffer.push(b'\n');
-        self.trace_file.write_all(&self.buffer).await?;
+        self.trace_file.write_all(&self.buffer)?;
         Ok(())
     }
 }

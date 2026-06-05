@@ -1,9 +1,9 @@
-use std::{borrow::Cow, path::PathBuf, time::UNIX_EPOCH};
+use std::{borrow::Cow, io::Write, path::PathBuf, time::UNIX_EPOCH};
 
 use anyhow::Result;
 use bombadil::specification::domain::Snapshot;
 use serde_json as json;
-use tokio::{fs::File, io::AsyncWriteExt};
+use std::fs::File;
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
@@ -19,7 +19,7 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub async fn initialize(root_path: PathBuf) -> Result<Self> {
+    pub fn initialize(root_path: PathBuf) -> Result<Self> {
         log::info!(
             "storing trace in {}",
             &root_path
@@ -27,12 +27,11 @@ impl FileTraceWriter {
                 .expect("states directory path is not valid unicode")
         );
         let screenshots_path = root_path.join("screenshots");
-        tokio::fs::create_dir_all(&screenshots_path).await?;
+        std::fs::create_dir_all(&screenshots_path)?;
         let trace_file = File::options()
             .append(true)
             .create(true)
-            .open(root_path.join("trace.jsonl"))
-            .await?;
+            .open(root_path.join("trace.jsonl"))?;
         Ok(FileTraceWriter {
             screenshots_path,
             trace_file,
@@ -42,7 +41,7 @@ impl FileTraceWriter {
 }
 
 impl TraceWriter for FileTraceWriter {
-    async fn write(
+    fn write(
         &mut self,
         state: &BrowserState,
         last_action: Option<&BrowserAction>,
@@ -54,10 +53,8 @@ impl TraceWriter for FileTraceWriter {
             state.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
             &state.screenshot.format.extension()
         ));
-        File::create_new(&screenshot_path)
-            .await?
-            .write_all(&state.screenshot.data)
-            .await?;
+        File::create_new(&screenshot_path)?
+            .write_all(&state.screenshot.data)?;
 
         let entry = TraceEntry {
             timestamp: state.timestamp,
@@ -74,9 +71,8 @@ impl TraceWriter for FileTraceWriter {
         self.last_transition_hash = state.transition_hash;
 
         self.trace_file
-            .write_all(json::to_string(&entry.to_schema())?.as_bytes())
-            .await?;
-        self.trace_file.write_u8(b'\n').await?;
+            .write_all(json::to_string(&entry.to_schema())?.as_bytes())?;
+        self.trace_file.write_all(b"\n")?;
 
         Ok(())
     }

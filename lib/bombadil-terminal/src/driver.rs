@@ -5,8 +5,7 @@ use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
-use bombadil::specification::verifier::Specification;
-use bombadil::specification::worker::VerifierWorker;
+use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::{
     TerminalAttributes, TerminalCell, TerminalColor, TerminalGrid,
     TerminalSize, TerminalStyle, TerminalUnderline,
@@ -22,7 +21,7 @@ use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
 use unicode_width::UnicodeWidthChar;
 
-use crate::extractors::ExtractorWorker;
+use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess};
 use crate::state::TerminalState;
 
@@ -285,24 +284,22 @@ fn run_terminal_worker(
 
 pub struct TerminalDriver {
     command_send: mpsc::Sender<TerminalCommand>,
-    extractor: ExtractorWorker,
+    extractor: Extractors,
 }
 
 impl TerminalDriver {
-    pub async fn launch(
+    pub fn launch(
         specification: Specification,
         size: TerminalSize,
         scrollback_lines_max: usize,
         program: &str,
         arguments: &[String],
-    ) -> Result<(Self, Arc<VerifierWorker>)> {
+    ) -> Result<(Self, Verifier)> {
         let bundle_code = bundle(".", &specification.module_specifier)
-            .await
             .map_err(|e| anyhow!("bundle failed: {e}"))?;
 
-        let extractor = ExtractorWorker::start(bundle_code).await?;
-
-        let verifier = VerifierWorker::start(specification).await?;
+        let extractor = Extractors::initialize(&bundle_code)?;
+        let verifier = Verifier::new(&bundle_code)?;
 
         let (command_send, command_recv) = mpsc::channel(256);
         let (ready_send, ready_recv) = oneshot::channel();
@@ -324,7 +321,7 @@ impl TerminalDriver {
             })?;
 
         ready_recv
-            .await
+            .blocking_recv()
             .map_err(|_| anyhow!("terminal worker died before ready"))??;
 
         Ok((
@@ -341,61 +338,56 @@ impl InterfaceDriver for TerminalDriver {
     type Action = TerminalAction;
     type State = TerminalState;
 
-    async fn initiate(&mut self) -> Result<()> {
+    fn initiate(&mut self) -> Result<()> {
         let (reply_send, reply_recv) = oneshot::channel();
         self.command_send
-            .send(TerminalCommand::Initiate { reply: reply_send })
-            .await?;
+            .blocking_send(TerminalCommand::Initiate { reply: reply_send })?;
         reply_recv
-            .await
+            .blocking_recv()
             .map_err(|_| anyhow!("terminal worker gone"))?
     }
 
-    async fn terminate(self) -> Result<()> {
+    fn terminate(self) -> Result<()> {
         let (reply_send, reply_recv) = oneshot::channel();
         self.command_send
-            .send(TerminalCommand::Terminate { reply: reply_send })
-            .await?;
+            .blocking_send(TerminalCommand::Terminate { reply: reply_send })?;
         reply_recv
-            .await
+            .blocking_recv()
             .map_err(|_| anyhow!("terminal worker gone"))?
     }
 
-    async fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
+    fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
         let (reply_send, reply_recv) = oneshot::channel();
         if self
             .command_send
-            .send(TerminalCommand::NextEvent { reply: reply_send })
-            .await
+            .blocking_send(TerminalCommand::NextEvent { reply: reply_send })
             .is_err()
         {
             return None;
         }
-        reply_recv.await.ok().flatten()
+        reply_recv.blocking_recv().ok().flatten()
     }
 
-    async fn apply(&mut self, action: TerminalAction) -> Result<()> {
+    fn apply(&mut self, action: TerminalAction) -> Result<()> {
         if let TerminalAction::PressKey { code } = &action
             && char::from_u32(*code).is_none()
         {
             bail!("PressKey: code {} is not valid unicode", code);
         }
         let (reply_send, reply_recv) = oneshot::channel();
-        self.command_send
-            .send(TerminalCommand::Apply {
-                action,
-                reply: reply_send,
-            })
-            .await?;
-        reply_recv.await?
+        self.command_send.blocking_send(TerminalCommand::Apply {
+            action,
+            reply: reply_send,
+        })?;
+        reply_recv.blocking_recv()?
     }
 
-    async fn extract_snapshots(
-        &self,
+    fn extract_snapshots(
+        &mut self,
         state: Arc<TerminalState>,
         _last_action: Option<&TerminalAction>,
     ) -> Result<Vec<Snapshot>> {
-        self.extractor.run_extractors(state).await
+        self.extractor.run_extractors(state)
     }
 
     fn state_timestamp(state: &TerminalState) -> SystemTime {

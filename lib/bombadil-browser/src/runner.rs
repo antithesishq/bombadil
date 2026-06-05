@@ -1,32 +1,30 @@
 use anyhow::Result;
 use bombadil::specification::bundler::bundle;
-use bombadil::specification::verifier::Specification;
-use bombadil::specification::worker::VerifierWorker;
+use bombadil::specification::verifier::{Specification, Verifier};
 use url::Url;
 
 pub use bombadil::runner::{
     ControlFlow, PropertyViolation, RunStrategy, Runner,
 };
 
-use crate::browser::{Browser, BrowserOptions, DebuggerOptions};
+use crate::browser::{BrowserOptions, DebuggerOptions};
 use crate::driver::BrowserDriver;
 
-pub async fn launch(
+pub fn launch(
     origin: Url,
     specification: Specification,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<Runner<BrowserDriver>> {
-    let verifier = VerifierWorker::start(specification.clone()).await?;
+    let specification_bundle = bundle(".", &specification.module_specifier)?;
+    let verifier = Verifier::new(&specification_bundle)?;
 
-    let browser =
-        Browser::new(origin, browser_options, debugger_options).await?;
+    let driver = BrowserDriver::launch(
+        origin,
+        browser_options,
+        debugger_options,
+        specification_bundle,
+    )?;
 
-    browser
-        .ensure_script_evaluated(
-            &bundle(".", &specification.module_specifier).await?,
-        )
-        .await?;
-
-    Ok(Runner::new(BrowserDriver::new(browser), verifier))
+    Ok(Runner::new(driver, verifier))
 }

@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-/// A separate Boa context, running on its own OS thread, used only to run JS
-/// extractors over terminal state.
 use anyhow::{Result, anyhow};
 use boa_engine::{
     Context, JsError, JsObject, JsValue, NativeFunction, Source,
@@ -11,108 +9,25 @@ use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
-use tokio::sync::{mpsc, oneshot};
 
 use crate::{js::JsTerminalState, state::TerminalState};
 
-const EXTRACTOR_STACK_SIZE: usize = 16 * 1024 * 1024;
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
-
-pub struct ExtractorWorker {
-    send: mpsc::Sender<ExtractorCommand>,
-}
-
-enum ExtractorCommand {
-    RunExtractors {
-        state: Arc<TerminalState>,
-        reply: oneshot::Sender<Result<Vec<PartialSnapshot>>>,
-    },
-}
 
 #[derive(Debug, Clone, Deserialize)]
 struct PartialSnapshot {
-    index: usize,
-    name: Option<String>,
-    value: json::Value,
+    pub index: usize,
+    pub name: Option<String>,
+    pub value: json::Value,
 }
 
-impl ExtractorWorker {
-    pub async fn start(bundle_code: String) -> Result<Self> {
-        let (ready_send, ready_recv) =
-            oneshot::channel::<Result<(), anyhow::Error>>();
-        let (send, mut recv) = mpsc::channel::<ExtractorCommand>(32);
-
-        std::thread::Builder::new()
-            .stack_size(EXTRACTOR_STACK_SIZE)
-            .spawn(move || {
-                let mut extractors = match Extractors::initialize(&bundle_code)
-                {
-                    Ok(state) => {
-                        let _ = ready_send.send(Ok(()));
-                        state
-                    }
-                    Err(error) => {
-                        let _ = ready_send.send(Err(error));
-                        return;
-                    }
-                };
-                while let Some(command) = recv.blocking_recv() {
-                    match command {
-                        ExtractorCommand::RunExtractors { state, reply } => {
-                            let state = JsTerminalState::from_state(state);
-                            let state_json = json::to_value(state)
-                                .expect("json serialization failed on state");
-                            let result =
-                                extractors.run_extractors_on(state_json);
-                            let _ = reply.send(result);
-                        }
-                    }
-                }
-            })?;
-
-        ready_recv
-            .await
-            .map_err(|_| anyhow!("extractor worker died before ready"))??;
-        Ok(Self { send })
-    }
-
-    #[hotpath::measure]
-    pub async fn run_extractors(
-        &self,
-        state: impl Into<Arc<TerminalState>>,
-    ) -> Result<Vec<Snapshot>> {
-        let state: Arc<TerminalState> = state.into();
-        let time = Time::from_system_time(state.timestamp);
-        let (reply_send, reply_recv) = oneshot::channel();
-        self.send
-            .send(ExtractorCommand::RunExtractors {
-                state,
-                reply: reply_send,
-            })
-            .await
-            .map_err(|_| anyhow!("extractor worker gone"))?;
-        let partials = reply_recv
-            .await
-            .map_err(|_| anyhow!("extractor worker gone"))??;
-        Ok(partials
-            .into_iter()
-            .map(|p| Snapshot {
-                index: p.index,
-                name: p.name,
-                value: p.value,
-                time,
-            })
-            .collect())
-    }
-}
-
-struct Extractors {
+pub struct Extractors {
     context: Context,
     runtime: JsObject,
 }
 
 impl Extractors {
-    fn initialize(bundle_code: &str) -> Result<Self> {
+    pub fn initialize(bundle_code: &str) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|e| anyhow!("Boa build: {e}"))?;
@@ -212,10 +127,14 @@ impl Extractors {
     }
 
     #[hotpath::measure]
-    fn run_extractors_on(
+    pub fn run_extractors(
         &mut self,
-        state_json: json::Value,
-    ) -> Result<Vec<PartialSnapshot>> {
+        state: Arc<TerminalState>,
+    ) -> Result<Vec<Snapshot>> {
+        let time = Time::from_system_time(state.timestamp);
+        let state = JsTerminalState::from_state(state);
+        let state_json =
+            json::to_value(state).expect("json serialization failed on state");
         let state_value = JsValue::from_json(&state_json, &mut self.context)
             .map_err(from_js_error)?;
         let run_extractors_fn = self
@@ -236,7 +155,18 @@ impl Extractors {
             .map_err(from_js_error)?
             .ok_or(anyhow!("runExtractors returned undefined"))?;
         let partials: Vec<PartialSnapshot> = json::from_value(result_json)?;
-        Ok(partials)
+
+        let snapshots = partials
+            .iter()
+            .map(|partial| Snapshot {
+                index: partial.index,
+                name: partial.name.clone(),
+                value: partial.value.clone(),
+                time,
+            })
+            .collect();
+
+        Ok(snapshots)
     }
 }
 
