@@ -53,15 +53,16 @@ pub fn terminal_state_to_js(
 }
 
 fn grid_to_js(grid: &TerminalGrid, context: &mut Context) -> JsValue {
-    let rows = JsArray::new(context).expect("create rows array");
+    let mut rows = Vec::with_capacity(grid.size.rows as usize);
     for row_index in 0..grid.size.rows {
-        let row = JsArray::new(context).expect("create row array");
+        let mut row = Vec::with_capacity(grid.size.columns as usize);
         for column_index in 0..grid.size.columns {
             let cell = cell_to_js(&grid[(row_index, column_index)], context);
-            row.push(cell, context).expect("push cell into row");
+            row.push(cell);
         }
-        rows.push(row, context).expect("push row into grid");
+        rows.push(JsArray::from_iter(row, context).into());
     }
+    let rows = JsArray::from_iter(rows, context);
     let size = size_to_js(grid.size, context);
     ObjectInitializer::new(context)
         .property(js_string!("rows"), rows, Attribute::all())
