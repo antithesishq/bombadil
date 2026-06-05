@@ -9,6 +9,7 @@ boa_engine.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-schema = { path = "../bombadil-schema" }
 bytes.workspace = true
+hotpath.workspace = true
 libghostty-vt.workspace = true
 log.workspace = true
 owo-colors.workspace = true

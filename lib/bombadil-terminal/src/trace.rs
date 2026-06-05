@@ -29,6 +29,7 @@ impl TraceWriter {
         Ok(Self { trace_file })
     }
 
+    #[hotpath::measure]
     pub async fn write(
         &mut self,
         state: &TerminalState,

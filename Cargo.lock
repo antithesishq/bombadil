@@ -548,6 +548,7 @@ dependencies = [
  "bombadil-schema",
  "bytes",
  "env_logger",
+ "hotpath",
  "libghostty-vt",
  "log",
  "owo-colors",
