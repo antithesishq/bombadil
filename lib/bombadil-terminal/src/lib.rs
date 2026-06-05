@@ -38,6 +38,7 @@ pub struct TerminalStrategy {
     pub violations_count: u64,
     pub exit_on_violation: bool,
     pub deadline: Option<SystemTime>,
+    pub states_seen: usize,
 }
 
 impl TerminalStrategy {
@@ -82,6 +83,9 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         properties: PropertiesState<'_>,
     ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
         use std::fmt::Write;
+
+        self.states_seen += 1;
+
         let mut buffer =
             String::with_capacity(state.grid.size.cell_count() as usize * 4);
         write!(buffer, "\x1b[2J\x1b[H")?;

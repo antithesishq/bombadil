@@ -125,10 +125,19 @@ pub async fn run(command: Command) {
                     violations_count: 0,
                     exit_on_violation,
                     deadline,
+                    states_seen: 0,
                 };
                 let _ = runner.run(&mut strategy).await?;
 
-                println!("\nTrace written to: {}", output_path.display());
+                println!();
+                println!(
+                    "Throughput: {:.1} states/second",
+                    strategy.states_seen as f64
+                        / SystemTime::now()
+                            .duration_since(test_start)?
+                            .as_secs_f64()
+                );
+                println!("Trace written to: {}", output_path.display());
 
                 if strategy.violations_count > 0 {
                     bail!(
