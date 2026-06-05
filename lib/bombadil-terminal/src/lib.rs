@@ -42,6 +42,7 @@ pub struct TerminalStrategy {
 }
 
 impl TerminalStrategy {
+    #[hotpath::measure]
     fn pick_action(
         &mut self,
         tree: Tree<TerminalAction>,
@@ -194,6 +195,7 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
     }
 }
 
+#[hotpath::measure]
 fn actions_match(a: &TerminalAction, b: &TerminalAction) -> bool {
     serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
 }
@@ -207,6 +209,7 @@ pub enum ExitReason {
     AllDefinite,
 }
 
+#[hotpath::measure]
 fn to_owo_style(value: &TerminalStyle) -> owo_colors::Style {
     let mut style = owo_colors::Style::new();
 

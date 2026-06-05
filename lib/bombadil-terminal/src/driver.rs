@@ -63,12 +63,14 @@ struct TerminalWorkerState {
 }
 
 impl TerminalWorkerState {
+    #[hotpath::measure]
     fn drain_output(&mut self) {
         while let Some(data) = self.output.try_read() {
             self.terminal.vt_write(&data);
         }
     }
 
+    #[hotpath::measure]
     fn extract_state(&mut self, terminated: bool) -> Result<TerminalState> {
         let mut render_state = RenderState::new()?;
         let mut row_iter_state = RowIterator::new()?;
@@ -141,6 +143,7 @@ impl TerminalWorkerState {
         })
     }
 
+    #[hotpath::measure]
     async fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
         let mut got_eof = false;
         loop {
@@ -170,6 +173,7 @@ impl TerminalWorkerState {
         }
     }
 
+    #[hotpath::measure]
     fn apply(&mut self, action: TerminalAction) -> Result<()> {
         match &action {
             TerminalAction::TypeText { text } => {
@@ -288,6 +292,7 @@ pub struct TerminalDriver {
 }
 
 impl TerminalDriver {
+    #[hotpath::measure]
     pub fn launch(
         specification: Specification,
         size: TerminalSize,
@@ -338,6 +343,7 @@ impl InterfaceDriver for TerminalDriver {
     type Action = TerminalAction;
     type State = TerminalState;
 
+    #[hotpath::measure]
     fn initiate(&mut self) -> Result<()> {
         let (reply_send, reply_recv) = oneshot::channel();
         self.command_send
@@ -356,6 +362,7 @@ impl InterfaceDriver for TerminalDriver {
             .map_err(|_| anyhow!("terminal worker gone"))?
     }
 
+    #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
         let (reply_send, reply_recv) = oneshot::channel();
         if self
@@ -368,6 +375,7 @@ impl InterfaceDriver for TerminalDriver {
         reply_recv.blocking_recv().ok().flatten()
     }
 
+    #[hotpath::measure]
     fn apply(&mut self, action: TerminalAction) -> Result<()> {
         if let TerminalAction::PressKey { code } = &action
             && char::from_u32(*code).is_none()
@@ -395,6 +403,7 @@ impl InterfaceDriver for TerminalDriver {
     }
 }
 
+#[hotpath::measure]
 fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
     let mut result = TerminalStyle {
         foreground_color: color_from_ghostty(&value.fg_color),
