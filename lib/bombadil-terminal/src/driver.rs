@@ -88,12 +88,6 @@ impl TerminalWorkerState {
                 let mut contents =
                     SmallString::null_with_size(cell.graphemes_len()?);
                 cell.graphemes_buf(&mut contents[0..cell.graphemes_len()?])?;
-                if contents.contains(&'\u{FFFD}') {
-                    eprintln!(
-                        "replacement char at ({}, {}): {:?}",
-                        row_index, column_index, contents
-                    );
-                }
                 let wide = contents
                     .iter()
                     .map(|c| c.width().unwrap_or(0))

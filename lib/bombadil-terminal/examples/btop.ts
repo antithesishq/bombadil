@@ -1,16 +1,5 @@
-import {
-  always,
-  eventually,
-  from,
-  integers,
-  strings,
-} from "@antithesishq/bombadil";
-import {
-  actions,
-  extract,
-  type Action,
-  weighted,
-} from "@antithesishq/bombadil/terminal";
+import { from, integers, strings } from "@antithesishq/bombadil";
+import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
 
 const KEYS = [
   // "\x03", // Ctrl+C, excluded to keep program alive
@@ -110,6 +99,7 @@ export const typeRandom = weighted([
       return [{ TypeText: { text: click } }];
     }),
   ],
+  // TODO: restore once ghostty doesn't have the scroll overflow bug
   // [1, actions(() => [{
   //   Resize: {
   //     size: {
@@ -119,7 +109,3 @@ export const typeRandom = weighted([
   //   }
   // }])],
 ]);
-
-// export const hasLineColumnIndicator = always(() =>
-//   !!statusLine.current && statusLine.current.text.split(/\s+/).some(word => !!word.match(/\d+:\d+/))
-// );
