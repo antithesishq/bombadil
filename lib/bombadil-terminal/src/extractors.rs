@@ -10,7 +10,7 @@ use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
 
-use crate::{js::JsTerminalState, state::TerminalState};
+use crate::{js::terminal_state_to_js, state::TerminalState};
 
 const RANDOM_BYTES_COUNT_MAX: usize = 4096;
 
@@ -132,11 +132,7 @@ impl Extractors {
         state: Arc<TerminalState>,
     ) -> Result<Vec<Snapshot>> {
         let time = Time::from_system_time(state.timestamp);
-        let state = JsTerminalState::from_state(state);
-        let state_json =
-            json::to_value(state).expect("json serialization failed on state");
-        let state_value = JsValue::from_json(&state_json, &mut self.context)
-            .map_err(from_js_error)?;
+        let state_value = terminal_state_to_js(&state, &mut self.context);
         let run_extractors_fn = self
             .runtime
             .get(js_string!("runExtractors"), &mut self.context)
