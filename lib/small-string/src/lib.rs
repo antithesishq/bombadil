@@ -127,7 +127,7 @@ mod tests {
             let chars: Vec<char> = input.chars().collect();
             let small = SmallString::from(chars.as_slice());
             match &small {
-                SmallString::Inline { size, .. } => assert!(input.len() <= STRING_INLINE_CHARS_COUNT_MAX, "should be heap: len={}", *size),
+                SmallString::Inline { size, .. } => assert!(chars.len() <= STRING_INLINE_CHARS_COUNT_MAX, "should be heap: len={}", *size),
                 SmallString::Heap(_) => assert!(input.len() > STRING_INLINE_CHARS_COUNT_MAX),
             }
         }
