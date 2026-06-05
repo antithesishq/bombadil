@@ -73,6 +73,7 @@ impl ExtractorWorker {
         Ok(Self { send })
     }
 
+    #[hotpath::measure]
     pub async fn run_extractors(
         &self,
         state: &TerminalState,

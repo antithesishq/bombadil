@@ -420,6 +420,7 @@ dependencies = [
  "boa_engine",
  "bombadil-ltl",
  "bombadil-schema",
+ "hotpath",
  "include_dir",
  "indoc",
  "insta",

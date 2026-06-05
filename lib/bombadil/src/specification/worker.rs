@@ -152,6 +152,7 @@ impl VerifierWorker {
         reply_rx.await.map_err(|_| WorkerError::WorkerGone)
     }
 
+    #[hotpath::measure]
     pub async fn step<A: FromGeneratedAction>(
         &self,
         snapshots: Arc<[Snapshot]>,

@@ -74,6 +74,7 @@ impl TerminalStrategy {
 impl RunStrategy<TerminalDriver> for TerminalStrategy {
     type StopValue = ExitReason;
 
+    #[hotpath::measure]
     async fn on_new_state(
         &mut self,
         state: &TerminalState,
