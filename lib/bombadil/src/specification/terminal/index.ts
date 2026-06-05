@@ -19,8 +19,16 @@ export type Action =
   | { ScrollDown: object };
 
 export interface Grid {
-  rows: GridCell[][];
   size: Size;
+  // Returns the cells of the row at `index`. Rows are materialized lazily, so
+  // read only the rows you need and use `size` to bound your iteration. An
+  // out-of-bounds `index` returns `undefined`.
+  row(index: number): GridCell[];
+  // Returns the rendered text of the row at `index`: occupied cells contribute
+  // their contents, empty cells a space, and continuation cells nothing. This
+  // is the fast path for reading a row as a string and avoids materializing a
+  // cell object per column. An out-of-bounds `index` returns `undefined`.
+  rowText(index: number): string;
 }
 
 export type GridCell =

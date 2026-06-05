@@ -1,20 +1,14 @@
 
 import { eventually } from "@antithesishq/bombadil";
-import { actions, extract, GridCell } from "@antithesishq/bombadil/terminal";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
 
-function cellToString(cell: GridCell) {
-  switch (cell) {
-    case "Empty":
-      return " ";
-    case "Continuation":
-      return "";
-    default:
-      return cell.Occupied.contents;
+const screen = extract((state) => {
+  const lines = [];
+  for (let index = 0; index < state.grid.size.rows; index++) {
+    lines.push(state.grid.rowText(index));
   }
-}
-
-const screen = extract((state) =>
-  state.grid.rows.flatMap(row => row.map(cellToString)).join("\n"));
+  return lines.join("\n");
+});
 
 export const eventuallyReady = eventually(
   () => screen.current.includes("ready"),

@@ -1,5 +1,5 @@
 import { always, eventually, from, integers, strings } from "@antithesishq/bombadil";
-import { actions, extract, type Action, weighted, GridCell } from "@antithesishq/bombadil/terminal";
+import { actions, extract, type Action, weighted } from "@antithesishq/bombadil/terminal";
 
 const KEYS = [
   // "\x03", // Ctrl+C, excluded to keep program alive
@@ -60,24 +60,16 @@ const KEYS = [
   "\x1b[201~",   // Paste end
 ];
 
-function cellToString(cell: GridCell) {
-  switch (cell) {
-    case "Empty":
-      return " ";
-    case "Continuation":
-      return "";
-    default:
-      return cell.Occupied.contents;
-  }
-}
-
-
 const statusLine = extract(
   (state) => {
-    const lines = state.grid.rows
-      .map((row, index) => ({ line: index, text: row.map(cellToString).join("") }))
-      .filter(line => !!line.text.trim());
-    return lines[lines.length - 1] ?? null;
+    let last = null;
+    for (let index = 0; index < state.grid.size.rows; index++) {
+      const text = state.grid.rowText(index);
+      if (text.trim()) {
+        last = { line: index, text };
+      }
+    }
+    return last;
   }
 );
 

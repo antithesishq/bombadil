@@ -1,12 +1,17 @@
+use std::sync::Arc;
+
 use anyhow::{Result, ensure};
 use boa_engine::{
-    Context, JsString, JsValue, js_string, object::ObjectInitializer,
-    object::builtins::JsArray, property::Attribute,
+    Context, JsResult, JsString, JsValue, NativeFunction,
+    gc::{Finalize, Trace, empty_trace},
+    js_string,
+    object::ObjectInitializer,
+    object::builtins::JsArray,
+    property::Attribute,
 };
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{
-    TerminalCell, TerminalColor, TerminalGrid, TerminalSize, TerminalStyle,
-    TerminalUnderline,
+    TerminalCell, TerminalColor, TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
@@ -20,16 +25,40 @@ impl FromGeneratedAction for TerminalAction {
     }
 }
 
-/// Builds the JavaScript `State` value handed to extractors directly with the
-/// Boa API, reading the grid and scrollback by reference. This avoids cloning
-/// the grids into intermediate `Vec`s and round-tripping the whole terminal
-/// state through `serde_json`.
-pub fn terminal_state_to_js(
-    state: &TerminalState,
-    context: &mut Context,
-) -> JsValue {
-    let grid = grid_to_js(&state.grid, context);
-    let scrollback = grid_to_js(&state.scrollback, context);
+#[derive(Clone, Copy)]
+enum GridKind {
+    Screen,
+    Scrollback,
+}
+
+// Captured by a grid's `row`/`rowText` functions so they can read the shared
+// state without copying the grid. Holds no garbage-collected pointers, hence
+// the empty `Trace`.
+struct GridCapture {
+    state: Arc<TerminalState>,
+    kind: GridKind,
+}
+
+impl Finalize for GridCapture {}
+
+unsafe impl Trace for GridCapture {
+    empty_trace!();
+}
+
+impl GridCapture {
+    fn grid(&self) -> &TerminalGrid {
+        state_grid(&self.state, self.kind)
+    }
+}
+
+/// Builds the JavaScript `State` handed to extractors. Each grid is exposed
+/// lazily as a `size` plus `row(index)`/`rowText(index)` functions that read
+/// the shared [`TerminalState`] on demand, so an extractor only pays for the
+/// rows it touches and the (potentially large) scrollback is never built
+/// unless accessed.
+pub fn terminal_state_to_js(state: Arc<TerminalState>, context: &mut Context) -> JsValue {
+    let grid = grid_to_js(&state, GridKind::Screen, context);
+    let scrollback = grid_to_js(&state, GridKind::Scrollback, context);
     let last_action = match &state.last_action {
         Some(action) => action_to_js(action, context),
         None => JsValue::null(),
@@ -52,23 +81,94 @@ pub fn terminal_state_to_js(
         .into()
 }
 
-fn grid_to_js(grid: &TerminalGrid, context: &mut Context) -> JsValue {
-    let mut rows = Vec::with_capacity(grid.size.rows as usize);
-    for row_index in 0..grid.size.rows {
-        let mut row = Vec::with_capacity(grid.size.columns as usize);
-        for column_index in 0..grid.size.columns {
-            let cell = cell_to_js(&grid[(row_index, column_index)], context);
-            row.push(cell);
-        }
-        rows.push(JsArray::from_iter(row, context).into());
-    }
-    let rows = JsArray::from_iter(rows, context);
-    let size = size_to_js(grid.size, context);
+fn grid_to_js(state: &Arc<TerminalState>, kind: GridKind, context: &mut Context) -> JsValue {
+    let size = size_to_js(state_grid(state, kind).size, context);
+    let row = grid_function(state, kind, row_at);
+    let row_text = grid_function(state, kind, row_text_at);
     ObjectInitializer::new(context)
-        .property(js_string!("rows"), rows, Attribute::all())
         .property(js_string!("size"), size, Attribute::all())
+        .function(row, js_string!("row"), 1)
+        .function(row_text, js_string!("rowText"), 1)
         .build()
         .into()
+}
+
+fn state_grid(state: &Arc<TerminalState>, kind: GridKind) -> &TerminalGrid {
+    match kind {
+        GridKind::Screen => &state.grid,
+        GridKind::Scrollback => &state.scrollback,
+    }
+}
+
+fn grid_function(
+    state: &Arc<TerminalState>,
+    kind: GridKind,
+    function: fn(&JsValue, &[JsValue], &GridCapture, &mut Context) -> JsResult<JsValue>,
+) -> NativeFunction {
+    let capture = GridCapture {
+        state: Arc::clone(state),
+        kind,
+    };
+    // SAFETY: `GridCapture` holds no garbage-collected pointers (empty `Trace`).
+    unsafe { NativeFunction::from_closure_with_captures(function, capture) }
+}
+
+fn row_index_arg(
+    args: &[JsValue],
+    grid: &TerminalGrid,
+    context: &mut Context,
+) -> JsResult<Option<u16>> {
+    let index = match args.first() {
+        Some(value) => value.to_u32(context)?,
+        None => return Ok(None),
+    };
+    if index >= grid.size.rows as u32 {
+        return Ok(None);
+    }
+    Ok(Some(index as u16))
+}
+
+// Fast path: render a row to a string in Rust, skipping per-cell JS objects.
+fn row_text_at(
+    _this: &JsValue,
+    args: &[JsValue],
+    capture: &GridCapture,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let grid = capture.grid();
+    let Some(row_index) = row_index_arg(args, grid, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let mut text = String::with_capacity(grid.size.columns as usize);
+    for column_index in 0..grid.size.columns {
+        match &grid[(row_index, column_index)] {
+            TerminalCell::Occupied { contents, .. } => {
+                use std::fmt::Write;
+                let _ = write!(text, "{contents}");
+            }
+            TerminalCell::Empty => text.push(' '),
+            TerminalCell::Continuation => {}
+        }
+    }
+    Ok(JsString::from(text.as_str()).into())
+}
+
+fn row_at(
+    _this: &JsValue,
+    args: &[JsValue],
+    capture: &GridCapture,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let grid = capture.grid();
+    let Some(row_index) = row_index_arg(args, grid, context)? else {
+        return Ok(JsValue::undefined());
+    };
+    let row = JsArray::new(context)?;
+    for column_index in 0..grid.size.columns {
+        let cell = cell_to_js(&grid[(row_index, column_index)], context);
+        row.push(cell, context)?;
+    }
+    Ok(row.into())
 }
 
 fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
@@ -87,11 +187,7 @@ fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
                     JsString::from(contents.to_string().as_str()),
                     Attribute::all(),
                 )
-                .property(
-                    js_string!("wide"),
-                    JsValue::from(*wide),
-                    Attribute::all(),
-                )
+                .property(js_string!("wide"), JsValue::from(*wide), Attribute::all())
                 .property(js_string!("style"), style, Attribute::all())
                 .build();
             ObjectInitializer::new(context)
@@ -106,8 +202,7 @@ fn style_to_js(style: &TerminalStyle, context: &mut Context) -> JsValue {
     let foreground = color_to_js(&style.foreground_color, context);
     let background = color_to_js(&style.background_color, context);
     let underline_color = color_to_js(&style.underline_color, context);
-    let underline: JsValue =
-        JsString::from(underline_name(&style.underline)).into();
+    let underline: JsValue = JsString::from(underline_name(&style.underline)).into();
     ObjectInitializer::new(context)
         .property(js_string!("foreground_color"), foreground, Attribute::all())
         .property(js_string!("background_color"), background, Attribute::all())
@@ -139,21 +234,9 @@ fn color_to_js(color: &TerminalColor, context: &mut Context) -> JsValue {
             .into(),
         TerminalColor::RGB { r, g, b } => {
             let rgb = ObjectInitializer::new(context)
-                .property(
-                    js_string!("r"),
-                    JsValue::from(*r as f64),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("g"),
-                    JsValue::from(*g as f64),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("b"),
-                    JsValue::from(*b as f64),
-                    Attribute::all(),
-                )
+                .property(js_string!("r"), JsValue::from(*r as f64), Attribute::all())
+                .property(js_string!("g"), JsValue::from(*g as f64), Attribute::all())
+                .property(js_string!("b"), JsValue::from(*b as f64), Attribute::all())
                 .build();
             ObjectInitializer::new(context)
                 .property(js_string!("RGB"), rgb, Attribute::all())
@@ -256,9 +339,7 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
     type Error = anyhow::Error;
     fn try_from(value: JsTerminalAction) -> Result<Self> {
         match value {
-            JsTerminalAction::TypeText { text } => {
-                Ok(TerminalAction::TypeText { text })
-            }
+            JsTerminalAction::TypeText { text } => Ok(TerminalAction::TypeText { text }),
             JsTerminalAction::PressKey { code } => {
                 ensure!(code.is_normal(), "key code must be a normal number");
                 Ok(TerminalAction::PressKey { code: code as u32 })
@@ -267,9 +348,7 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
                 size: size.try_into()?,
             }),
             JsTerminalAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
-            JsTerminalAction::ScrollDown {} => {
-                Ok(TerminalAction::ScrollDown {})
-            }
+            JsTerminalAction::ScrollDown {} => Ok(TerminalAction::ScrollDown {}),
         }
     }
 }

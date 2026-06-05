@@ -22,7 +22,15 @@ export const typeRandom = actions((): Action[] => [
 ]);
 
 const nonBlankRows = extract(
-  (state) => state.rows.filter((row) => row.trim().length > 0).length,
+  (state) => {
+    let count = 0;
+    for (let index = 0; index < state.grid.size.rows; index++) {
+      if (state.grid.rowText(index).trim().length > 0) {
+        count++;
+      }
+    }
+    return count;
+  },
 );
 
 // With an echoing program like `cat`, the first applied action should

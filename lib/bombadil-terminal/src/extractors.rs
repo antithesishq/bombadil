@@ -132,7 +132,7 @@ impl Extractors {
         state: Arc<TerminalState>,
     ) -> Result<Vec<Snapshot>> {
         let time = Time::from_system_time(state.timestamp);
-        let state_value = terminal_state_to_js(&state, &mut self.context);
+        let state_value = terminal_state_to_js(state, &mut self.context);
         let run_extractors_fn = self
             .runtime
             .get(js_string!("runExtractors"), &mut self.context)

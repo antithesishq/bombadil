@@ -47,11 +47,30 @@ function cellToString(cell) {
     }
 }
 
-const screen = extract((state) =>
-    state.grid.rows.flatMap(row => row.map(cellToString)).join("\n"));
+// Exercises the fast `rowText` path.
+const screen = extract((state) => {
+    const lines = [];
+    for (let index = 0; index < state.grid.size.rows; index++) {
+        lines.push(state.grid.rowText(index));
+    }
+    return lines.join("\n");
+});
+
+// Exercises the cell-level `row` path so both grid APIs stay covered.
+const screenFromCells = extract((state) => {
+    const lines = [];
+    for (let index = 0; index < state.grid.size.rows; index++) {
+        lines.push(state.grid.row(index).map(cellToString).join(""));
+    }
+    return lines.join("\n");
+});
 
 export const eventuallyReady = eventually(
     () => screen.current.includes("ready"),
+);
+
+export const eventuallyReadyFromCells = eventually(
+    () => screenFromCells.current.includes("ready"),
 );
 
 export const noop = actions(() => [{ TypeText: { text: "" } }]);
