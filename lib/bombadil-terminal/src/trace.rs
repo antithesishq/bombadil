@@ -4,16 +4,36 @@ use anyhow::Result;
 use bombadil::runner::PropertyViolation;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
-use bombadil_schema::{TerminalStateSummary, Time, TraceEntry};
+use bombadil_schema::{TerminalGrid, Time, TraceEntry};
+use serde::Serialize;
 use serde_json as json;
 use tokio::{fs::File, io::AsyncWriteExt};
 
 use crate::{driver::TerminalAction, state::TerminalState};
 
-pub type TerminalTraceEntry = TraceEntry<TerminalAction, TerminalStateSummary>;
+pub type TerminalTraceEntry =
+    TraceEntry<TerminalAction, bombadil_schema::TerminalStateSummary>;
 
 pub struct TraceWriter {
     trace_file: File,
+    buffer: Vec<u8>,
+}
+
+#[derive(Serialize)]
+struct BorrowedTerminalTraceEntry<'a> {
+    timestamp: Time,
+    action: Option<&'a TerminalAction>,
+    state: TerminalStateSummary<'a>,
+    snapshots: Vec<bombadil_schema::Snapshot>,
+    violations: Vec<bombadil_schema::PropertyViolation>,
+}
+
+#[derive(Serialize)]
+struct TerminalStateSummary<'a> {
+    grid: &'a TerminalGrid,
+    scrollback: &'a TerminalGrid,
+    scroll_offset: u32,
+    terminated: bool,
 }
 
 impl TraceWriter {
@@ -26,7 +46,10 @@ impl TraceWriter {
             .open(&trace_path)
             .await?;
         log::info!("storing trace in {}", root_path.display());
-        Ok(Self { trace_file })
+        Ok(Self {
+            trace_file,
+            buffer: Vec::new(),
+        })
     }
 
     #[hotpath::measure]
@@ -37,26 +60,22 @@ impl TraceWriter {
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
     ) -> Result<()> {
-        let entry = TerminalTraceEntry {
+        let entry = BorrowedTerminalTraceEntry {
             timestamp: Time::from_system_time(state.timestamp),
-            action: last_action.cloned(),
-            state: state_summary_from_state(state),
+            action: last_action,
+            state: TerminalStateSummary {
+                grid: &state.grid,
+                scrollback: &state.scrollback,
+                scroll_offset: state.scroll_offset,
+                terminated: state.terminated,
+            },
             snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: violations.iter().map(|v| v.to_schema()).collect(),
         };
-        self.trace_file
-            .write_all(json::to_string(&entry)?.as_bytes())
-            .await?;
-        self.trace_file.write_u8(b'\n').await?;
+        self.buffer.clear();
+        json::to_writer(&mut self.buffer, &entry)?;
+        self.buffer.push(b'\n');
+        self.trace_file.write_all(&self.buffer).await?;
         Ok(())
-    }
-}
-
-pub fn state_summary_from_state(state: &TerminalState) -> TerminalStateSummary {
-    TerminalStateSummary {
-        grid: state.grid.clone(),
-        scrollback: state.scrollback.clone(),
-        scroll_offset: state.scroll_offset,
-        terminated: state.terminated,
     }
 }
