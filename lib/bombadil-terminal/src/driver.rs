@@ -392,7 +392,7 @@ impl InterfaceDriver for TerminalDriver {
 
     async fn extract_snapshots(
         &self,
-        state: &TerminalState,
+        state: Arc<TerminalState>,
         _last_action: Option<&TerminalAction>,
     ) -> Result<Vec<Snapshot>> {
         self.extractor.run_extractors(state).await

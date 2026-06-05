@@ -107,11 +107,14 @@ impl<D: InterfaceDriver> Runner<D> {
             };
             match event {
                 Some(DriverEvent::StateChanged(state)) => {
-                    let snapshots: Arc<[Snapshot]> = Box::pin(
-                        driver.extract_snapshots(&state, last_action.as_ref()),
-                    )
-                    .await?
-                    .into();
+                    let state = Arc::new(state);
+                    let snapshots: Arc<[Snapshot]> =
+                        Box::pin(driver.extract_snapshots(
+                            state.clone(),
+                            last_action.as_ref(),
+                        ))
+                        .await?
+                        .into();
                     for value in snapshots.iter() {
                         log::debug!(
                             "snapshot {}: {}",

@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::Result;
@@ -68,7 +69,7 @@ impl InterfaceDriver for BrowserDriver {
 
     async fn extract_snapshots(
         &self,
-        state: &BrowserState,
+        state: Arc<BrowserState>,
         last_action: Option<&BrowserAction>,
     ) -> Result<Vec<Snapshot>> {
         run_extractors(state, last_action).await
@@ -87,7 +88,7 @@ struct PartialSnapshot {
 }
 
 async fn run_extractors(
-    state: &BrowserState,
+    state: Arc<BrowserState>,
     last_action: Option<&BrowserAction>,
 ) -> Result<Vec<Snapshot>> {
     let console_entries: Vec<json::Value> = state

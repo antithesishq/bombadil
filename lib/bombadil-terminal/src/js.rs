@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Result, ensure};
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{TerminalCell, TerminalGrid, TerminalSize};
@@ -23,14 +25,14 @@ pub struct JsTerminalState {
     pub last_action: Option<JsTerminalAction>,
 }
 
-impl From<TerminalState> for JsTerminalState {
-    fn from(value: TerminalState) -> Self {
+impl JsTerminalState {
+    pub fn from_state(value: Arc<TerminalState>) -> Self {
         JsTerminalState {
-            grid: value.grid.into(),
-            scrollback: value.scrollback.into(),
+            grid: JsTerminalGrid::from_grid(&value.grid),
+            scrollback: JsTerminalGrid::from_grid(&value.scrollback),
             scroll_offset: value.scroll_offset,
             terminated: value.terminated,
-            last_action: value.last_action.map(Into::into),
+            last_action: value.last_action.clone().map(Into::into),
         }
     }
 }
@@ -42,8 +44,8 @@ pub struct JsTerminalGrid {
     size: JsTerminalSize,
 }
 
-impl From<TerminalGrid> for JsTerminalGrid {
-    fn from(value: TerminalGrid) -> Self {
+impl JsTerminalGrid {
+    pub fn from_grid(value: &TerminalGrid) -> Self {
         let mut rows = Vec::with_capacity(value.size.rows as usize);
         for row_index in 0..value.size.rows {
             let mut row = Vec::with_capacity(value.size.columns as usize);

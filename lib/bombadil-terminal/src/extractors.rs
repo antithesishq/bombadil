@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 /// A separate Boa context, running on its own OS thread, used only to run JS
 /// extractors over terminal state.
 use anyhow::{Result, anyhow};
@@ -22,7 +24,7 @@ pub struct ExtractorWorker {
 
 enum ExtractorCommand {
     RunExtractors {
-        state_json: json::Value,
+        state: Arc<TerminalState>,
         reply: oneshot::Sender<Result<Vec<PartialSnapshot>>>,
     },
 }
@@ -56,11 +58,12 @@ impl ExtractorWorker {
                 };
                 while let Some(command) = recv.blocking_recv() {
                     match command {
-                        ExtractorCommand::RunExtractors {
-                            state_json,
-                            reply,
-                        } => {
-                            let result = extractors.run_extractors(state_json);
+                        ExtractorCommand::RunExtractors { state, reply } => {
+                            let state = JsTerminalState::from_state(state);
+                            let state_json = json::to_value(state)
+                                .expect("json serialization failed on state");
+                            let result =
+                                extractors.run_extractors_on(state_json);
                             let _ = reply.send(result);
                         }
                     }
@@ -76,15 +79,14 @@ impl ExtractorWorker {
     #[hotpath::measure]
     pub async fn run_extractors(
         &self,
-        state: &TerminalState,
+        state: impl Into<Arc<TerminalState>>,
     ) -> Result<Vec<Snapshot>> {
+        let state: Arc<TerminalState> = state.into();
         let time = Time::from_system_time(state.timestamp);
-        let state: JsTerminalState = state.clone().into();
-        let state_json = json::to_value(state)?;
         let (reply_send, reply_recv) = oneshot::channel();
         self.send
             .send(ExtractorCommand::RunExtractors {
-                state_json,
+                state,
                 reply: reply_send,
             })
             .await
@@ -209,7 +211,8 @@ impl Extractors {
         Ok(Extractors { context, runtime })
     }
 
-    fn run_extractors(
+    #[hotpath::measure]
+    fn run_extractors_on(
         &mut self,
         state_json: json::Value,
     ) -> Result<Vec<PartialSnapshot>> {

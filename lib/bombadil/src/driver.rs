@@ -39,7 +39,7 @@ pub trait InterfaceDriver: Send {
 
     fn extract_snapshots(
         &self,
-        state: &Self::State,
+        state: Arc<Self::State>,
         last_action: Option<&Self::Action>,
     ) -> impl std::future::Future<Output = Result<Vec<Snapshot>>>;
 
