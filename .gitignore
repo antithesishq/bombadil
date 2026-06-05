@@ -8,3 +8,4 @@ lib/bombadil/target
 AGENTS.md
 CLAUDE.md
 /chrome 
+/.cargo-home

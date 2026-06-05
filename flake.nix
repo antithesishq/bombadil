@@ -106,6 +106,15 @@
               shellHook = ''
                 export CC=${pkgs.clang}/bin/clang
                 export CXX=${pkgs.clang}/bin/clang++
+
+                export CARGO_HOME=$PWD/.cargo-home
+                export CARGO_INSTALL_ROOT=$PWD/.cargo-home
+                mkdir -p $CARGO_HOME/bin
+                export PATH=$CARGO_HOME/bin:$PATH
+                if ! command -v hotpath &> /dev/null; then
+                  echo "Installing hotpath for Nix shell..."
+                  cargo install hotpath --features='tui' --version '^0.16.1' -q
+                fi
               '';
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
               inputsFrom = [ self.packages.${system}.default ];
