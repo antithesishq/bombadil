@@ -546,6 +546,30 @@ export const inputEventuallyHasText = eventually(
 }
 
 #[tokio::test]
+async fn test_textarea_backspace() {
+    BrowserIntegrationTest::new("textarea-backspace")
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+export const backspaces = actions(() => [{ PressKey: { code: 8 } }]);
+
+const editorValue = extract((state) => {
+  const editor = state.document.querySelector("\#editor");
+  return editor ? editor.value : "";
+});
+
+export const editorEventuallyEmpty = eventually(
+  () => editorValue.current === ""
+).within(10, "seconds");
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
 async fn test_counter_state_machine() {
     BrowserIntegrationTest::new("counter-state-machine")
         .time_limit(Duration::from_secs(3))

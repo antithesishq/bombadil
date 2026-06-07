@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Textarea Backspace</title>
+</head>
+<body>
+    <h1>Textarea Backspace Test</h1>
+    <p>Press Backspace to empty the textarea below:</p>
+    <textarea id="editor" autofocus rows="4" cols="40">hello</textarea>
+
+    <script>
+        const editor = document.getElementById('editor');
+        editor.focus();
+        editor.setSelectionRange(editor.value.length, editor.value.length);
+    </script>
+</body>
+</html>

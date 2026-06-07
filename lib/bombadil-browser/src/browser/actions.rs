@@ -10,7 +10,7 @@ use tokio::time::sleep;
 
 use crate::geometry::Point;
 use crate::js_action::JsAction;
-use bombadil_browser_keys::key_name;
+use bombadil_browser_keys::{key_name, key_text};
 
 #[derive(Clone, Copy, Debug)]
 pub struct ActionOptions {
@@ -161,30 +161,40 @@ impl BrowserAction {
                 }
             }
             BrowserAction::PressKey { code } => {
-                let build_params = |event_type| {
-                    if let Some(name) = key_name(*code) {
+                let Some(name) = key_name(*code) else {
+                    bail!("unknown key with code: {:?}", code);
+                };
+                let text = key_text(*code);
+                let build_params = |event_type, text: Option<&str>| {
+                    let mut builder =
                         input::DispatchKeyEventParams::builder()
                             .r#type(event_type)
                             .native_virtual_key_code(*code as i64)
                             .windows_virtual_key_code(*code as i64)
                             .code(name)
-                            .key(name)
-                            .unmodified_text("\r")
-                            .text("\r")
-                            .build()
-                            .map_err(|err| anyhow!(err))
-                    } else {
-                        bail!("unknown key with code: {:?}", code)
+                            .key(name);
+                    if let Some(text) = text {
+                        builder = builder.unmodified_text(text).text(text);
                     }
+                    builder.build().map_err(|err| anyhow!(err))
                 };
                 page.execute(build_params(
                     input::DispatchKeyEventType::RawKeyDown,
+                    None,
                 )?)
                 .await?;
-                page.execute(build_params(input::DispatchKeyEventType::Char)?)
+                if let Some(text) = text {
+                    page.execute(build_params(
+                        input::DispatchKeyEventType::Char,
+                        Some(text),
+                    )?)
                     .await?;
-                page.execute(build_params(input::DispatchKeyEventType::KeyUp)?)
-                    .await?;
+                }
+                page.execute(build_params(
+                    input::DispatchKeyEventType::KeyUp,
+                    None,
+                )?)
+                .await?;
             }
             BrowserAction::SetFileInputFiles { selector, files } => {
                 let document =

@@ -1,3 +1,18 @@
+/// Returns the text a key produces when pressed, or `None` if it produces none.
+///
+/// Control and navigation keys — `Backspace`, `Tab`, `Escape`, the arrows, the
+/// function keys, and so on — produce no text.
+pub fn key_text(code: u8) -> Option<&'static str> {
+    match code {
+        13 => Some("\r"),
+        32 => Some(" "),
+        48..=57 | 65..=90 | 186..=192 | 219..=222 => key_name(code),
+        _ => None,
+    }
+}
+
+/// Returns the DOM `key` value for a keyboard event, e.g. `"c"`, `"Enter"`, or
+/// `"Backspace"`, or `None` for an unrecognized key code.
 pub fn key_name(code: u8) -> Option<&'static str> {
     match code {
         8 => Some("Backspace"),
@@ -84,5 +99,31 @@ pub fn key_name(code: u8) -> Option<&'static str> {
         221 => Some("]"),
         222 => Some("'"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enter_produces_carriage_return() {
+        assert_eq!(key_text(13), Some("\r"));
+    }
+
+    #[test]
+    fn printable_keys_produce_their_character() {
+        assert_eq!(key_text(67), Some("c"));
+        assert_eq!(key_text(48), Some("0"));
+        assert_eq!(key_text(32), Some(" "));
+        assert_eq!(key_text(188), Some(","));
+        assert_eq!(key_text(222), Some("'"));
+    }
+
+    #[test]
+    fn control_and_navigation_keys_produce_no_text() {
+        for code in [8, 9, 16, 27, 37, 38, 39, 40, 46, 112] {
+            assert_eq!(key_text(code), None, "code {code} should produce no text");
+        }
     }
 }
