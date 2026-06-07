@@ -60,9 +60,28 @@ const chartSpan = extract((state) => {
   };
 });
 
+const tickLabels = extract((state) =>
+  [...state.document.querySelectorAll(".timescale .time-label")].map(
+    (element) => element.textContent,
+  ),
+);
+
 export const eventuallyShowsActions = always(
   eventually(() => actionEntries.current.length > 0).within(2, "seconds"),
 );
+
+// Regression guard for #171: the timeline axis must span exactly the action
+// times. The first tick is the chart origin (00:00.000) and the last tick is
+// the final action's timestamp. A unit mismatch (micros rendered as millis)
+// scaled the labels by 1000x, which this property catches.
+export const timelineTicksMatchActionTimes = always(() => {
+  if (isLoading()) return true;
+  const ticks = tickLabels.current;
+  const entries = actionEntries.current;
+  if (!ticks?.length || entries.length === 0) return true;
+  const lastActionTime = entries[entries.length - 1].time;
+  return ticks[0] === "00:00.000" && ticks[ticks.length - 1] === lastActionTime;
+});
 
 export const clickTimelineMovesCursorCorrectly = always(() => {
   // Make sure we have a click and a timeline.
