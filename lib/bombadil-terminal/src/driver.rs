@@ -1,4 +1,4 @@
-use std::sync::{Arc, mpsc};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 
@@ -25,7 +25,6 @@ use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
 
-const TERMINAL_WORKER_STACK_SIZE: usize = 4 * 1024 * 1024;
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -37,23 +36,8 @@ pub enum TerminalAction {
     ScrollDown {},
 }
 
-enum TerminalCommand {
-    Initiate {
-        reply: mpsc::SyncSender<Result<()>>,
-    },
-    NextEvent {
-        reply: mpsc::SyncSender<Option<DriverEvent<TerminalState>>>,
-    },
-    Apply {
-        action: TerminalAction,
-        reply: mpsc::SyncSender<anyhow::Result<()>>,
-    },
-    Terminate {
-        reply: mpsc::SyncSender<Result<()>>,
-    },
-}
-
-struct TerminalWorkerState {
+pub struct TerminalDriver {
+    extractor: Extractors,
     terminal: Terminal<'static, 'static>,
     process: PtyProcess,
     output: PtyOutput,
@@ -61,7 +45,45 @@ struct TerminalWorkerState {
     last_action: Option<TerminalAction>,
 }
 
-impl TerminalWorkerState {
+impl TerminalDriver {
+    #[hotpath::measure]
+    pub fn launch(
+        specification: Specification,
+        size: TerminalSize,
+        scrollback_lines_max: usize,
+        program: &str,
+        arguments: &[String],
+    ) -> Result<(Self, Verifier)> {
+        let bundle_code = bundle(".", &specification.module_specifier)
+            .map_err(|e| anyhow!("bundle failed: {e}"))?;
+
+        let extractor = Extractors::initialize(&bundle_code)?;
+        let verifier = Verifier::new(&bundle_code)?;
+
+        let program = program.to_string();
+        let arguments = arguments.to_vec();
+
+        let terminal = Terminal::new(TerminalOptions {
+            cols: size.columns,
+            rows: size.rows,
+            max_scrollback: scrollback_lines_max,
+        })?;
+
+        let (process, output) = PtyProcess::spawn(size, &program, &arguments)?;
+
+        Ok((
+            Self {
+                extractor,
+                terminal,
+                process,
+                output,
+                size,
+                last_action: None,
+            },
+            verifier,
+        ))
+    }
+
     #[hotpath::measure]
     fn drain_output(&mut self) {
         while let ReadResult::Chunk(data) = self.output.try_read() {
@@ -134,6 +156,22 @@ impl TerminalWorkerState {
             last_action: self.last_action.clone(),
         })
     }
+}
+
+impl InterfaceDriver for TerminalDriver {
+    type Action = TerminalAction;
+    type State = TerminalState;
+
+    #[hotpath::measure]
+    fn initiate(&mut self) -> Result<()> {
+        sleep(INITIATE_STARTUP_DELAY);
+        Ok(())
+    }
+
+    fn terminate(mut self) -> Result<()> {
+        self.process.kill();
+        Ok(())
+    }
 
     #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
@@ -185,175 +223,6 @@ impl TerminalWorkerState {
         }
         self.last_action = Some(action);
         Ok(())
-    }
-}
-
-fn run_terminal_worker(
-    size: TerminalSize,
-    scrollback_lines_max: usize,
-    program: String,
-    args: Vec<String>,
-    command_receive: mpsc::Receiver<TerminalCommand>,
-    ready_send: mpsc::SyncSender<Result<()>>,
-) {
-    let terminal = match Terminal::new(TerminalOptions {
-        cols: size.columns,
-        rows: size.rows,
-        max_scrollback: scrollback_lines_max,
-    }) {
-        Ok(t) => t,
-        Err(error) => {
-            let _ = ready_send.send(Err(error.into()));
-            return;
-        }
-    };
-
-    let (process, output) = match PtyProcess::spawn(size, &program, &args) {
-        Ok(x) => x,
-        Err(error) => {
-            let _ = ready_send.send(Err(error));
-            return;
-        }
-    };
-
-    if ready_send.send(Ok(())).is_err() {
-        // Driver was dropped before we finished setup.
-        return;
-    }
-
-    let mut state = TerminalWorkerState {
-        terminal,
-        process,
-        output,
-        size,
-        last_action: None,
-    };
-
-    while let Ok(command) = command_receive.recv() {
-        match command {
-            TerminalCommand::Initiate { reply } => {
-                sleep(INITIATE_STARTUP_DELAY);
-                let _ = reply.send(Ok(()));
-            }
-            TerminalCommand::NextEvent { reply } => {
-                let event = state.next_event();
-                let _ = reply.send(event);
-            }
-            TerminalCommand::Apply { action, reply } => {
-                let result = state.apply(action);
-                let _ = reply.send(result);
-            }
-            TerminalCommand::Terminate { reply } => {
-                state.process.kill();
-                let _ = reply.send(Ok(()));
-                break;
-            }
-        }
-    }
-}
-
-pub struct TerminalDriver {
-    command_send: mpsc::SyncSender<TerminalCommand>,
-    extractor: Extractors,
-}
-
-impl TerminalDriver {
-    #[hotpath::measure]
-    pub fn launch(
-        specification: Specification,
-        size: TerminalSize,
-        scrollback_lines_max: usize,
-        program: &str,
-        arguments: &[String],
-    ) -> Result<(Self, Verifier)> {
-        let bundle_code = bundle(".", &specification.module_specifier)
-            .map_err(|e| anyhow!("bundle failed: {e}"))?;
-
-        let extractor = Extractors::initialize(&bundle_code)?;
-        let verifier = Verifier::new(&bundle_code)?;
-
-        let (command_send, command_recv) = mpsc::sync_channel(256);
-        let (ready_send, ready_recv) = mpsc::sync_channel(1);
-        let program = program.to_string();
-        let arguments = arguments.to_vec();
-
-        std::thread::Builder::new()
-            .name("bombadil-terminal-worker".to_string())
-            .stack_size(TERMINAL_WORKER_STACK_SIZE)
-            .spawn(move || {
-                run_terminal_worker(
-                    size,
-                    scrollback_lines_max,
-                    program,
-                    arguments,
-                    command_recv,
-                    ready_send,
-                );
-            })?;
-
-        ready_recv
-            .recv()
-            .map_err(|_| anyhow!("terminal worker died before ready"))??;
-
-        Ok((
-            Self {
-                command_send,
-                extractor,
-            },
-            verifier,
-        ))
-    }
-}
-
-impl InterfaceDriver for TerminalDriver {
-    type Action = TerminalAction;
-    type State = TerminalState;
-
-    #[hotpath::measure]
-    fn initiate(&mut self) -> Result<()> {
-        let (reply_send, reply_recv) = mpsc::sync_channel(1);
-        self.command_send
-            .send(TerminalCommand::Initiate { reply: reply_send })?;
-        reply_recv
-            .recv()
-            .map_err(|_| anyhow!("terminal worker gone"))?
-    }
-
-    fn terminate(self) -> Result<()> {
-        let (reply_send, reply_recv) = mpsc::sync_channel(1);
-        self.command_send
-            .send(TerminalCommand::Terminate { reply: reply_send })?;
-        reply_recv
-            .recv()
-            .map_err(|_| anyhow!("terminal worker gone"))?
-    }
-
-    #[hotpath::measure]
-    fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        let (reply_send, reply_recv) = mpsc::sync_channel(1);
-        if self
-            .command_send
-            .send(TerminalCommand::NextEvent { reply: reply_send })
-            .is_err()
-        {
-            return None;
-        }
-        reply_recv.recv().ok().flatten()
-    }
-
-    #[hotpath::measure]
-    fn apply(&mut self, action: TerminalAction) -> Result<()> {
-        if let TerminalAction::PressKey { code } = &action
-            && char::from_u32(*code).is_none()
-        {
-            bail!("PressKey: code {} is not valid unicode", code);
-        }
-        let (reply_send, reply_recv) = mpsc::sync_channel(1);
-        self.command_send.send(TerminalCommand::Apply {
-            action,
-            reply: reply_send,
-        })?;
-        reply_recv.recv()?
     }
 
     fn extract_snapshots(
