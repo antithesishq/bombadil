@@ -129,7 +129,7 @@ pub fn run(command: Command) {
 
                 println!();
                 println!(
-                    "Throughput: {:.1} states/second",
+                    "Throughput (state samples/sec): {:.1}",
                     strategy.states_seen as f64
                         / SystemTime::now()
                             .duration_since(test_start)?

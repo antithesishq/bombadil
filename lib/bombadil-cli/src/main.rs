@@ -42,10 +42,6 @@ fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match cli.command {
-        // The browser path is async (CDP control, inspect server). The terminal
-        // path is fully synchronous and its driver blocks on channels, which
-        // panics inside a Tokio runtime — so we scope the runtime to the browser
-        // subcommand rather than wrapping all of `main`.
         Command::Browser { command } => {
             tokio::runtime::Runtime::new()?.block_on(browser::run(command))
         }
