@@ -20,21 +20,17 @@ export type Action =
 
 export interface Grid {
   size: Size;
-  // Returns the cells of the row at `index`. Rows are materialized lazily, so
-  // read only the rows you need and use `size` to bound your iteration. An
-  // out-of-bounds `index` returns `undefined`.
+  // @returns the cells of the row at `index`.
   row(index: number): GridCell[];
-  // Returns the rendered text of the row at `index`: occupied cells contribute
-  // their contents, empty cells a space, and continuation cells nothing. This
-  // is the fast path for reading a row as a string and avoids materializing a
-  // cell object per column. An out-of-bounds `index` returns `undefined`.
+  // @returns the rendered text of the row at `index`. Use {@link row}
+  // if you need styling information of the individual grid cells.
   rowText(index: number): string;
 }
 
 export type GridCell =
-  | { Occupied: { contents: string, wide: boolean, style: Style } }
+  | { Occupied: { contents: string; wide: boolean; style: Style } }
   | "Empty"
-  | "Continuation"
+  | "Continuation";
 
 export interface Style {
   // TODO
@@ -48,9 +44,7 @@ export interface State {
   lastAction: Action | null;
 }
 
-export function extract<T extends JSON>(
-  query: (state: State) => T,
-): Cell<T> {
+export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
   return bombadil.extract<State, T>(query);
 }
 
