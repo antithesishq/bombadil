@@ -14,8 +14,7 @@ pub trait FromGeneratedAction: Sized {
     fn from_generated(value: json::Value) -> Result<Self>;
 }
 
-/// Identity conversion: the action is the raw generated JSON value. Useful for
-/// callers that perform their own conversion in a later step.
+/// Identity conversion.
 impl FromGeneratedAction for json::Value {
     fn from_generated(value: json::Value) -> Result<Self> {
         Ok(value)

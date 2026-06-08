@@ -408,10 +408,6 @@ impl ActionGenerator {
                     "action generator {} returned undefined",
                     self.name
                 )))?;
-        // Deserialize into a tree of raw JSON values first; JavaScript numbers
-        // are all floats, so converting straight into a typed action would
-        // reject e.g. integer-valued sizes. The per-action `from_generated`
-        // performs the loose-to-typed conversion.
         let value_tree: Tree<json::Value> = json::from_value(actions_json)
             .map_err(|error| {
                 SpecificationError::OtherError(format!(
