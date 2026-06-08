@@ -154,13 +154,22 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
 fn test_colored_segments() {
     TerminalIntegrationTest::new(
         "sh",
-        // Red (SGR 31), green (SGR 32), and blue (SGR 34) strings, each
-        // emitted separately with a short pause in between.
+        // Red (SGR 31), green (SGR 32), yellow (SGR 33), and blue (SGR 34)
+        // strings, each emitted separately with a short pause in between.
+        // Each string embeds a non-ASCII grapheme so the test covers
+        // multi-byte/multi-codepoint cell handling and wide-cell continuations
+        // keeping their color. The graphemes span:
+        //   ❤️  - VS16 emoji; rendered narrow (one cell), two codepoints
+        //   緑   - single-codepoint CJK; wide, with a continuation cell
+        //   👨‍👩‍👧‍👦 - ZWJ family; ghostty splits it into four wide emoji,
+        //         each with its own continuation cell
+        //   😎  - single-codepoint astral emoji; wide, with a continuation
         &[
             "-c",
-            "printf '\\033[31mred hot chili peppers\\033[0m'; sleep 0.005; \
-             printf '\\033[32mgrant green\\033[0m'; sleep 0.005; \
-             printf '\\033[34mkind of blue\\033[0m\\n'",
+            "printf '\\033[31mred hot ❤️ chili peppers\\033[0m'; sleep 0.005; \
+             printf '\\033[32mgrant 緑 green\\033[0m'; sleep 0.005; \
+             printf '\\033[33myellow submarine 👨‍👩‍👧‍👦\\033[0m'; sleep 0.005; \
+             printf '\\033[34mkind of blue 😎\\033[0m\\n'",
         ],
     )
     .specification(
@@ -208,13 +217,15 @@ function isPalette(color, index) {
 export const eventuallyColoredSegments = eventually(() => {
     const found = segments.current;
     return (
-        found.length === 3 &&
-        found[0].text === "red hot chili peppers" &&
+        found.length === 4 &&
+        found[0].text === "red hot ❤️ chili peppers" &&
         isPalette(found[0].color, 1) &&
-        found[1].text === "grant green" &&
+        found[1].text === "grant 緑 green" &&
         isPalette(found[1].color, 2) &&
-        found[2].text === "kind of blue" &&
-        isPalette(found[2].color, 4)
+        found[2].text === "yellow submarine 👨‍👩‍👧‍👦" &&
+        isPalette(found[2].color, 3) &&
+        found[3].text === "kind of blue 😎" &&
+        isPalette(found[3].color, 4)
     );
 });
 
