@@ -52,11 +52,6 @@ impl GridCapture {
     }
 }
 
-/// Builds the JavaScript `State` handed to extractors. Each grid is exposed
-/// lazily as a `size` plus `row(index)`/`rowText(index)` functions that read
-/// the shared [`TerminalState`] on demand, so an extractor only pays for the
-/// rows it touches and the (potentially large) scrollback is never built
-/// unless accessed.
 pub fn terminal_state_to_js(
     state: Arc<TerminalState>,
     context: &mut Context,
@@ -122,7 +117,7 @@ fn grid_function(
         state: Arc::clone(state),
         kind,
     };
-    // SAFETY: `GridCapture` holds no garbage-collected pointers (empty `Trace`).
+    // `GridCapture` holds no garbage-collected pointers (see the empty `Trace` impl).
     unsafe { NativeFunction::from_closure_with_captures(function, capture) }
 }
 
@@ -141,7 +136,6 @@ fn row_index_arg(
     Ok(Some(index as u16))
 }
 
-// Fast path: render a row to a string in Rust, skipping per-cell JS objects.
 fn row_text_at(
     _this: &JsValue,
     args: &[JsValue],
