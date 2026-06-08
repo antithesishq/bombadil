@@ -11,7 +11,8 @@ use boa_engine::{
 };
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{
-    TerminalCell, TerminalColor, TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
+    TerminalCell, TerminalColor, TerminalGrid, TerminalSize, TerminalStyle,
+    TerminalUnderline,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
@@ -56,7 +57,10 @@ impl GridCapture {
 /// the shared [`TerminalState`] on demand, so an extractor only pays for the
 /// rows it touches and the (potentially large) scrollback is never built
 /// unless accessed.
-pub fn terminal_state_to_js(state: Arc<TerminalState>, context: &mut Context) -> JsValue {
+pub fn terminal_state_to_js(
+    state: Arc<TerminalState>,
+    context: &mut Context,
+) -> JsValue {
     let grid = grid_to_js(&state, GridKind::Screen, context);
     let scrollback = grid_to_js(&state, GridKind::Scrollback, context);
     let last_action = match &state.last_action {
@@ -81,7 +85,11 @@ pub fn terminal_state_to_js(state: Arc<TerminalState>, context: &mut Context) ->
         .into()
 }
 
-fn grid_to_js(state: &Arc<TerminalState>, kind: GridKind, context: &mut Context) -> JsValue {
+fn grid_to_js(
+    state: &Arc<TerminalState>,
+    kind: GridKind,
+    context: &mut Context,
+) -> JsValue {
     let size = size_to_js(state_grid(state, kind).size, context);
     let row = grid_function(state, kind, row_at);
     let row_text = grid_function(state, kind, row_text_at);
@@ -103,7 +111,12 @@ fn state_grid(state: &Arc<TerminalState>, kind: GridKind) -> &TerminalGrid {
 fn grid_function(
     state: &Arc<TerminalState>,
     kind: GridKind,
-    function: fn(&JsValue, &[JsValue], &GridCapture, &mut Context) -> JsResult<JsValue>,
+    function: fn(
+        &JsValue,
+        &[JsValue],
+        &GridCapture,
+        &mut Context,
+    ) -> JsResult<JsValue>,
 ) -> NativeFunction {
     let capture = GridCapture {
         state: Arc::clone(state),
@@ -187,7 +200,11 @@ fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
                     JsString::from(contents.to_string().as_str()),
                     Attribute::all(),
                 )
-                .property(js_string!("wide"), JsValue::from(*wide), Attribute::all())
+                .property(
+                    js_string!("wide"),
+                    JsValue::from(*wide),
+                    Attribute::all(),
+                )
                 .property(js_string!("style"), style, Attribute::all())
                 .build();
             ObjectInitializer::new(context)
@@ -202,7 +219,8 @@ fn style_to_js(style: &TerminalStyle, context: &mut Context) -> JsValue {
     let foreground = color_to_js(&style.foreground_color, context);
     let background = color_to_js(&style.background_color, context);
     let underline_color = color_to_js(&style.underline_color, context);
-    let underline: JsValue = JsString::from(underline_name(&style.underline)).into();
+    let underline: JsValue =
+        JsString::from(underline_name(&style.underline)).into();
     ObjectInitializer::new(context)
         .property(js_string!("foreground_color"), foreground, Attribute::all())
         .property(js_string!("background_color"), background, Attribute::all())
@@ -234,9 +252,21 @@ fn color_to_js(color: &TerminalColor, context: &mut Context) -> JsValue {
             .into(),
         TerminalColor::RGB { r, g, b } => {
             let rgb = ObjectInitializer::new(context)
-                .property(js_string!("r"), JsValue::from(*r as f64), Attribute::all())
-                .property(js_string!("g"), JsValue::from(*g as f64), Attribute::all())
-                .property(js_string!("b"), JsValue::from(*b as f64), Attribute::all())
+                .property(
+                    js_string!("r"),
+                    JsValue::from(*r as f64),
+                    Attribute::all(),
+                )
+                .property(
+                    js_string!("g"),
+                    JsValue::from(*g as f64),
+                    Attribute::all(),
+                )
+                .property(
+                    js_string!("b"),
+                    JsValue::from(*b as f64),
+                    Attribute::all(),
+                )
                 .build();
             ObjectInitializer::new(context)
                 .property(js_string!("RGB"), rgb, Attribute::all())
@@ -339,7 +369,9 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
     type Error = anyhow::Error;
     fn try_from(value: JsTerminalAction) -> Result<Self> {
         match value {
-            JsTerminalAction::TypeText { text } => Ok(TerminalAction::TypeText { text }),
+            JsTerminalAction::TypeText { text } => {
+                Ok(TerminalAction::TypeText { text })
+            }
             JsTerminalAction::PressKey { code } => {
                 ensure!(code.is_normal(), "key code must be a normal number");
                 Ok(TerminalAction::PressKey { code: code as u32 })
@@ -348,7 +380,9 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
                 size: size.try_into()?,
             }),
             JsTerminalAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
-            JsTerminalAction::ScrollDown {} => Ok(TerminalAction::ScrollDown {}),
+            JsTerminalAction::ScrollDown {} => {
+                Ok(TerminalAction::ScrollDown {})
+            }
         }
     }
 }
