@@ -159,8 +159,8 @@ fn row_text_at(
                 use std::fmt::Write;
                 let _ = write!(text, "{contents}");
             }
-            TerminalCell::Empty => text.push(' '),
-            TerminalCell::Continuation => {}
+            TerminalCell::Empty { .. } => text.push(' '),
+            TerminalCell::Continuation { .. } => {}
         }
     }
     Ok(JsString::from(text.as_str()).into())
@@ -185,34 +185,26 @@ fn row_at(
 }
 
 fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
-    match cell {
-        TerminalCell::Empty => js_string!("Empty").into(),
-        TerminalCell::Continuation => js_string!("Continuation").into(),
+    let (contents, wide, style) = match cell {
+        TerminalCell::Empty { style } => (" ".to_string(), false, style),
+        TerminalCell::Continuation { style } => (String::new(), false, style),
         TerminalCell::Occupied {
             contents,
             wide,
             style,
-        } => {
-            let style = style_to_js(style, context);
-            let occupied = ObjectInitializer::new(context)
-                .property(
-                    js_string!("contents"),
-                    JsString::from(contents.to_string().as_str()),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("wide"),
-                    JsValue::from(*wide),
-                    Attribute::all(),
-                )
-                .property(js_string!("style"), style, Attribute::all())
-                .build();
-            ObjectInitializer::new(context)
-                .property(js_string!("Occupied"), occupied, Attribute::all())
-                .build()
-                .into()
-        }
-    }
+        } => (contents.to_string(), *wide, style),
+    };
+    let style = style_to_js(style, context);
+    ObjectInitializer::new(context)
+        .property(
+            js_string!("contents"),
+            JsString::from(contents.as_str()),
+            Attribute::all(),
+        )
+        .property(js_string!("wide"), JsValue::from(wide), Attribute::all())
+        .property(js_string!("style"), style, Attribute::all())
+        .build()
+        .into()
 }
 
 fn style_to_js(style: &TerminalStyle, context: &mut Context) -> JsValue {

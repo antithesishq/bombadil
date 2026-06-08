@@ -95,23 +95,23 @@ impl TerminalWorkerState {
                     == 2usize;
 
                 let style = style_from_ghostty(&cell.style()?);
-                grid[(row_index, column_index)] = if contents.is_empty()
-                    && style == TerminalStyle::default()
-                {
-                    TerminalCell::Empty
+                grid[(row_index, column_index)] = if contents.is_empty() {
+                    TerminalCell::Empty {
+                        style: style.clone(),
+                    }
                 } else {
                     TerminalCell::Occupied {
                         contents,
                         wide,
-                        style,
+                        style: style.clone(),
                     }
                 };
                 column_index += 1;
 
                 if wide {
-                    cell_iter.next(); // ignored and handled directly
+                    cell_iter.next(); // spacer tail; belongs to the wide cell
                     grid[(row_index, column_index)] =
-                        TerminalCell::Continuation;
+                        TerminalCell::Continuation { style };
                     column_index += 1;
                 }
             }

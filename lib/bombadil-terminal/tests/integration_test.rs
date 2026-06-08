@@ -118,17 +118,6 @@ fn test_eventually_ready() {
 import { eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
 
-function cellToString(cell) {
-    switch (cell) {
-        case "Empty":
-            return " ";
-        case "Continuation":
-            return "";
-        default:
-            return cell.Occupied.contents;
-    }
-}
-
 // Exercises the fast `rowText` path.
 const screen = extract((state) => {
     const lines = [];
@@ -142,7 +131,7 @@ const screen = extract((state) => {
 const screenFromCells = extract((state) => {
     const lines = [];
     for (let index = 0; index < state.grid.size.rows; index++) {
-        lines.push(state.grid.row(index).map(cellToString).join(""));
+        lines.push(state.grid.row(index).map((cell) => cell.contents).join(""));
     }
     return lines.join("\n");
 });
@@ -162,36 +151,70 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
 }
 
 #[test]
-fn test_styled_cells() {
+fn test_colored_segments() {
     TerminalIntegrationTest::new(
         "sh",
-        // Bold (SGR 1) red (SGR 31) text, then reset.
-        &["-c", "printf '\\033[1;31mERROR\\033[0m\\n'"],
+        // Red (SGR 31), green (SGR 32), and blue (SGR 34) strings, each
+        // emitted separately with a short pause in between.
+        &[
+            "-c",
+            "printf '\\033[31mred hot chili peppers\\033[0m'; sleep 0.005; \
+             printf '\\033[32mgrant green\\033[0m'; sleep 0.005; \
+             printf '\\033[34mkind of blue\\033[0m\\n'",
+        ],
     )
     .specification(
         r#"
 import { eventually } from "@antithesishq/bombadil";
-import { actions, extract, Attributes } from "@antithesishq/bombadil/terminal";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
 
-const firstStyledCell = extract((state) => {
+function colorKey(color) {
+    if (color === "None") return "None";
+    if ("Palette" in color) return "Palette:" + color.Palette;
+    return `RGB:${color.RGB.r},${color.RGB.g},${color.RGB.b}`;
+}
+
+const segments = extract((state) => {
+    const result = [];
+    let current = null;
     for (let row = 0; row < state.grid.size.rows; row++) {
         for (const cell of state.grid.row(row)) {
-            if (cell !== "Empty" && cell !== "Continuation") {
-                return cell.Occupied.style;
+            const key = colorKey(cell.style.foregroundColor);
+            if (current !== null && current.key === key) {
+                current.text += cell.contents;
+            } else {
+                current = {
+                    key,
+                    color: cell.style.foregroundColor,
+                    text: cell.contents,
+                };
+                result.push(current);
             }
         }
     }
-    return null;
+    return result
+        .filter((segment) => segment.text.trim() !== "")
+        .map((segment) => ({ color: segment.color, text: segment.text }));
 });
 
-export const eventuallyBoldRed = eventually(() => {
-    const style = firstStyledCell.current;
+function isPalette(color, index) {
     return (
-        style !== null &&
-        Attributes.has(style, Attributes.Bold) &&
-        !Attributes.has(style, Attributes.Italic) &&
-        typeof style.foregroundColor === "object" &&
-        "Palette" in style.foregroundColor
+        typeof color === "object" &&
+        "Palette" in color &&
+        color.Palette === index
+    );
+}
+
+export const eventuallyColoredSegments = eventually(() => {
+    const found = segments.current;
+    return (
+        found.length === 3 &&
+        found[0].text === "red hot chili peppers" &&
+        isPalette(found[0].color, 1) &&
+        found[1].text === "grant green" &&
+        isPalette(found[1].color, 2) &&
+        found[2].text === "kind of blue" &&
+        isPalette(found[2].color, 4)
     );
 });
 

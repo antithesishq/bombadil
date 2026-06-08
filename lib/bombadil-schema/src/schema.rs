@@ -181,7 +181,12 @@ pub struct TerminalGrid {
 impl TerminalGrid {
     pub fn with_size(size: TerminalSize) -> TerminalGrid {
         TerminalGrid {
-            cells: vec![TerminalCell::Empty; size.cell_count() as usize],
+            cells: vec![
+                TerminalCell::Empty {
+                    style: TerminalStyle::default()
+                };
+                size.cell_count() as usize
+            ],
             size,
         }
     }
@@ -254,8 +259,12 @@ pub enum TerminalCell {
         wide: bool,
         style: TerminalStyle,
     },
-    Empty,
-    Continuation,
+    Empty {
+        style: TerminalStyle,
+    },
+    Continuation {
+        style: TerminalStyle,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

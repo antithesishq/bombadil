@@ -27,10 +27,14 @@ export interface Grid {
   rowText(index: number): string;
 }
 
-export type GridCell =
-  | { Occupied: { contents: string; wide: boolean; style: Style } }
-  | "Empty"
-  | "Continuation";
+export interface GridCell {
+  // The cell's text. A single space for an empty cell, and the empty string
+  // for a continuation cell (the trailing half of a wide character).
+  // Concatenating `contents` across a row reconstructs {@link Grid.rowText}.
+  contents: string;
+  wide: boolean;
+  style: Style;
+}
 
 export type Color =
   | "None"

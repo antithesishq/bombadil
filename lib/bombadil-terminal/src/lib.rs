@@ -117,9 +117,10 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
                                 )?;
                             };
                         }
-                        TerminalCell::Continuation => {}
-                        TerminalCell::Empty => {
-                            write!(buffer, " ")?;
+                        TerminalCell::Continuation { .. } => {}
+                        TerminalCell::Empty { style } => {
+                            let style: owo_colors::Style = to_owo_style(style);
+                            write!(buffer, "{}", " ".style(style))?;
                         }
                     };
                 }
