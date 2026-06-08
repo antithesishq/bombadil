@@ -4,7 +4,7 @@ use std::{
     sync::mpsc,
 };
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use bombadil_schema::TerminalSize;
 use bytes::Bytes;
 use portable_pty::{
@@ -114,18 +114,19 @@ pub struct PtyOutput {
     output_read: mpsc::Receiver<Bytes>,
 }
 
-impl PtyOutput {
-    pub fn read(&mut self) -> Result<Bytes> {
-        Ok(self.output_read.recv()?)
-    }
+pub enum ReadResult {
+    Chunk(Bytes),
+    Empty,
+    Ended,
+}
 
-    pub fn try_read(&mut self) -> Result<Option<Bytes>> {
+impl PtyOutput {
+    pub fn try_read(&mut self) -> ReadResult {
+        use ReadResult::*;
         match self.output_read.try_recv() {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::TryRecvError::Disconnected) => {
-                bail!("failed to try_recv on output")
-            }
+            Ok(bytes) => Chunk(bytes),
+            Err(mpsc::TryRecvError::Empty) => Empty,
+            Err(mpsc::TryRecvError::Disconnected) => Ended,
         }
     }
 }

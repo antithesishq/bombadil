@@ -22,10 +22,9 @@ use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 
 use crate::extractors::Extractors;
-use crate::pty::{PtyOutput, PtyProcess};
+use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
 
-const QUIESCENCE_IDLE: Duration = Duration::from_millis(1);
 const TERMINAL_WORKER_STACK_SIZE: usize = 4 * 1024 * 1024;
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
 
@@ -65,7 +64,7 @@ struct TerminalWorkerState {
 impl TerminalWorkerState {
     #[hotpath::measure]
     fn drain_output(&mut self) {
-        while let Ok(Some(data)) = self.output.try_read() {
+        while let ReadResult::Chunk(data) = self.output.try_read() {
             self.terminal.vt_write(&data);
         }
     }
@@ -138,17 +137,14 @@ impl TerminalWorkerState {
 
     #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        loop {
-            match self.output.try_read() {
-                Ok(Some(data)) => {
-                    self.terminal.vt_write(&data);
-                    self.drain_output();
-                }
-                Ok(None) => break,
-                Err(error) => {
-                    return Some(DriverEvent::Error(Arc::new(error)));
-                }
+        match self.output.try_read() {
+            ReadResult::Chunk(data) => {
+                assert!(!data.is_empty(), "chunk is empty");
+                self.terminal.vt_write(&data);
+                self.drain_output();
             }
+            ReadResult::Empty => {}
+            ReadResult::Ended => {}
         }
 
         let terminated = matches!(self.process.is_terminated(), Ok(true));
