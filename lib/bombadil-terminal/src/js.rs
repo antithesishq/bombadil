@@ -222,10 +222,10 @@ fn style_to_js(style: &TerminalStyle, context: &mut Context) -> JsValue {
     let underline: JsValue =
         JsString::from(underline_name(&style.underline)).into();
     ObjectInitializer::new(context)
-        .property(js_string!("foreground_color"), foreground, Attribute::all())
-        .property(js_string!("background_color"), background, Attribute::all())
+        .property(js_string!("foregroundColor"), foreground, Attribute::all())
+        .property(js_string!("backgroundColor"), background, Attribute::all())
         .property(
-            js_string!("underline_color"),
+            js_string!("underlineColor"),
             underline_color,
             Attribute::all(),
         )

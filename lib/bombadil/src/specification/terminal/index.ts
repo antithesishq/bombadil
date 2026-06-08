@@ -32,8 +32,46 @@ export type GridCell =
   | "Empty"
   | "Continuation";
 
+export type Color =
+  | "None"
+  | { Palette: number }
+  | { RGB: { r: number; g: number; b: number } };
+
+export type Underline =
+  | "None"
+  | "Single"
+  | "Double"
+  | "Curly"
+  | "Dotted"
+  | "Dashed";
+
+// Bit flags packed into {@link Style.attributes}. Use {@link Attributes.has}
+// to test membership rather than the bitwise operators directly.
+export enum Attributes {
+  Bold = 0b00000001,
+  Italic = 0b00000010,
+  Blink = 0b00000100,
+  Inverse = 0b00001000,
+  Strikethrough = 0b00010000,
+  Dim = 0b00100000,
+  Invisible = 0b01000000,
+  Overline = 0b10000000,
+}
+
+export namespace Attributes {
+  // @returns whether `style` has the given `attribute` set.
+  export function has(style: Style, attribute: Attributes): boolean {
+    return (style.attributes & attribute) !== 0;
+  }
+}
+
 export interface Style {
-  // TODO
+  foregroundColor: Color;
+  backgroundColor: Color;
+  underlineColor: Color;
+  underline: Underline;
+  // Bit mask of the {@link Attributes} flags. Query with {@link Attributes.has}.
+  attributes: number;
 }
 
 export interface State {

@@ -123,6 +123,91 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
     Ok(())
 }
 
+#[tokio::test]
+async fn test_styled_cells() -> Result<()> {
+    setup();
+
+    // The spec reads styling off the first occupied cell, so it exercises the
+    // `style` shape exposed in `terminal/index.ts`: the `Color` foreground and
+    // the `Attributes` bit flags (via `Attributes.has`). This also verifies the
+    // enum + namespace merge survives the oxc TypeScript lowering at runtime.
+    let specification_source = r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract, Attributes } from "@antithesishq/bombadil/terminal";
+
+const firstStyledCell = extract((state) => {
+    for (let row = 0; row < state.grid.size.rows; row++) {
+        for (const cell of state.grid.row(row)) {
+            if (cell !== "Empty" && cell !== "Continuation") {
+                return cell.Occupied.style;
+            }
+        }
+    }
+    return null;
+});
+
+export const eventuallyBoldRed = eventually(() => {
+    const style = firstStyledCell.current;
+    return (
+        style !== null &&
+        Attributes.has(style, Attributes.Bold) &&
+        !Attributes.has(style, Attributes.Italic) &&
+        typeof style.foregroundColor === "object" &&
+        "Palette" in style.foregroundColor
+    );
+});
+
+export const noop = actions(() => [{ TypeText: { text: "" } }]);
+"#;
+
+    let mut specification_file = NamedTempFile::with_suffix(".ts")?;
+    specification_file.write_all(specification_source.as_bytes())?;
+
+    let specification = Specification {
+        module_specifier: specification_file.path().display().to_string(),
+    };
+
+    let size = TerminalSize {
+        columns: 80,
+        rows: 24,
+    };
+    let program = "sh";
+    // Bold (SGR 1) red (SGR 31) text, then reset.
+    let args = vec![
+        "-c".to_string(),
+        "printf '\\033[1;31mERROR\\033[0m\\n'".to_string(),
+    ];
+
+    let run_handle = tokio::task::spawn_blocking(move || -> Result<u64> {
+        let (driver, verifier) = TerminalDriver::launch(
+            specification,
+            size,
+            MAX_SCROLLBACK,
+            program,
+            &args,
+        )?;
+        let runner = Runner::new(driver, verifier);
+        let mut strategy = IntegrationTestStrategy::default();
+        runner.run(&mut strategy)?;
+        Ok(strategy.violations_count)
+    });
+
+    let violations_count = tokio::time::timeout(TEST_TIMEOUT, run_handle)
+        .await
+        .map_err(|_| {
+            anyhow!("terminal integration test hung past {TEST_TIMEOUT:?}")
+        })?
+        .map_err(|join_error| {
+            anyhow!("runner task panicked: {join_error}")
+        })??;
+
+    assert_eq!(
+        violations_count, 0,
+        "expected zero violations, got {violations_count}"
+    );
+    Ok(())
+}
+
 #[derive(Default)]
 struct IntegrationTestStrategy {
     violations_count: u64,
