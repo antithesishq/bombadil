@@ -1,8 +1,9 @@
 use std::io::Write;
 use std::sync::Once;
+use std::sync::mpsc;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy, Runner};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
@@ -28,11 +29,92 @@ fn setup() {
     });
 }
 
-#[tokio::test]
-async fn test_eventually_ready() -> Result<()> {
-    setup();
+struct TerminalIntegrationTest {
+    program: String,
+    args: Vec<String>,
+    size: TerminalSize,
+    max_scrollback: usize,
+    specification_source: String,
+}
 
-    let specification_source = r#"
+impl TerminalIntegrationTest {
+    fn new(program: &str, args: &[&str]) -> Self {
+        Self {
+            program: program.to_string(),
+            args: args.iter().map(|arg| arg.to_string()).collect(),
+            size: TerminalSize {
+                columns: 80,
+                rows: 24,
+            },
+            max_scrollback: MAX_SCROLLBACK,
+            specification_source: String::new(),
+        }
+    }
+
+    fn specification(mut self, source: &str) -> Self {
+        self.specification_source = source.to_string();
+        self
+    }
+
+    /// Runs the specification against the program and asserts zero property
+    /// violations.
+    fn run(self) {
+        setup();
+        let TerminalIntegrationTest {
+            program,
+            args,
+            size,
+            max_scrollback,
+            specification_source,
+        } = self;
+
+        let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+        specification_file
+            .write_all(specification_source.as_bytes())
+            .unwrap();
+        let specification = Specification {
+            module_specifier: specification_file.path().display().to_string(),
+        };
+
+        let (sender, receiver) = mpsc::channel();
+        let _ = std::thread::spawn(move || {
+            // Keep the spec file alive for the whole run.
+            let _specification_file = specification_file;
+            let result = (|| -> Result<u64> {
+                let (driver, verifier) = TerminalDriver::launch(
+                    specification,
+                    size,
+                    max_scrollback,
+                    &program,
+                    &args,
+                )?;
+                let runner = Runner::new(driver, verifier);
+                let mut strategy = IntegrationTestStrategy::default();
+                runner.run(&mut strategy)?;
+                Ok(strategy.violations_count)
+            })();
+            let _ = sender.send(result);
+        });
+
+        let violations_count = receiver
+            .recv_timeout(TEST_TIMEOUT)
+            .unwrap_or_else(|_| {
+                panic!("terminal integration test hung past {TEST_TIMEOUT:?}")
+            })
+            .expect("terminal runner failed");
+
+        assert_eq!(
+            violations_count, 0,
+            "expected zero violations, got {violations_count}"
+        );
+    }
+}
+
+#[test]
+fn test_eventually_ready() {
+    TerminalIntegrationTest::new("sh", &["-c", "printf 'ready\\n'"])
+        .specification(
+            r#"
 import { eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
 
@@ -74,64 +156,20 @@ export const eventuallyReadyFromCells = eventually(
 );
 
 export const noop = actions(() => [{ TypeText: { text: "" } }]);
-"#;
-
-    let mut specification_file = NamedTempFile::with_suffix(".ts")?;
-    specification_file.write_all(specification_source.as_bytes())?;
-
-    let specification = Specification {
-        module_specifier: specification_file.path().display().to_string(),
-    };
-
-    let size = TerminalSize {
-        columns: 80,
-        rows: 24,
-    };
-    let program = "sh";
-    let args = vec!["-c".to_string(), "printf 'ready\\n'".to_string()];
-
-    // The driver and runner are synchronous and block on channels, which
-    // panics inside a Tokio runtime, so run them on a blocking thread. The
-    // timeout around the join handle is an infrastructure safety net.
-    let run_handle = tokio::task::spawn_blocking(move || -> Result<u64> {
-        let (driver, verifier) = TerminalDriver::launch(
-            specification,
-            size,
-            MAX_SCROLLBACK,
-            program,
-            &args,
-        )?;
-        let runner = Runner::new(driver, verifier);
-        let mut strategy = IntegrationTestStrategy::default();
-        runner.run(&mut strategy)?;
-        Ok(strategy.violations_count)
-    });
-
-    let violations_count = tokio::time::timeout(TEST_TIMEOUT, run_handle)
-        .await
-        .map_err(|_| {
-            anyhow!("terminal integration test hung past {TEST_TIMEOUT:?}")
-        })?
-        .map_err(|join_error| {
-            anyhow!("runner task panicked: {join_error}")
-        })??;
-
-    assert_eq!(
-        violations_count, 0,
-        "expected zero violations, got {violations_count}"
-    );
-    Ok(())
+"#,
+        )
+        .run();
 }
 
-#[tokio::test]
-async fn test_styled_cells() -> Result<()> {
-    setup();
-
-    // The spec reads styling off the first occupied cell, so it exercises the
-    // `style` shape exposed in `terminal/index.ts`: the `Color` foreground and
-    // the `Attributes` bit flags (via `Attributes.has`). This also verifies the
-    // enum + namespace merge survives the oxc TypeScript lowering at runtime.
-    let specification_source = r#"
+#[test]
+fn test_styled_cells() {
+    TerminalIntegrationTest::new(
+        "sh",
+        // Bold (SGR 1) red (SGR 31) text, then reset.
+        &["-c", "printf '\\033[1;31mERROR\\033[0m\\n'"],
+    )
+    .specification(
+        r#"
 import { eventually } from "@antithesishq/bombadil";
 import { actions, extract, Attributes } from "@antithesishq/bombadil/terminal";
 
@@ -158,54 +196,9 @@ export const eventuallyBoldRed = eventually(() => {
 });
 
 export const noop = actions(() => [{ TypeText: { text: "" } }]);
-"#;
-
-    let mut specification_file = NamedTempFile::with_suffix(".ts")?;
-    specification_file.write_all(specification_source.as_bytes())?;
-
-    let specification = Specification {
-        module_specifier: specification_file.path().display().to_string(),
-    };
-
-    let size = TerminalSize {
-        columns: 80,
-        rows: 24,
-    };
-    let program = "sh";
-    // Bold (SGR 1) red (SGR 31) text, then reset.
-    let args = vec![
-        "-c".to_string(),
-        "printf '\\033[1;31mERROR\\033[0m\\n'".to_string(),
-    ];
-
-    let run_handle = tokio::task::spawn_blocking(move || -> Result<u64> {
-        let (driver, verifier) = TerminalDriver::launch(
-            specification,
-            size,
-            MAX_SCROLLBACK,
-            program,
-            &args,
-        )?;
-        let runner = Runner::new(driver, verifier);
-        let mut strategy = IntegrationTestStrategy::default();
-        runner.run(&mut strategy)?;
-        Ok(strategy.violations_count)
-    });
-
-    let violations_count = tokio::time::timeout(TEST_TIMEOUT, run_handle)
-        .await
-        .map_err(|_| {
-            anyhow!("terminal integration test hung past {TEST_TIMEOUT:?}")
-        })?
-        .map_err(|join_error| {
-            anyhow!("runner task panicked: {join_error}")
-        })??;
-
-    assert_eq!(
-        violations_count, 0,
-        "expected zero violations, got {violations_count}"
-    );
-    Ok(())
+"#,
+    )
+    .run();
 }
 
 #[derive(Default)]
