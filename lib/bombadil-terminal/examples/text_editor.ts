@@ -61,14 +61,13 @@ const KEYS = [
 ];
 
 const statusLine = extract((state) => {
-  let last = null;
-  for (let index = 0; index < state.grid.size.rows; index++) {
+  for (let index = state.grid.size.rows - 1; index >= 0; index--) {
     const text = state.grid.rowText(index);
     if (text.trim()) {
-      last = { line: index, text };
+      return { line: index, text };
     }
   }
-  return last;
+  return null;
 });
 
 export const typeRandom = weighted([
