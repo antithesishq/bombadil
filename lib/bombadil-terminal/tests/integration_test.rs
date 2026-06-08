@@ -154,16 +154,9 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
 fn test_colored_segments() {
     TerminalIntegrationTest::new(
         "sh",
-        // Red (SGR 31), green (SGR 32), yellow (SGR 33), and blue (SGR 34)
-        // strings, each emitted separately with a short pause in between.
-        // Each string embeds a non-ASCII grapheme so the test covers
-        // multi-byte/multi-codepoint cell handling and wide-cell continuations
-        // keeping their color. The graphemes span:
-        //   ❤️  - VS16 emoji; rendered narrow (one cell), two codepoints
-        //   緑   - single-codepoint CJK; wide, with a continuation cell
-        //   👨‍👩‍👧‍👦 - ZWJ family; ghostty splits it into four wide emoji,
-        //         each with its own continuation cell
-        //   😎  - single-codepoint astral emoji; wide, with a continuation
+        // Color-styled strings, each emitted separately with a short pause in
+        // between. Each string embeds a non-ASCII grapheme so the test covers
+        // multi-byte/multi-codepoint cell handling.
         &[
             "-c",
             "printf '\\033[31mred hot ❤️ chili peppers\\033[0m'; sleep 0.005; \
@@ -227,6 +220,43 @@ export const eventuallyColoredSegments = eventually(() => {
         found[3].text === "kind of blue 😎" &&
         isPalette(found[3].color, 4)
     );
+});
+
+export const noop = actions(() => [{ TypeText: { text: "" } }]);
+"#,
+    )
+    .run();
+}
+
+#[test]
+fn test_wide_char_wraps_at_right_margin() {
+    // Emoji doesn't fit first line as it's wide, so it wraps and ends up on second line.
+    TerminalIntegrationTest::new(
+        "sh",
+        &[
+            "-c",
+            "i=0; while [ $i -lt 79 ]; do printf x; i=$((i+1)); done; \
+             printf '😎\\n'",
+        ],
+    )
+    .specification(
+        r#"
+import { always, eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
+
+const screen = extract((state) => ({
+    row0: state.grid.rowText(0),
+    row1: state.grid.rowText(1),
+}));
+
+export const wideCharNeverOnFirstRow = always(() => {
+    const { row0 } = screen.current;
+    return !row0.includes("😎") && row0.length === 80;
+});
+
+export const eventuallyWrapped = eventually(() => {
+    const { row0, row1 } = screen.current;
+    return row0 === "x".repeat(79) + " " && row1.startsWith("😎");
 });
 
 export const noop = actions(() => [{ TypeText: { text: "" } }]);

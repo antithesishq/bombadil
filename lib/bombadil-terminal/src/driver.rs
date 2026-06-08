@@ -14,12 +14,12 @@ use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
+    screen::CellWide,
     terminal::ScrollViewport,
 };
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 use tokio::sync::{mpsc, oneshot};
-use unicode_width::UnicodeWidthChar;
 
 use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess};
@@ -85,35 +85,34 @@ impl TerminalWorkerState {
             let mut cell_iter = cell_iter_state.update(row)?;
             let mut column_index = 0;
             while let Some(cell) = cell_iter.next() {
-                let mut contents =
-                    SmallString::null_with_size(cell.graphemes_len()?);
-                cell.graphemes_buf(&mut contents[0..cell.graphemes_len()?])?;
-                let wide = contents
-                    .iter()
-                    .map(|c| c.width().unwrap_or(0))
-                    .sum::<usize>()
-                    == 2usize;
-
                 let style = style_from_ghostty(&cell.style()?);
-                grid[(row_index, column_index)] = if contents.is_empty() {
-                    TerminalCell::Empty {
-                        style: style.clone(),
-                    }
-                } else {
-                    TerminalCell::Occupied {
-                        contents,
-                        wide,
-                        style: style.clone(),
-                    }
-                };
+                grid[(row_index, column_index)] =
+                    match cell.raw_cell()?.wide()? {
+                        // Trailing column of a wide character.
+                        CellWide::SpacerTail => {
+                            TerminalCell::Continuation { style }
+                        }
+                        // Right-margin placeholder left behind when a wide
+                        // character does not fit and soft-wraps to the next line;
+                        // nothing renders here.
+                        CellWide::SpacerHead => TerminalCell::Empty { style },
+                        kind => {
+                            let length = cell.graphemes_len()?;
+                            if length == 0 {
+                                TerminalCell::Empty { style }
+                            } else {
+                                let mut contents =
+                                    SmallString::null_with_size(length);
+                                cell.graphemes_buf(&mut contents[0..length])?;
+                                TerminalCell::Occupied {
+                                    contents,
+                                    wide: kind == CellWide::Wide,
+                                    style,
+                                }
+                            }
+                        }
+                    };
                 column_index += 1;
-
-                if wide {
-                    cell_iter.next(); // spacer tail; belongs to the wide cell
-                    grid[(row_index, column_index)] =
-                        TerminalCell::Continuation { style };
-                    column_index += 1;
-                }
             }
             row_index += 1;
         }

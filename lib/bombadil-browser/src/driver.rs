@@ -21,12 +21,6 @@ use crate::instrumentation::js::EDGE_MAP_SIZE;
 
 /// Commands sent from the synchronous [`BrowserDriver`] to the asynchronous
 /// browser worker thread.
-///
-/// Replies use `std::sync::mpsc` rather than a Tokio channel: the driver side
-/// is synchronous and may run on a thread that Tokio considers part of a
-/// runtime (e.g. a `spawn_blocking` thread), where Tokio's `blocking_recv`
-/// panics. A `std` channel blocks the OS thread with no runtime awareness, so
-/// it is safe to wait on from anywhere.
 enum BrowserCommand {
     Initiate {
         reply: std_mpsc::Sender<Result<()>>,
@@ -48,13 +42,6 @@ enum BrowserCommand {
     },
 }
 
-/// A synchronous driver over the asynchronous [`Browser`].
-///
-/// The browser is genuinely async (it drives Chromium over CDP), but the
-/// `InterfaceDriver` trait is synchronous. We bridge the two by owning the
-/// browser on a dedicated worker thread that runs its own Tokio runtime, and
-/// passing messages to it over channels. The trait methods block on the
-/// replies.
 pub struct BrowserDriver {
     command_send: UnboundedSender<BrowserCommand>,
     worker: Option<std::thread::JoinHandle<()>>,
@@ -63,8 +50,6 @@ pub struct BrowserDriver {
 }
 
 impl BrowserDriver {
-    /// Spawn the browser worker thread, construct the browser inside its
-    /// runtime, evaluate the specification bundle, and block until it is ready.
     pub fn launch(
         origin: Url,
         browser_options: BrowserOptions,
@@ -188,10 +173,6 @@ impl InterfaceDriver for BrowserDriver {
     }
 }
 
-/// Owns the asynchronous browser and serves commands from the driver. Runs on
-/// its own thread with a dedicated multi-threaded Tokio runtime so the
-/// browser's background tasks (state machine, CDP handler, screencast) all live
-/// here rather than on the caller's runtime.
 fn run_browser_worker(
     origin: Url,
     browser_options: BrowserOptions,

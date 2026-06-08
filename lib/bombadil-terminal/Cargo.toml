@@ -19,7 +19,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 small-string = { path = "../small-string" }
 tokio = { workspace = true, features = ["full"] }
-unicode-width.workspace = true
 
 [dev-dependencies]
 env_logger.workspace = true
