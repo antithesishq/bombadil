@@ -1,16 +1,16 @@
 use std::{
     ffi::OsStr,
     io::{Read, Write},
+    sync::mpsc,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bombadil_schema::TerminalSize;
 use bytes::Bytes;
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
 };
-use tokio::sync::mpsc::channel;
 
 pub struct PtyProcess {
     child: Box<dyn Child + Send + Sync>,
@@ -20,7 +20,7 @@ pub struct PtyProcess {
 }
 
 impl PtyProcess {
-    pub async fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
+    pub fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
         size: TerminalSize,
         command: &str,
         args: I,
@@ -39,7 +39,7 @@ impl PtyProcess {
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
-        let (output_write, output_read) = channel::<Bytes>(64);
+        let (output_write, output_read) = mpsc::sync_channel::<Bytes>(64);
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -54,7 +54,7 @@ impl PtyProcess {
                         Ok(0) => break,
                         Ok(n) => {
                             let chunk = Bytes::copy_from_slice(&buffer[..n]);
-                            if output_write.blocking_send(chunk).is_err() {
+                            if output_write.send(chunk).is_err() {
                                 break;
                             }
                         }
@@ -92,7 +92,7 @@ impl PtyProcess {
         Ok(())
     }
 
-    pub async fn wait(mut self) -> Result<ExitStatus> {
+    pub fn wait(mut self) -> Result<ExitStatus> {
         let status = self.child.wait()?;
         drop(self.master);
         if let Some(reader) = self.reader.take() {
@@ -101,7 +101,7 @@ impl PtyProcess {
         Ok(status)
     }
 
-    pub async fn kill(&mut self) {
+    pub fn kill(&mut self) {
         let _ = self.child.kill();
     }
 
@@ -111,15 +111,21 @@ impl PtyProcess {
 }
 
 pub struct PtyOutput {
-    output_read: tokio::sync::mpsc::Receiver<Bytes>,
+    output_read: mpsc::Receiver<Bytes>,
 }
 
 impl PtyOutput {
-    pub async fn read(&mut self) -> Result<Option<Bytes>> {
-        Ok(self.output_read.recv().await)
+    pub fn read(&mut self) -> Result<Bytes> {
+        Ok(self.output_read.recv()?)
     }
 
-    pub fn try_read(&mut self) -> Option<Bytes> {
-        self.output_read.try_recv().ok()
+    pub fn try_read(&mut self) -> Result<Option<Bytes>> {
+        match self.output_read.try_recv() {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(mpsc::TryRecvError::Empty) => Ok(None),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                bail!("failed to try_recv on output")
+            }
+        }
     }
 }

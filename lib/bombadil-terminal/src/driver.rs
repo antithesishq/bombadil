@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
+use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Result, anyhow, bail};
@@ -19,7 +20,6 @@ use libghostty_vt::{
 };
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
-use tokio::sync::{mpsc, oneshot};
 
 use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess};
@@ -40,17 +40,17 @@ pub enum TerminalAction {
 
 enum TerminalCommand {
     Initiate {
-        reply: oneshot::Sender<Result<()>>,
+        reply: mpsc::SyncSender<Result<()>>,
     },
     NextEvent {
-        reply: oneshot::Sender<Option<DriverEvent<TerminalState>>>,
+        reply: mpsc::SyncSender<Option<DriverEvent<TerminalState>>>,
     },
     Apply {
         action: TerminalAction,
-        reply: oneshot::Sender<anyhow::Result<()>>,
+        reply: mpsc::SyncSender<anyhow::Result<()>>,
     },
     Terminate {
-        reply: oneshot::Sender<Result<()>>,
+        reply: mpsc::SyncSender<Result<()>>,
     },
 }
 
@@ -65,7 +65,7 @@ struct TerminalWorkerState {
 impl TerminalWorkerState {
     #[hotpath::measure]
     fn drain_output(&mut self) {
-        while let Some(data) = self.output.try_read() {
+        while let Ok(Some(data)) = self.output.try_read() {
             self.terminal.vt_write(&data);
         }
     }
@@ -137,29 +137,21 @@ impl TerminalWorkerState {
     }
 
     #[hotpath::measure]
-    async fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        let mut got_eof = false;
+    fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
         loop {
-            match tokio::time::timeout(QUIESCENCE_IDLE, self.output.read())
-                .await
-            {
-                Ok(Ok(Some(data))) => {
+            match self.output.try_read() {
+                Ok(Some(data)) => {
                     self.terminal.vt_write(&data);
                     self.drain_output();
                 }
-                Ok(Ok(None)) => {
-                    got_eof = true;
-                    break;
-                }
-                Ok(Err(error)) => {
+                Ok(None) => break,
+                Err(error) => {
                     return Some(DriverEvent::Error(Arc::new(error)));
                 }
-                Err(_) => break,
             }
         }
 
-        let terminated =
-            got_eof || matches!(self.process.is_terminated(), Ok(true));
+        let terminated = matches!(self.process.is_terminated(), Ok(true));
         match self.extract_state(terminated) {
             Ok(state) => Some(DriverEvent::StateChanged(state)),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
@@ -200,87 +192,72 @@ impl TerminalWorkerState {
     }
 }
 
-// This needs to be single-threaded (but async) due to !Send resources.
 fn run_terminal_worker(
     size: TerminalSize,
     scrollback_lines_max: usize,
     program: String,
     args: Vec<String>,
-    mut command_receive: mpsc::Receiver<TerminalCommand>,
-    ready_send: oneshot::Sender<Result<()>>,
+    command_receive: mpsc::Receiver<TerminalCommand>,
+    ready_send: mpsc::SyncSender<Result<()>>,
 ) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(rt) => rt,
+    let terminal = match Terminal::new(TerminalOptions {
+        cols: size.columns,
+        rows: size.rows,
+        max_scrollback: scrollback_lines_max,
+    }) {
+        Ok(t) => t,
         Err(error) => {
             let _ = ready_send.send(Err(error.into()));
             return;
         }
     };
 
-    runtime.block_on(async move {
-        let terminal = match Terminal::new(TerminalOptions {
-            cols: size.columns,
-            rows: size.rows,
-            max_scrollback: scrollback_lines_max,
-        }) {
-            Ok(t) => t,
-            Err(error) => {
-                let _ = ready_send.send(Err(error.into()));
-                return;
-            }
-        };
-
-        let (process, output) =
-            match PtyProcess::spawn(size, &program, &args).await {
-                Ok(x) => x,
-                Err(error) => {
-                    let _ = ready_send.send(Err(error));
-                    return;
-                }
-            };
-
-        if ready_send.send(Ok(())).is_err() {
-            // Driver was dropped before we finished setup.
+    let (process, output) = match PtyProcess::spawn(size, &program, &args) {
+        Ok(x) => x,
+        Err(error) => {
+            let _ = ready_send.send(Err(error));
             return;
         }
+    };
 
-        let mut state = TerminalWorkerState {
-            terminal,
-            process,
-            output,
-            size,
-            last_action: None,
-        };
+    if ready_send.send(Ok(())).is_err() {
+        // Driver was dropped before we finished setup.
+        return;
+    }
 
-        while let Some(command) = command_receive.recv().await {
-            match command {
-                TerminalCommand::Initiate { reply } => {
-                    tokio::time::sleep(INITIATE_STARTUP_DELAY).await;
-                    let _ = reply.send(Ok(()));
-                }
-                TerminalCommand::NextEvent { reply } => {
-                    let event = state.next_event().await;
-                    let _ = reply.send(event);
-                }
-                TerminalCommand::Apply { action, reply } => {
-                    let result = state.apply(action);
-                    let _ = reply.send(result);
-                }
-                TerminalCommand::Terminate { reply } => {
-                    state.process.kill().await;
-                    let _ = reply.send(Ok(()));
-                    break;
-                }
+    let mut state = TerminalWorkerState {
+        terminal,
+        process,
+        output,
+        size,
+        last_action: None,
+    };
+
+    while let Ok(command) = command_receive.recv() {
+        match command {
+            TerminalCommand::Initiate { reply } => {
+                sleep(INITIATE_STARTUP_DELAY);
+                let _ = reply.send(Ok(()));
+            }
+            TerminalCommand::NextEvent { reply } => {
+                let event = state.next_event();
+                let _ = reply.send(event);
+            }
+            TerminalCommand::Apply { action, reply } => {
+                let result = state.apply(action);
+                let _ = reply.send(result);
+            }
+            TerminalCommand::Terminate { reply } => {
+                state.process.kill();
+                let _ = reply.send(Ok(()));
+                break;
             }
         }
-    });
+    }
 }
 
 pub struct TerminalDriver {
-    command_send: mpsc::Sender<TerminalCommand>,
+    command_send: mpsc::SyncSender<TerminalCommand>,
     extractor: Extractors,
 }
 
@@ -299,8 +276,8 @@ impl TerminalDriver {
         let extractor = Extractors::initialize(&bundle_code)?;
         let verifier = Verifier::new(&bundle_code)?;
 
-        let (command_send, command_recv) = mpsc::channel(256);
-        let (ready_send, ready_recv) = oneshot::channel();
+        let (command_send, command_recv) = mpsc::sync_channel(256);
+        let (ready_send, ready_recv) = mpsc::sync_channel(1);
         let program = program.to_string();
         let arguments = arguments.to_vec();
 
@@ -319,7 +296,7 @@ impl TerminalDriver {
             })?;
 
         ready_recv
-            .blocking_recv()
+            .recv()
             .map_err(|_| anyhow!("terminal worker died before ready"))??;
 
         Ok((
@@ -338,34 +315,34 @@ impl InterfaceDriver for TerminalDriver {
 
     #[hotpath::measure]
     fn initiate(&mut self) -> Result<()> {
-        let (reply_send, reply_recv) = oneshot::channel();
+        let (reply_send, reply_recv) = mpsc::sync_channel(1);
         self.command_send
-            .blocking_send(TerminalCommand::Initiate { reply: reply_send })?;
+            .send(TerminalCommand::Initiate { reply: reply_send })?;
         reply_recv
-            .blocking_recv()
+            .recv()
             .map_err(|_| anyhow!("terminal worker gone"))?
     }
 
     fn terminate(self) -> Result<()> {
-        let (reply_send, reply_recv) = oneshot::channel();
+        let (reply_send, reply_recv) = mpsc::sync_channel(1);
         self.command_send
-            .blocking_send(TerminalCommand::Terminate { reply: reply_send })?;
+            .send(TerminalCommand::Terminate { reply: reply_send })?;
         reply_recv
-            .blocking_recv()
+            .recv()
             .map_err(|_| anyhow!("terminal worker gone"))?
     }
 
     #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        let (reply_send, reply_recv) = oneshot::channel();
+        let (reply_send, reply_recv) = mpsc::sync_channel(1);
         if self
             .command_send
-            .blocking_send(TerminalCommand::NextEvent { reply: reply_send })
+            .send(TerminalCommand::NextEvent { reply: reply_send })
             .is_err()
         {
             return None;
         }
-        reply_recv.blocking_recv().ok().flatten()
+        reply_recv.recv().ok().flatten()
     }
 
     #[hotpath::measure]
@@ -375,12 +352,12 @@ impl InterfaceDriver for TerminalDriver {
         {
             bail!("PressKey: code {} is not valid unicode", code);
         }
-        let (reply_send, reply_recv) = oneshot::channel();
-        self.command_send.blocking_send(TerminalCommand::Apply {
+        let (reply_send, reply_recv) = mpsc::sync_channel(1);
+        self.command_send.send(TerminalCommand::Apply {
             action,
             reply: reply_send,
         })?;
-        reply_recv.blocking_recv()?
+        reply_recv.recv()?
     }
 
     fn extract_snapshots(
