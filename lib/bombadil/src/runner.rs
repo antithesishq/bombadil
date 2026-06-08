@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use bombadil_ltl::eval;
 use bombadil_schema::Time;
 use serde::Serialize;
 
 use crate::driver::{DriverEvent, InterfaceDriver};
-use crate::specification::convert::ToSchema;
+use crate::specification::convert::{
+    ToSchema, violation_with_pretty_functions,
+};
 use crate::specification::domain::Snapshot;
 use crate::specification::verifier::Verifier;
-use crate::specification::worker::PropertyValue;
 use crate::tree::Tree;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,14 +112,18 @@ impl<D: InterfaceDriver> Runner<D> {
                     let mut violations =
                         Vec::with_capacity(step_result.properties.len());
                     for (name, value) in step_result.properties {
-                        match PropertyValue::from(&value) {
-                            PropertyValue::False(violation) => {
+                        match value {
+                            eval::Value::False(violation, _) => {
                                 violations.push(PropertyViolation {
                                     name,
-                                    violation: violation.to_schema(),
+                                    violation: violation_with_pretty_functions(
+                                        &violation,
+                                    )
+                                    .to_schema(),
                                 });
                             }
-                            PropertyValue::Residual | PropertyValue::True => {}
+                            eval::Value::Residual(_) | eval::Value::True(_) => {
+                            }
                         }
                     }
 
