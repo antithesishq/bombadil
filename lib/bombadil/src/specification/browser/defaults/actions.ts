@@ -6,6 +6,12 @@ import {
   extract,
   type Action,
 } from "@antithesishq/bombadil/browser";
+import {
+  clickablePoint,
+  inViewport,
+  isVisible,
+  queryAll,
+} from "@antithesishq/bombadil/browser/dom";
 
 const contentType = extract((state) => state.document.contentType);
 
@@ -118,63 +124,6 @@ const clickablePoints = extract((state) => {
   const targets: ClickTarget[] = [];
   const added = new Set<Element>();
 
-  function clickablePoint(element: Element): { x: number; y: number } | null {
-    const rect = element.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-    }
-    return null;
-  }
-
-  function isVisible(element: Element): boolean {
-    const style = state.window.getComputedStyle(element);
-    return (
-      style.display !== "none" &&
-      style.visibility !== "hidden" &&
-      parseFloat(style.opacity || "1") > 0.0
-    );
-  }
-
-  function inViewport(point: { x: number; y: number }): boolean {
-    return (
-      point.x >= 0 &&
-      point.x <= state.window.innerWidth &&
-      point.y >= 0 &&
-      point.y <= state.window.innerHeight
-    );
-  }
-
-  // Like querySelectorAll, but searches recursively into shadow roots and iframes.
-  //
-  // TODO: make this a part of the bombadil package so that others can use it (depends
-  // on https://github.com/antithesishq/bombadil/issues/17)
-  function queryAll(root: Element, selector: string): Element[] {
-    const queue: Element[] = [root];
-    const results: Element[] = [];
-    while (queue.length > 0) {
-      const element = queue.pop()!;
-      if (element.matches(selector)) {
-        results.push(element);
-      }
-      if (element.shadowRoot) {
-        for (const child of Array.from(element.shadowRoot.children)) {
-          queue.push(child);
-        }
-      } else if (
-        element instanceof HTMLIFrameElement &&
-        element.contentDocument &&
-        element.contentDocument.body
-      ) {
-        queue.push(element.contentDocument.body);
-      } else {
-        for (const child of Array.from(element.children)) {
-          queue.push(child);
-        }
-      }
-    }
-    return results;
-  }
-
   // Anchors
   const urlCurrent = new URL(state.window.location.toString());
   for (const anchor of queryAll(state.document.body, "a")) {
@@ -192,11 +141,11 @@ const clickablePoints = extract((state) => {
     if (!url.protocol.startsWith("http")) continue;
     if (url.hostname !== urlCurrent.hostname) continue;
     if (url.port !== "" && url.port !== urlCurrent.port) continue;
-    if (!isVisible(anchor)) continue;
+    if (!isVisible(state.window, anchor)) continue;
 
     const point = clickablePoint(anchor);
     if (!point) continue;
-    if (!inViewport(point)) continue;
+    if (!inViewport(state.window, point)) continue;
 
     targets.push({
       name: anchor.nodeName,
@@ -216,7 +165,11 @@ const clickablePoints = extract((state) => {
   )) {
     if (added.has(element)) continue;
     // We require visibility except for input elements, which are often hidden and overlayed with custom styling.
-    if (!(element instanceof HTMLInputElement) && !isVisible(element)) continue;
+    if (
+      !(element instanceof HTMLInputElement) &&
+      !isVisible(state.window, element)
+    )
+      continue;
 
     if (element instanceof HTMLInputElement && element.type === "file") {
       continue;
@@ -229,7 +182,7 @@ const clickablePoints = extract((state) => {
 
     const point = clickablePoint(element);
     if (!point) continue;
-    if (!inViewport(point)) continue;
+    if (!inViewport(state.window, point)) continue;
 
     if (
       element === state.document.activeElement &&
@@ -254,11 +207,11 @@ const clickablePoints = extract((state) => {
   ).join(",");
   for (const element of queryAll(state.document.body, ariaSelector)) {
     if (added.has(element)) continue;
-    if (!isVisible(element)) continue;
+    if (!isVisible(state.window, element)) continue;
 
     const point = clickablePoint(element);
     if (!point) continue;
-    if (!inViewport(point)) continue;
+    if (!inViewport(state.window, point)) continue;
 
     targets.push({
       name: element.nodeName,

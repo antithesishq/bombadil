@@ -1,11 +1,6 @@
-use anyhow::{Result, anyhow};
-use html5ever::{
-    ParseOpts, parse_document, serialize, tendril::TendrilSink,
-    tree_builder::TreeBuilderOpts,
-};
-use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
+use anyhow::Result;
 use oxc::span::SourceType;
-use std::io::{BufReader, BufWriter};
+use scraper::{ElementRef, Html, node::Text};
 
 use crate::instrumentation::{js::instrument_source_code, source_id::SourceId};
 
@@ -13,98 +8,106 @@ pub fn instrument_inline_scripts(
     source_id: SourceId,
     input: &str,
 ) -> Result<String> {
-    let opts = ParseOpts {
-        tree_builder: TreeBuilderOpts {
-            // drop_doctype: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let mut reader = BufReader::new(input.as_bytes());
-    let dom = parse_document(RcDom::default(), opts)
-        .from_utf8()
-        .read_from(&mut reader)?;
-
-    transform_inline_scripts(source_id, &dom)?;
-
-    let document: SerializableHandle = dom.document.clone().into();
-
-    let mut buffer = Vec::with_capacity(input.len());
-    {
-        let mut writer = BufWriter::new(&mut buffer);
-        serialize(&mut writer, &document, Default::default())?;
-    }
-
-    String::from_utf8(buffer).map_err(|err| {
-        anyhow!("failed to convert HTML into UTF8 string: {}", err)
-    })
+    let mut document = Html::parse_document(input);
+    transform_inline_scripts(source_id, &mut document)?;
+    Ok(document.html())
 }
 
-fn transform_inline_scripts(source_id: SourceId, dom: &RcDom) -> Result<()> {
+fn transform_inline_scripts(
+    source_id: SourceId,
+    document: &mut Html,
+) -> Result<()> {
     let mut scripts_count = 0;
-    let mut stack: Vec<Handle> = Vec::new();
-    stack.push(dom.document.clone());
 
-    while let Some(node) = stack.pop() {
-        if let NodeData::Element { name, attrs, .. } = &node.data
-            && name.local.as_ref() == "script"
-        {
-            let attrs = attrs.borrow();
-            let script_src = attrs
-                .iter()
-                .find(|attr| attr.name.local.as_ref() == "src")
-                .map(|attr| attr.value.to_string());
+    let mut scripts = vec![];
+    {
+        let mut stack: Vec<ElementRef> = Vec::new();
+        stack.push(document.root_element());
 
-            let script_type = attrs
-                .iter()
-                .find(|attr| attr.name.local.as_ref() == "type")
-                .map(|attr| attr.value.to_string())
-                .unwrap_or("".to_string());
-
-            let is_inline_javascript = script_src.is_none()
-                && (script_type.is_empty()
-                    || script_type == "text/javascript"
-                    || script_type == "module");
-
-            let source_type = if script_type == "module" {
-                SourceType::mjs()
-            } else {
-                SourceType::cjs()
-            };
-
-            if is_inline_javascript {
-                let text_nodes: Vec<Handle> = node
-                    .children
-                    .borrow()
+        while let Some(element_ref) = stack.pop() {
+            let element = element_ref.value();
+            if element.name.local.as_ref() == "script" {
+                let script_src = element
+                    .attrs
                     .iter()
-                    .filter(|child| matches!(child.data, NodeData::Text { .. }))
-                    .cloned()
-                    .collect();
+                    .find(|(name, _)| name.local.as_ref() == "src")
+                    .map(|(_, value)| value.to_string());
 
-                for child in text_nodes {
-                    if let NodeData::Text { contents } = &child.data {
-                        let original = {
-                            let c = contents.borrow();
-                            c.to_string()
-                        };
+                let script_type = element
+                    .attrs
+                    .iter()
+                    .find(|(name, _)| name.local.as_ref() == "type")
+                    .map(|(_, value)| value.to_string())
+                    .unwrap_or("".to_string());
 
-                        let transformed = instrument_source_code(
-                            // Every inline scripts needs a unique ID.
-                            source_id.add(scripts_count),
-                            &original,
-                            source_type,
-                        )?;
+                let is_inline_javascript = script_src.is_none()
+                    && (script_type.is_empty()
+                        || script_type == "text/javascript"
+                        || script_type == "module");
 
-                        *contents.borrow_mut() = transformed.into();
+                let source_type = if script_type == "module" {
+                    SourceType::mjs()
+                } else {
+                    SourceType::cjs()
+                };
+
+                if is_inline_javascript {
+                    let text_ids: Vec<_> = element_ref
+                        .children()
+                        .filter(|child| child.value().is_text())
+                        .map(|child| child.id())
+                        .collect();
+
+                    let mut text_all = String::new();
+                    for text in element_ref
+                        .children()
+                        .filter_map(|child| child.value().as_text())
+                    {
+                        text_all.push_str(text);
                     }
+
+                    scripts.push((
+                        element_ref.id(),
+                        text_ids,
+                        text_all,
+                        source_type,
+                        source_id.add(scripts_count),
+                    ));
                     scripts_count += 1;
                 }
             }
+
+            for child in element_ref.child_elements() {
+                stack.push(child);
+            }
+        }
+    }
+
+    for (script_id, text_ids, original, source_type, source_id) in scripts {
+        let transformed = instrument_source_code(
+            // Every inline scripts needs a unique ID.
+            // TODO: fix this, we need a global counter
+            source_id,
+            &original,
+            source_type,
+        )?;
+
+        for text_id in text_ids {
+            document
+                .tree
+                .get_mut(text_id)
+                .expect("failed to get mutable text node")
+                .detach();
         }
 
-        for child in node.children.borrow().iter() {
-            stack.push(child.clone());
-        }
+        let mut node = document
+            .tree
+            .get_mut(script_id)
+            .expect("failed to get mutable script element node");
+
+        node.append(scraper::Node::Text(Text {
+            text: transformed.into(),
+        }));
     }
 
     Ok(())
@@ -187,6 +190,23 @@ mod tests {
         }
         console.log(example(true, 1, 2));
         </script>
+        </body>
+        </html>
+        "# };
+
+        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
+        assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_instrument_html_template() {
+        let input = indoc! { r#"
+        <!DOCTYPE html>
+        <html>
+        <body>
+        <template>
+        <p>Leave template alone!</p>
+        </template>
         </body>
         </html>
         "# };

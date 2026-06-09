@@ -10,6 +10,7 @@
       "@antithesishq/bombadil/browser/defaults": ["./browser/defaults.ts"],
       "@antithesishq/bombadil/browser/defaults/actions": ["./browser/defaults/actions.ts"],
       "@antithesishq/bombadil/browser/defaults/properties": ["./browser/defaults/properties.ts"],
+      "@antithesishq/bombadil/browser/dom": ["./browser/dom.ts"],
       "@antithesishq/bombadil/terminal": ["./terminal/index.ts"],
       "@antithesishq/bombadil/internal": ["./internal.ts"],
       "@antithesishq/bombadil/random": ["./random.ts"],

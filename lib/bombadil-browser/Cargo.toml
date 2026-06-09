@@ -19,11 +19,11 @@ const_format.workspace = true
 futures.workspace = true
 html5ever.workspace = true
 log.workspace = true
-markup5ever_rcdom.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
 oxc_str.workspace = true
 oxc_traverse.workspace = true
 rand.workspace = true
+scraper.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
