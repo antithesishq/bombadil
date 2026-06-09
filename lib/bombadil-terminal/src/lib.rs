@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::io::Write;
 use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
@@ -8,6 +9,10 @@ use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
 use bombadil::tree::Tree;
+use bombadil_schema::{
+    TerminalAttributes, TerminalCell, TerminalColor, TerminalStyle,
+};
+use owo_colors::{OwoColorize, XtermColors};
 
 use crate::driver::{TerminalAction, TerminalDriver};
 use crate::state::TerminalState;
@@ -15,6 +20,7 @@ use crate::trace::TraceWriter;
 
 pub mod driver;
 pub mod extractors;
+pub mod js;
 pub mod pty;
 pub mod render;
 pub mod state;
@@ -32,10 +38,12 @@ pub struct TerminalStrategy {
     pub violations_count: u64,
     pub exit_on_violation: bool,
     pub deadline: Option<SystemTime>,
+    pub states_seen: usize,
 }
 
 impl TerminalStrategy {
-    async fn pick_action(
+    #[hotpath::measure]
+    fn pick_action(
         &mut self,
         tree: Tree<TerminalAction>,
     ) -> Result<TerminalAction> {
@@ -62,12 +70,23 @@ impl TerminalStrategy {
             }
         }
     }
+
+    fn stop(
+        &mut self,
+        reason: ExitReason,
+    ) -> Result<ControlFlow<ExitReason, TerminalAction>> {
+        if let Some(writer) = self.writer.as_mut() {
+            writer.flush()?;
+        }
+        Ok(ControlFlow::Stop(reason))
+    }
 }
 
 impl RunStrategy<TerminalDriver> for TerminalStrategy {
     type StopValue = ExitReason;
 
-    async fn on_new_state(
+    #[hotpath::measure]
+    fn on_new_state(
         &mut self,
         state: &TerminalState,
         tree: Tree<TerminalAction>,
@@ -75,15 +94,49 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
+        use std::fmt::Write;
+
+        self.states_seen += 1;
+
+        let mut buffer =
+            String::with_capacity(state.grid.size.cell_count() as usize * 4);
+        write!(buffer, "\x1b[2J\x1b[H")?;
+
         let test_start = *self.test_start.get_or_insert(
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
 
-        println!();
-        for row in &state.rows {
-            println!("{}", row);
+        // Render currently visible grid
+        {
+            for row_index in 0..state.grid.size.rows {
+                for column_index in 0..state.grid.size.columns {
+                    match &state.grid[(row_index, column_index)] {
+                        TerminalCell::Occupied {
+                            contents,
+                            wide: _,
+                            style,
+                        } => {
+                            let style: owo_colors::Style = to_owo_style(style);
+                            if contents.is_empty() {
+                                write!(buffer, "{}", " ".style(style))?;
+                            } else {
+                                write!(
+                                    buffer,
+                                    "{}",
+                                    format!("{}", contents).style(style)
+                                )?;
+                            };
+                        }
+                        TerminalCell::Continuation { .. } => {}
+                        TerminalCell::Empty { style } => {
+                            let style: owo_colors::Style = to_owo_style(style);
+                            write!(buffer, "{}", " ".style(style))?;
+                        }
+                    };
+                }
+                writeln!(buffer)?;
+            }
         }
-        println!();
 
         self.violations_count += properties.violations.len() as u64;
         for violation in properties.violations {
@@ -103,49 +156,60 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         }
 
         if let Some(writer) = self.writer.as_mut() {
-            writer
-                .write(state, last_action, snapshots, properties.violations)
-                .await?;
+            writer.write(
+                state,
+                last_action,
+                snapshots,
+                properties.violations,
+            )?;
         }
 
         if self.violations_count > 0 && self.exit_on_violation {
-            return Ok(ControlFlow::Stop(ExitReason::ExitOnViolation));
+            return self.stop(ExitReason::ExitOnViolation);
         }
 
         if let TerminalTestMode::Reproduce(remaining) = &self.mode
             && remaining.is_empty()
         {
             log::info!("reproduction complete, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::Reproduced));
+            return self.stop(ExitReason::Reproduced);
         }
 
         if state.terminated {
             log::info!("process terminated, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::Terminated));
+            return self.stop(ExitReason::Terminated);
         }
 
         if let Some(deadline) = self.deadline
             && state.timestamp >= deadline
         {
             log::info!("time limit reached, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
+            return self.stop(ExitReason::TimeLimit);
         }
 
-        let action = self.pick_action(tree).await?;
-        println!(
+        let action = self.pick_action(tree)?;
+        writeln!(
+            buffer,
             "{} {}",
             format_timestamp(state.timestamp, test_start),
             render::format_action(&action),
-        );
+        )?;
+
+        print!("{}", buffer);
+        std::io::stdout().flush()?;
 
         Ok(ControlFlow::Continue(action))
     }
 
-    async fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+    fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+        if let Some(writer) = self.writer.as_mut() {
+            writer.flush()?;
+        }
         Ok(ExitReason::Interrupted)
     }
 }
 
+#[hotpath::measure]
 fn actions_match(a: &TerminalAction, b: &TerminalAction) -> bool {
     serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
 }
@@ -157,4 +221,52 @@ pub enum ExitReason {
     Terminated,
     Reproduced,
     AllDefinite,
+}
+
+#[hotpath::measure]
+fn to_owo_style(value: &TerminalStyle) -> owo_colors::Style {
+    let mut style = owo_colors::Style::new();
+
+    if let Some(color) = to_owo_color(&value.foreground_color) {
+        style = style.color(color);
+    }
+    if let Some(color) = to_owo_color(&value.background_color) {
+        style = style.on_color(color);
+    }
+
+    if value.attributes.contains(TerminalAttributes::BOLD) {
+        style = style.bold();
+    }
+    if value.attributes.contains(TerminalAttributes::ITALIC) {
+        style = style.italic();
+    }
+    if value.attributes.contains(TerminalAttributes::BLINK) {
+        style = style.blink();
+    }
+    if value.attributes.contains(TerminalAttributes::INVERSE) {
+        // unsupported?
+    }
+    if value.attributes.contains(TerminalAttributes::STRIKETHROUGH) {
+        style = style.strikethrough();
+    }
+    if value.attributes.contains(TerminalAttributes::DIM) {
+        style = style.dimmed();
+    }
+
+    if !matches!(value.underline, bombadil_schema::TerminalUnderline::None) {
+        style = style.underline();
+    }
+
+    style
+}
+
+fn to_owo_color(value: &TerminalColor) -> Option<owo_colors::DynColors> {
+    use owo_colors::DynColors;
+    match value {
+        TerminalColor::None => None,
+        TerminalColor::Palette(index) => {
+            Some(DynColors::Xterm(XtermColors::from(*index)))
+        }
+        TerminalColor::RGB { r, g, b } => Some(DynColors::Rgb(*r, *g, *b)),
+    }
 }

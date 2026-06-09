@@ -1,12 +1,21 @@
 import { eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
 
-const screen = extract((state) => state.rows.join("\n"));
+const nonBlankLines = extract((state) => {
+  const lines = [];
+  for (let index = 0; index < state.grid.size.rows; index++) {
+    const text = state.grid.rowText(index).trim();
+    if (text) {
+      lines.push(text);
+    }
+  }
+  return lines;
+});
 
 export const typeHelloWorld = actions(() => [
   { TypeText: { text: "hello world\n" } },
 ]);
 
 export const eventuallyHelloWorld = eventually(() =>
-  screen.current.includes("hello world"),
+  nonBlankLines.current.every((line) => line === "hello world"),
 );

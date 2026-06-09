@@ -18,6 +18,7 @@ bombadil-schema = { path = "../bombadil-schema" }
 bombadil-terminal = { path = "../bombadil-terminal" }
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
+hotpath.workspace = true
 include_dir.workspace = true
 log.workspace = true
 mime_guess.workspace = true
@@ -31,3 +32,8 @@ url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 proptest.workspace = true
+
+[features]
+hotpath = ["hotpath/hotpath"]
+hotpath-cpu = ["hotpath/hotpath-cpu"]
+hotpath-alloc = ["hotpath/hotpath-alloc"]

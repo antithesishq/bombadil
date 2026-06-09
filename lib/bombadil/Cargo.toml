@@ -12,6 +12,7 @@ anyhow = { workspace = true, features = ["backtrace"] }
 boa_engine.workspace = true
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-ltl = { path = "../bombadil-ltl" }
+hotpath.workspace = true
 include_dir.workspace = true
 log.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }

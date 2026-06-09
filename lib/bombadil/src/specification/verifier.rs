@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::driver::FromGeneratedAction;
 use crate::specification::js::{
     BombadilExports, Extractors, RuntimeFunction, syntax_from_value,
 };
@@ -266,7 +267,7 @@ impl Verifier {
         self.properties.keys().cloned().collect()
     }
 
-    pub fn step<A: serde::de::DeserializeOwned>(
+    pub fn step<A: FromGeneratedAction>(
         &mut self,
         snapshots: &[Snapshot],
         time: bombadil_schema::Time,
@@ -395,7 +396,7 @@ pub struct ActionGenerator {
 }
 
 impl ActionGenerator {
-    fn generate<A: serde::de::DeserializeOwned>(
+    fn generate<A: FromGeneratedAction>(
         &self,
         context: &mut Context,
     ) -> Result<Tree<A>> {
@@ -407,16 +408,23 @@ impl ActionGenerator {
                     "action generator {} returned undefined",
                     self.name
                 )))?;
-        let tree: Tree<A> =
-            json::from_value(actions_json).map_err(|error| {
+        let value_tree: Tree<json::Value> = json::from_value(actions_json)
+            .map_err(|error| {
                 SpecificationError::OtherError(format!(
-                    "failed to convert JSON object from `{}` to action, {}: {}",
+                    "failed to parse action tree from `{}`, {}: {}",
                     self.name,
                     error,
                     value.display(),
                 ))
             })?;
-        Ok(tree)
+        value_tree.try_map(&mut |action_value| {
+            A::from_generated(action_value).map_err(|error| {
+                SpecificationError::OtherError(format!(
+                    "failed to convert generated action from `{}`: {}",
+                    self.name, error,
+                ))
+            })
+        })
     }
 }
 
@@ -430,6 +438,14 @@ mod tests {
     use bombadil_ltl::stop::{StopDefault, stop_default};
 
     use super::*;
+
+    // These tests only exercise property evaluation, never actions, so a
+    // pass-through conversion is enough to satisfy the `step` bound.
+    impl FromGeneratedAction for Snapshot {
+        fn from_generated(value: json::Value) -> anyhow::Result<Self> {
+            Ok(json::from_value(value)?)
+        }
+    }
 
     fn time_from_millis(millis: u64) -> Time {
         Time::from_system_time(
@@ -446,13 +462,9 @@ mod tests {
             .write_all(specification.as_bytes())
             .unwrap();
 
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let bundle_code = rt
-            .block_on(bundle(
-                ".",
-                &specification_file.path().display().to_string(),
-            ))
-            .unwrap();
+        let bundle_code =
+            bundle(".", &specification_file.path().display().to_string())
+                .unwrap();
 
         Verifier::new(&bundle_code).unwrap()
     }

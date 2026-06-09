@@ -1,4 +1,4 @@
-import { always, from, integers, strings } from "@antithesishq/bombadil";
+import { from, integers, strings } from "@antithesishq/bombadil";
 import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
 
 const KEYS = [
@@ -61,13 +61,14 @@ const KEYS = [
 ];
 
 const statusLine = extract((state) => {
-  for (let index = state.grid.size.rows - 1; index >= 0; index--) {
+  let last = null;
+  for (let index = 0; index < state.grid.size.rows; index++) {
     const text = state.grid.rowText(index);
     if (text.trim()) {
-      return { line: index, text };
+      last = { line: index, text };
     }
   }
-  return null;
+  return last;
 });
 
 export const typeRandom = weighted([
@@ -82,6 +83,7 @@ export const typeRandom = weighted([
     }),
   ],
   [20, { TypeText: { text: from(KEYS).generate() } }],
+  [20, { TypeText: { text: "\n" } }],
   [
     1,
     actions(() => {
@@ -97,26 +99,13 @@ export const typeRandom = weighted([
       return [{ TypeText: { text: click } }];
     }),
   ],
-  // TODO: restore when ghostty doesn't have the overflow on resize
-  // [
-  //   1,
-  //   actions(() => [
-  //     {
-  //       Resize: {
-  //         size: {
-  //           columns: integers().min(40).max(80).generate(),
-  //           rows: integers().min(10).max(30).generate(),
-  //         },
-  //       },
+  // TODO: restore once ghostty doesn't have the scroll overflow bug
+  // [1, actions(() => [{
+  //   Resize: {
+  //     size: {
+  //       columns: integers().min(80).max(120).generate(),
+  //       rows: integers().min(24).max(48).generate(),
   //     },
-  //   ]),
-  // ],
+  //   }
+  // }])],
 ]);
-
-export const hasLineColumnIndicator = always(
-  () =>
-    !!statusLine.current &&
-    statusLine.current.text
-      .split(/\s+/)
-      .some((word) => !!word.match(/\d+:\d+/)),
-);

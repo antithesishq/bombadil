@@ -9,6 +9,7 @@ members = [
     "lib/bombadil-schema",
     "lib/bombadil-terminal",
     "lib/integration-tests",
+    "lib/small-string",
 ]
 resolver = "2"
 
@@ -20,6 +21,7 @@ edition = "2024"
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
+bitflags = "2.12.1"
 boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4" }
 bytes = "1.11.0"
 chromiumoxide = "0.9.1"
@@ -31,6 +33,7 @@ glob = "0.3.3"
 gloo-console = "0.3"
 gloo-net = "0.6"
 gloo-timers = "0.3"
+hotpath = "0.16.1"
 html5ever = "0.36.1"
 http = "1.4.0"
 http-body-util = "0.1.3"

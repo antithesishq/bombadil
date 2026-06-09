@@ -96,7 +96,7 @@ fn module_key_to_relative_path(key: &ModuleKey, base: &Path) -> String {
     }
 }
 
-pub async fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
+pub fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path = path.as_ref();
     let canonical_path = path.canonicalize()?;
     let resolver = Resolver::new_with_cwd(canonical_path.clone());
@@ -990,28 +990,26 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn test_bundle() {
+    #[test]
+    fn test_bundle() {
         let bundle =
             bundle("src/specification/bundler/fixtures/snapshot", "./index.ts")
-                .await
                 .unwrap();
         assert_snapshot!(bundle);
     }
 
-    #[tokio::test]
-    async fn test_bundle_commonjs() {
+    #[test]
+    fn test_bundle_commonjs() {
         let bundle = bundle(
             "src/specification/bundler/fixtures/snapshot",
             "./cjs-test.ts",
         )
-        .await
         .unwrap();
         assert_snapshot!(bundle);
     }
 
-    #[tokio::test]
-    async fn test_extract_named_transformation() {
+    #[test]
+    fn test_extract_named_transformation() {
         use std::io::Write;
         use tempfile::NamedTempFile;
 
@@ -1030,9 +1028,8 @@ export { foo, bar, baz };
             )
             .unwrap();
 
-        let bundle = bundle(".", &spec_file.path().display().to_string())
-            .await
-            .unwrap();
+        let bundle =
+            bundle(".", &spec_file.path().display().to_string()).unwrap();
 
         assert!(
             bundle.contains(r#"extract((state) => state.foo).named("foo")"#),
@@ -1054,13 +1051,12 @@ export { foo, bar, baz };
         );
     }
 
-    #[tokio::test]
-    async fn test_import_attributes() {
+    #[test]
+    fn test_import_attributes() {
         let bundle = bundle(
             "src/specification/bundler/fixtures/snapshot",
             "./import-attributes-test.ts",
         )
-        .await
         .unwrap();
 
         assert!(

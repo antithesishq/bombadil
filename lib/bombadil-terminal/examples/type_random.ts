@@ -1,9 +1,4 @@
-import {
-  eventually,
-  from,
-  integers,
-  strings,
-} from "@antithesishq/bombadil";
+import { eventually, from, integers, strings } from "@antithesishq/bombadil";
 import { actions, extract, type Action } from "@antithesishq/bombadil/terminal";
 
 // One thunk per text-generation strategy. `from` picks one thunk each
@@ -21,9 +16,15 @@ export const typeRandom = actions((): Action[] => [
   { TypeText: { text: text.generate()() } },
 ]);
 
-const nonBlankRows = extract(
-  (state) => state.rows.filter((row) => row.trim().length > 0).length,
-);
+const nonBlankRows = extract((state) => {
+  let count = 0;
+  for (let index = 0; index < state.grid.size.rows; index++) {
+    if (state.grid.rowText(index).trim().length > 0) {
+      count++;
+    }
+  }
+  return count;
+});
 
 // With an echoing program like `cat`, the first applied action should
 // render at least one non-blank row. Bounded so the run can't loop

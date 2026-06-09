@@ -61,8 +61,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "b869a6e5ab0a50ce01e8eb5aa408a02b3cbe4f3a";
-          sha256 = "0zi9p816616w711zkwbqycg0c042jdbcnyg9gqxcf2h3q669xbp8";
+          rev = "bfe633a9487892ff3d27ed727db540267f22ef90";
+          sha256 = "1zmybfhrz64h6kibx23ixqsi7x9aw7c3szyb39zswh7mvg517297";
         };
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc;
@@ -112,6 +112,7 @@
               # nativeBuildInputs takes priority over inputsFrom in
               # PATH, so rustToolchainWasm shadows crane's toolchain.
               nativeBuildInputs = [ rustToolchainWasm ];
+              packages = [ (pkgs.callPackage ./nix/cargo-hotpath.nix { }) ];
               buildInputs =
                 with pkgs;
                 [

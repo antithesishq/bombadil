@@ -1,137 +1,97 @@
 use std::sync::Arc;
+use std::thread::sleep;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
+use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
-use bombadil::specification::verifier::Specification;
-use bombadil::specification::worker::VerifierWorker;
+use bombadil::specification::verifier::{Specification, Verifier};
+use bombadil_schema::{
+    TerminalAttributes, TerminalCell, TerminalColor, TerminalGrid,
+    TerminalSize, TerminalStyle, TerminalUnderline,
+};
+use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{CellIterator, RowIterator},
+    screen::CellWide,
     terminal::ScrollViewport,
 };
 use serde::{Deserialize, Serialize};
-use serde_json as json;
-use tokio::sync::{mpsc, oneshot};
+use small_string::SmallString;
 
-use crate::extractors::ExtractorWorker;
-use crate::pty::{PtyOutput, PtyProcess};
+use crate::extractors::Extractors;
+use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
 
-const QUIESCENCE_IDLE: Duration = Duration::from_millis(1);
-const TERMINAL_WORKER_STACK_SIZE: usize = 4 * 1024 * 1024;
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Size<T = u16> {
-    pub columns: T,
-    pub rows: T,
-}
-
-impl Size {
-    pub fn cell_count(&self) -> u32 {
-        self.columns as u32 * self.rows as u32
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TerminalAction {
-    #[serde(rename_all = "camelCase")]
-    TypeText {
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    PressKey {
-        code: u32,
-    },
-    #[serde(rename_all = "camelCase")]
-    Resize {
-        size: Size,
-    },
+    TypeText { text: String },
+    PressKey { code: u32 },
+    Resize { size: TerminalSize },
     ScrollUp {},
     ScrollDown {},
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum JsAction {
-    #[serde(rename_all = "camelCase")]
-    TypeText {
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    PressKey {
-        code: f64,
-    },
-    #[serde(rename_all = "camelCase")]
-    Resize {
-        size: Size<f64>,
-    },
-    ScrollUp {},
-    ScrollDown {},
-}
-
-impl JsAction {
-    fn into_terminal_action(self) -> Result<TerminalAction> {
-        match self {
-            JsAction::TypeText { text } => {
-                Ok(TerminalAction::TypeText { text })
-            }
-            JsAction::PressKey { code } => {
-                Ok(TerminalAction::PressKey { code: code as u32 })
-            }
-            JsAction::Resize { size } => Ok(TerminalAction::Resize {
-                size: Size {
-                    columns: size.columns as u16,
-                    rows: size.rows as u16,
-                },
-            }),
-
-            JsAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
-            JsAction::ScrollDown {} => Ok(TerminalAction::ScrollDown {}),
-        }
-    }
-}
-
-impl FromGeneratedAction for TerminalAction {
-    fn from_generated(value: json::Value) -> Result<Self> {
-        let js_action: JsAction = json::from_value(value)?;
-        js_action.into_terminal_action()
-    }
-}
-
-enum TerminalCommand {
-    Initiate {
-        reply: oneshot::Sender<Result<()>>,
-    },
-    NextEvent {
-        reply: oneshot::Sender<Option<DriverEvent<TerminalState>>>,
-    },
-    Apply {
-        action: TerminalAction,
-        reply: oneshot::Sender<anyhow::Result<()>>,
-    },
-    Terminate {
-        reply: oneshot::Sender<Result<()>>,
-    },
-}
-
-struct TerminalWorkerState {
+pub struct TerminalDriver {
+    extractor: Extractors,
     terminal: Terminal<'static, 'static>,
     process: PtyProcess,
     output: PtyOutput,
-    size: Size,
+    size: TerminalSize,
     last_action: Option<TerminalAction>,
 }
 
-impl TerminalWorkerState {
+impl TerminalDriver {
+    #[hotpath::measure]
+    pub fn launch(
+        specification: Specification,
+        size: TerminalSize,
+        scrollback_lines_max: usize,
+        program: &str,
+        arguments: &[String],
+    ) -> Result<(Self, Verifier)> {
+        let bundle_code = bundle(".", &specification.module_specifier)
+            .map_err(|e| anyhow!("bundle failed: {e}"))?;
+
+        let extractor = Extractors::initialize(&bundle_code)?;
+        let verifier = Verifier::new(&bundle_code)?;
+
+        let program = program.to_string();
+        let arguments = arguments.to_vec();
+
+        let terminal = Terminal::new(TerminalOptions {
+            cols: size.columns,
+            rows: size.rows,
+            max_scrollback: scrollback_lines_max,
+        })?;
+
+        let (process, output) = PtyProcess::spawn(size, &program, &arguments)?;
+
+        Ok((
+            Self {
+                extractor,
+                terminal,
+                process,
+                output,
+                size,
+                last_action: None,
+            },
+            verifier,
+        ))
+    }
+
+    #[hotpath::measure]
     fn drain_output(&mut self) {
-        while let Some(data) = self.output.try_read() {
-            self.terminal.vt_write(&data.into_bytes());
+        while let ReadResult::Chunk(data) = self.output.try_read() {
+            self.terminal.vt_write(&data);
         }
     }
 
+    #[hotpath::measure]
     fn extract_state(&mut self, terminated: bool) -> Result<TerminalState> {
         let mut render_state = RenderState::new()?;
         let mut row_iter_state = RowIterator::new()?;
@@ -140,21 +100,41 @@ impl TerminalWorkerState {
         let snapshot = render_state.update(&self.terminal)?;
         let mut row_iter = row_iter_state.update(&snapshot)?;
 
-        let mut rows = Vec::with_capacity(self.size.rows as usize);
+        let mut cells = Vec::with_capacity(
+            usize::from(self.size.columns) * usize::from(self.size.rows),
+        );
         while let Some(row) = row_iter.next() {
             let mut cell_iter = cell_iter_state.update(row)?;
-            let mut line =
-                String::with_capacity(self.size.columns as usize * 2);
             while let Some(cell) = cell_iter.next() {
-                let graphemes: Vec<char> = cell.graphemes()?;
-                if graphemes.is_empty() {
-                    line.push(' ');
-                } else {
-                    line.extend(graphemes);
-                }
+                let style = style_from_ghostty(&cell.style()?);
+                cells.push(match cell.raw_cell()?.wide()? {
+                    // Trailing column of a wide character.
+                    CellWide::SpacerTail => {
+                        TerminalCell::Continuation { style }
+                    }
+                    // Right-margin placeholder left behind when a wide
+                    // character does not fit and soft-wraps to the next line;
+                    // nothing renders here.
+                    CellWide::SpacerHead => TerminalCell::Empty { style },
+                    kind => {
+                        let length = cell.graphemes_len()?;
+                        if length == 0 {
+                            TerminalCell::Empty { style }
+                        } else {
+                            let mut contents =
+                                SmallString::null_with_size(length);
+                            cell.graphemes_buf(&mut contents[0..length])?;
+                            TerminalCell::Occupied {
+                                contents,
+                                wide: kind == CellWide::Wide,
+                                style,
+                            }
+                        }
+                    }
+                });
             }
-            rows.push(line);
         }
+        let grid = TerminalGrid::from_cells(self.size, cells);
 
         let scroll_offset = self
             .terminal
@@ -164,44 +144,53 @@ impl TerminalWorkerState {
 
         Ok(TerminalState {
             timestamp: SystemTime::now(),
-            size: self.size,
-            rows,
-            scrollback: Vec::new(),
+            grid,
+            scrollback: TerminalGrid::with_size(TerminalSize {
+                rows: 0,
+                ..self.size
+            }),
             scroll_offset,
             terminated,
             last_action: self.last_action.clone(),
         })
     }
+}
 
-    async fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        let mut got_eof = false;
-        loop {
-            match tokio::time::timeout(QUIESCENCE_IDLE, self.output.read())
-                .await
-            {
-                Ok(Ok(Some(data))) => {
-                    self.terminal.vt_write(&data.into_bytes());
-                    self.drain_output();
-                }
-                Ok(Ok(None)) => {
-                    got_eof = true;
-                    break;
-                }
-                Ok(Err(error)) => {
-                    return Some(DriverEvent::Error(Arc::new(error)));
-                }
-                Err(_) => break,
+impl InterfaceDriver for TerminalDriver {
+    type Action = TerminalAction;
+    type State = TerminalState;
+
+    #[hotpath::measure]
+    fn initiate(&mut self) -> Result<()> {
+        sleep(INITIATE_STARTUP_DELAY);
+        Ok(())
+    }
+
+    fn terminate(mut self) -> Result<()> {
+        self.process.kill();
+        Ok(())
+    }
+
+    #[hotpath::measure]
+    fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
+        match self.output.try_read() {
+            ReadResult::Chunk(data) => {
+                assert!(!data.is_empty(), "chunk is empty");
+                self.terminal.vt_write(&data);
+                self.drain_output();
             }
+            ReadResult::Empty => {}
+            ReadResult::Ended => {}
         }
 
-        let terminated =
-            got_eof || matches!(self.process.is_terminated(), Ok(true));
+        let terminated = matches!(self.process.is_terminated(), Ok(true));
         match self.extract_state(terminated) {
             Ok(state) => Some(DriverEvent::StateChanged(state)),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
         }
     }
 
+    #[hotpath::measure]
     fn apply(&mut self, action: TerminalAction) -> Result<()> {
         match &action {
             TerminalAction::TypeText { text } => {
@@ -233,203 +222,77 @@ impl TerminalWorkerState {
         self.last_action = Some(action);
         Ok(())
     }
-}
 
-// This needs to be single-threaded (but async) due to !Send resources.
-fn run_terminal_worker(
-    size: Size,
-    scrollback_lines_max: usize,
-    program: String,
-    args: Vec<String>,
-    mut command_receive: mpsc::Receiver<TerminalCommand>,
-    ready_send: oneshot::Sender<Result<()>>,
-) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(rt) => rt,
-        Err(error) => {
-            let _ = ready_send.send(Err(error.into()));
-            return;
-        }
-    };
-
-    runtime.block_on(async move {
-        let terminal = match Terminal::new(TerminalOptions {
-            cols: size.columns,
-            rows: size.rows,
-            max_scrollback: scrollback_lines_max,
-        }) {
-            Ok(t) => t,
-            Err(error) => {
-                let _ = ready_send.send(Err(error.into()));
-                return;
-            }
-        };
-
-        let (process, output) =
-            match PtyProcess::spawn(size, &program, &args).await {
-                Ok(x) => x,
-                Err(error) => {
-                    let _ = ready_send.send(Err(error));
-                    return;
-                }
-            };
-
-        if ready_send.send(Ok(())).is_err() {
-            // Driver was dropped before we finished setup.
-            return;
-        }
-
-        let mut state = TerminalWorkerState {
-            terminal,
-            process,
-            output,
-            size,
-            last_action: None,
-        };
-
-        while let Some(command) = command_receive.recv().await {
-            match command {
-                TerminalCommand::Initiate { reply } => {
-                    tokio::time::sleep(INITIATE_STARTUP_DELAY).await;
-                    let _ = reply.send(Ok(()));
-                }
-                TerminalCommand::NextEvent { reply } => {
-                    let event = state.next_event().await;
-                    let _ = reply.send(event);
-                }
-                TerminalCommand::Apply { action, reply } => {
-                    let result = state.apply(action);
-                    let _ = reply.send(result);
-                }
-                TerminalCommand::Terminate { reply } => {
-                    state.process.kill().await;
-                    let _ = reply.send(Ok(()));
-                    break;
-                }
-            }
-        }
-    });
-}
-
-pub struct TerminalDriver {
-    command_send: mpsc::Sender<TerminalCommand>,
-    extractor: ExtractorWorker,
-}
-
-impl TerminalDriver {
-    pub async fn launch(
-        specification: Specification,
-        size: Size,
-        scrollback_lines_max: usize,
-        program: &str,
-        arguments: &[String],
-    ) -> Result<(Self, Arc<VerifierWorker>)> {
-        let bundle_code = bundle(".", &specification.module_specifier)
-            .await
-            .map_err(|e| anyhow!("bundle failed: {e}"))?;
-
-        let extractor = ExtractorWorker::start(bundle_code).await?;
-
-        let verifier = VerifierWorker::start(specification).await?;
-
-        let (command_send, command_recv) = mpsc::channel(256);
-        let (ready_send, ready_recv) = oneshot::channel();
-        let program = program.to_string();
-        let arguments = arguments.to_vec();
-
-        std::thread::Builder::new()
-            .name("bombadil-terminal-worker".to_string())
-            .stack_size(TERMINAL_WORKER_STACK_SIZE)
-            .spawn(move || {
-                run_terminal_worker(
-                    size,
-                    scrollback_lines_max,
-                    program,
-                    arguments,
-                    command_recv,
-                    ready_send,
-                );
-            })?;
-
-        ready_recv
-            .await
-            .map_err(|_| anyhow!("terminal worker died before ready"))??;
-
-        Ok((
-            Self {
-                command_send,
-                extractor,
-            },
-            verifier,
-        ))
-    }
-}
-
-impl InterfaceDriver for TerminalDriver {
-    type Action = TerminalAction;
-    type State = TerminalState;
-
-    async fn initiate(&mut self) -> Result<()> {
-        let (reply_send, reply_recv) = oneshot::channel();
-        self.command_send
-            .send(TerminalCommand::Initiate { reply: reply_send })
-            .await?;
-        reply_recv
-            .await
-            .map_err(|_| anyhow!("terminal worker gone"))?
-    }
-
-    async fn terminate(self) -> Result<()> {
-        let (reply_send, reply_recv) = oneshot::channel();
-        self.command_send
-            .send(TerminalCommand::Terminate { reply: reply_send })
-            .await?;
-        reply_recv
-            .await
-            .map_err(|_| anyhow!("terminal worker gone"))?
-    }
-
-    async fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        let (reply_send, reply_recv) = oneshot::channel();
-        if self
-            .command_send
-            .send(TerminalCommand::NextEvent { reply: reply_send })
-            .await
-            .is_err()
-        {
-            return None;
-        }
-        reply_recv.await.ok().flatten()
-    }
-
-    async fn apply(&mut self, action: TerminalAction) -> Result<()> {
-        if let TerminalAction::PressKey { code } = &action
-            && char::from_u32(*code).is_none()
-        {
-            bail!("PressKey: code {} is not valid unicode", code);
-        }
-        let (reply_send, reply_recv) = oneshot::channel();
-        self.command_send
-            .send(TerminalCommand::Apply {
-                action,
-                reply: reply_send,
-            })
-            .await?;
-        reply_recv.await?
-    }
-
-    async fn extract_snapshots(
-        &self,
-        state: &TerminalState,
+    fn extract_snapshots(
+        &mut self,
+        state: Arc<TerminalState>,
         _last_action: Option<&TerminalAction>,
     ) -> Result<Vec<Snapshot>> {
-        self.extractor.run_extractors(state).await
+        self.extractor.run_extractors(state)
     }
 
     fn state_timestamp(state: &TerminalState) -> SystemTime {
         state.timestamp
+    }
+}
+
+#[hotpath::measure]
+fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
+    let mut result = TerminalStyle {
+        foreground_color: color_from_ghostty(&value.fg_color),
+        background_color: color_from_ghostty(&value.bg_color),
+        underline_color: color_from_ghostty(&value.underline_color),
+        underline: match value.underline {
+            ghostty_style::Underline::None => TerminalUnderline::None,
+            ghostty_style::Underline::Single => TerminalUnderline::Single,
+            ghostty_style::Underline::Double => TerminalUnderline::Double,
+            ghostty_style::Underline::Curly => TerminalUnderline::Curly,
+            ghostty_style::Underline::Dotted => TerminalUnderline::Dotted,
+            ghostty_style::Underline::Dashed => TerminalUnderline::Dashed,
+            _ => {
+                log::warn!("got unknown underline type from ghostty");
+                TerminalUnderline::None
+            }
+        },
+        ..TerminalStyle::default()
+    };
+
+    result.attributes.set(TerminalAttributes::BOLD, value.bold);
+    result
+        .attributes
+        .set(TerminalAttributes::ITALIC, value.italic);
+    result
+        .attributes
+        .set(TerminalAttributes::BLINK, value.blink);
+    result
+        .attributes
+        .set(TerminalAttributes::INVERSE, value.inverse);
+    result
+        .attributes
+        .set(TerminalAttributes::STRIKETHROUGH, value.strikethrough);
+    result.attributes.set(TerminalAttributes::DIM, value.faint);
+    result
+        .attributes
+        .set(TerminalAttributes::INVISIBLE, value.invisible);
+    result
+        .attributes
+        .set(TerminalAttributes::OVERLINE, value.overline);
+
+    result
+}
+
+fn color_from_ghostty(value: &ghostty_style::StyleColor) -> TerminalColor {
+    match value {
+        ghostty_style::StyleColor::None => TerminalColor::None,
+        ghostty_style::StyleColor::Palette(ghostty_style::PaletteIndex(
+            index,
+        )) => TerminalColor::Palette(*index),
+        ghostty_style::StyleColor::Rgb(ghostty_style::RgbColor { r, g, b }) => {
+            TerminalColor::RGB {
+                r: *r,
+                g: *g,
+                b: *b,
+            }
+        }
     }
 }

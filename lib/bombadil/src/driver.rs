@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json as json;
 
 use crate::specification::domain::Snapshot;
@@ -14,34 +14,35 @@ pub trait FromGeneratedAction: Sized {
     fn from_generated(value: json::Value) -> Result<Self>;
 }
 
+/// Identity conversion.
+impl FromGeneratedAction for json::Value {
+    fn from_generated(value: json::Value) -> Result<Self> {
+        Ok(value)
+    }
+}
+
 /// A driver runs a user interface of some sort (the system under test).
-pub trait InterfaceDriver: Send {
+pub trait InterfaceDriver {
     type Action: Clone
         + Debug
         + Serialize
-        + FromGeneratedAction
-        + Send
-        + 'static;
-    type State: Debug + Send + 'static;
+        + DeserializeOwned
+        + FromGeneratedAction;
+    type State: Debug;
 
-    fn initiate(&mut self) -> impl std::future::Future<Output = Result<()>>;
+    fn initiate(&mut self) -> Result<()>;
 
-    fn terminate(self) -> impl std::future::Future<Output = Result<()>>;
+    fn terminate(self) -> Result<()>;
 
-    fn next_event(
-        &mut self,
-    ) -> impl std::future::Future<Output = Option<DriverEvent<Self::State>>>;
+    fn next_event(&mut self) -> Option<DriverEvent<Self::State>>;
 
-    fn apply(
-        &mut self,
-        action: Self::Action,
-    ) -> impl std::future::Future<Output = Result<()>>;
+    fn apply(&mut self, action: Self::Action) -> Result<()>;
 
     fn extract_snapshots(
-        &self,
-        state: &Self::State,
+        &mut self,
+        state: Arc<Self::State>,
         last_action: Option<&Self::Action>,
-    ) -> impl std::future::Future<Output = Result<Vec<Snapshot>>>;
+    ) -> Result<Vec<Snapshot>>;
 
     fn state_timestamp(state: &Self::State) -> SystemTime;
 }

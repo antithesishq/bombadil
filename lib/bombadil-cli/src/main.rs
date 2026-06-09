@@ -30,8 +30,8 @@ enum Command {
     },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[hotpath::main]
+fn main() -> Result<()> {
     let env = env_logger::Env::default().default_filter_or("warn");
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
@@ -42,9 +42,11 @@ async fn main() -> Result<()> {
         .init();
     let cli = Cli::parse();
     match cli.command {
-        Command::Browser { command } => browser::run(command).await,
+        Command::Browser { command } => {
+            tokio::runtime::Runtime::new()?.block_on(browser::run(command))
+        }
         Command::Terminal { command } => {
-            terminal::run(command).await;
+            terminal::run(command);
             Ok(())
         }
     }

@@ -1,16 +1,16 @@
 use std::{
     ffi::OsStr,
     io::{Read, Write},
+    sync::mpsc,
 };
 
 use anyhow::Result;
+use bombadil_schema::TerminalSize;
+use bytes::Bytes;
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,
     PtySystem,
 };
-use tokio::sync::mpsc::channel;
-
-use crate::driver::Size;
 
 pub struct PtyProcess {
     child: Box<dyn Child + Send + Sync>,
@@ -20,8 +20,8 @@ pub struct PtyProcess {
 }
 
 impl PtyProcess {
-    pub async fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
-        size: Size,
+    pub fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
+        size: TerminalSize,
         command: &str,
         args: I,
     ) -> Result<(Self, PtyOutput)> {
@@ -39,7 +39,7 @@ impl PtyProcess {
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
-        let (output_write, output_read) = channel::<String>(64);
+        let (output_write, output_read) = mpsc::sync_channel::<Bytes>(64);
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -53,9 +53,8 @@ impl PtyProcess {
                     match reader.read(&mut buffer) {
                         Ok(0) => break,
                         Ok(n) => {
-                            let chunk =
-                                String::from_utf8_lossy(&buffer[..n]).into();
-                            if output_write.blocking_send(chunk).is_err() {
+                            let chunk = Bytes::copy_from_slice(&buffer[..n]);
+                            if output_write.send(chunk).is_err() {
                                 break;
                             }
                         }
@@ -84,7 +83,7 @@ impl PtyProcess {
         }
     }
 
-    pub fn resize(&mut self, size: Size) -> Result<()> {
+    pub fn resize(&mut self, size: TerminalSize) -> Result<()> {
         self.master.resize(PtySize {
             cols: size.columns,
             rows: size.rows,
@@ -93,7 +92,7 @@ impl PtyProcess {
         Ok(())
     }
 
-    pub async fn wait(mut self) -> Result<ExitStatus> {
+    pub fn wait(mut self) -> Result<ExitStatus> {
         let status = self.child.wait()?;
         drop(self.master);
         if let Some(reader) = self.reader.take() {
@@ -102,7 +101,7 @@ impl PtyProcess {
         Ok(status)
     }
 
-    pub async fn kill(&mut self) {
+    pub fn kill(&mut self) {
         let _ = self.child.kill();
     }
 
@@ -112,15 +111,22 @@ impl PtyProcess {
 }
 
 pub struct PtyOutput {
-    output_read: tokio::sync::mpsc::Receiver<String>,
+    output_read: mpsc::Receiver<Bytes>,
+}
+
+pub enum ReadResult {
+    Chunk(Bytes),
+    Empty,
+    Ended,
 }
 
 impl PtyOutput {
-    pub async fn read(&mut self) -> Result<Option<String>> {
-        Ok(self.output_read.recv().await)
-    }
-
-    pub fn try_read(&mut self) -> Option<String> {
-        self.output_read.try_recv().ok()
+    pub fn try_read(&mut self) -> ReadResult {
+        use ReadResult::*;
+        match self.output_read.try_recv() {
+            Ok(bytes) => Chunk(bytes),
+            Err(mpsc::TryRecvError::Empty) => Empty,
+            Err(mpsc::TryRecvError::Disconnected) => Ended,
+        }
     }
 }
