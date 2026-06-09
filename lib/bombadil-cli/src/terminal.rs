@@ -108,6 +108,7 @@ pub fn run(command: Command) {
                     specification,
                     TerminalSize { columns, rows },
                     scrollback_lines_max as usize,
+                    Duration::from_millis(100),
                     program,
                     args,
                 )?;

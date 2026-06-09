@@ -14,7 +14,7 @@ use bombadil_terminal::state::TerminalState;
 use tempfile::NamedTempFile;
 
 const MAX_SCROLLBACK: usize = 1_000;
-const TEST_TIMEOUT: Duration = Duration::from_secs(60);
+const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 static INIT: Once = Once::new();
 
@@ -85,6 +85,7 @@ impl TerminalIntegrationTest {
                     specification,
                     size,
                     max_scrollback,
+                    Duration::from_millis(10),
                     &program,
                     &args,
                 )?;
@@ -142,6 +143,32 @@ export const eventuallyReady = eventually(
 
 export const eventuallyReadyFromCells = eventually(
     () => screenFromCells.current.includes("ready"),
+);
+
+export const noop = actions(() => [{ TypeText: { text: "" } }]);
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_yes() {
+    TerminalIntegrationTest::new("yes", &[])
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
+
+const lines = extract((state) => {
+    const lines = [];
+    for (let index = 0; index < state.grid.size.rows; index++) {
+        lines.push(state.grid.rowText(index));
+    }
+    return lines;
+});
+
+export const eventuallyReady = eventually(
+    () => lines.current.every(line => line.includes("y")),
 );
 
 export const noop = actions(() => [{ TypeText: { text: "" } }]);

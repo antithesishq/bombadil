@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::thread::sleep;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
@@ -42,6 +42,7 @@ pub struct TerminalDriver {
     process: PtyProcess,
     output: PtyOutput,
     size: TerminalSize,
+    quiescence_timeout: Duration,
     last_action: Option<TerminalAction>,
 }
 
@@ -51,6 +52,7 @@ impl TerminalDriver {
         specification: Specification,
         size: TerminalSize,
         scrollback_lines_max: usize,
+        quiescence_timeout: Duration,
         program: &str,
         arguments: &[String],
     ) -> Result<(Self, Verifier)> {
@@ -78,6 +80,7 @@ impl TerminalDriver {
                 process,
                 output,
                 size,
+                quiescence_timeout,
                 last_action: None,
             },
             verifier,
@@ -85,8 +88,11 @@ impl TerminalDriver {
     }
 
     #[hotpath::measure]
-    fn drain_output(&mut self) {
-        while let ReadResult::Chunk(data) = self.output.try_read() {
+    fn drain_output(&mut self, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while let ReadResult::Chunk(data) = self.output.try_read()
+            && Instant::now() < deadline
+        {
             self.terminal.vt_write(&data);
         }
     }
@@ -177,7 +183,7 @@ impl InterfaceDriver for TerminalDriver {
             ReadResult::Chunk(data) => {
                 assert!(!data.is_empty(), "chunk is empty");
                 self.terminal.vt_write(&data);
-                self.drain_output();
+                self.drain_output(self.quiescence_timeout);
             }
             ReadResult::Empty => {}
             ReadResult::Ended => {}
