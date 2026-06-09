@@ -70,6 +70,16 @@ impl TerminalStrategy {
             }
         }
     }
+
+    fn stop(
+        &mut self,
+        reason: ExitReason,
+    ) -> Result<ControlFlow<ExitReason, TerminalAction>> {
+        if let Some(writer) = self.writer.as_mut() {
+            writer.flush()?;
+        }
+        Ok(ControlFlow::Stop(reason))
+    }
 }
 
 impl RunStrategy<TerminalDriver> for TerminalStrategy {
@@ -155,26 +165,26 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
         }
 
         if self.violations_count > 0 && self.exit_on_violation {
-            return Ok(ControlFlow::Stop(ExitReason::ExitOnViolation));
+            return self.stop(ExitReason::ExitOnViolation);
         }
 
         if let TerminalTestMode::Reproduce(remaining) = &self.mode
             && remaining.is_empty()
         {
             log::info!("reproduction complete, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::Reproduced));
+            return self.stop(ExitReason::Reproduced);
         }
 
         if state.terminated {
             log::info!("process terminated, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::Terminated));
+            return self.stop(ExitReason::Terminated);
         }
 
         if let Some(deadline) = self.deadline
             && state.timestamp >= deadline
         {
             log::info!("time limit reached, stopping");
-            return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
+            return self.stop(ExitReason::TimeLimit);
         }
 
         let action = self.pick_action(tree)?;
@@ -192,6 +202,9 @@ impl RunStrategy<TerminalDriver> for TerminalStrategy {
     }
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+        if let Some(writer) = self.writer.as_mut() {
+            writer.flush()?;
+        }
         Ok(ExitReason::Interrupted)
     }
 }

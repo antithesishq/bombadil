@@ -1,4 +1,7 @@
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::{BufWriter, Write},
+    path::PathBuf,
+};
 
 use anyhow::Result;
 use bombadil::runner::PropertyViolation;
@@ -15,7 +18,7 @@ pub type TerminalTraceEntry =
     TraceEntry<TerminalAction, bombadil_schema::TerminalStateSummary>;
 
 pub struct TraceWriter {
-    trace_file: File,
+    trace_file: BufWriter<File>,
     buffer: Vec<u8>,
 }
 
@@ -46,7 +49,7 @@ impl TraceWriter {
             .open(&trace_path)?;
         log::info!("storing trace in {}", root_path.display());
         Ok(Self {
-            trace_file,
+            trace_file: BufWriter::new(trace_file),
             buffer: Vec::new(),
         })
     }
@@ -75,6 +78,11 @@ impl TraceWriter {
         json::to_writer(&mut self.buffer, &entry)?;
         self.buffer.push(b'\n');
         self.trace_file.write_all(&self.buffer)?;
+        Ok(())
+    }
+
+    pub fn flush(&mut self) -> Result<()> {
+        self.trace_file.flush()?;
         Ok(())
     }
 }

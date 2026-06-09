@@ -190,6 +190,21 @@ impl TerminalGrid {
             size,
         }
     }
+
+    pub fn from_cells(
+        size: TerminalSize,
+        cells: Vec<TerminalCell>,
+    ) -> TerminalGrid {
+        let expected = usize::from(size.columns) * usize::from(size.rows);
+        assert!(
+            cells.len() == expected,
+            "cannot create grid of size ({}, {}) from {} cells",
+            size.rows,
+            size.columns,
+            cells.len()
+        );
+        TerminalGrid { cells, size }
+    }
 }
 
 impl Index<(u16, u16)> for TerminalGrid {

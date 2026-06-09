@@ -100,43 +100,41 @@ impl TerminalDriver {
         let snapshot = render_state.update(&self.terminal)?;
         let mut row_iter = row_iter_state.update(&snapshot)?;
 
-        let mut grid = TerminalGrid::with_size(self.size);
-        let mut row_index = 0;
+        let mut cells = Vec::with_capacity(
+            usize::from(self.size.columns) * usize::from(self.size.rows),
+        );
         while let Some(row) = row_iter.next() {
             let mut cell_iter = cell_iter_state.update(row)?;
-            let mut column_index = 0;
             while let Some(cell) = cell_iter.next() {
                 let style = style_from_ghostty(&cell.style()?);
-                grid[(row_index, column_index)] =
-                    match cell.raw_cell()?.wide()? {
-                        // Trailing column of a wide character.
-                        CellWide::SpacerTail => {
-                            TerminalCell::Continuation { style }
-                        }
-                        // Right-margin placeholder left behind when a wide
-                        // character does not fit and soft-wraps to the next line;
-                        // nothing renders here.
-                        CellWide::SpacerHead => TerminalCell::Empty { style },
-                        kind => {
-                            let length = cell.graphemes_len()?;
-                            if length == 0 {
-                                TerminalCell::Empty { style }
-                            } else {
-                                let mut contents =
-                                    SmallString::null_with_size(length);
-                                cell.graphemes_buf(&mut contents[0..length])?;
-                                TerminalCell::Occupied {
-                                    contents,
-                                    wide: kind == CellWide::Wide,
-                                    style,
-                                }
+                cells.push(match cell.raw_cell()?.wide()? {
+                    // Trailing column of a wide character.
+                    CellWide::SpacerTail => {
+                        TerminalCell::Continuation { style }
+                    }
+                    // Right-margin placeholder left behind when a wide
+                    // character does not fit and soft-wraps to the next line;
+                    // nothing renders here.
+                    CellWide::SpacerHead => TerminalCell::Empty { style },
+                    kind => {
+                        let length = cell.graphemes_len()?;
+                        if length == 0 {
+                            TerminalCell::Empty { style }
+                        } else {
+                            let mut contents =
+                                SmallString::null_with_size(length);
+                            cell.graphemes_buf(&mut contents[0..length])?;
+                            TerminalCell::Occupied {
+                                contents,
+                                wide: kind == CellWide::Wide,
+                                style,
                             }
                         }
-                    };
-                column_index += 1;
+                    }
+                });
             }
-            row_index += 1;
         }
+        let grid = TerminalGrid::from_cells(self.size, cells);
 
         let scroll_offset = self
             .terminal
