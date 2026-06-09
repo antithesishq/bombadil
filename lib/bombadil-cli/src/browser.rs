@@ -1,4 +1,5 @@
 use ::url::Url;
+use antithesis_sdk::random::AntithesisRng;
 use anyhow::Result;
 use bombadil_browser::{
     browser::LaunchOptions, convert::ToInternal, trace::writer::FileTraceWriter,
@@ -380,6 +381,7 @@ async fn browser_test(
     // blocking the async runtime.
     let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
         let runner = bombadil_browser::runner::launch(
+            AntithesisRng,
             origin.clone(),
             specification,
             browser_options,
@@ -387,6 +389,7 @@ async fn browser_test(
         )?;
 
         let mut strategy = TestStrategy {
+            rng: AntithesisRng,
             mode,
             writer: FileTraceWriter::initialize(strategy_output_path.clone())?,
             exit_on_violation,

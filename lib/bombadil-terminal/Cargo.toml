@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+antithesis_sdk.workspace = true
 anyhow.workspace = true
 boa_engine.workspace = true
 bombadil = { path = "../bombadil" }

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use anyhow::{Result, bail};
-use rand::Rng;
+use rand::{RngExt, TryRng};
 use serde::{Deserialize, Serialize};
 
 pub type Weight = u16;
@@ -72,7 +72,7 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn pick(&self, rng: &mut impl Rng) -> Result<&T> {
+    pub fn pick<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
         match self {
             Tree::Leaf { value } => Ok(value),
             Tree::Branch { branches } => {

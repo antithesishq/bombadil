@@ -5,6 +5,7 @@ use bombadil::render::format_timestamp;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
 use bombadil::{specification::domain::Snapshot, tree::Tree};
+use rand::{RngExt, TryRng};
 use std::{collections::VecDeque, path::PathBuf, time::SystemTime};
 use url::Url;
 
@@ -31,7 +32,8 @@ pub trait TraceWriter {
     ) -> Result<()>;
 }
 
-pub struct TestStrategy<Writer: TraceWriter> {
+pub struct TestStrategy<Writer: TraceWriter, Rng> {
+    pub rng: Rng,
     pub mode: TestMode,
     pub writer: Writer,
     pub exit_on_violation: bool,
@@ -57,7 +59,7 @@ pub struct TestResult {
     pub violations_count: u64,
 }
 
-impl<Writer: TraceWriter> TestStrategy<Writer> {
+impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
     fn pick_action(
         &mut self,
         state: &BrowserState,
@@ -72,7 +74,7 @@ impl<Writer: TraceWriter> TestStrategy<Writer> {
         .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
 
         match &mut self.mode {
-            TestMode::RandomWalk => Ok(tree.pick(&mut rand::rng())?.clone()),
+            TestMode::RandomWalk => Ok(tree.pick(&mut self.rng)?.clone()),
             TestMode::Reproduce(actions_original) => {
                 if let Some(action_original) = actions_original.pop_front() {
                     let available_actions = tree.values();
@@ -117,7 +119,9 @@ impl<Writer: TraceWriter> TestStrategy<Writer> {
     }
 }
 
-impl<Writer: TraceWriter> RunStrategy<BrowserDriver> for TestStrategy<Writer> {
+impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserDriver>
+    for TestStrategy<Writer, Rng>
+{
     type StopValue = TestResult;
 
     fn on_new_state(

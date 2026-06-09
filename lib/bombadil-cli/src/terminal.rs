@@ -1,6 +1,7 @@
 use std::time::{Duration, SystemTime};
 use std::{collections::VecDeque, path::PathBuf, process::exit};
 
+use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
@@ -118,6 +119,7 @@ pub fn run(command: Command) {
 
                 let runner = Runner::new(driver, verifier);
                 let mut strategy = TerminalStrategy {
+                    rng: AntithesisRng,
                     mode,
                     writer: Some(writer),
                     test_start: Some(Time::from_system_time(test_start)),

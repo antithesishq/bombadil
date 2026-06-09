@@ -11,6 +11,7 @@ use bombadil::tree::Tree;
 use bombadil_schema::TerminalSize;
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::state::TerminalState;
+use rand::rngs::ThreadRng;
 use tempfile::NamedTempFile;
 
 const MAX_SCROLLBACK: usize = 1_000;
@@ -30,6 +31,7 @@ fn setup() {
 }
 
 struct TerminalIntegrationTest {
+    seed: u64,
     program: String,
     args: Vec<String>,
     size: TerminalSize,
@@ -40,6 +42,7 @@ struct TerminalIntegrationTest {
 impl TerminalIntegrationTest {
     fn new(program: &str, args: &[&str]) -> Self {
         Self {
+            seed: rand::random(),
             program: program.to_string(),
             args: args.iter().map(|arg| arg.to_string()).collect(),
             size: TerminalSize {
@@ -61,6 +64,7 @@ impl TerminalIntegrationTest {
     fn run(self) {
         setup();
         let TerminalIntegrationTest {
+            seed,
             program,
             args,
             size,
@@ -90,7 +94,10 @@ impl TerminalIntegrationTest {
                     &args,
                 )?;
                 let runner = Runner::new(driver, verifier);
-                let mut strategy = IntegrationTestStrategy::default();
+                let mut strategy = IntegrationTestStrategy {
+                    rng: rand::rng(),
+                    violations_count: 0,
+                };
                 runner.run(&mut strategy)?;
                 Ok(strategy.violations_count)
             })();
@@ -100,13 +107,13 @@ impl TerminalIntegrationTest {
         let violations_count = receiver
             .recv_timeout(TEST_TIMEOUT)
             .unwrap_or_else(|_| {
-                panic!("terminal integration test hung past {TEST_TIMEOUT:?}")
+                panic!("terminal integration test hung past {TEST_TIMEOUT:?}\n\ntry to reproduce with .seed({seed})")
             })
             .expect("terminal runner failed");
 
         assert_eq!(
             violations_count, 0,
-            "expected zero violations, got {violations_count}"
+            "expected zero violations, got {violations_count}\n\ntry to reproduce with .seed({seed})",
         );
     }
 }
@@ -292,8 +299,8 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
     .run();
 }
 
-#[derive(Default)]
 struct IntegrationTestStrategy {
+    rng: ThreadRng,
     violations_count: u64,
 }
 
@@ -315,7 +322,7 @@ impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
         if state.terminated {
             return Ok(ControlFlow::Stop(()));
         }
-        Ok(ControlFlow::Continue(tree.pick(&mut rand::rng())?.clone()))
+        Ok(ControlFlow::Continue(tree.pick(&mut self.rng)?.clone()))
     }
 
     fn on_interrupted(&mut self) -> Result<()> {

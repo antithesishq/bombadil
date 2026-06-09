@@ -7,6 +7,7 @@ use crate::specification::js::{
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::snapshots::with_snapshot_tracking;
 use crate::tree::Tree;
+use boa_engine::gc::{GcRefCell, empty_trace};
 use boa_engine::{
     Context, JsString, NativeFunction, Source,
     context::ContextBuilder,
@@ -14,10 +15,11 @@ use boa_engine::{
     object::builtins::{JsArray, JsUint8Array},
     property::PropertyKey,
 };
-use boa_engine::{JsError, JsObject, JsValue};
+use boa_engine::{Finalize, JsError, JsObject, JsResult, JsValue, Trace};
 use bombadil_ltl::eval::{self, Evaluator, Residual};
 use bombadil_ltl::formula::Formula;
 use bombadil_ltl::syntax::Syntax;
+use rand::{RngExt, TryRng};
 use serde_json as json;
 
 use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
@@ -55,7 +57,10 @@ fn format_console_args(args: &[JsValue]) -> String {
 }
 
 impl Verifier {
-    pub fn new(bundle_code: &str) -> Result<Self> {
+    pub fn new<Rng: TryRng + RngExt + 'static>(
+        bundle_code: &str,
+        rng: Rng,
+    ) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
@@ -63,23 +68,7 @@ impl Verifier {
         context.register_global_builtin_callable(
             js_string!("__bombadil_random_bytes"),
             1,
-            NativeFunction::from_copy_closure(|_this, args, context| {
-                let n = args
-                    .first()
-                    .map(|v| v.to_u32(context))
-                    .transpose()?
-                    .unwrap_or(0) as usize;
-                if n > RANDOM_BYTES_COUNT_MAX {
-                    return Err(JsError::from_rust(SpecificationError::JS(
-                        format!(
-                            "n cannot be larger than {RANDOM_BYTES_COUNT_MAX}"
-                        ),
-                    )));
-                }
-                let mut buf = vec![0u8; n];
-                rand::fill(&mut buf[..]);
-                Ok(JsUint8Array::from_iter(buf, context)?.into())
-            }),
+            random_bytes_native_function(rng),
         )?;
 
         // Add console object for compatibility with libraries that use console
@@ -428,6 +417,55 @@ impl ActionGenerator {
     }
 }
 
+struct RandomFunctionCapture<Rng: 'static> {
+    rng: GcRefCell<Rng>,
+}
+
+impl<Rng> Finalize for RandomFunctionCapture<Rng> {}
+
+unsafe impl<Rng> Trace for RandomFunctionCapture<Rng> {
+    empty_trace!();
+}
+
+pub fn random_bytes_native_function<Rng: TryRng + RngExt + 'static>(
+    rng: Rng,
+) -> NativeFunction {
+    let capture = RandomFunctionCapture {
+        rng: GcRefCell::new(rng),
+    };
+    fn random_bytes<Rng: TryRng + RngExt>(
+        _this: &JsValue,
+        args: &[JsValue],
+        capture: &RandomFunctionCapture<Rng>,
+        context: &mut Context,
+    ) -> JsResult<JsValue> {
+        let n = args
+            .first()
+            .map(|v| v.to_u32(context))
+            .transpose()?
+            .unwrap_or(0) as usize;
+        if n > RANDOM_BYTES_COUNT_MAX {
+            return Err(JsError::from_rust(SpecificationError::JS(format!(
+                "n cannot be larger than {RANDOM_BYTES_COUNT_MAX}"
+            ))));
+        }
+        let mut buf = vec![0u8; n];
+        capture
+            .rng
+            .try_borrow_mut()
+            .map_err(|err| {
+                JsError::from_rust(SpecificationError::OtherError(format!(
+                    "failed to acquire RNG: {}",
+                    err
+                )))
+            })?
+            .fill(&mut buf[..]);
+        Ok(JsUint8Array::from_iter(buf, context)?.into())
+    }
+
+    unsafe { NativeFunction::from_closure_with_captures(random_bytes, capture) }
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
@@ -466,7 +504,7 @@ mod tests {
             bundle(".", &specification_file.path().display().to_string())
                 .unwrap();
 
-        Verifier::new(&bundle_code).unwrap()
+        Verifier::new(&bundle_code, rand::rng()).unwrap()
     }
 
     #[test]

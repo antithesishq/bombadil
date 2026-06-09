@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
+use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
@@ -59,8 +60,8 @@ impl TerminalDriver {
         let bundle_code = bundle(".", &specification.module_specifier)
             .map_err(|e| anyhow!("bundle failed: {e}"))?;
 
-        let extractor = Extractors::initialize(&bundle_code)?;
-        let verifier = Verifier::new(&bundle_code)?;
+        let extractor = Extractors::initialize(&bundle_code, AntithesisRng)?;
+        let verifier = Verifier::new(&bundle_code, AntithesisRng)?;
 
         let program = program.to_string();
         let arguments = arguments.to_vec();

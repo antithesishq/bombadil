@@ -7,6 +7,7 @@ use axum::{
     routing::get,
 };
 use bombadil_schema::{Time, markup};
+use rand::SeedableRng;
 use std::collections::HashMap;
 use std::io::Write;
 use std::{
@@ -68,6 +69,7 @@ impl Display for Expect {
 }
 
 struct BrowserIntegrationTest<'a> {
+    seed: u64,
     name: &'a str,
     expect: Expect,
     time_limit: Option<Duration>,
@@ -79,6 +81,7 @@ struct BrowserIntegrationTest<'a> {
 impl<'a> BrowserIntegrationTest<'a> {
     fn new(name: &'a str) -> Self {
         Self {
+            seed: rand::random(),
             name,
             expect: Expect::Success,
             time_limit: None,
@@ -86,6 +89,12 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
         }
+    }
+
+    #[allow(dead_code, reason = "can be overridden to reproduce failures")]
+    fn seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
     }
 
     fn expect_error(mut self, substring: &'static str) -> Self {
@@ -125,6 +134,7 @@ impl<'a> BrowserIntegrationTest<'a> {
     /// Which means that every named test case directory should have an index.html file.
     async fn run(self) {
         let Self {
+            seed,
             name,
             expect,
             time_limit,
@@ -296,6 +306,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         // worker thread/runtime), so build and run them on a blocking thread.
         let run_handle = tokio::task::spawn_blocking(move || {
             let runner = runner::launch(
+                rand::prelude::StdRng::seed_from_u64(seed),
                 origin.clone(),
                 specification,
                 browser_options,
@@ -304,6 +315,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             .expect("run_test failed");
 
             let mut strategy = TestStrategy {
+                rng: rand::prelude::StdRng::seed_from_u64(seed),
                 test_start: Some(Time::from_system_time(test_start)),
                 deadline,
                 mode: bombadil_browser::strategy::TestMode::RandomWalk,
@@ -362,14 +374,17 @@ impl<'a> BrowserIntegrationTest<'a> {
             (Outcome::Error(error), Expect::Error { substring }) => {
                 if !error.to_string().contains(substring) {
                     panic!(
-                        "expected error message {:?} not found in:\n\n{}",
-                        substring, error
+                        "expected error message {:?} not found in:\n\n{}\n\ntry reproducing by adding .seed({})",
+                        substring, error, seed
                     );
                 }
             }
             (Outcome::Success, Expect::Success) => {}
             (outcome, expect) => {
-                panic!("{} but got {}", expect, outcome);
+                panic!(
+                    "{} but got {}\n\ntry reproducing by adding .seed({})",
+                    expect, outcome, seed
+                );
             }
         }
     }

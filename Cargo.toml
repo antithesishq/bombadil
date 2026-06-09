@@ -18,6 +18,7 @@ version = "0.5.0"
 edition = "2024"
 
 [workspace.dependencies]
+antithesis_sdk = { git = "https://github.com/antithesishq/antithesis-sdk-rust", rev = "6829a946e7e970cc743ffe17c3cee7d2bc25425a", features = ["rand_v0_10"] }
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
@@ -52,8 +53,8 @@ oxc_traverse = "0.125.0"
 owo-colors = "4.3.0"
 portable-pty = "0.9.0"
 proptest = "1.10.0"
-rand = "0.9.2"
-rand_chacha = "0.9.0"
+rand = "0.10.1"
+rand_chacha = "0.10.0"
 scraper = "0.27.0"
 serde = "1.0.228"
 serde_json = "1.0.145"

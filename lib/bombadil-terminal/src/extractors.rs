@@ -5,14 +5,13 @@ use boa_engine::{
     Context, JsError, JsObject, JsValue, NativeFunction, Source,
     context::ContextBuilder, js_string,
 };
-use bombadil::specification::domain::Snapshot;
+use bombadil::specification::{domain::Snapshot, verifier};
 use bombadil_schema::Time;
+use rand::{RngExt, TryRng};
 use serde::Deserialize;
 use serde_json as json;
 
 use crate::{js::terminal_state_to_js, state::TerminalState};
-
-const RANDOM_BYTES_COUNT_MAX: usize = 4096;
 
 #[derive(Debug, Clone, Deserialize)]
 struct PartialSnapshot {
@@ -27,7 +26,10 @@ pub struct Extractors {
 }
 
 impl Extractors {
-    pub fn initialize(bundle_code: &str) -> Result<Self> {
+    pub fn initialize<Rng: TryRng + RngExt + 'static>(
+        bundle_code: &str,
+        rng: Rng,
+    ) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|e| anyhow!("Boa build: {e}"))?;
@@ -36,20 +38,7 @@ impl Extractors {
             .register_global_builtin_callable(
                 js_string!("__bombadil_random_bytes"),
                 1,
-                NativeFunction::from_copy_closure(|_this, args, context| {
-                    let n = args
-                        .first()
-                        .map(|v| v.to_u32(context))
-                        .transpose()?
-                        .unwrap_or(0) as usize;
-                    let n = n.min(RANDOM_BYTES_COUNT_MAX);
-                    let mut buf = vec![0u8; n];
-                    rand::fill(&mut buf[..]);
-                    Ok(boa_engine::object::builtins::JsUint8Array::from_iter(
-                        buf, context,
-                    )?
-                    .into())
-                }),
+                verifier::random_bytes_native_function(rng),
             )
             .map_err(from_js_error)?;
 

@@ -13,6 +13,7 @@ use bombadil_schema::{
     TerminalAttributes, TerminalCell, TerminalColor, TerminalStyle,
 };
 use owo_colors::{OwoColorize, XtermColors};
+use rand::{RngExt, TryRng};
 
 use crate::driver::{TerminalAction, TerminalDriver};
 use crate::state::TerminalState;
@@ -31,7 +32,8 @@ pub enum TerminalTestMode {
     Reproduce(VecDeque<TerminalAction>),
 }
 
-pub struct TerminalStrategy {
+pub struct TerminalStrategy<Rng: TryRng> {
+    pub rng: Rng,
     pub mode: TerminalTestMode,
     pub writer: Option<TraceWriter>,
     pub test_start: Option<bombadil_schema::Time>,
@@ -41,7 +43,7 @@ pub struct TerminalStrategy {
     pub states_seen: usize,
 }
 
-impl TerminalStrategy {
+impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
     #[hotpath::measure]
     fn pick_action(
         &mut self,
@@ -52,7 +54,7 @@ impl TerminalStrategy {
             .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TerminalTestMode::RandomWalk => {
-                Ok(tree.pick(&mut rand::rng())?.clone())
+                Ok(tree.pick(&mut self.rng)?.clone())
             }
             TerminalTestMode::Reproduce(actions) => {
                 let original = actions.pop_front().ok_or_else(|| {
@@ -82,7 +84,9 @@ impl TerminalStrategy {
     }
 }
 
-impl RunStrategy<TerminalDriver> for TerminalStrategy {
+impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
+    for TerminalStrategy<Rng>
+{
     type StopValue = ExitReason;
 
     #[hotpath::measure]

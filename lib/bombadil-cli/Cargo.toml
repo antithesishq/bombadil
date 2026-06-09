@@ -8,6 +8,7 @@ name = "bombadil"
 path = "src/main.rs"
 
 [dependencies]
+antithesis_sdk.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 bombadil = { path = "../bombadil" }
