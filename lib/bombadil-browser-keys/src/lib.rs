@@ -123,7 +123,11 @@ mod tests {
     #[test]
     fn control_and_navigation_keys_produce_no_text() {
         for code in [8, 9, 16, 27, 37, 38, 39, 40, 46, 112] {
-            assert_eq!(key_text(code), None, "code {code} should produce no text");
+            assert_eq!(
+                key_text(code),
+                None,
+                "code {code} should produce no text"
+            );
         }
     }
 }
