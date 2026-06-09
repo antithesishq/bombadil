@@ -2,13 +2,13 @@
 members = [
     "lib/bombadil",
     "lib/bombadil-browser",
+    "lib/bombadil-browser-integration-tests",
     "lib/bombadil-browser-keys",
     "lib/bombadil-cli",
     "lib/bombadil-ltl",
     "lib/bombadil-inspect",
     "lib/bombadil-schema",
     "lib/bombadil-terminal",
-    "lib/integration-tests",
     "lib/small-string",
 ]
 resolver = "2"

@@ -471,6 +471,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "bombadil-browser-integration-tests"
+version = "0.5.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "bombadil",
+ "bombadil-browser",
+ "bombadil-ltl",
+ "bombadil-schema",
+ "env_logger",
+ "indoc",
+ "insta",
+ "log",
+ "proptest",
+ "rand 0.9.4",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tower-http",
+ "url",
+]
+
+[[package]]
 name = "bombadil-browser-keys"
 version = "0.5.0"
 
@@ -2099,29 +2122,6 @@ dependencies = [
  "proc-macro2-diagnostics",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "integration-tests"
-version = "0.5.0"
-dependencies = [
- "anyhow",
- "axum",
- "bombadil",
- "bombadil-browser",
- "bombadil-ltl",
- "bombadil-schema",
- "env_logger",
- "indoc",
- "insta",
- "log",
- "proptest",
- "rand 0.9.4",
- "tempfile",
- "tokio",
- "tower",
- "tower-http",
- "url",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 [package]
-name = "integration-tests"
+name = "bombadil-browser-integration-tests"
 version.workspace = true
 edition.workspace = true
 publish = false

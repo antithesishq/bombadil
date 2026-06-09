@@ -19,7 +19,7 @@ The `docs/manual/.envrc` file automatically loads the `manual` shell when you `c
 
 **Build:** `cargo build`
 
-**Integration tests:** `cargo test -p integration-tests` (limited to 4 concurrent tests; 120s timeout each)
+**Integration tests:** `cargo test -p bombadil-browser-integration-tests` (limited to 4 concurrent tests; 120s timeout each)
 
 **Debug logging:** `RUST_LOG=bombadil=debug cargo run -p bombadil-cli -- test https://example.com --headless`
 
@@ -50,7 +50,7 @@ The project is a Cargo workspace with crates under `lib/`:
 - **`lib/bombadil-cli/`** - CLI binary (test commands, inspect server, `terminal` subcommand)
 - **`lib/bombadil-terminal/`** - Library backing the `bombadil terminal` subcommand (Ghostty VT)
 - **`lib/bombadil-inspect/`** - Yew WASM frontend for Bombadil Inspect
-- **`lib/integration-tests/`** - Integration tests with browser fixtures
+- **`lib/bombadil-browser-integration-tests/`** - Integration tests with browser fixtures
 
 Non-workspace directories: `lib/nix/` (Nix build infrastructure), `lib/release/`, `lib/experiments/`.
 

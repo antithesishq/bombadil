@@ -37,7 +37,7 @@ lib/
 ├── bombadil/           
 ├── bombadil-cli/       
 ├── bombadil-inspect/
-├── integration-tests/  
+├── bombadil-browser-integration-tests/  
 ├── ...
 └── nix/                
 ```
@@ -103,7 +103,7 @@ podman run -ti localhost/bombadil_docker:latest <SOME_URL>
 ### Integration tests
 
 ```bash
-cargo test -p integration-tests
+cargo test -p bombadil-browser-integration-tests
 ```
 
 ## Releasing

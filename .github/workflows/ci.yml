@@ -137,7 +137,7 @@ jobs:
       - name: Generate report
         run: |
           chmod +x bombadil
-          ./bombadil browser test lib/integration-tests/tests/console-error/index.html \
+          ./bombadil browser test lib/bombadil-browser-integration-tests/tests/console-error/index.html \
             --headless --no-sandbox \
             --output-path report \
             --exit-on-violation \
