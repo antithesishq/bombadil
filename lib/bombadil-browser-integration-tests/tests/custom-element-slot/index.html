@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+  <body>
+    <template id="element-details-template">
+      <style>
+        .actions {
+          display: flex;
+          gap: 1em;
+        }
+        .a {
+          border: 1px solid blue;
+          padding: 1em;
+        }
+        .b {
+          border: 1px solid green;
+          padding: 1em;
+        }
+      </style>
+      <div class="actions">
+        <div class="a">
+          <slot name="a"></slot>
+        </div>
+        <div class="b">
+          <slot name="b"></slot>
+        </div>
+      </div>
+    </template>
+
+    <element-details>
+      <span slot="a">
+        <button onclick="document.getElementById('result').textContent = 'Done';">Click me!</button>
+      </span>
+      <span slot="b" id="result"></span>
+    </element-details>
+
+    <script>
+      customElements.define(
+        "element-details",
+        class extends HTMLElement {
+          constructor() {
+            super();
+            const template = document.getElementById(
+              "element-details-template",
+            ).content;
+            const shadowRoot = this.attachShadow({
+              mode: "open",
+            }).appendChild(template.cloneNode(true));
+          }
+        },
+      );
+    </script>
+  </body>
+</html>

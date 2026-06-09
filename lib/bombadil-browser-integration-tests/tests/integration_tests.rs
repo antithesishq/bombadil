@@ -1026,3 +1026,25 @@ export const viewportApplied = eventually(() => size.current === "1024x768");
         .run()
         .await;
 }
+
+#[tokio::test]
+async fn test_custom_element_slot() {
+    BrowserIntegrationTest::new("custom-element-slot")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const isDone = extract((state) => {
+  const element = state.document.getElementById("result");
+  return element?.textContent === "Done";
+});
+
+export const eventuallyDone = eventually(() => isDone.current);
+"##,
+        )
+        .run()
+        .await;
+}
