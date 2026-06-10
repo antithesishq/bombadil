@@ -15,7 +15,7 @@ bombadil-browser = { path = "../bombadil-browser" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
-bombadil-terminal = { path = "../bombadil-terminal" }
+bombadil-terminal = { path = "../bombadil-terminal", optional = true }
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
 hotpath.workspace = true
@@ -34,6 +34,8 @@ url = { workspace = true, features = ["serde"] }
 proptest.workspace = true
 
 [features]
+default = ["terminal"]
+terminal = ["dep:bombadil-terminal"]
 hotpath = ["hotpath/hotpath"]
 hotpath-cpu = ["hotpath/hotpath-cpu"]
 hotpath-alloc = ["hotpath/hotpath-alloc"]

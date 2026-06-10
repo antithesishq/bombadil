@@ -2,6 +2,7 @@ mod browser;
 mod duration;
 mod inspect_server;
 mod output_path;
+#[cfg(feature = "terminal")]
 mod terminal;
 
 use anyhow::Result;
@@ -24,6 +25,7 @@ enum Command {
         command: browser::BrowserCommand,
     },
     /// [EXPERIMENTAL] Property-based testing for terminal UIs
+    #[cfg(feature = "terminal")]
     Terminal {
         #[command(subcommand)]
         command: terminal::Command,
@@ -45,6 +47,7 @@ fn main() -> Result<()> {
         Command::Browser { command } => {
             tokio::runtime::Runtime::new()?.block_on(browser::run(command))
         }
+        #[cfg(feature = "terminal")]
         Command::Terminal { command } => {
             terminal::run(command);
             Ok(())
