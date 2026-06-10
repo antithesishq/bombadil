@@ -40,12 +40,22 @@ struct TerminalStateSummary<'a> {
 }
 
 impl TraceWriter {
-    pub fn initialize(root_path: PathBuf) -> Result<Self> {
+    pub fn initialize(root_path: PathBuf, force: bool) -> Result<Self> {
         std::fs::create_dir_all(&root_path)?;
         let trace_path = root_path.join("trace.jsonl");
+        if trace_path.try_exists()? {
+            if !force {
+                anyhow::bail!(
+                    "trace.jsonl already exists at {}. \
+                     Use --force to overwrite, or choose a different --output-path.",
+                    trace_path.display(),
+                );
+            }
+            std::fs::remove_file(&trace_path)?;
+        }
         let trace_file = File::options()
-            .append(true)
-            .create(true)
+            .write(true)
+            .create_new(true)
             .open(&trace_path)?;
         log::info!("storing trace in {}", root_path.display());
         Ok(Self {

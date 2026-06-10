@@ -28,6 +28,7 @@
 | Option | Description | Default |
 |--------|-------------|---------:|
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
+| `--force` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
 | `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
@@ -57,6 +58,7 @@
 | Option | Description | Default |
 |--------|-------------|---------:|
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
+| `--force` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
 | `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
@@ -106,5 +108,6 @@
 | `--test-count <TEST_COUNT>` | How many test cases to run (invocations of command) | 1 |
 | `--seed <SEED>` | Random generator seed | |
 | `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
+| `--force` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `-h, --help` | Print help | |
 :::

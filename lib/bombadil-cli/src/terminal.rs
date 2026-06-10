@@ -50,6 +50,10 @@ pub enum Command {
         /// fresh temporary directory.
         #[arg(long)]
         output_path: Option<PathBuf>,
+        /// Overwrite any existing trace at --output-path. Without this
+        /// flag, Bombadil refuses to write when trace.jsonl already exists.
+        #[arg(long)]
+        force: bool,
         /// Reproduce a previous test run from a trace file (file path
         /// or directory containing `trace.jsonl`). Replays the recorded
         /// actions in order instead of generating new ones.
@@ -72,6 +76,7 @@ pub fn run(command: Command) {
             rows,
             scrollback_lines_max,
             output_path,
+            force,
             reproduce,
             command,
         } => {
@@ -96,7 +101,8 @@ pub fn run(command: Command) {
                 };
 
                 let output_path = resolve_output_path(output_path)?;
-                let writer = TraceWriter::initialize(output_path.clone())?;
+                let writer =
+                    TraceWriter::initialize(output_path.clone(), force)?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(

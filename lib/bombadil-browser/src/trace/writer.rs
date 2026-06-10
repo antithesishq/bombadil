@@ -19,19 +19,30 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub fn initialize(root_path: PathBuf) -> Result<Self> {
+    pub fn initialize(root_path: PathBuf, force: bool) -> Result<Self> {
         log::info!(
             "storing trace in {}",
             &root_path
                 .to_str()
                 .expect("states directory path is not valid unicode")
         );
+        let trace_file_path = root_path.join("trace.jsonl");
+        if trace_file_path.try_exists()? {
+            if !force {
+                anyhow::bail!(
+                    "trace.jsonl already exists at {}. \
+                     Use --force to overwrite, or choose a different --output-path.",
+                    trace_file_path.display(),
+                );
+            }
+            std::fs::remove_file(&trace_file_path)?;
+        }
         let screenshots_path = root_path.join("screenshots");
         std::fs::create_dir_all(&screenshots_path)?;
         let trace_file = File::options()
-            .append(true)
-            .create(true)
-            .open(root_path.join("trace.jsonl"))?;
+            .write(true)
+            .create_new(true)
+            .open(&trace_file_path)?;
         Ok(FileTraceWriter {
             screenshots_path,
             trace_file,

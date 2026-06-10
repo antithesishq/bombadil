@@ -84,6 +84,10 @@ pub struct TestSharedOptions {
     /// Where to store output data (trace, screenshots, etc.)
     #[arg(long)]
     pub output_path: Option<PathBuf>,
+    /// Overwrite any existing trace at --output-path. Without this flag,
+    /// Bombadil refuses to write when trace.jsonl already exists.
+    #[arg(long)]
+    pub force: bool,
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
@@ -374,6 +378,7 @@ async fn browser_test(
     let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
     let origin = shared_options.origin.url;
     let exit_on_violation = shared_options.exit_on_violation;
+    let force = shared_options.force;
     let strategy_output_path = output_path.clone();
 
     // The driver and runner are synchronous (the browser runs on its own
@@ -391,7 +396,10 @@ async fn browser_test(
         let mut strategy = TestStrategy {
             rng: AntithesisRng,
             mode,
-            writer: FileTraceWriter::initialize(strategy_output_path.clone())?,
+            writer: FileTraceWriter::initialize(
+                strategy_output_path.clone(),
+                force,
+            )?,
             exit_on_violation,
             test_start: None,
             deadline,
