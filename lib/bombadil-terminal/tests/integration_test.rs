@@ -319,7 +319,7 @@ impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
         if properties.all_definite {
             return Ok(ControlFlow::Stop(()));
         }
-        if state.terminated {
+        if state.exit_code.is_some() {
             return Ok(ControlFlow::Stop(()));
         }
         Ok(ControlFlow::Continue(tree.pick(&mut self.rng)?.clone()))

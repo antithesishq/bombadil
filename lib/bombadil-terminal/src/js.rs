@@ -11,8 +11,8 @@ use boa_engine::{
 };
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{
-    TerminalCell, TerminalColor, TerminalGrid, TerminalSize, TerminalStyle,
-    TerminalUnderline,
+    ProcessExitCode, TerminalCell, TerminalColor, TerminalGrid, TerminalSize,
+    TerminalStyle, TerminalUnderline,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
@@ -71,8 +71,11 @@ pub fn terminal_state_to_js(
             Attribute::all(),
         )
         .property(
-            js_string!("terminated"),
-            JsValue::from(state.terminated),
+            js_string!("exitCode"),
+            match state.exit_code {
+                Some(ProcessExitCode(code)) => JsValue::from(code),
+                None => JsValue::null(),
+            },
             Attribute::all(),
         )
         .property(js_string!("lastAction"), last_action, Attribute::all())

@@ -175,7 +175,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
             return self.stop(ExitReason::Reproduced);
         }
 
-        if state.terminated {
+        if state.exit_code.is_some() {
             log::info!("process terminated, stopping");
             return self.stop(ExitReason::Terminated);
         }

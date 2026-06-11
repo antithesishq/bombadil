@@ -157,8 +157,11 @@ pub struct TerminalStateSummary {
     pub grid: TerminalGrid,
     pub scrollback: TerminalGrid,
     pub scroll_offset: u32,
-    pub terminated: bool,
+    pub exit_code: Option<ProcessExitCode>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessExitCode(pub u32);
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalSize {

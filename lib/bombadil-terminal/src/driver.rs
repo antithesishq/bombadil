@@ -9,8 +9,8 @@ use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::{
-    TerminalAttributes, TerminalCell, TerminalColor, TerminalGrid,
-    TerminalSize, TerminalStyle, TerminalUnderline,
+    ProcessExitCode, TerminalAttributes, TerminalCell, TerminalColor,
+    TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
@@ -108,7 +108,7 @@ impl TerminalDriver {
     }
 
     #[hotpath::measure]
-    fn extract_state(&mut self, terminated: bool) -> Result<TerminalState> {
+    fn extract_state(&mut self) -> Result<TerminalState> {
         let snapshot = self.render_state.update(&self.terminal)?;
         let mut row_iter = self.row_iterator.update(&snapshot)?;
 
@@ -162,7 +162,10 @@ impl TerminalDriver {
                 ..self.size
             }),
             scroll_offset,
-            terminated,
+            exit_code: self
+                .process
+                .exit_status()?
+                .map(|status| ProcessExitCode(status.exit_code())),
             last_action: self.last_action.clone(),
         })
     }
@@ -195,8 +198,7 @@ impl InterfaceDriver for TerminalDriver {
             ReadResult::Ended => {}
         }
 
-        let terminated = matches!(self.process.is_terminated(), Ok(true));
-        match self.extract_state(terminated) {
+        match self.extract_state() {
             Ok(state) => Some(DriverEvent::StateChanged(state)),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
         }
