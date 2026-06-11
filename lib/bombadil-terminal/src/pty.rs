@@ -36,6 +36,7 @@ impl PtyProcess {
         let mut cmd = CommandBuilder::new(command);
         cmd.args(args);
         cmd.env("TERM", "xterm-256color");
+        cmd.cwd(std::env::current_dir()?);
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
