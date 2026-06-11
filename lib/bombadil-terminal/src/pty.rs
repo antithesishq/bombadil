@@ -106,8 +106,8 @@ impl PtyProcess {
         let _ = self.child.kill();
     }
 
-    pub fn is_terminated(&mut self) -> Result<bool> {
-        Ok(self.child.try_wait()?.is_some())
+    pub fn exit_status(&mut self) -> Result<Option<ExitStatus>> {
+        Ok(self.child.try_wait()?)
     }
 }
 

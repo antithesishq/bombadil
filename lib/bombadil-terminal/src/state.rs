@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use bombadil_schema::TerminalGrid;
+use bombadil_schema::{ProcessExitCode, TerminalGrid};
 use serde::Serialize;
 
 use crate::driver::TerminalAction;
@@ -11,6 +11,6 @@ pub struct TerminalState {
     pub grid: TerminalGrid,
     pub scrollback: TerminalGrid,
     pub scroll_offset: u32,
-    pub terminated: bool,
+    pub exit_code: Option<ProcessExitCode>,
     pub last_action: Option<TerminalAction>,
 }
