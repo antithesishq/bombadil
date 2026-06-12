@@ -88,11 +88,10 @@ export class Runtime<S> {
     return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
-        const value = extractor.run(state);
         return {
           index,
-          value,
           name: extractor.name,
+          value: extractor.run(state),
         };
       } finally {
         this.extractingDepth--;
