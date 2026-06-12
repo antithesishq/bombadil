@@ -82,7 +82,7 @@ export interface State {
   grid: Grid;
   scrollback: Grid;
   scrollOffset: number;
-  termination: number | null;
+  exitCode: number | null;
   lastAction: Action | null;
 }
 
