@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
 use bombadil_schema::{ProcessExitStatus, TerminalSize, Time};
@@ -112,8 +112,7 @@ pub fn run(command: Command) {
                     Duration::from_millis(100),
                     program,
                     args,
-                )
-                .context("terminal driver")?;
+                )?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);

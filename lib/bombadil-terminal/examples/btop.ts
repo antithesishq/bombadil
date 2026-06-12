@@ -2,9 +2,7 @@ import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
 import { integers } from "@antithesishq/bombadil/random";
 import {
   typeFromSet,
-  CONTROL_ALL,
-  UNICODE_SAFE,
-  ASCII_PRINTABLE,
+  CharSets,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 export * from "@antithesishq/bombadil/terminal/defaults/properties";
 
@@ -13,9 +11,8 @@ const size = extract((state) => {
 });
 
 export const typeRandom = weighted([
-  [40, typeFromSet(ASCII_PRINTABLE)],
-  [40, typeFromSet(CONTROL_ALL)],
-  [10, typeFromSet(UNICODE_SAFE)],
+  [40, typeFromSet(CharSets.UNICODE_SAFE)],
+  [40, typeFromSet(CharSets.CONTROL_ALL)],
 
   // Clicks
   [
