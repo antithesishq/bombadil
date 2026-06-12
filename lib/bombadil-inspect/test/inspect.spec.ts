@@ -71,16 +71,18 @@ export const eventuallyShowsActions = always(
 );
 
 // Regression guard for #171: the timeline axis must span exactly the action
-// times. The first tick is the chart origin (00:00.000) and the last tick is
-// the final action's timestamp. A unit mismatch (micros rendered as millis)
-// scaled the labels by 1000x, which this property catches.
+// times. The first tick is the chart origin (00:00) and the last tick is the
+// final action's timestamp. Tick labels omit milliseconds, so only the
+// non-fractional part of the action timestamp is compared. A unit mismatch
+// (micros rendered as millis) scaled the labels by 1000x, which this
+// property catches.
 export const timelineTicksMatchActionTimes = always(() => {
   if (isLoading()) return true;
   const ticks = tickLabels.current;
   const entries = actionEntries.current;
   if (!ticks?.length || entries.length === 0) return true;
-  const lastActionTime = entries[entries.length - 1].time;
-  return ticks[0] === "00:00.000" && ticks[ticks.length - 1] === lastActionTime;
+  const lastActionTime = entries[entries.length - 1]?.time?.split(".")[0];
+  return ticks[0] === "00:00" && ticks[ticks.length - 1] === lastActionTime;
 });
 
 export const clickTimelineMovesCursorCorrectly = always(() => {
