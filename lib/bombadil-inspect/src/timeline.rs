@@ -401,7 +401,7 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                                 class="time-label"
                                 x={format!("{x}")}
                                 y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>
-                                {tick_label(props.x_max_time, *tick)}
+                                {format_duration(props.x_max_time.mul_f64(*tick), FormatDurationOptions { include_millis: false })}
                             </text>
                         </>
                     )
@@ -427,17 +427,6 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
         }
         </g>
     </g>
-    )
-}
-
-/// Render a timescale tick label: the duration at `tick` (a 0.0..=1.0
-/// fraction) of the axis whose far end is `max`.
-fn tick_label(max: Duration, tick: f64) -> String {
-    format_duration(
-        max.mul_f64(tick),
-        FormatDurationOptions {
-            include_millis: true,
-        },
     )
 }
 
