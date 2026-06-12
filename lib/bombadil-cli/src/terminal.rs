@@ -2,10 +2,10 @@ use std::time::{Duration, SystemTime};
 use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
-use bombadil_schema::{TerminalSize, Time};
+use bombadil_schema::{ProcessExitStatus, TerminalSize, Time};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::trace::{TerminalTraceEntry, TraceWriter};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
@@ -112,7 +112,8 @@ pub fn run(command: Command) {
                     Duration::from_millis(100),
                     program,
                     args,
-                )?;
+                )
+                .context("terminal driver")?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -128,9 +129,40 @@ pub fn run(command: Command) {
                     deadline,
                     states_seen: 0,
                 };
-                let _ = runner.run(&mut strategy)?;
+                let exit_reason = runner.run(&mut strategy)?;
 
                 println!();
+                match exit_reason {
+                    bombadil_terminal::ExitReason::ExitOnViolation => {
+                        println!("Exited due to violation")
+                    }
+                    bombadil_terminal::ExitReason::TimeLimit => {
+                        println!("Exited after time limit hit")
+                    }
+                    bombadil_terminal::ExitReason::Interrupted => {
+                        println!("Exited after SIGINT")
+                    }
+                    bombadil_terminal::ExitReason::Terminated(
+                        ProcessExitStatus { code, signal: None },
+                    ) => println!(
+                        "Exited as process terminated with exit code {code}"
+                    ),
+                    bombadil_terminal::ExitReason::Terminated(
+                        ProcessExitStatus {
+                            code,
+                            signal: Some(signal),
+                        },
+                    ) => println!(
+                        "Exited as process terminated with exit code {code} after signal {signal}"
+                    ),
+                    bombadil_terminal::ExitReason::Reproduced => {
+                        println!("Exited after reproduction finished")
+                    }
+                    bombadil_terminal::ExitReason::AllDefinite => {
+                        println!("Exited as all properties are definite")
+                    }
+                };
+
                 println!(
                     "Throughput (state samples/sec): {:.1}",
                     strategy.states_seen as f64

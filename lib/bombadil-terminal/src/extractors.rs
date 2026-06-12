@@ -17,7 +17,7 @@ use crate::{js::terminal_state_to_js, state::TerminalState};
 struct PartialSnapshot {
     pub index: usize,
     pub name: Option<String>,
-    pub value: json::Value,
+    pub value: Option<json::Value>,
 }
 
 pub struct Extractors {
@@ -139,6 +139,7 @@ impl Extractors {
             .to_json(&mut self.context)
             .map_err(from_js_error)?
             .ok_or(anyhow!("runExtractors returned undefined"))?;
+
         let partials: Vec<PartialSnapshot> = json::from_value(result_json)?;
 
         let snapshots = partials
@@ -146,7 +147,7 @@ impl Extractors {
             .map(|partial| Snapshot {
                 index: partial.index,
                 name: partial.name.clone(),
-                value: partial.value.clone(),
+                value: partial.value.clone().unwrap_or(json::Value::Null),
                 time,
             })
             .collect();

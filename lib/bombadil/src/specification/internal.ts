@@ -88,10 +88,11 @@ export class Runtime<S> {
     return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
+        const value = extractor.run(state);
         return {
           index,
+          value,
           name: extractor.name,
-          value: extractor.run(state),
         };
       } finally {
         this.extractingDepth--;
@@ -103,8 +104,8 @@ export class Runtime<S> {
     if (this.extractingDepth > 0) {
       throw new Error(
         "Cannot access cell.current from within an extractor. " +
-        "Extractors must only depend on the 'state' parameter. " +
-        "Use shared helper functions to avoid duplication.",
+          "Extractors must only depend on the 'state' parameter. " +
+          "Use shared helper functions to avoid duplication.",
       );
     }
   }

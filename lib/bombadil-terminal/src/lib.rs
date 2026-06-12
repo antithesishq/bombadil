@@ -10,7 +10,8 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
 use bombadil::tree::Tree;
 use bombadil_schema::{
-    TerminalAttributes, TerminalCell, TerminalColor, TerminalStyle,
+    ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
+    TerminalStyle,
 };
 use owo_colors::{OwoColorize, XtermColors};
 use rand::{RngExt, TryRng};
@@ -175,9 +176,9 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
             return self.stop(ExitReason::Reproduced);
         }
 
-        if state.exit_code.is_some() {
+        if let Some(status) = &state.exit_status {
             log::info!("process terminated, stopping");
-            return self.stop(ExitReason::Terminated);
+            return self.stop(ExitReason::Terminated(status.clone()));
         }
 
         if let Some(deadline) = self.deadline
@@ -218,7 +219,7 @@ pub enum ExitReason {
     ExitOnViolation,
     TimeLimit,
     Interrupted,
-    Terminated,
+    Terminated(ProcessExitStatus),
     Reproduced,
     AllDefinite,
 }

@@ -9,7 +9,7 @@ use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::{
-    ProcessExitCode, TerminalAttributes, TerminalCell, TerminalColor,
+    ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use libghostty_vt::style as ghostty_style;
@@ -162,10 +162,12 @@ impl TerminalDriver {
                 ..self.size
             }),
             scroll_offset,
-            exit_code: self
-                .process
-                .exit_status()?
-                .map(|status| ProcessExitCode(status.exit_code())),
+            exit_status: self.process.exit_status()?.map(|status| {
+                ProcessExitStatus {
+                    signal: status.signal().map(ToString::to_string),
+                    code: status.exit_code(),
+                }
+            }),
             last_action: self.last_action.clone(),
         })
     }

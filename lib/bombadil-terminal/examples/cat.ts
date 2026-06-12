@@ -1,5 +1,6 @@
-import { eventually, not } from "@antithesishq/bombadil";
+import { eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
+export * from "@antithesishq/bombadil/terminal/defaults/properties";
 
 const nonBlankLines = extract((state) => {
   const lines = [];
@@ -18,10 +19,4 @@ export const typeHelloWorld = actions(() => [
 
 export const eventuallyHelloWorld = eventually(() =>
   nonBlankLines.current.every((line) => line === "hello world"),
-);
-
-const exitCode = extract((state) => state.exitCode);
-
-export const exitSuccess = not(
-  eventually(() => !!exitCode.current && exitCode.current > 0),
 );
