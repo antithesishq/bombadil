@@ -60,7 +60,6 @@ type CharSetEntry =
 
 export const CTRL_COMMON = CharSet.fromLiterals(
   "\x04", // Ctrl+D
-  "\x1b", // Escape
   "\r", // Enter
   "\x7f", // Backspace
   // NOTE: "\x1a" (Ctrl+Z) deliberately excluded until we have better process control.
@@ -146,17 +145,16 @@ export const CONTROL_ALL = CTRL_COMMON.union(CTRL_EDITING)
   .union(ALT_EDITING)
   .union(NAVIGATION);
 
-export const UNICODE_BMP = CharSet.fromRange(0x80, 0xd7ff).union(
-  CharSet.fromRange(0xe000, 0xffff),
-);
-
-export const UNICODE_SUPPLEMENTARY = CharSet.fromRange(0x10000, 0x10ffff);
-
-export const EMOJI = CharSet.fromRange(0x1f300, 0x1f9ff);
+export const UNICODE_SAFE = CharSet.fromRange(0x0020, 0x007e) // Basic ASCII (printable)
+  .union(CharSet.fromRange(0x00a0, 0x024f)) // Latin Extended
+  .union(CharSet.fromRange(0x0370, 0x03ff)) // Greek
+  .union(CharSet.fromRange(0x0400, 0x04ff)) // Cyrillic
+  .union(CharSet.fromRange(0x4e00, 0x9fff)) // CJK Unified Ideographs
+  .union(CharSet.fromRange(0xac00, 0xd7a3)) // Hangul (fully assigned)
+  .union(CharSet.fromRange(0x1f600, 0x1f64f)) // Emoticons (faces etc, universally supported)
+  .union(CharSet.fromRange(0x1f300, 0x1f43f)); // Nature/weather emoji, broad support
 
 export const LATIN_EXTENDED = CharSet.fromRange(0x00a0, 0x024f);
-
-export const UNICODE = UNICODE_BMP.union(UNICODE_SUPPLEMENTARY);
 
 export function typeFromSet(set: CharSet): ActionGenerator<Action> {
   return actions(() => [
