@@ -15,8 +15,8 @@ export type Action =
   | { TypeText: { text: string } }
   | { PressKey: { code: number } }
   | { Resize: { size: Size } }
-  | { ScrollUp: object }
-  | { ScrollDown: object };
+  | { ScrollUp: {} }
+  | { ScrollDown: {} };
 
 export interface Grid {
   size: Size;
@@ -82,7 +82,10 @@ export interface State {
   grid: Grid;
   scrollback: Grid;
   scrollOffset: number;
-  exitCode: number | null;
+  exitStatus: {
+    code: number;
+    signal: string | null;
+  } | null;
   lastAction: Action | null;
 }
 

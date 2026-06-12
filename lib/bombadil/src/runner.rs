@@ -67,7 +67,7 @@ impl<D: InterfaceDriver> Runner<D> {
     pub fn run<S: RunStrategy<D>>(
         mut self,
         strategy: &mut S,
-    ) -> Result<Option<S::StopValue>> {
+    ) -> Result<S::StopValue> {
         log::info!("starting test");
         self.driver.initiate()?;
         log::debug!("driver initiated");
@@ -85,7 +85,7 @@ impl<D: InterfaceDriver> Runner<D> {
         driver: &mut D,
         mut verifier: Verifier,
         strategy: &mut S,
-    ) -> Result<Option<S::StopValue>> {
+    ) -> Result<S::StopValue> {
         let mut last_action: Option<D::Action> = None;
 
         loop {
@@ -139,7 +139,7 @@ impl<D: InterfaceDriver> Runner<D> {
                     )?;
 
                     match control {
-                        ControlFlow::Stop(value) => return Ok(Some(value)),
+                        ControlFlow::Stop(value) => return Ok(value),
                         ControlFlow::Continue(action) => {
                             log::info!("picked action: {:?}", action);
                             driver.apply(action.clone())?;

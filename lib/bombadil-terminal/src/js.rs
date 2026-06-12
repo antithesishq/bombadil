@@ -11,7 +11,7 @@ use boa_engine::{
 };
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{
-    ProcessExitCode, TerminalCell, TerminalColor, TerminalGrid, TerminalSize,
+    ProcessExitStatus, TerminalCell, TerminalColor, TerminalGrid, TerminalSize,
     TerminalStyle, TerminalUnderline,
 };
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,27 @@ pub fn terminal_state_to_js(
         Some(action) => action_to_js(action, context),
         None => JsValue::null(),
     };
+    let exit_status = match &state.exit_status {
+        Some(ProcessExitStatus { code, signal }) => {
+            ObjectInitializer::new(context)
+                .property(
+                    js_string!("code"),
+                    JsValue::from(*code),
+                    Attribute::all(),
+                )
+                .property(
+                    js_string!("signal"),
+                    signal
+                        .clone()
+                        .map(|name| js_string!(name).into())
+                        .unwrap_or(JsValue::null()),
+                    Attribute::all(),
+                )
+                .build()
+                .into()
+        }
+        None => JsValue::null(),
+    };
     ObjectInitializer::new(context)
         .property(js_string!("grid"), grid, Attribute::all())
         .property(js_string!("scrollback"), scrollback, Attribute::all())
@@ -70,14 +91,7 @@ pub fn terminal_state_to_js(
             JsValue::from(state.scroll_offset as f64),
             Attribute::all(),
         )
-        .property(
-            js_string!("exitCode"),
-            match state.exit_code {
-                Some(ProcessExitCode(code)) => JsValue::from(code),
-                None => JsValue::null(),
-            },
-            Attribute::all(),
-        )
+        .property(js_string!("exitStatus"), exit_status, Attribute::all())
         .property(js_string!("lastAction"), last_action, Attribute::all())
         .build()
         .into()

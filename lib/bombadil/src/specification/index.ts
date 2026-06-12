@@ -1,7 +1,6 @@
 import {
   ExtractorCell,
   Runtime,
-  type Cell,
   type JSON,
   type TimeUnit,
 } from "@antithesishq/bombadil/internal";
@@ -35,7 +34,7 @@ export const runtime = new Runtime<unknown>();
 
 export function extract<S, T extends JSON>(
   query: (state: S) => T,
-): Cell<T> {
+): ExtractorCell<T, S> {
   return new ExtractorCell<T, unknown>(
     runtime,
     query as (state: unknown) => T,
