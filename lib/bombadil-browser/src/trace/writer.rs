@@ -19,7 +19,10 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub fn initialize(root_path: PathBuf, force: bool) -> Result<Self> {
+    pub fn initialize(
+        root_path: PathBuf,
+        output_path_overwrite: bool,
+    ) -> Result<Self> {
         log::info!(
             "storing trace in {}",
             &root_path
@@ -28,10 +31,10 @@ impl FileTraceWriter {
         );
         let trace_file_path = root_path.join("trace.jsonl");
         if trace_file_path.try_exists()? {
-            if !force {
+            if !output_path_overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
-                     Use --force to overwrite, or choose a different --output-path.",
+                     Use --output-path-overwrite to overwrite, or choose a different --output-path.",
                     trace_file_path.display(),
                 );
             }
