@@ -103,8 +103,8 @@ export class Runtime<S> {
     if (this.extractingDepth > 0) {
       throw new Error(
         "Cannot access cell.current from within an extractor. " +
-        "Extractors must only depend on the 'state' parameter. " +
-        "Use shared helper functions to avoid duplication.",
+          "Extractors must only depend on the 'state' parameter. " +
+          "Use shared helper functions to avoid duplication.",
       );
     }
   }

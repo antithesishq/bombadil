@@ -708,6 +708,56 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
     }
 }
 
+fn residual_depth(root: &Residual<SnapshotDomain>) -> usize {
+    let mut stack: Vec<(&Residual<SnapshotDomain>, usize)> = vec![(root, 1)];
+    let mut max_depth = 0;
+    while let Some((residual, depth)) = stack.pop() {
+        max_depth = max_depth.max(depth);
+        match residual {
+            Residual::True(_)
+            | Residual::False(_)
+            | Residual::Derived(_, _) => {}
+            Residual::And { left, right }
+            | Residual::Or { left, right }
+            | Residual::OrEventually { left, right, .. }
+            | Residual::AndAlways { left, right, .. }
+            | Residual::Implies { left, right, .. } => {
+                stack.push((left, depth + 1));
+                stack.push((right, depth + 1));
+            }
+        }
+    }
+    max_depth
+}
+
+#[test]
+fn test_always_next_residual_stays_bounded() {
+    let eval_state = EvalState {
+        x: true,
+        y: true,
+        z: true,
+    };
+    let formula: Formula<SnapshotDomain> = Formula::Always(
+        Box::new(Formula::Next(Box::new(Formula::Pure {
+            value: true,
+            pretty: "true".to_string(),
+        }))),
+        None,
+    );
+    let mut value = evaluate_with_state(&formula, &eval_state);
+    for i in 1..=2000u64 {
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            other => {
+                panic!("expected residual at step {}, got {:?}", i, other)
+            }
+        };
+        let depth = residual_depth(&residual);
+        assert!(depth <= 4, "residual depth grew to {} at step {}", depth, i,);
+        value = step_with_state(&residual, &eval_state, time_from_millis(i));
+    }
+}
+
 #[test]
 fn test_always_with_outer_thunk_preserves_snapshots() {
     let state_t0 = EvalState {

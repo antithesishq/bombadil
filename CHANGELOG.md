@@ -1,5 +1,39 @@
 # The Bombadil Changelog
 
+## 0.6.0
+
+Major updates:
+
+* Terminal testing with the full specification language (#190, #210, #206)
+* Add default properties and actions for terminal (#205)
+* Add timeout for terminal programs that output forever (#201)
+* Support custom elements with slots (#200)
+* Browser: added MouseDrag & SetViewPort actions (#188)
+* Browser: only emit text for text-producing keys (#199)
+
+Minor updates:
+
+* Add `#[cfg(terminal)]` feature flag for being able to build without terminal testing support (#203)
+* Use Antithesis SDK for RNG, enabling the Antithesis fuzzer to explore the state space more effectively (#202)
+* Log chosen action, not last action (#186)
+
+Bug fixes:
+
+* Use CWD for PTY spawn (#207)
+* Fix `Always` wrapper stack overflow in nested temporal formula (#209)
+* Add missing terminal CLI args in documentation (#185)
+
+Breaking changes:
+
+* The old browser testing command `bombadil test` is now under `bombadil browser test`
+* Browser-specific modules in the specification language are now under `@antithesishq/browser`
+
+Internal:
+
+* Decouple browser and make terminal driver first-class (#183)
+* Update libghostty-vt (#184)
+* Improve build times in CI with hybrid nix caching approach (#182)
+
 ## 0.5.0
 
 Major updates:

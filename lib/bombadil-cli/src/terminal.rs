@@ -5,7 +5,7 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
 use bombadil::specification::verifier::Specification;
-use bombadil_schema::{TerminalSize, Time};
+use bombadil_schema::{ProcessExitStatus, TerminalSize, Time};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::trace::{TerminalTraceEntry, TraceWriter};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
@@ -26,10 +26,10 @@ pub enum Command {
     /// [EXPERIMENTAL] Test the given program against a TypeScript specification
     Test {
         /// Path to a TypeScript specification file (uses the
-        /// `@antithesishq/bombadil/terminal` API). Required: there is no
-        /// default terminal specification yet.
+        /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will
+        /// use the default specification for terminal UIs.
         #[arg(long = "specification")]
-        specification_file: PathBuf,
+        specification_file: Option<PathBuf>,
         /// Whether to exit the test when first failing property is found (useful in development and CI)
         #[arg(long)]
         exit_on_violation: bool,
@@ -86,18 +86,25 @@ pub fn run(command: Command) {
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
 
-                // Prepend "./" for relative paths that don't already start with "."
-                // so the bundler treats them as paths rather than bare specifiers.
-                let specification_file = if specification_file.is_relative()
-                    && !specification_file.starts_with(".")
-                {
-                    PathBuf::from(".").join(specification_file)
-                } else {
-                    specification_file
-                };
+                let specification = if let Some(path) = specification_file {
+                    // Prepend "./" for relative paths that don't already start with "."
+                    // so the bundler treats them as paths rather than bare specifiers.
+                    let path = if path.is_relative() && !path.starts_with(".") {
+                        PathBuf::from(".").join(path)
+                    } else {
+                        path.clone()
+                    };
 
-                let specification = Specification {
-                    module_specifier: specification_file.display().to_string(),
+                    Specification {
+                        module_specifier: path.display().to_string(),
+                    }
+                } else {
+                    log::info!("using default specification");
+                    Specification {
+                        module_specifier:
+                            "@antithesishq/bombadil/terminal/defaults"
+                                .to_string(),
+                    }
                 };
 
                 let output_path = resolve_output_path(output_path)?;
@@ -136,9 +143,40 @@ pub fn run(command: Command) {
                     deadline,
                     states_seen: 0,
                 };
-                let _ = runner.run(&mut strategy)?;
+                let exit_reason = runner.run(&mut strategy)?;
 
                 println!();
+                match exit_reason {
+                    bombadil_terminal::ExitReason::ExitOnViolation => {
+                        println!("Exited due to violation")
+                    }
+                    bombadil_terminal::ExitReason::TimeLimit => {
+                        println!("Exited after time limit hit")
+                    }
+                    bombadil_terminal::ExitReason::Interrupted => {
+                        println!("Exited after SIGINT")
+                    }
+                    bombadil_terminal::ExitReason::Terminated(
+                        ProcessExitStatus { code, signal: None },
+                    ) => println!(
+                        "Exited as process terminated with exit code {code}"
+                    ),
+                    bombadil_terminal::ExitReason::Terminated(
+                        ProcessExitStatus {
+                            code,
+                            signal: Some(signal),
+                        },
+                    ) => println!(
+                        "Exited as process terminated with exit code {code} after signal {signal}"
+                    ),
+                    bombadil_terminal::ExitReason::Reproduced => {
+                        println!("Exited after reproduction finished")
+                    }
+                    bombadil_terminal::ExitReason::AllDefinite => {
+                        println!("Exited as all properties are definite")
+                    }
+                };
+
                 println!(
                     "Throughput (state samples/sec): {:.1}",
                     strategy.states_seen as f64

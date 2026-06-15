@@ -9,13 +9,17 @@ use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::{
-    TerminalAttributes, TerminalCell, TerminalColor, TerminalGrid,
-    TerminalSize, TerminalStyle, TerminalUnderline,
+    ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
+    TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
+    TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
-    render::{CellIterator, RowIterator},
+    render::{
+        CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
+        RowIterator, Snapshot as GhosttyRenderSnapshot,
+    },
     screen::CellWide,
     terminal::ScrollViewport,
 };
@@ -45,6 +49,12 @@ pub struct TerminalDriver {
     size: TerminalSize,
     quiescence_timeout: Duration,
     last_action: Option<TerminalAction>,
+    // Reused across frames: the ghostty render API is stateful and
+    // optimized for repeated updates (dirty-region tracking), so these
+    // are created once instead of per extracted state.
+    render_state: RenderState<'static>,
+    row_iterator: RowIterator<'static>,
+    cell_iterator: CellIterator<'static>,
 }
 
 impl TerminalDriver {
@@ -83,6 +93,9 @@ impl TerminalDriver {
                 size,
                 quiescence_timeout,
                 last_action: None,
+                render_state: RenderState::new()?,
+                row_iterator: RowIterator::new()?,
+                cell_iterator: CellIterator::new()?,
             },
             verifier,
         ))
@@ -99,19 +112,16 @@ impl TerminalDriver {
     }
 
     #[hotpath::measure]
-    fn extract_state(&mut self, terminated: bool) -> Result<TerminalState> {
-        let mut render_state = RenderState::new()?;
-        let mut row_iter_state = RowIterator::new()?;
-        let mut cell_iter_state = CellIterator::new()?;
-
-        let snapshot = render_state.update(&self.terminal)?;
-        let mut row_iter = row_iter_state.update(&snapshot)?;
+    fn extract_state(&mut self) -> Result<TerminalState> {
+        let snapshot = self.render_state.update(&self.terminal)?;
+        let cursor = cursor_from_libghostty(&self.terminal, &snapshot)?;
+        let mut row_iter = self.row_iterator.update(&snapshot)?;
 
         let mut cells = Vec::with_capacity(
             usize::from(self.size.columns) * usize::from(self.size.rows),
         );
         while let Some(row) = row_iter.next() {
-            let mut cell_iter = cell_iter_state.update(row)?;
+            let mut cell_iter = self.cell_iterator.update(row)?;
             while let Some(cell) = cell_iter.next() {
                 let style = style_from_ghostty(&cell.style()?);
                 cells.push(match cell.raw_cell()?.wide()? {
@@ -157,7 +167,13 @@ impl TerminalDriver {
                 ..self.size
             }),
             scroll_offset,
-            terminated,
+            cursor,
+            exit_status: self.process.exit_status()?.map(|status| {
+                ProcessExitStatus {
+                    signal: status.signal().map(ToString::to_string),
+                    code: status.exit_code(),
+                }
+            }),
             last_action: self.last_action.clone(),
         })
     }
@@ -190,8 +206,7 @@ impl InterfaceDriver for TerminalDriver {
             ReadResult::Ended => {}
         }
 
-        let terminated = matches!(self.process.is_terminated(), Ok(true));
-        match self.extract_state(terminated) {
+        match self.extract_state() {
             Ok(state) => Some(DriverEvent::StateChanged(state)),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
         }
@@ -241,6 +256,31 @@ impl InterfaceDriver for TerminalDriver {
     fn state_timestamp(state: &TerminalState) -> SystemTime {
         state.timestamp
     }
+}
+
+fn cursor_from_libghostty(
+    terminal: &Terminal<'_, '_>,
+    snapshot: &GhosttyRenderSnapshot<'_, '_>,
+) -> Result<TerminalCursor> {
+    Ok(TerminalCursor {
+        position: TerminalCursorPosition {
+            column: terminal.cursor_x()?,
+            row: terminal.cursor_y()?,
+        },
+        visible: snapshot.cursor_visible()?,
+        blinking: snapshot.cursor_blinking()?,
+        visual_style: terminal_cursor_visual_style_from_libghostty(
+            snapshot.cursor_visual_style()?,
+        ),
+        color: snapshot.cursor_color()?.map_or(
+            TerminalColor::None,
+            |ghostty_style::RgbColor { r, g, b }| TerminalColor::RGB {
+                r,
+                g,
+                b,
+            },
+        ),
+    })
 }
 
 #[hotpath::measure]
@@ -301,5 +341,21 @@ fn color_from_ghostty(value: &ghostty_style::StyleColor) -> TerminalColor {
                 b: *b,
             }
         }
+    }
+}
+
+fn terminal_cursor_visual_style_from_libghostty(
+    value: GhosttyCursorVisualStyle,
+) -> TerminalCursorVisualStyle {
+    match value {
+        GhosttyCursorVisualStyle::Bar => TerminalCursorVisualStyle::Bar,
+        GhosttyCursorVisualStyle::Block => TerminalCursorVisualStyle::Block,
+        GhosttyCursorVisualStyle::Underline => {
+            TerminalCursorVisualStyle::Underline
+        }
+        GhosttyCursorVisualStyle::BlockHollow => {
+            TerminalCursorVisualStyle::BlockHollow
+        }
+        _ => TerminalCursorVisualStyle::Unknown,
     }
 }

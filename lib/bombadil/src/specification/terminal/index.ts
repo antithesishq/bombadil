@@ -15,8 +15,8 @@ export type Action =
   | { TypeText: { text: string } }
   | { PressKey: { code: number } }
   | { Resize: { size: Size } }
-  | { ScrollUp: object }
-  | { ScrollDown: object };
+  | { ScrollUp: {} }
+  | { ScrollDown: {} };
 
 export interface Grid {
   size: Size;
@@ -35,6 +35,27 @@ export interface GridCell {
   wide: boolean;
   style: Style;
 }
+
+export interface Cursor {
+  // Zero-indexed cursor position in the terminal's active screen.
+  position: CursorPosition;
+  visible: boolean;
+  blinking: boolean;
+  visualStyle: CursorVisualStyle;
+  color: Color;
+}
+
+export interface CursorPosition {
+  column: number;
+  row: number;
+}
+
+export type CursorVisualStyle =
+  | "Bar"
+  | "Block"
+  | "Underline"
+  | "BlockHollow"
+  | "Unknown";
 
 export type Color =
   | "None"
@@ -82,7 +103,11 @@ export interface State {
   grid: Grid;
   scrollback: Grid;
   scrollOffset: number;
-  terminated: boolean;
+  cursor: Cursor;
+  exitStatus: {
+    code: number;
+    signal: string | null;
+  } | null;
   lastAction: Action | null;
 }
 

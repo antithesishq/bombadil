@@ -412,11 +412,12 @@ async fn browser_test(
     })
     .await??;
 
-    let heading = if let Some(TestResult {
-        exit_reason,
-        violations_count,
-    }) = test_result
-    {
+    let heading = {
+        let TestResult {
+            exit_reason,
+            violations_count,
+        } = test_result;
+
         let findings = match violations_count {
             0 => "".into(),
             1 => ", finding 1 violation".into(),
@@ -446,8 +447,6 @@ async fn browser_test(
         } else {
             heading
         }
-    } else {
-        styled::maybe_bold("Test finished!".to_string())
     };
 
     let output_display = output_path.display();
@@ -469,9 +468,7 @@ async fn browser_test(
         );
     }
 
-    if let Some(result) = test_result
-        && result.violations_count > 0
-    {
+    if test_result.violations_count > 0 {
         std::process::exit(2);
     }
 

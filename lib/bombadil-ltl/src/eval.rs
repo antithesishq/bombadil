@@ -428,16 +428,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                     right: Box::new(Residual::True(D::State::default())),
                 })
             }
-            (Value::True(_), Value::Residual(right)) => {
-                Value::Residual(Residual::AndAlways {
-                    subformula,
-                    start,
-                    end,
-                    onset: time,
-                    left: Box::new(Residual::True(D::State::default())),
-                    right: Box::new(right),
-                })
-            }
+            (Value::True(_), Value::Residual(right)) => Value::Residual(right),
             (Value::Residual(left), Value::Residual(right)) => {
                 Value::Residual(Residual::AndAlways {
                     subformula,

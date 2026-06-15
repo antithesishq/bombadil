@@ -1,96 +1,27 @@
-import { from, integers, strings } from "@antithesishq/bombadil";
 import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
+import { integers } from "@antithesishq/bombadil/random";
+import {
+  typeFromSet,
+  CharSets,
+} from "@antithesishq/bombadil/terminal/defaults/actions";
+export * from "@antithesishq/bombadil/terminal/defaults/properties";
 
-const KEYS = [
-  // "\x03", // Ctrl+C, excluded to keep program alive
-  "\x04", // Ctrl+D
-  "\x1a", // Ctrl+Z
-  "\x1b", // Escape
-  "\r", // Enter
-  "\x7f", // Backspace
-  "\x1b[A", // Arrow up
-  "\x1b[B", // Arrow down
-  "\x1b[C", // Arrow right
-  "\x1b[D", // Arrow left
-  "\x1b[H", // Home
-  "\x1b[F", // End
-  "\x1b[3~", // Delete
-
-  // Ctrl+letter shortcuts
-  "\x01", // Ctrl+A     - Goto BOL
-  "\x02", // Ctrl+B     - Prev char (Emacs)
-  "\x05", // Ctrl+E     - Goto EOL
-  "\x06", // Ctrl+F     - Next char (Emacs)
-  "\x08", // Ctrl+H     - Backspace alt
-  "\x09", // Tab
-  "\x0b", // Ctrl+K     - Kill next line
-  "\x0e", // Ctrl+N     - Next line (Emacs)
-  "\x10", // Ctrl+P     - Prev line (Emacs)
-  "\x15", // Ctrl+U     - Delete prev line
-  "\x17", // Ctrl+W     - Delete prev word
-  "\x19", // Ctrl+Y     - Yank
-  "\x1f", // Ctrl+_     - Undo (Emacs)
-
-  // Modifier + arrow
-  "\x1b[Z", // Shift+Tab
-  "\x1b[1;5A", // Ctrl+Up
-  "\x1b[1;5B", // Ctrl+Down
-  "\x1b[1;5C", // Ctrl+Right - Next word
-  "\x1b[1;5D", // Ctrl+Left  - Prev word
-  "\x1b[1;2A", // Shift+Up
-  "\x1b[1;2B", // Shift+Down
-  "\x1b[1;2C", // Shift+Right
-  "\x1b[1;2D", // Shift+Left
-
-  // Meta/Alt + key  (ESC prefix)
-  "\x1bf", // Alt+f      - Next word
-  "\x1bb", // Alt+b      - Prev word
-  "\x1bd", // Alt+d      - Delete next word
-  "\x1b<", // Alt+<      - Goto BOT
-  "\x1b>", // Alt+>      - Goto EOT
-  "\x1b\x7f", // Alt+Backspace - Delete prev word
-
-  // Navigation
-  "\x1b[5~", // Page Up
-  "\x1b[6~", // Page Down
-  "\x1b[2~", // Insert
-
-  // Bracketed paste (exercises the paste-batching code path)
-  "\x1b[200~", // Paste start
-  "\x1b[201~", // Paste end
-];
-
-const statusLine = extract((state) => {
-  let last = null;
-  for (let index = 0; index < state.grid.size.rows; index++) {
-    const text = state.grid.rowText(index);
-    if (text.trim()) {
-      last = { line: index, text };
-    }
-  }
-  return last;
+const size = extract((state) => {
+  return state.grid.size;
 });
 
 export const typeRandom = weighted([
-  [40, { TypeText: { text: strings().minSize(1).maxSize(8).generate() } }],
-  [
-    10,
-    actions(() => {
-      const text = String.fromCharCode(
-        0x20 + integers().min(0).max(95).generate(),
-      );
-      return [{ TypeText: { text } }];
-    }),
-  ],
-  [20, { TypeText: { text: from(KEYS).generate() } }],
-  [20, { TypeText: { text: "\n" } }],
+  [40, typeFromSet(CharSets.UNICODE_SAFE)],
+  [40, typeFromSet(CharSets.CONTROL_ALL)],
+
+  // Clicks
   [
     1,
     actions(() => {
-      const line = statusLine.current?.line;
-      if (!line) return [];
+      if (!size.current) return [];
 
-      const column = statusLine.current.text.indexOf("keybindings");
+      let line = integers().min(0).max(size.current.rows).generate();
+      let column = integers().min(0).max(size.current.columns).generate();
 
       const click =
         `\x1b[<0;${column + 1};${line + 1}M` + // left-button press
@@ -99,6 +30,7 @@ export const typeRandom = weighted([
       return [{ TypeText: { text: click } }];
     }),
   ],
+
   // TODO: restore once ghostty doesn't have the scroll overflow bug
   // [1, actions(() => [{
   //   Resize: {

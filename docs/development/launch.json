@@ -19,6 +19,15 @@
       "program": "${workspaceFolder}/target/debug/antithesis_browser",
       "args": ["test", "http://localhost:8000/examples/dojo"],
       "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Debug nano terminal test",
+      "type": "codelldb",
+      "sourceLanguages": ["rust"],
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/bombadil",
+      "args": ["terminal", "test", "--time-limit=30s", "--exit-on-violation", "nano"],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }
