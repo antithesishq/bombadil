@@ -36,6 +36,27 @@ export interface GridCell {
   style: Style;
 }
 
+export interface Cursor {
+  // Zero-indexed cursor position in the terminal's active screen.
+  position: CursorPosition;
+  visible: boolean;
+  blinking: boolean;
+  visualStyle: CursorVisualStyle;
+  color: Color;
+}
+
+export interface CursorPosition {
+  column: number;
+  row: number;
+}
+
+export type CursorVisualStyle =
+  | "Bar"
+  | "Block"
+  | "Underline"
+  | "BlockHollow"
+  | "Unknown";
+
 export type Color =
   | "None"
   | { Palette: number }
@@ -82,6 +103,7 @@ export interface State {
   grid: Grid;
   scrollback: Grid;
   scrollOffset: number;
+  cursor: Cursor;
   exitStatus: {
     code: number;
     signal: string | null;

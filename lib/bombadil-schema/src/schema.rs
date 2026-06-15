@@ -157,6 +157,7 @@ pub struct TerminalStateSummary {
     pub grid: TerminalGrid,
     pub scrollback: TerminalGrid,
     pub scroll_offset: u32,
+    pub cursor: TerminalCursor,
     pub exit_status: Option<ProcessExitStatus>,
 }
 
@@ -164,6 +165,30 @@ pub struct TerminalStateSummary {
 pub struct ProcessExitStatus {
     pub signal: Option<String>,
     pub code: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalCursor {
+    pub position: TerminalCursorPosition,
+    pub visible: bool,
+    pub blinking: bool,
+    pub visual_style: TerminalCursorVisualStyle,
+    pub color: TerminalColor,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalCursorPosition {
+    pub column: u16,
+    pub row: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TerminalCursorVisualStyle {
+    Bar,
+    Block,
+    Underline,
+    BlockHollow,
+    Unknown,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]

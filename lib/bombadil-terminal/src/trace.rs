@@ -63,6 +63,8 @@ fn write_entry(
     write_grid(buffer, &state.scrollback)?;
     buffer.extend_from_slice(b",\"scroll_offset\":");
     json::to_writer(&mut *buffer, &state.scroll_offset)?;
+    buffer.extend_from_slice(b",\"cursor\":");
+    json::to_writer(&mut *buffer, &state.cursor)?;
     buffer.extend_from_slice(b",\"exit_status\":");
     json::to_writer(&mut *buffer, &state.exit_status)?;
     buffer.extend_from_slice(b"},\"snapshots\":");
@@ -219,8 +221,9 @@ mod tests {
     use std::time::SystemTime;
 
     use bombadil_schema::{
-        TerminalAttributes, TerminalColor, TerminalSize, TerminalStateSummary,
-        TerminalStyle, TerminalUnderline,
+        TerminalAttributes, TerminalColor, TerminalCursor,
+        TerminalCursorPosition, TerminalCursorVisualStyle, TerminalSize,
+        TerminalStateSummary, TerminalStyle, TerminalUnderline,
     };
     use small_string::SmallString;
 
@@ -281,6 +284,13 @@ mod tests {
                 ..size
             }),
             scroll_offset: 7,
+            cursor: TerminalCursor {
+                position: TerminalCursorPosition { column: 1, row: 2 },
+                visible: true,
+                blinking: false,
+                visual_style: TerminalCursorVisualStyle::Block,
+                color: TerminalColor::None,
+            },
             exit_status: None,
             last_action: None,
         };
@@ -300,6 +310,7 @@ mod tests {
                 grid: state.grid.clone(),
                 scrollback: state.scrollback.clone(),
                 scroll_offset: state.scroll_offset,
+                cursor: state.cursor.clone(),
                 exit_status: state.exit_status,
             },
             snapshots: vec![],

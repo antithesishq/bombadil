@@ -263,6 +263,46 @@ export const noop = actions(() => [{ TypeText: { text: "" } }]);
 }
 
 #[test]
+fn test_cursor_state() {
+    TerminalIntegrationTest::new(
+        "sh",
+        &["-c", "printf 'abc\\033[2;5H\\033[3 q\\033]12;#010203\\007'"],
+    )
+    .specification(
+        r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
+
+const cursor = extract((state) => state.cursor);
+
+function isRGB(color, r, g, b) {
+    return (
+        typeof color === "object" &&
+        "RGB" in color &&
+        color.RGB.r === r &&
+        color.RGB.g === g &&
+        color.RGB.b === b
+    );
+}
+
+export const eventuallyCursorState = eventually(() => {
+    const current = cursor.current;
+    return (
+        current.position.row === 1 &&
+        current.position.column === 4 &&
+        current.visible &&
+        current.visualStyle === "Underline" &&
+        isRGB(current.color, 1, 2, 3)
+    );
+});
+
+export const noop = actions(() => [{ TypeText: { text: "" } }]);
+"#,
+    )
+    .run();
+}
+
+#[test]
 fn test_wide_char_wraps_at_right_margin() {
     // Emoji doesn't fit first line as it's wide, so it wraps and ends up on second line.
     TerminalIntegrationTest::new(

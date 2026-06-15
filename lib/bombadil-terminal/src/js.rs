@@ -11,8 +11,9 @@ use boa_engine::{
 };
 use bombadil::driver::FromGeneratedAction;
 use bombadil_schema::{
-    ProcessExitStatus, TerminalCell, TerminalColor, TerminalGrid, TerminalSize,
-    TerminalStyle, TerminalUnderline,
+    ProcessExitStatus, TerminalCell, TerminalColor, TerminalCursor,
+    TerminalCursorPosition, TerminalCursorVisualStyle, TerminalGrid,
+    TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
@@ -58,6 +59,7 @@ pub fn terminal_state_to_js(
 ) -> JsValue {
     let grid = grid_to_js(&state, GridKind::Screen, context);
     let scrollback = grid_to_js(&state, GridKind::Scrollback, context);
+    let cursor = cursor_to_js(&state.cursor, context);
     let last_action = match &state.last_action {
         Some(action) => action_to_js(action, context),
         None => JsValue::null(),
@@ -91,10 +93,67 @@ pub fn terminal_state_to_js(
             JsValue::from(state.scroll_offset as f64),
             Attribute::all(),
         )
+        .property(js_string!("cursor"), cursor, Attribute::all())
         .property(js_string!("exitStatus"), exit_status, Attribute::all())
         .property(js_string!("lastAction"), last_action, Attribute::all())
         .build()
         .into()
+}
+
+fn cursor_to_js(cursor: &TerminalCursor, context: &mut Context) -> JsValue {
+    let position = cursor_position_to_js(cursor.position, context);
+    let color = color_to_js(&cursor.color, context);
+    ObjectInitializer::new(context)
+        .property(js_string!("position"), position, Attribute::all())
+        .property(
+            js_string!("visible"),
+            JsValue::from(cursor.visible),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("blinking"),
+            JsValue::from(cursor.blinking),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("visualStyle"),
+            JsString::from(cursor_visual_style_name(&cursor.visual_style)),
+            Attribute::all(),
+        )
+        .property(js_string!("color"), color, Attribute::all())
+        .build()
+        .into()
+}
+
+fn cursor_position_to_js(
+    position: TerminalCursorPosition,
+    context: &mut Context,
+) -> JsValue {
+    ObjectInitializer::new(context)
+        .property(
+            js_string!("column"),
+            JsValue::from(position.column as f64),
+            Attribute::all(),
+        )
+        .property(
+            js_string!("row"),
+            JsValue::from(position.row as f64),
+            Attribute::all(),
+        )
+        .build()
+        .into()
+}
+
+fn cursor_visual_style_name(
+    visual_style: &TerminalCursorVisualStyle,
+) -> &'static str {
+    match visual_style {
+        TerminalCursorVisualStyle::Bar => "Bar",
+        TerminalCursorVisualStyle::Block => "Block",
+        TerminalCursorVisualStyle::Underline => "Underline",
+        TerminalCursorVisualStyle::BlockHollow => "BlockHollow",
+        TerminalCursorVisualStyle::Unknown => "Unknown",
+    }
 }
 
 fn grid_to_js(

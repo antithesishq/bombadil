@@ -10,12 +10,16 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::{
     ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
+    TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
     TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
 use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
-    render::{CellIterator, RowIterator},
+    render::{
+        CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
+        RowIterator, Snapshot as GhosttyRenderSnapshot,
+    },
     screen::CellWide,
     terminal::ScrollViewport,
 };
@@ -110,6 +114,7 @@ impl TerminalDriver {
     #[hotpath::measure]
     fn extract_state(&mut self) -> Result<TerminalState> {
         let snapshot = self.render_state.update(&self.terminal)?;
+        let cursor = cursor_from_libghostty(&self.terminal, &snapshot)?;
         let mut row_iter = self.row_iterator.update(&snapshot)?;
 
         let mut cells = Vec::with_capacity(
@@ -162,6 +167,7 @@ impl TerminalDriver {
                 ..self.size
             }),
             scroll_offset,
+            cursor,
             exit_status: self.process.exit_status()?.map(|status| {
                 ProcessExitStatus {
                     signal: status.signal().map(ToString::to_string),
@@ -252,6 +258,31 @@ impl InterfaceDriver for TerminalDriver {
     }
 }
 
+fn cursor_from_libghostty(
+    terminal: &Terminal<'_, '_>,
+    snapshot: &GhosttyRenderSnapshot<'_, '_>,
+) -> Result<TerminalCursor> {
+    Ok(TerminalCursor {
+        position: TerminalCursorPosition {
+            column: terminal.cursor_x()?,
+            row: terminal.cursor_y()?,
+        },
+        visible: snapshot.cursor_visible()?,
+        blinking: snapshot.cursor_blinking()?,
+        visual_style: terminal_cursor_visual_style_from_libghostty(
+            snapshot.cursor_visual_style()?,
+        ),
+        color: snapshot.cursor_color()?.map_or(
+            TerminalColor::None,
+            |ghostty_style::RgbColor { r, g, b }| TerminalColor::RGB {
+                r,
+                g,
+                b,
+            },
+        ),
+    })
+}
+
 #[hotpath::measure]
 fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
     let mut result = TerminalStyle {
@@ -310,5 +341,21 @@ fn color_from_ghostty(value: &ghostty_style::StyleColor) -> TerminalColor {
                 b: *b,
             }
         }
+    }
+}
+
+fn terminal_cursor_visual_style_from_libghostty(
+    value: GhosttyCursorVisualStyle,
+) -> TerminalCursorVisualStyle {
+    match value {
+        GhosttyCursorVisualStyle::Bar => TerminalCursorVisualStyle::Bar,
+        GhosttyCursorVisualStyle::Block => TerminalCursorVisualStyle::Block,
+        GhosttyCursorVisualStyle::Underline => {
+            TerminalCursorVisualStyle::Underline
+        }
+        GhosttyCursorVisualStyle::BlockHollow => {
+            TerminalCursorVisualStyle::BlockHollow
+        }
+        _ => TerminalCursorVisualStyle::Unknown,
     }
 }
