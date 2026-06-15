@@ -1,6 +1,6 @@
 import { always } from "@antithesishq/bombadil";
 import { branch } from "@antithesishq/bombadil/actions";
-import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
 import {
   typeFromSet,
   CharSets,
@@ -37,8 +37,6 @@ const isPlaying = extract((state) => {
   return score && !gameOver;
 });
 
-// const controls = CharSet.fromLiterals([]);
-
 export const tetrisActions = actions(() => {
   if (isPlaying.current) {
     return branch([
@@ -51,6 +49,5 @@ export const tetrisActions = actions(() => {
     [1, typeFromSet(CharSets.UNICODE_SAFE).generate()],
     [1, typeFromSet(CharSets.CONTROL_COMMON).generate()],
     [1, typeFromSet(CharSets.CONTROL_ARROWS).generate()],
-    // [1, typeFromSet(CharSets.ASCII_PRINTABLE).generate()],
   ]);
 });

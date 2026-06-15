@@ -1,11 +1,9 @@
 import { always, next, now } from "@antithesishq/bombadil";
 import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
+import { CharSets } from "@antithesishq/bombadil/terminal/defaults/actions";
 import {
-  ASCII_PRINTABLE,
-  CONTROL_ALL,
   lastAction,
   typeFromSet,
-  UNICODE,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 
 const statusLine = extract((state) => {
@@ -19,9 +17,8 @@ const statusLine = extract((state) => {
 });
 
 export const typeRandom = weighted([
-  [40, typeFromSet(ASCII_PRINTABLE)],
-  [40, typeFromSet(CONTROL_ALL)],
-  [10, typeFromSet(UNICODE)],
+  [40, typeFromSet(CharSets.UNICODE_SAFE)],
+  [40, typeFromSet(CharSets.CONTROL_COMMON)],
   [
     1,
     actions(() => {
