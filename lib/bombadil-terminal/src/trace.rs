@@ -63,7 +63,7 @@ fn write_entry(
     write_grid(buffer, &state.scrollback)?;
     buffer.extend_from_slice(b",\"scroll_offset\":");
     json::to_writer(&mut *buffer, &state.scroll_offset)?;
-    buffer.extend_from_slice(b",\"exit_code\":");
+    buffer.extend_from_slice(b",\"exit_status\":");
     json::to_writer(&mut *buffer, &state.exit_status)?;
     buffer.extend_from_slice(b"},\"snapshots\":");
     json::to_writer(&mut *buffer, snapshots)?;
@@ -300,7 +300,7 @@ mod tests {
                 grid: state.grid.clone(),
                 scrollback: state.scrollback.clone(),
                 scroll_offset: state.scroll_offset,
-                exit_code: state.exit_status,
+                exit_status: state.exit_status,
             },
             snapshots: vec![],
             violations: vec![],
