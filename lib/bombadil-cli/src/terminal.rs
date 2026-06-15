@@ -26,10 +26,10 @@ pub enum Command {
     /// [EXPERIMENTAL] Test the given program against a TypeScript specification
     Test {
         /// Path to a TypeScript specification file (uses the
-        /// `@antithesishq/bombadil/terminal` API). Required: there is no
-        /// default terminal specification yet.
+        /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will
+        /// use the default specification for terminal UIs.
         #[arg(long = "specification")]
-        specification_file: PathBuf,
+        specification_file: Option<PathBuf>,
         /// Whether to exit the test when first failing property is found (useful in development and CI)
         #[arg(long)]
         exit_on_violation: bool,
@@ -81,18 +81,25 @@ pub fn run(command: Command) {
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
 
-                // Prepend "./" for relative paths that don't already start with "."
-                // so the bundler treats them as paths rather than bare specifiers.
-                let specification_file = if specification_file.is_relative()
-                    && !specification_file.starts_with(".")
-                {
-                    PathBuf::from(".").join(specification_file)
-                } else {
-                    specification_file
-                };
+                let specification = if let Some(path) = specification_file {
+                    // Prepend "./" for relative paths that don't already start with "."
+                    // so the bundler treats them as paths rather than bare specifiers.
+                    let path = if path.is_relative() && !path.starts_with(".") {
+                        PathBuf::from(".").join(path)
+                    } else {
+                        path.clone()
+                    };
 
-                let specification = Specification {
-                    module_specifier: specification_file.display().to_string(),
+                    Specification {
+                        module_specifier: path.display().to_string(),
+                    }
+                } else {
+                    log::info!("using default specification");
+                    Specification {
+                        module_specifier:
+                            "@antithesishq/bombadil/terminal/defaults"
+                                .to_string(),
+                    }
                 };
 
                 let output_path = resolve_output_path(output_path)?;
