@@ -4,7 +4,7 @@ title: The Bombadil Manual
 
 # Introduction
 
-Bombadil is property-based testing[^pbt] for web and terminal user interfaces.
+Bombadil is property-based testing[^pbt] for [web UIs]{.browser}[terminal user interfaces]{.terminal}.
 It autonomously explores and validates correctness properties, *finding harder
 bugs earlier*. It runs in your local developer environment, in CI, and inside
 [Antithesis](https://antithesis.com/).
@@ -12,11 +12,20 @@ bugs earlier*. It runs in your local developer environment, in CI, and inside
 ## Why Bombadil?
 
 Or rather, *why property-based testing?* Because example-based testing,
-especially when testing user interfaces, is costly and limited:
+especially when [browser testing]{.browser}[testing terminal applications]{.terminal}, is costly and limited:
 
+::: browser
 * Costly, because maintaining suites of Playwright or Cypress tests takes a lot
   of work. Even in the age of AI, tests written and updated by coding agents
   can easily break and require your attention.
+:::
+
+::: terminal
+* Costly, because maintaining hand-written end-to-end test scripts takes a lot
+  of work. Even in the age of AI, tests written and updated by coding agents
+  can easily break and require your attention.
+:::
+
 * Limited, in that they only test very small parts of the state space; a bunch
   of happy cases, a set of regression tests, and maybe even some error handling
   cases that are important. But what about everything else --- like all the
@@ -34,6 +43,7 @@ express general properties of your system, defining how it should behave in all 
 Bombadil checks each property as it explores your system in its chaotic ways,
 reporting back any violations.
 
+::: browser
 To test a web application using Bombadil, you write a specification in
 TypeScript that exports [properties](#properties) and [action
 generators](#action-generators). These can be domain-specific --- to exercise
@@ -41,13 +51,24 @@ and validate your system's logic in custom ways --- or be imported from
 Bombadil's [defaults](#default-properties-and-action-generators). Bombadil
 tests anything that uses the DOM, no matter how it's built. This includes
 single-page apps, server-side rendered apps, and even static HTML.
+:::
+
+::: terminal
+To test a terminal application using Bombadil, you write a specification in
+TypeScript that exports [properties](#properties) and [action
+generators](#action-generators). These can be domain-specific --- to exercise
+and validate your application's logic in custom ways --- or be imported from
+Bombadil's [defaults](#default-properties-and-action-generators). Bombadil
+drives any program that reads from stdin and writes to a terminal, whether
+it's a one-shot CLI, an interactive REPL, or a full TUI.
+:::
 
 Conceptually, it runs in a loop doing the following:
 
-1. Extracts the current state from the user interface
+1. Extracts the current state from the [browser]{.browser}[terminal]{.terminal}
 2. Checks all properties against the current state, recording violations[^exit]
 3. Selects the next action based on the current state, and performs it
-4. Waits for the next event (page navigation, DOM mutation, or timeout)
+4. Waits for the next event ([page navigation, DOM mutation, or timeout]{.browser}[byte output or timeout]{.terminal})
 5. *Returns to step 1*
 
 Bombadil itself decides what is an interesting event and when to capture state.

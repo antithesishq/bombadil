@@ -31,6 +31,33 @@ nav#TOC ul {
   margin: 0;
 }
 
+.driver-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.driver-select {
+  padding: 0.25rem 0.5rem;
+  font: inherit;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.index nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.index .driver-select {
+  padding: .25rem .5rem;
+}
+
 nav#TOC ul ul {
   list-style: square;
   padding-left: 1rem;

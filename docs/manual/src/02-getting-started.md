@@ -24,6 +24,7 @@ npm install --save-dev @antithesishq/bombadil
 
 Add a script to your `package.json` to run Bombadil:
 
+::: browser
 ```json
 {
   "scripts": {
@@ -31,6 +32,17 @@ Add a script to your `package.json` to run Bombadil:
   }
 }
 ```
+:::
+
+::: terminal
+```json
+{
+  "scripts": {
+    "test": "bombadil terminal test your-cli --arg value"
+  }
+}
+```
+:::
 
 Then run it with `npm test`. This also provides TypeScript type definitions for
 writing specifications.
@@ -97,6 +109,7 @@ nix run github:antithesishq/bombadil
 
 </details>
 
+::: browser
 <details name="install">
 <summary>GitHub Actions</summary>
 
@@ -114,6 +127,27 @@ nix run github:antithesishq/bombadil
 See [its README](https://github.com/antithesishq/bombadil-action) for detailed instructions.
 
 </details>
+:::
+
+::: terminal
+<details name="install">
+<summary>GitHub Actions</summary>
+
+```yaml
+- uses: antithesishq/bombadil-action@v2
+  with:
+    driver: terminal
+    command: your-cli --arg value
+    specification: ./bombadil/specification.ts
+    time-limit: 5m
+    exit-on-violation: true
+    output-path: bombadil-output
+```
+
+See [its README](https://github.com/antithesishq/bombadil-action) for detailed instructions.
+
+</details>
+:::
 </div>
 
 ::: {.callout .callout-note}
@@ -155,13 +189,11 @@ bun add --development @antithesishq/bombadil
 Or use the files provided in [the 
 release package](https://github.com/antithesishq/bombadil/releases/v%version%).
 
-## Your first test (browser)
+## Your first test
 
-With the CLI installed, let's run a browser test just to see
-that things are working. If you'd rather try the terminal
-driver, jump ahead to the [next
-section](#your-first-test-terminal). Otherwise, run the
-following command:
+::: browser
+With the CLI installed, let's run a browser test just to see that things are
+working:
 
 ```bash
 bombadil browser test https://en.wikipedia.org --output-path my-test
@@ -192,29 +224,28 @@ This will open a web application in your browser, which has some features to hig
 
 No violations? That's fine, Wikipedia is pretty solid! This confirms that
 Bombadil runs and produces results.
+:::
 
-## Your first test (terminal)
-
-To try out the terminal driver, run this very simple test:
+::: terminal
+With the CLI installed, let's run a very simple terminal test just to see that
+things are working:
 
 ```bash
 bombadil terminal test --output-path my-test head -n100
 ```
 
-It's likely it'll type a <kbd>Ctrl</kbd>+<kbd>D</kbd> and
-have `head` exit before a hundred lines have been printed.
-As we didn't use a custom specification with the `--specification` option,
-Bombadil used the default specification for terminal testing,
-which enters various Unicode input and some escapes sequences.
-It also checks a few common properties, like that the program
-exits with a zero exit code and that it doesn't print any 
-byte sequences the terminal can't render.
-
+It's likely it'll type a <kbd>Ctrl</kbd>+<kbd>D</kbd> and have `head` exit
+before a hundred lines have been printed. As we didn't use a custom
+specification with the `--specification` option, Bombadil used the default
+specification for terminal testing, which enters various Unicode input and some
+escape sequences. It also checks a few common properties, like that the program
+exits with a zero exit code and that it doesn't print any byte sequences the
+terminal can't render.
 
 ::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect`
-for terminal tests, so we can't easily inspect the results 
-at this point.
+There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
+so we can't easily inspect the results at this point.
+:::
 :::
 
 ## Reproducing violations
@@ -226,12 +257,17 @@ perform the same sequence of actions to reach the same state.
 Use the `--reproduce` option and point it to the output directory of the
 original test run:
 
-
+::: browser
 ```bash
 bombadil browser test --reproduce=my-test http://example.com
 ```
+:::
 
-The same option is available for `bombadil terminal test`.
+::: terminal
+```bash
+bombadil terminal test --reproduce=my-test your-cli
+```
+:::
 
 Reproductions are not guaranteed to succeed; if they diverge, Bombadil fails
 with an error. For reproductions to succeed, it's important to use the same

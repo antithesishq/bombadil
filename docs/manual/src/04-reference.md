@@ -12,6 +12,7 @@
 | 1 | Other error |
 | 2 | Property violation(s) detected |
 
+::: browser
 ### bombadil browser test
 
 `bombadil` `test` [`[OPTIONS]`](#options-test) [`<ORIGIN>`](#arguments-test) [`[SPECIFICATION_FILE]`](#arguments-test)
@@ -90,8 +91,9 @@
 | `--no-open` | Skip auto-opening browser | |
 | `-h, --help` | Print help | |
 :::
+:::
 
-
+::: terminal
 ### bombadil terminal test (EXPERIMENTAL!)
 
 `bombadil` `terminal` `test` [`[OPTIONS]`](#options-terminal-test) [`[COMMAND]*`](#arguments-terminal-test)
@@ -110,4 +112,5 @@
 | `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
 | `--output-path-overwrite` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `-h, --help` | Print help | |
+:::
 :::
