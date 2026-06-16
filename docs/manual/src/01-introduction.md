@@ -4,16 +4,15 @@ title: The Bombadil Manual
 
 # Introduction
 
-Bombadil is [property-based
-testing](https://antithesis.com/docs/resources/property_based_testing/) for web
-UIs. It autonomously explores and validates correctness properties, *finding
-harder bugs earlier*. It runs in your local developer environment, in CI, and
-inside [Antithesis](https://antithesis.com/).
+Bombadil is property-based testing[^pbt] for web and terminal user interfaces.
+It autonomously explores and validates correctness properties, *finding harder
+bugs earlier*. It runs in your local developer environment, in CI, and inside
+[Antithesis](https://antithesis.com/).
 
 ## Why Bombadil?
 
 Or rather, *why property-based testing?* Because example-based testing,
-especially when browser testing, is costly and limited:
+especially when testing user interfaces, is costly and limited:
 
 * Costly, because maintaining suites of Playwright or Cypress tests takes a lot
   of work. Even in the age of AI, tests written and updated by coding agents
@@ -45,7 +44,7 @@ single-page apps, server-side rendered apps, and even static HTML.
 
 Conceptually, it runs in a loop doing the following:
 
-1. Extracts the current state from the browser
+1. Extracts the current state from the user interface
 2. Checks all properties against the current state, recording violations[^exit]
 3. Selects the next action based on the current state, and performs it
 4. Waits for the next event (page navigation, DOM mutation, or timeout)
@@ -54,4 +53,5 @@ Conceptually, it runs in a loop doing the following:
 Bombadil itself decides what is an interesting event and when to capture state.
 You provide the properties and actions, Bombadil does the rest!
 
+[^pbt]: See the [property based testing](https://antithesis.com/docs/resources/property_based_testing/) guide for an introduction.
 [^exit]: You can also configure Bombadil to exit on the first found violation.

@@ -4,10 +4,16 @@ To extend Bombadil with domain-specific knowledge, you write specifications.
 These are plain TypeScript or JavaScript [modules](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Modules) that use the library provided by
 Bombadil to export *properties* and *action generators*.
 
-Here's how you run Bombadil with a custom specification:
+Here's how you run a browser test with a custom specification:
 
 ```bash
 bombadil browser test https://example.com example.ts
+```
+
+Or with the terminal driver:
+
+```bash
+bombadil terminal test --specification=example.ts example-command
 ```
 
 For a full listing of CLI options, see [the reference](#command-line-interface).
@@ -16,7 +22,6 @@ For a full listing of CLI options, see [the reference](#command-line-interface).
 
 A specification is a regular ES module. The following examples use TypeScript,
 but you may also write them in JavaScript.
-
 
 ::: {.callout .callout-note}
 If you do use TypeScript, you'll want to install the types from [@antithesishq/bombadil](#typescript-support).
@@ -80,29 +85,42 @@ for most web applications. You'll probably want to reexport all or at least
 most of these:
 
 ```typescript
-export * from "@antithesishq/bombadil/defaults";
+export * from "@antithesishq/bombadil/browser/defaults";
+```
+
+Or for the terminal driver:
+
+```typescript
+export * from "@antithesishq/bombadil/terminal/defaults";
 ```
 
 In fact, these defaults are exactly what are used when running tests without a custom
 specification file. If you want to selectively pick just a subset of these,
-use the following modules:
+replace the `*` with the relevant names:
 
 ```typescript
 export { 
+    // Properties
     noUncaughtExceptions
-} from "@antithesishq/bombadil/defaults/properties";
-export { 
+    // Actions
     clicks, 
     reload,
-} from "@antithesishq/bombadil/defaults/actions";
+} from "@antithesishq/bombadil/browser/defaults";
 ```
 
-The defaults include properties checking for uncaught exceptions, unhandled
-promise rejections, error logs, HTTP 4xx and 5xx responses, and more. On the
-actions side, there are generators for general navigation and interaction with
-semantic HTML elements.
-
 You may freely combine defaults with your own properties and action generators.
+All properties and action generators exported by the top-level module are
+used by Bombadil.
+
+The browser defaults include properties checking for uncaught exceptions,
+unhandled promise rejections, error logs, HTTP 4xx and 5xx responses, and more.
+On the actions side, there are generators for general navigation and
+interaction with semantic HTML elements.
+
+The terminal defaults are less built out, partly because it's harder to state
+general properties given that there's no document object model as in the
+browser. There are default properties and actions nonetheless, but you likely
+want to extend them with a custom specification.
 
 ## Language features
 
