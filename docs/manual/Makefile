@@ -10,18 +10,18 @@ VERSION := $(shell grep '^version' ../../Cargo.toml | head -1 | sed 's/.*"\(.*\)
 # Manuals are built once per driver; add a driver here and the build picks it up.
 DRIVERS := browser terminal
 
-# Per-driver outputs all live under target/html/<driver>/ so the manual landing
+# Per-driver outputs all live under target/<driver>/ so the manual landing
 # page can link to PDF/EPUB/TXT with simple relative paths.
-HTML_BUILTS := $(foreach d,$(DRIVERS),$(TARGET_DIR)/html/$(d)/.built)
-EPUB_FILES  := $(foreach d,$(DRIVERS),$(TARGET_DIR)/html/$(d)/bombadil-manual.epub)
-PDF_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/html/$(d)/bombadil-manual.pdf)
-TXT_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/html/$(d)/bombadil-manual.txt)
-MAN_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/html/$(d)/bombadil.1)
-LANDING     := $(TARGET_DIR)/html/index.html
-# Shared HTML assets (one copy at the html root; per-driver pages reference ../style.css etc.)
-SHARED_ASSETS := $(TARGET_DIR)/html/style.css $(TARGET_DIR)/html/reset.css \
-	$(TARGET_DIR)/html/toc-toggle.js $(TARGET_DIR)/html/copy-code.js \
-	$(TARGET_DIR)/html/driver-switcher.js $(TARGET_DIR)/html/landing.js
+HTML_BUILTS := $(foreach d,$(DRIVERS),$(TARGET_DIR)/$(d)/.built)
+EPUB_FILES  := $(foreach d,$(DRIVERS),$(TARGET_DIR)/$(d)/bombadil-manual.epub)
+PDF_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/$(d)/bombadil-manual.pdf)
+TXT_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/$(d)/bombadil-manual.txt)
+MAN_FILES   := $(foreach d,$(DRIVERS),$(TARGET_DIR)/$(d)/bombadil.1)
+LANDING     := $(TARGET_DIR)/index.html
+# Shared HTML assets (one copy at the root; per-driver pages reference ../style.css etc.)
+SHARED_ASSETS := $(TARGET_DIR)/style.css $(TARGET_DIR)/reset.css \
+	$(TARGET_DIR)/toc-toggle.js $(TARGET_DIR)/copy-code.js \
+	$(TARGET_DIR)/driver-switcher.js $(TARGET_DIR)/landing.js
 
 # Pandoc options
 PANDOC := pandoc
@@ -78,43 +78,43 @@ $(TARGET_DIR):
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(TARGET_DIR)/html/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
-	rm -rf $(TARGET_DIR)/html/$*
-	mkdir -p $(TARGET_DIR)/html
-	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/html/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
+$(TARGET_DIR)/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
+	rm -rf $(TARGET_DIR)/$*
+	mkdir -p $(TARGET_DIR)
+	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
 	# on the single top-level manual landing.
-	printf '<!DOCTYPE html><meta http-equiv="refresh" content="0; url=../index.html">' > $(TARGET_DIR)/html/$*/index.html
+	printf '<!DOCTYPE html><meta http-equiv="refresh" content="0; url=../index.html">' > $(TARGET_DIR)/$*/index.html
 	touch $@
 
-# Shared HTML assets live once at the html root; per-driver pages and the
+# Shared HTML assets live once at the root; per-driver pages and the
 # landing all reference them with relative paths.
-$(TARGET_DIR)/html/style.css: $(wildcard $(SRC_DIR)/*.css) | $(TARGET_DIR)
-	mkdir -p $(TARGET_DIR)/html
+$(TARGET_DIR)/style.css: $(wildcard $(SRC_DIR)/*.css) | $(TARGET_DIR)
+	mkdir -p $(TARGET_DIR)
 	esbuild $(SRC_DIR)/index.css --bundle --outfile=$@
 
-$(TARGET_DIR)/html/reset.css: $(SRC_DIR)/reset.css | $(TARGET_DIR)
-	mkdir -p $(TARGET_DIR)/html
+$(TARGET_DIR)/reset.css: $(SRC_DIR)/reset.css | $(TARGET_DIR)
+	mkdir -p $(TARGET_DIR)
 	cp $< $@
 
-$(TARGET_DIR)/html/%.js: $(SRC_DIR)/%.js | $(TARGET_DIR)
-	mkdir -p $(TARGET_DIR)/html
+$(TARGET_DIR)/%.js: $(SRC_DIR)/%.js | $(TARGET_DIR)
+	mkdir -p $(TARGET_DIR)
 	cp $< $@
 
-$(TARGET_DIR)/html/%/bombadil-manual.epub: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.epub: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
 	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_EPUB_OPTS) -M driver=$*
 
-$(TARGET_DIR)/html/%/bombadil-manual.pdf: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.pdf: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
 	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_PDF_OPTS) -M driver=$*
 
-$(TARGET_DIR)/html/%/bombadil-manual.txt: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.txt: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
 	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_TXT_OPTS) -M driver=$*
 
-$(TARGET_DIR)/html/%/bombadil.1: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil.1: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
 	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_MAN_OPTS) -M driver=$*
 
@@ -122,7 +122,7 @@ $(TARGET_DIR)/html/%/bombadil.1: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR
 # and links to each driver's entry point and downloads. Shares stylesheets and
 # scripts with the rest of the manual via SHARED_ASSETS.
 $(LANDING): $(SRC_DIR)/landing.html | $(TARGET_DIR)
-	mkdir -p $(TARGET_DIR)/html
+	mkdir -p $(TARGET_DIR)
 	sed 's/__VERSION__/$(VERSION)/g' $(SRC_DIR)/landing.html > $@
 
 clean:
@@ -130,7 +130,7 @@ clean:
 
 # Development server with live reload
 serve: html
-	@browser-sync start --server $(TARGET_DIR)/html --port 8000 --no-open
+	@browser-sync start --server $(TARGET_DIR) --port 8000 --no-open
 
 # Watch for changes and rebuild
 watch:
@@ -139,5 +139,5 @@ watch:
 # Development mode: rebuild and serve with live reload
 dev: clean all
 	@concurrently -n serve,watch \
-		"browser-sync start --server $(TARGET_DIR)/html --port 8000 --no-open --files '$(TARGET_DIR)/html/**/*'" \
+		"browser-sync start --server $(TARGET_DIR) --port 8000 --no-open --files '$(TARGET_DIR)/**/*'" \
 		"watchexec -w $(SRC_DIR) -e css,html,js,md,yaml,lua make html"
