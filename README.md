@@ -1,12 +1,13 @@
 # Bombadil
 
-Property-based testing for web UIs, autonomously exploring and validating
-correctness properties, *finding harder bugs earlier*.
+Property-based testing for web and terminal UIs, autonomously exploring and
+validating correctness properties, *finding harder bugs earlier*.
 
 Runs in your local developer environment, in CI, and inside Antithesis.
 
-> [!NOTE]
-> Bombadil is new and experimental. Stuff is going to change in the early days. Even so, we hope you'll try it out!
+> [!NOTE] Bombadil is new and experimental. API might still change while we're
+> on 0.x versions. That said, it helps real users find real bugs, so why not
+> give it a try!
 
 ## Documentation
 
