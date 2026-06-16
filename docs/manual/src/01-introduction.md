@@ -4,9 +4,9 @@ title: The Bombadil Manual
 
 # Introduction
 
-Bombadil is property-based testing[^pbt] for [web UIs]{.browser}[terminal user interfaces]{.terminal}.
-It autonomously explores and validates correctness properties, *finding harder
-bugs earlier*. It runs in your local developer environment, in CI, and inside
+Bombadil is property-based testing[^pbt] for user interfaces. It autonomously
+explores and validates correctness properties, *finding harder bugs earlier*.
+It runs in your local developer environment, in CI, and inside
 [Antithesis](https://antithesis.com/).
 
 ## Why Bombadil?
@@ -60,7 +60,7 @@ generators](#action-generators). These can be domain-specific --- to exercise
 and validate your application's logic in custom ways --- or be imported from
 Bombadil's [defaults](#default-properties-and-action-generators). Bombadil
 drives any program that reads from stdin and writes to a terminal, whether
-it's a one-shot CLI, an interactive REPL, or a full TUI.
+it's a traditional CLI, an interactive REPL, or a full TUI.
 :::
 
 Conceptually, it runs in a loop doing the following:
@@ -68,7 +68,7 @@ Conceptually, it runs in a loop doing the following:
 1. Extracts the current state from the [browser]{.browser}[terminal]{.terminal}
 2. Checks all properties against the current state, recording violations[^exit]
 3. Selects the next action based on the current state, and performs it
-4. Waits for the next event ([page navigation, DOM mutation, or timeout]{.browser}[byte output or timeout]{.terminal})
+4. Waits for the next event ([page navigation, DOM mutation, or timeout]{.browser}[chunk of output bytes or timeout]{.terminal})
 5. *Returns to step 1*
 
 Bombadil itself decides what is an interesting event and when to capture state.

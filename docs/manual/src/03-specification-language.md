@@ -23,11 +23,8 @@ For a full listing of CLI options, see [the reference](#command-line-interface).
 ## Structure
 
 A specification is a regular ES module. The following examples use TypeScript,
-but you may also write them in JavaScript.
-
-::: {.callout .callout-note}
-If you do use TypeScript, you'll want to install the types from [@antithesishq/bombadil](#typescript-support).
-:::
+but you may also write them in JavaScript. If you do use TypeScript, you'll
+want to install the types from [@antithesishq/bombadil](#typescript-support).
 
 Both properties and action generators are exposed to Bombadil as exports:
 
@@ -122,9 +119,10 @@ export {
 ```typescript
 export {
     // Properties
-    exitsCleanly,
+    exitSuccess,
+    noReplacementChars,
     // Actions
-    unicodeInput,
+    typeBasicInput,
 } from "@antithesishq/bombadil/terminal/defaults";
 ```
 :::
@@ -141,10 +139,10 @@ interaction with semantic HTML elements.
 :::
 
 ::: terminal
-The terminal defaults are less built out, partly because it's harder to state
-general properties given that there's no document object model as in the
-browser. There are default properties and actions nonetheless, but you likely
-want to extend them with a custom specification.
+The terminal defaults are rather simple: things like expecting the
+program to terminate with exit code 0 and not print byte sequences that the
+terminal can't handle properly. You likely want to extend the defaults with a 
+custom specification.
 :::
 
 ## Language features
@@ -155,8 +153,9 @@ has a small set of central concepts. This section describes them in detail.
 ### Properties
 
 A property is a description of how the system under test should behave *in
-general*. This is different from example-based testing (e.g. Playwright, Cypress, etc.)
-where you describe how it behaves for *particular* cases.
+general*. This is different from example-based testing (e.g. [Playwright,
+Cypress, or Selenium]{.browser}[TUI snapshot testing]{.terminal}) where you
+describe how it behaves for *particular* cases.
 
 The most intuitive kind of property, which you might have come across before,
 is an *invariant*: a condition that should always be true. In Bombadil,
@@ -173,86 +172,61 @@ specification module. Its name is used in error reports, so give the
 export a meaningful name.
 
 ```typescript
-export const pageHasTitle = always( 
-    // check that there's a page title somehow
+export const hasTitle = always( 
+    // check that there's a title rendered somehow
 );
 ```
 
 You may export multiple properties, including the
 [defaults](#default-properties-and-action-generators), and they'll all be
-checked independently. But how do you "check that there's a page title
+checked independently. But how do you "check that there's a title
 somehow"? You need access to the [browser]{.browser}[terminal]{.terminal}, and for that, you use *extractors*.
 
 ### Extractors
 
-::: browser
 In order to describe a condition about the web page you're testing, you first
-need to extract state. This is done with the `extract` function, which runs
-inside the browser on every state that Bombadil decides to capture.
+need to extract state. This is done with the `extract` function,
+[which runs inside the browser on every state that Bombadil decides to capture.]{.browser}
+[which runs on every state that Bombadil decides to capture.]{.terminal}
 
 ```typescript
 extract(state => ...)
 ```
-
 You give it a function that takes the current browser state as an argument, and
-returns JSON-serializable data. The state object contains a bunch of things,
+returns JSON-serializable data. [The state object contains a bunch of things,
 but the most important are `document` and `window` --- the same ones you have access
-to in JavaScript running in a browser.
+to in JavaScript running in a browser.]{.browser}[The state object exposes the rendered screen
+contents, the cursor position, and other observable signals.]{.terminal}
 
-To extract the page title, you'd define this at the top level of your
-specification:
-
-```typescript
-const pageTitle = extract(state => state.document.title || "");
-```
-
-The `pageTitle` value is not a `string` though --- it's a `Cell<string>`, a
-stateful value that changes over time. For every new state captured by
-Bombadil, the extractor function gets run, and the cell is updated with its
-return value.
-
-Using the `pageTitle` cell, you can define the property:
+::: browser
+To extract the title, you'd define this at the top level of your specification:
 
 ```typescript
-export const pageHasTitle = always(() => 
-    pageTitle.current !== ""
-);
+const title = extract(state => state.document.title || "");
 ```
 :::
 
 ::: terminal
-In order to describe a condition about the terminal program you're testing, you
-first need to extract state. This is done with the `extract` function, which
-runs on every state that Bombadil decides to capture.
+To extract the title from the first row of the terminal grid, you'd define this 
+at the top level of your specification:
 
 ```typescript
-extract(state => ...)
+const title = extract(state => state.grid.rowText(0).trim());
 ```
+:::
 
-You give it a function that takes the current terminal state as an argument, and
-returns JSON-serializable data. The state object exposes the rendered screen
-contents, the cursor position, and other observable signals.
-
-To extract the last line on screen, you'd define this at the top level of your
-specification:
-
-```typescript
-const lastLine = extract(state => state.screen.lines.at(-1) ?? "");
-```
-
-The `lastLine` value is not a `string` though --- it's a `Cell<string>`, a
+The `title` value is not a `string` though --- it's a `Cell<string>`, a
 stateful value that changes over time. For every new state captured by
 Bombadil, the extractor function gets run, and the cell is updated with its
 return value.
 
-Using the `lastLine` cell, you can define the property:
+Using the `title` cell, you can define the property:
 
 ```typescript
-export const promptVisible = always(() =>
-    lastLine.current.endsWith("$ ")
+export const hasTitle = always(() => 
+    title.current !== ""
 );
 ```
-:::
 
 Two things to note about this example:
 
@@ -291,17 +265,9 @@ They accept *subformulas* as arguments. You'll notice in the example with
 automatically convert thunks into formulas. In fact, there's an operator for doing that
 explicitly, called `now`:
 
-::: browser
 ```typescript
-always(now(() => pageTitle.current !== ""))
+always(now(() => title.current !== ""))
 ```
-:::
-
-::: terminal
-```typescript
-always(now(() => lastLine.current.endsWith("$ ")))
-```
-:::
 
 You normally don't have to use the `now` operator, unless you want to use
 *logical connectives* at the formula level. They are defined as methods on
@@ -324,22 +290,24 @@ const buttonPressed = extract(() => ...);
 const spinnerVisible = extract(() => ...);
 
 now(() => buttonPressed.current).implies(
-    now(() => spinnerVisible.current).and(eventually(() => !spinnerVisible.current))
+    now(() => spinnerVisible.current)
+        .and(eventually(() => !spinnerVisible.current))
 )
 ```
 :::
 
 ::: terminal
 The `now` operator is useful when expressing single-state preconditions. The
-following property checks that submitting a command shows a "loading" indicator
-that is eventually replaced:
+following property checks that submitting a command shows a loading indicator
+that is eventually hidden:
 
 ```typescript
 const commandSubmitted = extract(() => ...);
 const loadingShown = extract(() => ...);
 
 now(() => commandSubmitted.current).implies(
-    now(() => loadingShown.current).and(eventually(() => !loadingShown.current))
+    now(() => loadingShown.current)
+        .and(eventually(() => !loadingShown.current))
 )
 ```
 :::
@@ -392,11 +360,8 @@ type Action =
     | "Reload"
     | "Wait"
     | { Click: { name: string; content?: string; point: Point } }
-    | { DoubleClick: { name: string; content?: string; point: Point; delayMillis: number } }
-    | { TypeText: { text: string; delayMillis: number } }
-    | { PressKey: { code: number } }
-    | { ScrollUp: { origin: Point; distance: number } }
-    | { ScrollDown: { origin: Point; distance: number } };
+    // Many others...
+    ;
 ```
 
 Here's a generator for clicks in the center of a `canvas` element:
@@ -443,18 +408,19 @@ export const doubleClickCanvas = actions(() => {
 ::: terminal
 <!-- TODO: link to `Action` type when we have generated TypeScript reference rather than hard coding it here -->
 ```typescript
-type Action =
-    | "Wait"
-    | { TypeText: { text: string; delayMillis: number } }
-    | { PressKey: { code: number } }
-    | { SendBytes: { bytes: Uint8Array } };
+export type Action =
+  | { TypeText: { text: string } }
+  | { PressKey: { code: number } }
+  | { Resize: { size: Size } }
+  | { ScrollUp: {} }
+  | { ScrollDown: {} };
 ```
 
-Here's a generator that sends a single canned command:
+Here's a generator that sends a single `help` command:
 
 ```typescript
 export const sendHelp = actions(() => {
-    return [{ TypeText: { text: "help\n", delayMillis: 50 } }];
+    return [{ TypeText: { text: "help\n" } }];
 });
 ```
 :::
@@ -462,9 +428,8 @@ export const sendHelp = actions(() => {
 The actions you return must be possible to perform in the current state. Your
 action generators should therefore depend on [cells](#extractors) and validate
 your actions before returning them[, as done with `canvasCenter` in the previous
-example]{.browser}. Another example is the [`back`]{.browser}[`pressEnter`]{.terminal} action generator provided by Bombadil,
-which checks that there's [a history entry to go back to]{.browser}[an active prompt]{.terminal}, otherwise returning
-`[]`.
+example. Another example is the `back` action generator provided by Bombadil,
+which checks that there's a history entry to go back to, otherwise returning `[]`]{.browser}.
 
 To give actions different weights, use the `weighted` combinator and wrap each
 subgenerator in an array with the weight as the first element:
@@ -482,9 +447,8 @@ export const navigation = weighted([
 ::: terminal
 ```typescript
 export const inputs = weighted([
-    [10, unicodeInput],
-    [1, controlSequences],
-    [1, pressEnter],
+  [10, typeFromSet(CharSets.UNICODE_SAFE)],
+  [1, typeFromSet(CharSets.CONTROL_COMMON)],
 ]);
 ```
 :::
@@ -640,9 +604,10 @@ would catch as a violation.
 :::
 
 ::: terminal
-The terminal driver is still experimental, and the catalog of common patterns
-is still being collected. For now, see the [default specification source on
-GitHub](https://github.com/antithesishq/bombadil) for working examples.
+The terminal driver is experimental, and the catalog of common patterns
+is not yet collected. For now, see the [default specification source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/defaults.ts) 
+and the
+[examples](https://github.com/antithesishq/bombadil/tree/v%version%/lib/bombadil-terminal/examples).
 :::
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of

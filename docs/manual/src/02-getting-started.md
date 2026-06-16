@@ -5,7 +5,8 @@ to validate changes to [TypeScript specifications](#properties), and to run
 short tests while working on your system. Configure something like GitHub
 Actions or a cron job to continously run longer tests on your main branch or in
 a deployed staging environment. When you're ready to put your system under
-extreme conditions, run it inside [Antithesis](https://antithesis.com).
+extreme conditions, and test your full stack deterministically, run it inside
+[Antithesis](https://antithesis.com).
 
 ## Installation
 
@@ -28,7 +29,7 @@ Add a script to your `package.json` to run Bombadil:
 ```json
 {
   "scripts": {
-    "test": "bombadil browser test https://your-app.example.com"
+    "test": "bombadil browser test --time-limit=1m https://your-app.example.com"
   }
 }
 ```
@@ -38,7 +39,7 @@ Add a script to your `package.json` to run Bombadil:
 ```json
 {
   "scripts": {
-    "test": "bombadil terminal test your-cli --arg value"
+    "test": "bombadil terminal test --time-limit=1m your-cli --arg value"
   }
 }
 ```
@@ -109,10 +110,10 @@ nix run github:antithesishq/bombadil
 
 </details>
 
-::: browser
 <details name="install">
 <summary>GitHub Actions</summary>
 
+::: browser
 ```yaml
 - uses: antithesishq/bombadil-action@v2
   with:
@@ -125,14 +126,9 @@ nix run github:antithesishq/bombadil
 ```
 
 See [its README](https://github.com/antithesishq/bombadil-action) for detailed instructions.
-
-</details>
 :::
 
 ::: terminal
-<details name="install">
-<summary>GitHub Actions</summary>
-
 ```yaml
 - uses: antithesishq/bombadil-action@v2
   with:
@@ -143,11 +139,9 @@ See [its README](https://github.com/antithesishq/bombadil-action) for detailed i
     exit-on-violation: true
     output-path: bombadil-output
 ```
-
-See [its README](https://github.com/antithesishq/bombadil-action) for detailed instructions.
+:::
 
 </details>
-:::
 </div>
 
 ::: {.callout .callout-note}
