@@ -148,6 +148,51 @@ const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(250);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Injected at document start of every frame: reroutes same-origin new-tab
+/// requests (`window.open`, `target="_blank"`) into the current tab; cross-origin left alone.
+const SUPPRESS_NEW_TABS_SCRIPT: &str = r#"(() => {
+  const sameOrigin = (href) => {
+    try {
+      return (
+        new URL(String(href), window.location.href).origin ===
+        window.location.origin
+      );
+    } catch (_) {
+      return false;
+    }
+  };
+  const forceSelf = (element) => {
+    if (element && element.target && element.target !== "_self") {
+      element.target = "_self";
+    }
+  };
+  window.open = function (url) {
+    if (url && sameOrigin(url)) {
+      try {
+        window.location.href = new URL(String(url), window.location.href).href;
+      } catch (_) {}
+    }
+    return window;
+  };
+  document.addEventListener(
+    "click",
+    (event) => {
+      const node = event.target;
+      const anchor = node && node.closest ? node.closest("a[target]") : null;
+      if (anchor && sameOrigin(anchor.href)) forceSelf(anchor);
+    },
+    true,
+  );
+  document.addEventListener(
+    "submit",
+    (event) => {
+      const form = event.target;
+      if (form && sameOrigin(form.action)) forceSelf(form);
+    },
+    true,
+  );
+})();"#;
+
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
     actions_sender: Sender<BrowserAction>,
@@ -319,6 +364,8 @@ impl Browser {
         .await?;
 
         auto_accept_dialogs(page.clone()).await?;
+
+        suppress_new_tabs(&page).await?;
 
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
@@ -533,6 +580,15 @@ async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
                 .await;
         }
     });
+    Ok(())
+}
+
+/// Inject [`SUPPRESS_NEW_TABS_SCRIPT`] for every future document, plus once for
+/// the current one (an externally-managed debugger may already have a page up).
+async fn suppress_new_tabs(page: &Page) -> Result<()> {
+    page.evaluate_on_new_document(SUPPRESS_NEW_TABS_SCRIPT)
+        .await?;
+    let _ = page.evaluate(SUPPRESS_NEW_TABS_SCRIPT).await;
     Ok(())
 }
 

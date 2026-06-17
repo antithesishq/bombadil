@@ -137,7 +137,8 @@ const clickablePoints = extract((state) => {
       continue;
     }
 
-    if (anchor.target === "_blank") continue;
+    // `target="_blank"` is no longer skipped: same-origin new-tab links are
+    // rerouted into the current tab by `suppress_new_tabs` (browser crate).
     if (!url.protocol.startsWith("http")) continue;
     if (url.hostname !== urlCurrent.hostname) continue;
     if (url.port !== "" && url.port !== urlCurrent.port) continue;
