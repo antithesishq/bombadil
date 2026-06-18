@@ -119,23 +119,9 @@ jobs:
       - name: Export GHOSTTY_SOURCE_DIR
         run: echo "GHOSTTY_SOURCE_DIR=${{ github.workspace }}/.ghostty-src" >> $GITHUB_ENV
 
-      - name: Cache cargo registry + git
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: cargo-registry-
-
-      - name: Set up sccache
-        uses: mozilla-actions/sccache-action@v0.0.10
-
-      - name: Enable sccache as rustc wrapper
-        run: |
-          echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          shared-key: ${{ matrix.target }}
 
       - name: Install trunk / wasm-bindgen-cli
         uses: taiki-e/install-action@v2
