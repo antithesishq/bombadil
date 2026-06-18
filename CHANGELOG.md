@@ -10,6 +10,7 @@
 Bug fixes:
 
 * Fix timeline tick label scaling (#171) (#196)
+* Fix llms text generation in release workflow (#220)
 
 ## 0.6.0
 
