@@ -109,6 +109,7 @@
                   # Rust dev tools
                   rust-analyzer
                   cargo-insta
+                  sccache
 
                   # Nix tooling
                   nil

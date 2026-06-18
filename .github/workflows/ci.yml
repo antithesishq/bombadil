@@ -119,9 +119,8 @@ jobs:
       - name: Export GHOSTTY_SOURCE_DIR
         run: echo "GHOSTTY_SOURCE_DIR=${{ github.workspace }}/.ghostty-src" >> $GITHUB_ENV
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ matrix.target }}
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install trunk / wasm-bindgen-cli
         uses: taiki-e/install-action@v2
@@ -148,6 +147,8 @@ jobs:
           CARGO_BUILD_TARGET: ${{ matrix.rust_target }}
           CC: clang
           CXX: clang++
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
         run: |
           # crt-static for static musl binaries on Linux; Darwin links normally.
           # Setting RUSTFLAGS env overrides .cargo/config.toml's [build].rustflags
