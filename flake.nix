@@ -33,6 +33,51 @@
             overlays = [ rust-overlay.overlays.default ];
           }
         );
+        # Pinned to match the `wasm-bindgen = "=X"` line in Cargo.toml.
+        # Bump the two together — the CLI must match the runtime crate version
+        # exactly. After a bump, run `nix develop` and replace each
+        # `lib.fakeHash` with the real hash from the error message.
+        # Uses the prebuilt GitHub release tarball to avoid the from-source
+        # cargo vendor fetch (which currently 403s on crates.io).
+        wasmBindgenCli =
+          let
+            version = "0.2.125";
+            asset =
+              if pkgs.stdenv.isLinux && pkgs.stdenv.isx86_64 then
+                "x86_64-unknown-linux-musl"
+              else if pkgs.stdenv.isLinux && pkgs.stdenv.isAarch64 then
+                "aarch64-unknown-linux-gnu"
+              else if pkgs.stdenv.isDarwin && pkgs.stdenv.isAarch64 then
+                "aarch64-apple-darwin"
+              else if pkgs.stdenv.isDarwin && pkgs.stdenv.isx86_64 then
+                "x86_64-apple-darwin"
+              else
+                throw "wasm-bindgen-cli: unsupported platform";
+          in
+          pkgs.stdenv.mkDerivation {
+            pname = "wasm-bindgen-cli";
+            inherit version;
+            src = pkgs.fetchurl {
+              url = "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/wasm-bindgen-${version}-${asset}.tar.gz";
+              hash = "sha256-Idge90FKClhYYaYOpK4reXDsyu0J1KTgX4vEsVmCfeo=";
+            };
+            # The aarch64-unknown-linux-gnu build is dynamically linked; the
+            # musl/darwin variants are static and don't need patching, but the
+            # hook is a no-op on them so it's safe to always include on Linux.
+            nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
+              pkgs.autoPatchelfHook
+            ];
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/bin
+              install -m755 wasm-bindgen wasm-bindgen-test-runner wasm2es6js $out/bin/
+              runHook postInstall
+            '';
+            meta = {
+              description = "CLI for wasm-bindgen, pinned to match Cargo.toml's runtime crate";
+              mainProgram = "wasm-bindgen";
+            };
+          };
         rustToolchainWasm = pkgs.rust-bin.stable.latest.default.override {
           targets = [ "wasm32-unknown-unknown" ];
         };
@@ -66,11 +111,13 @@
         };
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc;
+          wasm-bindgen-cli = wasmBindgenCli;
         };
         bombadilAarch64 = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib ghosttySrc;
           craneLibStatic = craneLibAarch64;
           cargoTarget = "aarch64-unknown-linux-musl";
+          wasm-bindgen-cli = wasmBindgenCli;
         };
       in
       {
@@ -139,7 +186,7 @@
 
                   # WASM/Inspect UI
                   trunk
-                  wasm-bindgen-cli
+                  wasmBindgenCli
                   binaryen
 
                   # Release automation
