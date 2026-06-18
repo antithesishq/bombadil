@@ -4,16 +4,10 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    crane.url = "github:ipetkov/crane";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-  };
-
-  nixConfig = {
-    extra-substituters = "https://bombadil.cachix.org";
-    extra-trusted-public-keys = "bombadil.cachix.org-1:6L4epM9zwhEcAwouNgBa8ENtsgLNfedtQgqtdnQhZiM=";
   };
 
   outputs =
@@ -21,18 +15,20 @@
       self,
       nixpkgs,
       flake-utils,
-      crane,
       rust-overlay,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = (
-          import nixpkgs {
-            inherit system;
-            overlays = [ rust-overlay.overlays.default ];
-          }
-        );
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
+        };
+
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          targets = [ "wasm32-unknown-unknown" ];
+        };
+
         # Pinned to match the `wasm-bindgen = "=X"` line in Cargo.toml.
         # Bump the two together — the CLI must match the runtime crate version
         # exactly. After a bump, run `nix develop` and replace each
@@ -61,9 +57,6 @@
               url = "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/${version}/wasm-bindgen-${version}-${asset}.tar.gz";
               hash = "sha256-Idge90FKClhYYaYOpK4reXDsyu0J1KTgX4vEsVmCfeo=";
             };
-            # The aarch64-unknown-linux-gnu build is dynamically linked; the
-            # musl/darwin variants are static and don't need patching, but the
-            # hook is a no-op on them so it's safe to always include on Linux.
             nativeBuildInputs = pkgs.lib.optionals pkgs.stdenv.isLinux [
               pkgs.autoPatchelfHook
             ];
@@ -78,75 +71,23 @@
               mainProgram = "wasm-bindgen";
             };
           };
-        rustToolchainWasm = pkgs.rust-bin.stable.latest.default.override {
-          targets = [ "wasm32-unknown-unknown" ];
-        };
-        craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchainWasm;
-        craneLibStatic = (crane.mkLib pkgs.pkgsCross.musl64).overrideToolchain (
-          p:
-          p.rust-bin.stable.latest.default.override {
-            targets = [
-              "wasm32-unknown-unknown"
-              "x86_64-unknown-linux-musl"
-            ];
-          }
-        );
-        craneLibAarch64 = (crane.mkLib pkgs.pkgsCross.aarch64-multiplatform-musl).overrideToolchain (
-          p:
-          p.rust-bin.stable.latest.default.override {
-            targets = [
-              "wasm32-unknown-unknown"
-              "aarch64-unknown-linux-musl"
-            ];
-          }
-        );
+
         # Pinned to match `GHOSTTY_COMMIT` in libghostty-vt-sys's build.rs at
         # the `libghostty-vt` rev used by `lib/bombadil-terminal/Cargo.toml`.
-        # Bump these together when updating libghostty-vt.
+        # Bump these together when updating libghostty-vt. libghostty-vt-sys's
+        # build.rs reads GHOSTTY_SOURCE_DIR / GHOSTTY_ZIG_SYSTEM_DIR to skip
+        # its in-tree clone and use this pre-fetched source + zig deps.
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
           rev = "bfe633a9487892ff3d27ed727db540267f22ef90";
           sha256 = "1zmybfhrz64h6kibx23ixqsi7x9aw7c3szyb39zswh7mvg517297";
         };
-        bombadil = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib craneLibStatic ghosttySrc;
-          wasm-bindgen-cli = wasmBindgenCli;
-        };
-        bombadilAarch64 = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib ghosttySrc;
-          craneLibStatic = craneLibAarch64;
-          cargoTarget = "aarch64-unknown-linux-musl";
-          wasm-bindgen-cli = wasmBindgenCli;
+        ghosttyZigDeps = pkgs.callPackage "${ghosttySrc}/build.zig.zon.nix" {
+          name = "bombadil-ghostty-zig-deps";
         };
       in
       {
-        packages = {
-          default = bombadil.bin;
-          npm-package = bombadil.npm-package;
-          manual = pkgs.callPackage ./docs/manual/default.nix { };
-          release = pkgs.callPackage ./lib/release/default.nix { };
-        }
-        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          aarch64-linux = bombadilAarch64.bin;
-          docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
-        };
-
-        apps = {
-          default = {
-            type = "app";
-            program = "${self.packages.${system}.default}/bin/bombadil";
-            meta = self.packages.${system}.default.meta;
-          };
-        };
-
-        checks = {
-          inherit (bombadil) clippy fmt npm-package;
-        }
-        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          inherit (bombadil) tests;
-        };
-
         devShells = {
           default = pkgs.mkShell (
             {
@@ -155,28 +96,34 @@
                 export CXX=${pkgs.clang}/bin/clang++
               '';
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
-              inputsFrom = [ self.packages.${system}.default ];
-              # nativeBuildInputs takes priority over inputsFrom in
-              # PATH, so rustToolchainWasm shadows crane's toolchain.
-              nativeBuildInputs = [ rustToolchainWasm ];
+              GHOSTTY_SOURCE_DIR = ghosttySrc;
+              GHOSTTY_ZIG_SYSTEM_DIR = ghosttyZigDeps;
+
+              nativeBuildInputs = [ rustToolchain ];
+
               packages = [ (pkgs.callPackage ./nix/cargo-hotpath.nix { }) ];
+
               buildInputs =
                 with pkgs;
                 [
-                  # Rust
+                  # Rust dev tools
                   rust-analyzer
-                  crate2nix
                   cargo-insta
 
-                  # Nix
+                  # Nix tooling
                   nil
 
-                  # For bombadil-terminal. zig_0_15 / pkg-config come in via
-                  # `inputsFrom = [ self.packages.${system}.default ]`; adding
-                  # them again here re-sources zig's setup-hook and trips its
-                  # readonly `zigDefaultCpuFlag` guard.
+                  # Native build deps for bombadil-terminal (libghostty-vt-sys)
+                  zig_0_15
+                  pkg-config
+                  git
                   cmake
                   clang
+
+                  # WASM / Inspect UI
+                  trunk
+                  wasmBindgenCli
+                  binaryen
 
                   # TS/JS
                   typescript
@@ -184,17 +131,19 @@
                   bun
                   biome
 
-                  # WASM/Inspect UI
-                  trunk
-                  wasmBindgenCli
-                  binaryen
-
-                  # Release automation
-                  self.packages.${system}.release
+                  # Release scripts (lib/release/*.py)
+                  python3
+                  gh
+                  basedpyright
+                  black
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-                  # Runtime
-                  pkgs.chromium
+                  chromium
+                ]
+                ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+                  libiconv
+                  cctools
+                  xcbuild
                 ];
             }
             // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
@@ -204,17 +153,44 @@
           );
 
           manual = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.manual ];
+            OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
             buildInputs = with pkgs; [
+              pandoc
+              gnumake
+              esbuild
               watchexec
               browser-sync
               concurrently
+              (texlive.combine {
+                inherit (texlive)
+                  scheme-basic
+                  lualatex-math
+                  luatexbase
+                  fontspec
+                  unicode-math
+                  amsmath
+                  tools
+                  sectsty
+                  xcolor
+                  hyperref
+                  geometry
+                  fancyvrb
+                  booktabs
+                  caption
+                  fancyhdr
+                  titling
+                  parskip
+                  listings
+                  lm
+                  tcolorbox
+                  pgf
+                  environ
+                  etoolbox
+                  mdwtools
+                  fontawesome5
+                  ;
+              })
             ];
-            OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
-          };
-
-          release = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.release ];
           };
         };
       }

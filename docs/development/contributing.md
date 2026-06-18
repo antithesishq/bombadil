@@ -2,19 +2,44 @@
 
 ## Developer environment
 
-The blessed setup is using the Nix flake to get a shell.
+You can either use the Nix dev shell (provides everything pinned) or install
+the toolchain yourself.
+
+### With Nix
 
 ```bash
 nix develop
-# or if you have direnv:
+# or, if you have direnv:
 direnv allow .
 ```
 
+### Without Nix
+
+Install the toolchain by hand:
+
+- **Rust** stable (latest), with the `wasm32-unknown-unknown` target.
+  Install via [rustup](https://rustup.rs) and `rustup target add
+  wasm32-unknown-unknown`.
+- **Zig** 0.15.2 — required by `libghostty-vt-sys` to build the embedded
+  ghostty terminal. Get it from <https://ziglang.org/download/>.
+- **trunk** + **wasm-bindgen-cli** + **binaryen** — for building the
+  `bombadil-inspect` WASM frontend that `bombadil-cli`'s build script bundles.
+  `wasm-bindgen-cli` must match the `=X.Y.Z` pin in `Cargo.toml`; mismatches
+  produce broken bindings.
+- **clang**, **pkg-config**, **cmake**, **git** — native build deps for
+  `bombadil-terminal`.
+- **chromium** — for the integration tests that drive a real browser.
+- **Python 3** + **gh** + **basedpyright** + **black** — for the release
+  scripts in `lib/release/`.
+
+The CI workflow (`.github/workflows/ci.yml`) is the source of truth for
+the exact versions and steps; reproduce it locally if you're matching its
+behavior.
+
 ### Documentation shell
 
-Documentation building requires a separate shell with Pandoc and TeXLive. This keeps the default development environment lighter.
-
-To work on the manual in `docs/manual/`:
+Documentation building requires Pandoc and TeXLive, kept out of the default
+shell to keep it lighter. To work on the manual in `docs/manual/`:
 
 ```bash
 cd docs/manual
@@ -22,7 +47,7 @@ direnv allow  # loads the 'manual' shell automatically
 make html     # or make pdf, make epub, etc.
 ```
 
-Or run commands directly:
+Or run directly:
 
 ```bash
 nix develop '.#manual' --command make -C docs/manual pdf
@@ -30,26 +55,12 @@ nix develop '.#manual' --command make -C docs/manual pdf
 
 ## Workspace structure
 
-The project is organized as a Cargo workspace under `lib/`:
-
-```
-lib/
-├── bombadil/           
-├── bombadil-cli/       
-├── bombadil-inspect/
-├── bombadil-browser-integration-tests/  
-├── ...
-└── nix/                
-```
-
-Most of these directories should be creates, but can be other stuff, like
-`lib/nix`.
-
-Build specific crates with `-p`:
+The project is a Cargo workspace under `lib/`. See `AGENTS.md` for a
+crate-by-crate breakdown. Build individual crates with `-p`:
 
 ```bash
 cargo build -p bombadil       # Core library only
-cargo build -p bombadil-cli   # CLI binary (includes library)
+cargo build -p bombadil-cli   # CLI binary (includes library + inspect WASM)
 ```
 
 ## Debugging
@@ -84,12 +95,14 @@ separate tab.
 
 ## Running in podman
 
-Build and tag the image:
+On a Linux host, build the binary with your default toolchain and bake the
+image. The `--target x86_64-unknown-linux-musl` step is only needed if you
+want to mirror CI's fully-static release binary.
 
 ```bash
-nix build ".#docker" \
-    && podman load < result \
-    && podman tag localhost/bombadil_docker:$(nix eval --raw '.#packages.x86_64-linux.docker.imageTag') localhost/bombadil_docker:latest
+cargo build --release -p bombadil-cli
+mkdir -p artifact && cp target/release/bombadil artifact/
+docker build -t bombadil_docker:latest .  # use the Dockerfile CI generates
 ```
 
 Run it:
@@ -108,10 +121,11 @@ cargo test -p bombadil-browser-integration-tests
 
 ## Releasing
 
-Run the release script from the repo root (in the default Nix shell):
+Run the release script from the repo root (inside the default dev shell, or
+with `python3`/`gh` on your PATH):
 
 ```bash
-release
+python3 lib/release/main.py
 ```
 
 The script guides you through all steps interactively: version selection,

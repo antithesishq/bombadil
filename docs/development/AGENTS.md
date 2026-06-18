@@ -52,7 +52,7 @@ The project is a Cargo workspace with crates under `lib/`:
 - **`lib/bombadil-inspect/`** - Yew WASM frontend for Bombadil Inspect
 - **`lib/bombadil-browser-integration-tests/`** - Integration tests with browser fixtures
 
-Non-workspace directories: `lib/nix/` (Nix build infrastructure), `lib/release/`, `lib/experiments/`.
+Non-workspace directories: `lib/release/` (release-automation Python scripts), `lib/experiments/`.
 
 ### Core library modules (`lib/bombadil/`)
 
