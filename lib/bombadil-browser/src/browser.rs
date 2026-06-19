@@ -694,6 +694,10 @@ async fn setup_page(
         .await?
         .ok_or(anyhow!("no main frame available"))?;
 
+    // A background tab (e.g. a followed popup) isn't composited, so
+    // `Page.startScreencast` emits no frames; activate it so state capture works.
+    page.bring_to_front().await?;
+
     let network_activity = activity::NetworkActivity::subscribe(&page).await?;
     let screencast = Arc::new(
         activity::Screencast::start(
