@@ -430,6 +430,38 @@ async fn test_other_domain() {
         .await;
 }
 
+// The property is only provable on the opened page, so each test passes only if
+// Bombadil followed the same-origin tab the fixture opens (_blank / window.open).
+const FOLLOW_TAB_SPECIFICATION: &str = r##"
+import { now, eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onFollowedPage = extract(
+  (state) => !!state.document.querySelector("#followed-marker"),
+);
+
+export const reachesFollowedTab = eventually(
+  now(() => onFollowedPage.current),
+).within(20, "seconds");
+"##;
+
+#[tokio::test]
+async fn test_follow_blank_link() {
+    BrowserIntegrationTest::new("follow-blank-link")
+        .specification(FOLLOW_TAB_SPECIFICATION)
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_follow_window_open() {
+    BrowserIntegrationTest::new("follow-window-open")
+        .specification(FOLLOW_TAB_SPECIFICATION)
+        .run()
+        .await;
+}
+
 #[tokio::test]
 async fn test_action_within_iframe() {
     BrowserIntegrationTest::new("action-within-iframe")

@@ -13,7 +13,7 @@ use chromiumoxide::{BrowserConfig, Page};
 use futures::{StreamExt, stream};
 use log;
 use serde_json as json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -21,7 +21,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::broadcast::{Receiver, Sender, channel};
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
+use tokio::task::AbortHandle;
 use tokio::time::sleep;
 use tokio::{select, spawn};
 use tokio_stream::wrappers::BroadcastStream;
@@ -32,6 +33,7 @@ use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
+use crate::url::is_within_domain;
 
 pub mod actions;
 pub mod activity;
@@ -111,6 +113,18 @@ enum InnerEvent {
         url: String,
     },
     TargetDestroyed(TargetId),
+    /// A new browser target (tab/window) appeared. Carries its opener so we can
+    /// tell whether the tab we are currently driving spawned it.
+    TargetCreated {
+        target_id: TargetId,
+        opener_id: Option<TargetId>,
+    },
+    /// A tab opened by the active page has committed to an in-domain URL and is
+    /// ready to be driven; switch the state machine onto it.
+    FollowTab {
+        page: Arc<Page>,
+        opener_id: Option<TargetId>,
+    },
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction),
     ActionApplied(Generation),
@@ -148,64 +162,126 @@ const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(250);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Injected at document start of every frame: reroutes same-origin new-tab
-/// requests (`window.open`, `target="_blank"`) into the current tab; cross-origin left alone.
-const SUPPRESS_NEW_TABS_SCRIPT: &str = r#"(() => {
-  const sameOrigin = (href) => {
-    try {
-      return (
-        new URL(String(href), window.location.href).origin ===
-        window.location.origin
-      );
-    } catch (_) {
-      return false;
-    }
-  };
-  const forceSelf = (element) => {
-    if (element && element.target && element.target !== "_self") {
-      element.target = "_self";
-    }
-  };
-  window.open = function (url) {
-    if (url && sameOrigin(url)) {
-      try {
-        window.location.href = new URL(String(url), window.location.href).href;
-      } catch (_) {}
-    }
-    return window;
-  };
-  document.addEventListener(
-    "click",
-    (event) => {
-      const node = event.target;
-      const anchor = node && node.closest ? node.closest("a[target]") : null;
-      if (anchor && sameOrigin(anchor.href)) forceSelf(anchor);
-    },
-    true,
-  );
-  document.addEventListener(
-    "submit",
-    (event) => {
-      const form = event.target;
-      if (form && sameOrigin(form.action)) forceSelf(form);
-    },
-    true,
-  );
-})();"#;
+/// Ceiling on simultaneously-open tabs; over this we close the oldest tab that
+/// isn't active or on the fallback stack, so a tab-spawning page can't run away.
+const MAX_OPEN_TABS: usize = 20;
 
-struct BrowserContext {
-    sender: Sender<BrowserEvent>,
-    actions_sender: Sender<BrowserAction>,
-    inner_events_sender: Sender<InnerEvent>,
-    shutdown_receiver: oneshot::Receiver<()>,
+/// Max depth of the opener fallback stack. Below [`MAX_OPEN_TABS`] so orphan
+/// tabs still have room to be reclaimed before the stack fills up.
+const MAX_FOLLOW_DEPTH: usize = 8;
+
+/// How long to wait for a freshly-opened tab to commit to a real (non-blank)
+/// URL before giving up on following it.
+const FOLLOW_NAVIGATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Commands for the task that owns the [`chromiumoxide::Browser`] handle, which
+/// isn't `Clone` and whose `close` needs `&mut`, so one task serializes access.
+enum ActorCommand {
+    GetPage {
+        target_id: TargetId,
+        reply: oneshot::Sender<Result<Page>>,
+    },
+    CloseTarget {
+        target_id: TargetId,
+    },
+    Close {
+        reply: oneshot::Sender<()>,
+    },
+}
+
+/// Aborts a tab's spawned tasks when dropped, so a tab we no longer drive stops
+/// feeding the state machine.
+struct ListenerGuard {
+    handles: Vec<AbortHandle>,
+}
+
+impl Drop for ListenerGuard {
+    fn drop(&mut self) {
+        for handle in &self.handles {
+            handle.abort();
+        }
+    }
+}
+
+/// Everything tied to a single tab we are actively driving.
+struct PageSession {
     page: Arc<Page>,
     frame_id: FrameId,
     network_activity: activity::NetworkActivity,
     screencast_activity: activity::ScreencastActivity,
+    opener_id: Option<TargetId>,
+    _guard: ListenerGuard,
+}
+
+/// A suspended opener tab we can fall back to when the tab we followed into is
+/// closed. Listeners are torn down while suspended and rebuilt on fallback.
+struct StackedTab {
+    page: Arc<Page>,
+    opener_id: Option<TargetId>,
+}
+
+/// Insertion-ordered set of every open page target we know about, used to bound
+/// the total number of tabs.
+#[derive(Default)]
+struct TabRegistry {
+    order: Vec<TargetId>,
+}
+
+impl TabRegistry {
+    fn insert(&mut self, target_id: TargetId) {
+        if !self.order.contains(&target_id) {
+            self.order.push(target_id);
+        }
+    }
+
+    fn remove(&mut self, target_id: &TargetId) {
+        self.order.retain(|id| id != target_id);
+    }
+
+    fn len(&self) -> usize {
+        self.order.len()
+    }
+}
+
+struct BrowserContext {
+    sender: Sender<BrowserEvent>,
+    inner_events_sender: Sender<InnerEvent>,
+    shutdown_receiver: oneshot::Receiver<()>,
+    /// The tab currently being driven. Swapped when we follow into a new tab or
+    /// fall back to an opener.
+    active: Arc<Mutex<PageSession>>,
+    /// Openers we can fall back to, bottom-to-top (index 0 is the root tab).
+    opener_stack: Arc<Mutex<Vec<StackedTab>>>,
+    tabs: Arc<Mutex<TabRegistry>>,
+    actor: mpsc::UnboundedSender<ActorCommand>,
+    /// Scripts re-injected into every tab we drive (e.g. the specification
+    /// bundle), so followed tabs behave like the initial one.
+    document_scripts: Arc<Mutex<Vec<String>>>,
     latest_frame: Arc<Mutex<Option<Arc<[u8]>>>>,
-    #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
+}
+
+impl BrowserContext {
+    fn page(&self) -> Arc<Page> {
+        self.active.lock().unwrap().page.clone()
+    }
+
+    fn frame_id(&self) -> FrameId {
+        self.active.lock().unwrap().frame_id.clone()
+    }
+
+    fn active_target_id(&self) -> TargetId {
+        self.active.lock().unwrap().page.target_id().clone()
+    }
+
+    fn activity_stream(&self) -> activity::ActivityStream {
+        let active = self.active.lock().unwrap();
+        Box::pin(stream::select(
+            active.network_activity.stream(),
+            active.screencast_activity.stream(),
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -244,7 +320,8 @@ pub struct Browser {
     actions_sender: Sender<BrowserAction>,
     shutdown_sender: Option<oneshot::Sender<()>>,
     done_receiver: Option<oneshot::Receiver<()>>,
-    browser: Option<chromiumoxide::Browser>,
+    actor: mpsc::UnboundedSender<ActorCommand>,
+    document_scripts: Arc<Mutex<Vec<String>>>,
     page: Arc<Page>,
     origin: Url,
     go_to_origin_on_init: bool,
@@ -255,11 +332,8 @@ impl Drop for Browser {
         if let Some(sender) = self.shutdown_sender.take() {
             let _else = sender.send(());
         }
-        if let Some(browser) = self.browser.take() {
-            // Drop should already have been called by an explicit browser.close() in
-            // terminate(), but we do this as a last resort.
-            drop(browser);
-        }
+        // Dropping the last command sender lets the actor task exit and drop the
+        // browser as a last resort; terminate() is the clean path.
     }
 }
 
@@ -303,157 +377,111 @@ impl Browser {
             Arc::new(find_page(&mut browser).await?)
         };
 
-        page.enable_dom().await?;
-        page.enable_css().await?;
-        page.enable_runtime().await?;
-        page.enable_debugger().await?;
-        page.execute(network::EnableParams::default()).await?;
-
-        if !browser_options.extra_headers.is_empty() {
-            page.execute(network::SetExtraHttpHeadersParams::new(
-                network::Headers::new(json::to_value(
-                    &browser_options.extra_headers,
-                )?),
-            ))
-            .await?;
-        }
-
-        // Prevent file downloads to avoid getting stuck
-        page.execute(
-            browser::SetDownloadBehaviorParams::builder()
-                .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
-                .events_enabled(true)
-                .download_path(
-                    browser_options.downloads_directory.to_string_lossy(),
-                )
-                .build()
-                .map_err(|s| {
-                    anyhow!(s).context("build SetDownloadBehaviorParams failed")
-                })?,
-        )
-        .await?;
-
-        for permission in &browser_options.grant_permissions {
-            page.execute(
-                browser::SetPermissionParams::builder()
-                    .permission(browser::PermissionDescriptor::new(permission))
-                    .setting(browser::PermissionSetting::Granted)
-                    .build()
-                    .map_err(|s| {
-                        anyhow!(s).context("build SetPermissionParams failed")
-                    })?,
-            )
-            .await?;
-        }
-
-        page.execute(
-            emulation::SetDeviceMetricsOverrideParams::builder()
-                .width(browser_options.emulation.width)
-                .height(browser_options.emulation.height)
-                .device_scale_factor(
-                    browser_options.emulation.device_scale_factor,
-                )
-                .mobile(false)
-                .scale(1)
-                .build()
-                .map_err(|err| {
-                    anyhow!(err)
-                        .context("build SetDeviceMetricsOverrideParams failed")
-                })?,
-        )
-        .await?;
-
-        auto_accept_dialogs(page.clone()).await?;
-
-        suppress_new_tabs(&page).await?;
-
         let (inner_events_sender, inner_events_receiver) =
             channel::<InnerEvent>(1024);
 
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
         let (done_sender, done_receiver) = oneshot::channel::<()>();
 
-        let frame_id = page
-            .mainframe()
-            .await?
-            .ok_or(anyhow!("no main frame available"))?;
-
-        let network_activity =
-            activity::NetworkActivity::subscribe(&page).await?;
-        let screencast = Arc::new(
-            activity::Screencast::start(
-                &page,
-                browser_options.emulation.width,
-                browser_options.emulation.height,
-            )
-            .await?,
-        );
-        let screencast_activity =
-            activity::ScreencastActivity::new(screencast.clone());
-
         let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
             Arc::new(Mutex::new(None));
+        let document_scripts: Arc<Mutex<Vec<String>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
-        // Background task to keep the latest screencast frame updated.
-        {
-            let latest_frame = latest_frame.clone();
-            let mut receiver = screencast.subscribe();
-            spawn(async move {
-                loop {
-                    match receiver.recv().await {
-                        Ok(frame) => {
-                            *latest_frame.lock().unwrap() = Some(frame);
+        let initial_session = setup_page(
+            page.clone(),
+            &browser_options,
+            &latest_frame,
+            &inner_events_sender,
+            &[],
+            None,
+        )
+        .await?;
+
+        let mut tabs = TabRegistry::default();
+        tabs.insert(page.target_id().clone());
+
+        // Browser-level target events must be wired up while we still hold the
+        // browser handle, before it is moved into the actor task below.
+        let target_destroyed = browser
+            .event_listener::<target::EventTargetDestroyed>()
+            .await?
+            .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone()));
+        let target_created = browser
+            .event_listener::<target::EventTargetCreated>()
+            .await?
+            .filter_map(|event| async move {
+                let info = &event.target_info;
+                if info.r#type != "page" {
+                    return None;
+                }
+                Some(InnerEvent::TargetCreated {
+                    target_id: info.target_id.clone(),
+                    opener_id: info.opener_id.clone(),
+                })
+            });
+
+        let (actor, mut actor_commands) =
+            mpsc::unbounded_channel::<ActorCommand>();
+        spawn(async move {
+            while let Some(command) = actor_commands.recv().await {
+                match command {
+                    ActorCommand::GetPage { target_id, reply } => {
+                        let _ = reply.send(
+                            browser
+                                .get_page(target_id)
+                                .await
+                                .map_err(anyhow::Error::from),
+                        );
+                    }
+                    ActorCommand::CloseTarget { target_id } => {
+                        if let Err(error) = browser
+                            .execute(target::CloseTargetParams::new(target_id))
+                            .await
+                        {
+                            log::debug!("close target failed: {:?}", error);
                         }
-                        Err(
-                            tokio::sync::broadcast::error::RecvError::Lagged(n),
-                        ) => {
-                            log::debug!(
-                                "screencast frame receiver lagged by {}",
-                                n
-                            );
+                    }
+                    ActorCommand::Close { reply } => {
+                        if let Err(error) = browser.close().await {
+                            log::warn!("browser close error: {:?}", error);
                         }
-                        Err(
-                            tokio::sync::broadcast::error::RecvError::Closed,
-                        ) => break,
+                        let _ = reply.send(());
+                        break;
                     }
                 }
-            });
-        }
+            }
+        });
 
         let context = BrowserContext {
             sender,
-            actions_sender: actions_sender.clone(),
             inner_events_sender: inner_events_sender.clone(),
             shutdown_receiver,
-            page: page.clone(),
-            frame_id,
-            network_activity,
-            screencast_activity,
+            active: Arc::new(Mutex::new(initial_session)),
+            opener_stack: Arc::new(Mutex::new(Vec::new())),
+            tabs: Arc::new(Mutex::new(tabs)),
+            actor: actor.clone(),
+            document_scripts: document_scripts.clone(),
             latest_frame,
             origin: origin.clone(),
             browser_options: browser_options.clone(),
         };
 
-        instrumentation::instrument_js_coverage(
-            page.clone(),
-            browser_options.instrumentation.clone(),
-        )
-        .await?;
-
-        let browser_events = browser
-            .event_listener::<target::EventTargetDestroyed>()
-            .await?
-            .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone()));
-
         let events_all = stream::select_all(vec![
-            inner_events(&context).await?,
-            Box::pin(browser_events),
             receiver_to_stream(inner_events_receiver),
+            Box::pin(
+                receiver_to_stream(actions_sender.subscribe())
+                    .map(InnerEvent::ActionAccepted),
+            )
+                as Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>,
+            Box::pin(target_destroyed),
+            Box::pin(target_created),
         ]);
         run_state_machine(context, events_all, done_sender);
 
         Ok(Browser {
-            browser: Some(browser),
+            actor,
+            document_scripts,
             receiver,
             inner_events_sender,
             actions_sender,
@@ -492,19 +520,15 @@ impl Browser {
             let _ = sender.send(());
         }
 
-        // Close the browser before waiting for the state machine. Any CDP calls
-        // in-flight inside process_event will fail once the connection drops,
-        // unblocking the state machine so it can exit. Without this ordering,
-        // terminate() could deadlock: the state machine waits for a CDP response
-        // and the browser never closes because we're waiting for the state machine.
-        if let Some(mut browser) = self.browser.take() {
-            if let Err(error) = browser.close().await {
-                log::warn!("browser close error: {:?}", error);
-            }
-            // Drop explicitly; browser.close() may log a websocket error but
-            // the process is cleaned up here.
-            // Reported: https://github.com/mattsse/chromiumoxide/issues/287
-            drop(browser);
+        // Close the browser before awaiting the state machine, so any in-flight
+        // CDP call there fails fast instead of the two deadlocking on each other.
+        let (close_reply, close_done) = oneshot::channel::<()>();
+        if self
+            .actor
+            .send(ActorCommand::Close { reply: close_reply })
+            .is_ok()
+        {
+            let _ = close_done.await;
         }
 
         // Wait for the state machine to confirm it has exited. The done signal
@@ -534,35 +558,44 @@ impl Browser {
     }
 
     pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
-        let _ = self.page.evaluate_on_new_document(script).await?;
-
-        let main_execution_context_id = self
-            .page
-            .execution_context()
-            .await?
-            .ok_or(anyhow!("no execution context available"))?;
-        let _ = self
-            .page
-            .execute(
-                runtime::EvaluateParams::builder()
-                    .expression(script)
-                    .context_id(main_execution_context_id)
-                    .await_promise(true)
-                    .build()
-                    .expect("failed to build EvaluateParams"),
-            )
-            .await;
-        Ok(())
+        // Remember the script so tabs we follow into later get it too.
+        self.document_scripts
+            .lock()
+            .unwrap()
+            .push(script.to_string());
+        inject_document_script(&self.page, script).await
     }
 }
 
-/// Auto-accept JavaScript dialogs (alert, confirm, prompt, beforeunload)
-/// so they never block the test run.
-async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
+/// Register `script` to run on every future document of `page` and evaluate it
+/// once against the current document.
+async fn inject_document_script(page: &Page, script: &str) -> Result<()> {
+    let _ = page.evaluate_on_new_document(script).await?;
+
+    let main_execution_context_id = page
+        .execution_context()
+        .await?
+        .ok_or(anyhow!("no execution context available"))?;
+    let _ = page
+        .execute(
+            runtime::EvaluateParams::builder()
+                .expression(script)
+                .context_id(main_execution_context_id)
+                .await_promise(true)
+                .build()
+                .expect("failed to build EvaluateParams"),
+        )
+        .await;
+    Ok(())
+}
+
+/// Auto-accept JavaScript dialogs so they never block the test run; the returned
+/// handle stops the task when the tab is no longer driven.
+async fn auto_accept_dialogs(page: Arc<Page>) -> Result<AbortHandle> {
     let mut events = page
         .event_listener::<page::EventJavascriptDialogOpening>()
         .await?;
-    spawn(async move {
+    let handle = spawn(async move {
         while let Some(event) = events.next().await {
             log::debug!(
                 "auto-accepting JavaScript dialog: \
@@ -579,74 +612,209 @@ async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
                 )
                 .await;
         }
-    });
-    Ok(())
+    })
+    .abort_handle();
+    Ok(handle)
 }
 
-/// Inject [`SUPPRESS_NEW_TABS_SCRIPT`] for every future document, plus once for
-/// the current one (an externally-managed debugger may already have a page up).
-async fn suppress_new_tabs(page: &Page) -> Result<()> {
-    page.evaluate_on_new_document(SUPPRESS_NEW_TABS_SCRIPT)
+/// Prepare a tab for driving (enable CDP domains, re-inject scripts, subscribe to
+/// activity, spawn forwarders); dropping the returned session tears it all down.
+async fn setup_page(
+    page: Arc<Page>,
+    browser_options: &BrowserOptions,
+    latest_frame: &Arc<Mutex<Option<Arc<[u8]>>>>,
+    inner_events_sender: &Sender<InnerEvent>,
+    document_scripts: &[String],
+    opener_id: Option<TargetId>,
+) -> Result<PageSession> {
+    page.enable_dom().await?;
+    page.enable_css().await?;
+    page.enable_runtime().await?;
+    page.enable_debugger().await?;
+    page.execute(network::EnableParams::default()).await?;
+
+    if !browser_options.extra_headers.is_empty() {
+        page.execute(network::SetExtraHttpHeadersParams::new(
+            network::Headers::new(json::to_value(
+                &browser_options.extra_headers,
+            )?),
+        ))
         .await?;
-    let _ = page.evaluate(SUPPRESS_NEW_TABS_SCRIPT).await;
-    Ok(())
+    }
+
+    // Prevent file downloads to avoid getting stuck
+    page.execute(
+        browser::SetDownloadBehaviorParams::builder()
+            .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
+            .events_enabled(true)
+            .download_path(
+                browser_options.downloads_directory.to_string_lossy(),
+            )
+            .build()
+            .map_err(|s| {
+                anyhow!(s).context("build SetDownloadBehaviorParams failed")
+            })?,
+    )
+    .await?;
+
+    for permission in &browser_options.grant_permissions {
+        page.execute(
+            browser::SetPermissionParams::builder()
+                .permission(browser::PermissionDescriptor::new(permission))
+                .setting(browser::PermissionSetting::Granted)
+                .build()
+                .map_err(|s| {
+                    anyhow!(s).context("build SetPermissionParams failed")
+                })?,
+        )
+        .await?;
+    }
+
+    page.execute(
+        emulation::SetDeviceMetricsOverrideParams::builder()
+            .width(browser_options.emulation.width)
+            .height(browser_options.emulation.height)
+            .device_scale_factor(browser_options.emulation.device_scale_factor)
+            .mobile(false)
+            .scale(1)
+            .build()
+            .map_err(|err| {
+                anyhow!(err)
+                    .context("build SetDeviceMetricsOverrideParams failed")
+            })?,
+    )
+    .await?;
+
+    for script in document_scripts {
+        inject_document_script(&page, script).await?;
+    }
+
+    let frame_id = page
+        .mainframe()
+        .await?
+        .ok_or(anyhow!("no main frame available"))?;
+
+    let network_activity = activity::NetworkActivity::subscribe(&page).await?;
+    let screencast = Arc::new(
+        activity::Screencast::start(
+            &page,
+            browser_options.emulation.width,
+            browser_options.emulation.height,
+        )
+        .await?,
+    );
+    let screencast_activity =
+        activity::ScreencastActivity::new(screencast.clone());
+
+    let mut handles =
+        spawn_page_listeners(&page, &frame_id, inner_events_sender).await?;
+
+    // Keep the latest screencast frame updated for state capture.
+    {
+        let latest_frame = latest_frame.clone();
+        let mut receiver = screencast.subscribe();
+        let handle = spawn(async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(frame) => {
+                        *latest_frame.lock().unwrap() = Some(frame);
+                    }
+                    Err(RecvError::Lagged(n)) => {
+                        log::debug!(
+                            "screencast frame receiver lagged by {}",
+                            n
+                        );
+                    }
+                    Err(RecvError::Closed) => break,
+                }
+            }
+        })
+        .abort_handle();
+        handles.push(handle);
+    }
+
+    handles.push(auto_accept_dialogs(page.clone()).await?);
+
+    instrumentation::instrument_js_coverage(
+        page.clone(),
+        browser_options.instrumentation.clone(),
+    )
+    .await?;
+
+    Ok(PageSession {
+        page,
+        frame_id,
+        network_activity,
+        screencast_activity,
+        opener_id,
+        _guard: ListenerGuard { handles },
+    })
 }
 
-async fn inner_events(
-    context: &BrowserContext,
-) -> Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
-    type InnerEventStream =
-        Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
+/// Spawn a task per page-scoped CDP event that forwards [`InnerEvent`]s into
+/// `sender`; the returned handles stop them when the session is dropped.
+async fn spawn_page_listeners(
+    page: &Arc<Page>,
+    frame_id: &FrameId,
+    sender: &Sender<InnerEvent>,
+) -> Result<Vec<AbortHandle>> {
+    let mut handles = Vec::new();
 
-    let events_loaded = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventLoadEventFired>()
-            .await?
-            .map(|_| InnerEvent::Loaded),
-    ) as InnerEventStream;
+    macro_rules! forward {
+        ($stream:expr, $map:expr) => {{
+            let mut stream = Box::pin($stream);
+            let sender = sender.clone();
+            let map = $map;
+            spawn(async move {
+                while let Some(event) = stream.next().await {
+                    if let Some(inner) = map(event) {
+                        if sender.send(inner).is_err() {
+                            break;
+                        }
+                    }
+                }
+            })
+            .abort_handle()
+        }};
+    }
 
-    let events_paused = Box::pin(
-        context
-            .page
-            .event_listener::<debugger::EventPaused>()
-            .await?
-            .map(|event| InnerEvent::Paused {
-                reason: event.reason.clone(),
-                exception: event.data.clone(),
-                call_frame_id: event
-                    .call_frames
-                    .first()
-                    .map(|f| f.call_frame_id.clone()),
-            }),
-    ) as InnerEventStream;
+    handles.push(forward!(
+        page.event_listener::<page::EventLoadEventFired>().await?,
+        |_| Some(InnerEvent::Loaded)
+    ));
 
-    let events_resumed = Box::pin(
-        context
-            .page
-            .event_listener::<debugger::EventResumed>()
-            .await?
-            .map(|_| InnerEvent::Resumed),
-    ) as InnerEventStream;
+    handles.push(forward!(
+        page.event_listener::<debugger::EventPaused>().await?,
+        |event: Arc<debugger::EventPaused>| Some(InnerEvent::Paused {
+            reason: event.reason.clone(),
+            exception: event.data.clone(),
+            call_frame_id: event
+                .call_frames
+                .first()
+                .map(|f| f.call_frame_id.clone()),
+        })
+    ));
 
-    let events_exception_thrown = Box::pin(
-        context
-            .page
-            .event_listener::<runtime::EventExceptionThrown>()
-            .await?
-            .map(|e| {
-                InnerEvent::ExceptionThrown(Exception {
-                    exception_id: e.exception_details.exception_id as u32,
-                    timestamp: UNIX_EPOCH
-                        + Duration::from_secs_f64(
-                            *e.timestamp.inner() / 1000.0,
-                        ),
-                    text: e.exception_details.text.clone(),
-                    line: e.exception_details.line_number as u32,
-                    column: e.exception_details.column_number as u32,
-                    url: e.exception_details.url.clone(),
-                    remote_object: e.exception_details.exception.as_ref().map(
-                        |obj| state::ExceptionRemoteObject {
+    handles.push(forward!(
+        page.event_listener::<debugger::EventResumed>().await?,
+        |_| Some(InnerEvent::Resumed)
+    ));
+
+    handles.push(forward!(
+        page.event_listener::<runtime::EventExceptionThrown>()
+            .await?,
+        |e: Arc<runtime::EventExceptionThrown>| Some(
+            InnerEvent::ExceptionThrown(Exception {
+                exception_id: e.exception_details.exception_id as u32,
+                timestamp: UNIX_EPOCH
+                    + Duration::from_secs_f64(*e.timestamp.inner() / 1000.0),
+                text: e.exception_details.text.clone(),
+                line: e.exception_details.line_number as u32,
+                column: e.exception_details.column_number as u32,
+                url: e.exception_details.url.clone(),
+                remote_object: e.exception_details.exception.as_ref().map(
+                    |obj| {
+                        state::ExceptionRemoteObject {
                             type_name: format!("{:?}", obj.r#type),
                             subtype: obj
                                 .subtype
@@ -655,142 +823,190 @@ async fn inner_events(
                             class_name: obj.class_name.clone(),
                             description: obj.description.clone(),
                             value: obj.value.clone(),
-                        },
-                    ),
-                    stacktrace: e.exception_details.stack_trace.as_ref().map(
-                        |stack_trace| {
-                            stack_trace
-                                .call_frames
-                                .iter()
-                                .map(|frame| CallFrame {
-                                    name: frame.function_name.clone(),
-                                    line: frame.line_number as u32,
-                                    column: frame.column_number as u32,
-                                    url: frame.url.clone(),
-                                })
-                                .collect()
-                        },
-                    ),
+                        }
+                    },
+                ),
+                stacktrace: e.exception_details.stack_trace.as_ref().map(
+                    |stack_trace| {
+                        stack_trace
+                            .call_frames
+                            .iter()
+                            .map(|frame| CallFrame {
+                                name: frame.function_name.clone(),
+                                line: frame.line_number as u32,
+                                column: frame.column_number as u32,
+                                url: frame.url.clone(),
+                            })
+                            .collect()
+                    },
+                ),
+            })
+        )
+    ));
+
+    let target_frame = frame_id.clone();
+    handles.push(forward!(
+        page.event_listener::<page::EventFrameRequestedNavigation>()
+            .await?,
+        move |nav: Arc<page::EventFrameRequestedNavigation>| {
+            (nav.frame_id == target_frame).then(|| {
+                InnerEvent::FrameRequestedNavigation {
+                    frame_id: nav.frame_id.clone(),
+                    reason: nav.reason.clone(),
+                    url: nav.url.clone(),
+                }
+            })
+        }
+    ));
+
+    let target_frame = frame_id.clone();
+    handles.push(forward!(
+        page.event_listener::<page::EventFrameNavigated>().await?,
+        move |nav: Arc<page::EventFrameNavigated>| {
+            (nav.frame.id == target_frame).then(|| {
+                InnerEvent::FrameNavigated(
+                    nav.frame.id.clone(),
+                    nav.r#type.clone(),
+                )
+            })
+        }
+    ));
+
+    let target_frame = frame_id.clone();
+    handles.push(forward!(
+        page.event_listener::<browser::EventDownloadWillBegin>()
+            .await?,
+        move |event: Arc<browser::EventDownloadWillBegin>| {
+            (event.frame_id == target_frame).then(|| {
+                InnerEvent::DownloadWillBegin {
+                    frame_id: event.frame_id.clone(),
+                    url: event.url.clone(),
+                }
+            })
+        }
+    ));
+
+    handles.push(forward!(
+        page.event_listener::<runtime::EventConsoleApiCalled>()
+            .await?,
+        |call: Arc<runtime::EventConsoleApiCalled>| {
+            let level = match call.r#type {
+                runtime::ConsoleApiCalledType::Error => {
+                    state::ConsoleEntryLevel::Error
+                }
+                runtime::ConsoleApiCalledType::Warning => {
+                    state::ConsoleEntryLevel::Warning
+                }
+                _ => return None,
+            };
+            Some(InnerEvent::ConsoleEntry(ConsoleEntry {
+                timestamp: UNIX_EPOCH
+                    + Duration::from_secs_f64(*call.timestamp.inner() / 1000.0),
+                level,
+                args: call.args.iter().map(remote_object_to_json).collect(),
+            }))
+        }
+    ));
+
+    Ok(handles)
+}
+
+/// Wait for an opened tab to commit a URL, then follow it if it's in-domain;
+/// out-of-domain or never-committed tabs are closed instead.
+async fn await_followable_tab(
+    target_id: TargetId,
+    opener_id: Option<TargetId>,
+    origin: Url,
+    actor: mpsc::UnboundedSender<ActorCommand>,
+    inner_events_sender: Sender<InnerEvent>,
+) {
+    // A new target isn't resolvable until the CDP host attaches it, and only
+    // then navigates off about:blank, so poll for both within a timeout.
+    let resolved = tokio::time::timeout(FOLLOW_NAVIGATION_TIMEOUT, async {
+        let page = loop {
+            let (reply_sender, reply_receiver) = oneshot::channel();
+            if actor
+                .send(ActorCommand::GetPage {
+                    target_id: target_id.clone(),
+                    reply: reply_sender,
                 })
-            }),
-    ) as InnerEventStream;
+                .is_err()
+            {
+                return None;
+            }
+            if let Ok(Ok(page)) = reply_receiver.await {
+                break Arc::new(page);
+            }
+            sleep(Duration::from_millis(100)).await;
+        };
 
-    let frame_id = context.frame_id.clone();
-    let events_frame_requested_navigation = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventFrameRequestedNavigation>()
-            .await?
-            .filter_map(move |nav| {
-                let frame_id = frame_id.clone();
-                async move {
-                    if nav.frame_id == frame_id {
-                        Some(InnerEvent::FrameRequestedNavigation {
-                            frame_id: nav.frame_id.clone(),
-                            reason: nav.reason.clone(),
-                            url: nav.url.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
+        loop {
+            if let Ok(Some(url)) = page.url().await
+                && url != "about:blank"
+                && !url.is_empty()
+            {
+                return Some((page, url));
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
 
-    let frame_id = context.frame_id.clone();
-    let events_frame_navigated = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventFrameNavigated>()
-            .await?
-            .filter_map(move |nav| {
-                let frame_id = frame_id.clone();
-                async move {
-                    if nav.frame.id == frame_id {
-                        Some(InnerEvent::FrameNavigated(
-                            nav.frame.id.clone(),
-                            nav.r#type.clone(),
-                        ))
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
+    let Ok(Some((page, url_string))) = resolved else {
+        log::debug!(
+            "opened tab {:?} never became a followable page; not following",
+            target_id
+        );
+        let _ = actor.send(ActorCommand::CloseTarget { target_id });
+        return;
+    };
 
-    let frame_id = context.frame_id.clone();
-    let events_download_will_begin = Box::pin(
-        context
-            .page
-            .event_listener::<browser::EventDownloadWillBegin>()
-            .await?
-            .filter_map(move |event| {
-                let frame_id = frame_id.clone();
-                async move {
-                    if event.frame_id == frame_id {
-                        Some(InnerEvent::DownloadWillBegin {
-                            frame_id: event.frame_id.clone(),
-                            url: event.url.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
+    match Url::parse(&url_string) {
+        Ok(url) if is_within_domain(&url, &origin) => {
+            log::info!("following opened tab to {}", url);
+            let _ = inner_events_sender
+                .send(InnerEvent::FollowTab { page, opener_id });
+        }
+        _ => {
+            log::debug!(
+                "opened tab navigated out of domain ({}); leaving the \
+                 current tab in place",
+                url_string
+            );
+            let _ = actor.send(ActorCommand::CloseTarget { target_id });
+        }
+    }
+}
 
-    let events_target_destroyed = Box::pin(
-        context
-            .page
-            .event_listener::<target::EventTargetDestroyed>()
-            .await?
-            .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone())),
-    ) as InnerEventStream;
+/// Close the oldest tabs that are neither active nor on the opener stack until
+/// we are back under [`MAX_OPEN_TABS`]. Guards against tab-spawning pages.
+fn enforce_tab_budget(context: &BrowserContext) {
+    let protected: HashSet<TargetId> = {
+        let stack = context.opener_stack.lock().unwrap();
+        std::iter::once(context.active_target_id())
+            .chain(stack.iter().map(|tab| tab.page.target_id().clone()))
+            .collect()
+    };
 
-    let events_console = Box::pin(
-        context
-            .page
-            .event_listener::<runtime::EventConsoleApiCalled>()
-            .await?
-            .filter_map(async |call| {
-                let level = match call.r#type {
-                    runtime::ConsoleApiCalledType::Error => {
-                        state::ConsoleEntryLevel::Error
-                    }
-                    runtime::ConsoleApiCalledType::Warning => {
-                        state::ConsoleEntryLevel::Warning
-                    }
-                    _ => return None,
-                };
-
-                Some(InnerEvent::ConsoleEntry(ConsoleEntry {
-                    timestamp: UNIX_EPOCH
-                        + Duration::from_secs_f64(
-                            *call.timestamp.inner() / 1000.0,
-                        ),
-                    level,
-                    args: call.args.iter().map(remote_object_to_json).collect(),
-                }))
-            }),
-    ) as InnerEventStream;
-
-    let events_action_accepted = Box::pin(
-        receiver_to_stream(context.actions_sender.subscribe())
-            .map(InnerEvent::ActionAccepted),
-    );
-
-    Ok(Box::pin(stream::select_all(vec![
-        events_loaded,
-        events_paused,
-        events_resumed,
-        events_exception_thrown,
-        events_frame_requested_navigation,
-        events_frame_navigated,
-        events_download_will_begin,
-        events_target_destroyed,
-        events_console,
-        events_action_accepted,
-    ])))
+    let mut tabs = context.tabs.lock().unwrap();
+    while tabs.len() > MAX_OPEN_TABS {
+        let victim = tabs
+            .order
+            .iter()
+            .find(|id| !protected.contains(*id))
+            .cloned();
+        match victim {
+            Some(target_id) => {
+                tabs.remove(&target_id);
+                log::debug!("tab budget exceeded; closing {:?}", target_id);
+                let _ =
+                    context.actor.send(ActorCommand::CloseTarget { target_id });
+            }
+            // Everything left is protected; the opener-stack depth cap keeps
+            // the protected set itself bounded.
+            None => break,
+        }
+    }
 }
 
 fn run_state_machine(
@@ -885,7 +1101,7 @@ async fn process_event(
                 "paused without call frame, resuming and retrying capture"
             );
             context
-                .page
+                .page()
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
             let timer = start_quiescence_timer(
@@ -932,7 +1148,7 @@ async fn process_event(
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
 
             let browser_state = BrowserState::current(
-                context.page.clone(),
+                context.page(),
                 &call_frame_id,
                 console_entries,
                 exceptions,
@@ -964,7 +1180,7 @@ async fn process_event(
             InnerEvent::ActionAccepted(browser_action),
         ) => {
             context
-                .page
+                .page()
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
             InnerState {
@@ -1020,7 +1236,7 @@ async fn process_event(
             },
             InnerEvent::Resumed,
         ) => {
-            let page = context.page.clone();
+            let page = context.page();
             let sender = context.inner_events_sender.clone();
             let action_options = ActionOptions {
                 device_scale_factor: context
@@ -1055,11 +1271,7 @@ async fn process_event(
             });
 
             shared.console_entries.clear();
-            let activity = Box::pin(stream::select(
-                context.network_activity.stream(),
-                context.screencast_activity.stream(),
-            )) as activity::ActivityStream;
-            let subscription = quiescence::subscribe(activity);
+            let subscription = quiescence::subscribe(context.activity_stream());
             InnerState {
                 kind: Acting(subscription),
                 shared,
@@ -1105,7 +1317,7 @@ async fn process_event(
                 url,
             },
         ) => {
-            if frame_id == context.frame_id {
+            if frame_id == context.frame_id() {
                 log::debug!(
                     "navigating to {} due to {:?} (current state is {:?}, {})",
                     url,
@@ -1134,7 +1346,7 @@ async fn process_event(
                 shared,
             },
             InnerEvent::DownloadWillBegin { frame_id, url },
-        ) if frame_id == context.frame_id => {
+        ) if frame_id == context.frame_id() => {
             log::debug!("download started: {}", url);
             let timer = start_quiescence_timer(
                 &shared,
@@ -1174,7 +1386,7 @@ async fn process_event(
             }
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
-            if frame_id == context.frame_id {
+            if frame_id == context.frame_id() {
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
                     NavigationType::BackForwardCacheRestore => {
@@ -1194,11 +1406,158 @@ async fn process_event(
                 state
             }
         }
+        (
+            state,
+            InnerEvent::TargetCreated {
+                target_id,
+                opener_id,
+            },
+        ) => {
+            context.tabs.lock().unwrap().insert(target_id.clone());
+            enforce_tab_budget(context);
+
+            if opener_id.as_ref() == Some(&context.active_target_id()) {
+                // The tab we're driving spawned this one; once it commits to a
+                // URL we decide whether to follow it.
+                spawn(await_followable_tab(
+                    target_id,
+                    opener_id,
+                    context.origin.clone(),
+                    context.actor.clone(),
+                    context.inner_events_sender.clone(),
+                ));
+            } else if opener_id.is_none() {
+                log::debug!(
+                    "ignoring tab {:?} opened with no opener (e.g. \
+                     rel=noopener); cannot attribute it to the page under test",
+                    target_id
+                );
+            }
+            state
+        }
+        (state, InnerEvent::FollowTab { page, opener_id }) => {
+            let scripts = context.document_scripts.lock().unwrap().clone();
+            // The tab can close before we attach; if setup fails, keep driving
+            // the current tab instead of ending the run.
+            let new_session = match setup_page(
+                page,
+                &context.browser_options,
+                &context.latest_frame,
+                &context.inner_events_sender,
+                &scripts,
+                opener_id,
+            )
+            .await
+            {
+                Ok(session) => session,
+                Err(error) => {
+                    log::warn!(
+                        "failed to set up opened tab; not following: {:?}",
+                        error
+                    );
+                    return Ok(state);
+                }
+            };
+
+            // Suspend the current tab and remember it so we can fall back when
+            // the followed tab closes.
+            let old = {
+                let mut active = context.active.lock().unwrap();
+                std::mem::replace(&mut *active, new_session)
+            };
+            let old_page = old.page.clone();
+            let old_opener = old.opener_id.clone();
+            drop(old);
+
+            let stop_page = old_page.clone();
+            spawn(async move {
+                let _ = stop_page
+                    .execute(page::StopScreencastParams::default())
+                    .await;
+            });
+
+            {
+                let mut stack = context.opener_stack.lock().unwrap();
+                stack.push(StackedTab {
+                    page: old_page,
+                    opener_id: old_opener,
+                });
+                // Keep the root (index 0) and the most recent openers.
+                while stack.len() > MAX_FOLLOW_DEPTH {
+                    let dropped = stack.remove(1);
+                    let _ = context.actor.send(ActorCommand::CloseTarget {
+                        target_id: dropped.page.target_id().clone(),
+                    });
+                }
+            }
+
+            let shared = InnerStateShared {
+                generation: state.shared.generation.next(),
+                ..Default::default()
+            };
+            let timer = start_quiescence_timer(
+                &shared,
+                context,
+                &context.inner_events_sender,
+            );
+            InnerState {
+                kind: Running(timer),
+                shared,
+            }
+        }
         (state, InnerEvent::TargetDestroyed(target_id)) => {
-            if target_id == *context.page.target_id() {
-                bail!("page target {:?} was destroyed", target_id);
-            } else {
-                state
+            context.tabs.lock().unwrap().remove(&target_id);
+
+            if target_id != context.active_target_id() {
+                // A background or opener tab went away; forget it so we never
+                // try to fall back onto a closed tab.
+                context
+                    .opener_stack
+                    .lock()
+                    .unwrap()
+                    .retain(|tab| *tab.page.target_id() != target_id);
+                return Ok(state);
+            }
+
+            // The tab we're driving closed; fall back to its opener if we kept
+            // one alive, otherwise the run is over.
+            let fallback = context.opener_stack.lock().unwrap().pop();
+            match fallback {
+                Some(stacked) => {
+                    log::info!(
+                        "followed tab {:?} closed; falling back to opener",
+                        target_id
+                    );
+                    let scripts =
+                        context.document_scripts.lock().unwrap().clone();
+                    let session = setup_page(
+                        stacked.page,
+                        &context.browser_options,
+                        &context.latest_frame,
+                        &context.inner_events_sender,
+                        &scripts,
+                        stacked.opener_id,
+                    )
+                    .await?;
+                    *context.active.lock().unwrap() = session;
+
+                    let shared = InnerStateShared {
+                        generation: state.shared.generation.next(),
+                        ..Default::default()
+                    };
+                    let timer = start_quiescence_timer(
+                        &shared,
+                        context,
+                        &context.inner_events_sender,
+                    );
+                    InnerState {
+                        kind: Running(timer),
+                        shared,
+                    }
+                }
+                None => {
+                    bail!("page target {:?} was destroyed", target_id)
+                }
             }
         }
         (state, InnerEvent::Quiesced(generation)) => {
@@ -1244,11 +1603,7 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     inner_events_sender: &Sender<InnerEvent>,
 ) -> quiescence::QuiescenceTimer {
-    let activity = Box::pin(stream::select(
-        context.network_activity.stream(),
-        context.screencast_activity.stream(),
-    )) as activity::ActivityStream;
-    let subscription = quiescence::subscribe(activity);
+    let subscription = quiescence::subscribe(context.activity_stream());
     start_quiescence_timer_from_subscription(
         shared,
         inner_events_sender,
@@ -1294,7 +1649,7 @@ async fn capture_browser_state(
     }
     log::debug!("pausing, going into next generation...");
 
-    let page = context.page.clone();
+    let page = context.page();
     let main_execution_context_id = match page.execution_context().await? {
         Some(ctx) => ctx,
         None => {
@@ -1321,7 +1676,7 @@ async fn capture_browser_state(
         }
     }
 
-    let page = context.page.clone();
+    let page = context.page();
     spawn(async move {
         let _ = page
             .execute(

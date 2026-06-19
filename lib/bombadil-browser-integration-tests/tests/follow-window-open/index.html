@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Follow window.open</title>
+  </head>
+  <body>
+    <button id="open">Open in a new tab</button>
+    <script>
+      document.querySelector("#open").addEventListener("click", () => {
+        window.open("followed.html", "_blank");
+      });
+    </script>
+  </body>
+</html>
