@@ -297,7 +297,15 @@ jobs:
           name: manual-pages
           path: manual
       - name: Add llms-full.txt
-        run: cp manual/bombadil-manual.txt manual/llms-full.txt
+        run: |
+          cat > manual/llms-full.txt <<'EOF'
+          # The Bombadil Manual
+
+          Bombadil has two drivers. Fetch the plain-text manual for the one you need:
+
+          - Browser driver: browser/bombadil-manual.txt
+          - Terminal driver: terminal/bombadil-manual.txt
+          EOF
       - name: Upload to GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:

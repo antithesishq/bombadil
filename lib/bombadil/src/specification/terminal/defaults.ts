@@ -3,9 +3,12 @@ import {
   typeFromSet,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 import { weighted } from "@antithesishq/bombadil/terminal";
-export { exitSuccess } from "@antithesishq/bombadil/terminal/defaults/properties";
+export {
+  exitSuccess,
+  noReplacementChars,
+} from "@antithesishq/bombadil/terminal/defaults/properties";
 
-export const defaultActions = weighted([
+export const typeBasicInput = weighted([
   [10, typeFromSet(CharSets.UNICODE_SAFE)],
   [10, typeFromSet(CharSets.CONTROL_COMMON)],
 ]);

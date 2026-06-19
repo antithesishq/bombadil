@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "boa_engine",
@@ -459,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -512,11 +512,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.6.0"
+version = "0.6.1"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -563,7 +563,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "proptest",
@@ -571,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "bitflags 2.12.1",
  "insta",
@@ -582,7 +582,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -4040,7 +4040,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proptest",
  "serde",

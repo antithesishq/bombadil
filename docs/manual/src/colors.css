@@ -15,13 +15,12 @@
   --color-cyan: #3B8992;
   --color-cyan-bright: #2B747C;
   --color-fg: var(--color-white);
-  --color-fg-muted: var(--color-white-bright);
 
   --color-bg: #fff;
   --color-bg-muted: #fafafa;
   --color-border: #ddd;
   --color-fg: #2c363c;
-  --color-fg-muted: #B4BDC3;
+  --color-fg-muted: #888888;
 
   --color-primary: var(--color-magenta);
   --color-secondary: var(--color-blue);

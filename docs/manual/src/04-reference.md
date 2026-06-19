@@ -12,6 +12,7 @@
 | 1 | Other error |
 | 2 | Property violation(s) detected |
 
+::: browser
 ### bombadil browser test
 
 `bombadil` `test` [`[OPTIONS]`](#options-test) [`<ORIGIN>`](#arguments-test) [`[SPECIFICATION_FILE]`](#arguments-test)
@@ -30,7 +31,7 @@
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--output-path-overwrite` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
-| `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
+| `--time-limit <TIME_LIMIT>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
@@ -60,7 +61,7 @@
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace, screenshots, etc.) | |
 | `--output-path-overwrite` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
 | `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
-| `--time-limit <DURATION>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
+| `--time-limit <TIME_LIMIT>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
 | `--width <WIDTH>` | Browser viewport width in pixels | 1024 |
 | `--height <HEIGHT>` | Browser viewport height in pixels | 768 |
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
@@ -90,8 +91,9 @@
 | `--no-open` | Skip auto-opening browser | |
 | `-h, --help` | Print help | |
 :::
+:::
 
-
+::: terminal
 ### bombadil terminal test (EXPERIMENTAL!)
 
 `bombadil` `terminal` `test` [`[OPTIONS]`](#options-terminal-test) [`[COMMAND]*`](#arguments-terminal-test)
@@ -105,9 +107,17 @@
 ::: {#options-terminal-test}
 | Option | Description | Default |
 |--------|-------------|---------:|
-| `--test-count <TEST_COUNT>` | How many test cases to run (invocations of command) | 1 |
+| `--specification <SPECIFICATION_FILE>` | Path to a TypeScript specification file (uses the `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will use the default specification for terminal UIs. | |
+| `--exit-on-violation` | Whether to exit the test when first failing property is found (useful in development and CI) | |
+| `--time-limit <TIME_LIMIT>` | Maximum time to run the test; reaching the limit is treated as normal completion. Accepts a number with a unit suffix: s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d | |
+| `--columns <COLUMNS>` | Terminal columns at startup | 100 |
+| `--rows <ROWS>` | Terminal rows at startup | 40 |
+| `--scrollback-lines-max <SCROLLBACK_LINES_MAX>` | Maximum line count to keep in scrollback buffer  | 100 |
 | `--seed <SEED>` | Random generator seed | |
 | `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
+| `--output-path <OUTPUT_PATH>` | Where to store output data (trace.jsonl). Defaults to a fresh temporary directory. | |
 | `--output-path-overwrite` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
+| `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file (file path or directory containing `trace.jsonl`). Replays the recorded actions in order instead of generating new ones.| |
 | `-h, --help` | Print help | |
+:::
 :::

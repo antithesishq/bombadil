@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Bombadil Manual</title>
+    <link rel="stylesheet" href="reset.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body class="index">
+    <main>
+      <div class="content">
+        <header id="title-block-header">
+          <h1 class="title">The Bombadil Manual</h1>
+          <nav>
+            <span class="version">v__VERSION__</span>
+            <select id="driver-select" class="driver-select" aria-label="Driver">
+              <option value="browser">Browser</option>
+              <option value="terminal">Terminal</option>
+            </select>
+          </nav>
+        </header>
+        <nav class="index-cta">
+          <a id="link-read" class="btn btn-primary" href="browser/1-introduction.html">Introduction</a>
+          <a id="link-install" class="btn" href="browser/2-getting-started.html#installation">Install Bombadil</a>
+        </nav>
+
+        <section class="formats">
+          <h2>Other formats</h2>
+          <ul>
+            <li><a id="link-pdf" href="browser/bombadil-manual.pdf">PDF</a> and
+              <a id="link-epub" href="browser/bombadil-manual.epub">EPUB</a> for offline and print,</li>
+            <li><a id="link-txt" href="browser/bombadil-manual.txt">Plain text</a> for the agents and nostalgics, and</li>
+            <li><a id="link-man" href="browser/bombadil.1">Man page</a> for the hackers.</li>
+          </ul>
+        </section>
+      </div>
+    </main>
+    <script src="landing.js"></script>
+  </body>
+</html>

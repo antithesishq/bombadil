@@ -1,5 +1,17 @@
 # The Bombadil Changelog
 
+## 0.6.1
+
+# Major updates:
+
+* Adapt the README and manual for multiple drivers (#215, #216)
+* Refuse to silently append to an existing trace in `--output-path` (#204)
+
+Bug fixes:
+
+* Fix timeline tick label scaling (#171) (#196)
+* Fix llms text generation in release workflow (#220)
+
 ## 0.6.0
 
 Major updates:

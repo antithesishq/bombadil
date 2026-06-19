@@ -5,9 +5,10 @@ validating correctness properties, *finding harder bugs earlier*.
 
 Runs in your local developer environment, in CI, and inside Antithesis.
 
-> [!NOTE] Bombadil is new and experimental. API might still change while we're
-> on 0.x versions. That said, it helps real users find real bugs, so why not
-> give it a try!
+> [!NOTE] 
+> Bombadil is new and experimental. API might still change while we're
+> on `0.x` versions. That said, it helps real users find real bugs, so 
+> why not give it a try!
 
 ## Documentation
 
