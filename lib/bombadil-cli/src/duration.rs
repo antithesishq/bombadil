@@ -6,7 +6,7 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
         .find(|c: char| !c.is_ascii_digit())
         .map(|i| s.split_at(i))
         .ok_or_else(|| {
-            format!("missing unit suffix in {:?} (expected s, m, h, or d)", s)
+            format!("missing unit suffix in {:?} (expected s, m, h, or d)!", s)
         })?;
 
     if digits.is_empty() {
