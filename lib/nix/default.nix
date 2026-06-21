@@ -83,14 +83,26 @@ let
     (map (dir: (builtins.fromTOML (builtins.readFile (../../lib + "/${dir}/Cargo.toml"))).package.name))
   ];
 
-  # Minimal source for deps: only cargo metadata so that .ts/.html/etc.
-  # changes don't invalidate the deps derivation hash. Versions are also
-  # zeroed so that version bumps don't cause rebuilds.
+  # Minimal source for deps: cargo manifests + lockfile + .cargo config, plus
+  # blank `lib.rs`/`main.rs` stubs so cargo's target auto-detection works.
+  # Non-root .rs files are excluded so edits to module files don't invalidate
+  # the deps derivation hash. Versions are also zeroed so that version bumps
+  # don't cause rebuilds.
   depsSrc =
     let
       cargoOnly = lib.cleanSourceWith {
         src = ../..;
-        filter = path: type: craneLib.filterCargoSources path type;
+        filter =
+          path: type:
+          let
+            name = baseNameOf (toString path);
+          in
+          type == "directory"
+          || name == "Cargo.toml"
+          || name == "Cargo.lock"
+          || name == "config.toml"
+          || name == "lib.rs"
+          || name == "main.rs";
       };
     in
     runCommand "bombadil-deps-src" { } ''
@@ -100,6 +112,10 @@ let
       for crate in ${lib.concatStringsSep " " crateNames}; do
         sed -i "/^name = \"$crate\"/{n;s/^version = .*/version = \"0.0.0\"/}" $out/Cargo.lock
       done
+      # Blank crate-root stubs so their content doesn't influence dep builds.
+      # crane's mkDummySrc replaces these with its own stubs anyway.
+      find $out -name lib.rs -exec sh -c ': > "$1"' _ {} \;
+      find $out -name main.rs -exec sh -c 'echo "fn main() {}" > "$1"' _ {} \;
     '';
 
   commonArgs = {
