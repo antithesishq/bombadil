@@ -452,6 +452,8 @@ jobs:
             --exit-on-violation \
             --time-limit 30s || true
       - name: Test inspect UI
+        env:
+          TIME_LIMIT: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '1m' || '20s' }}
         run: |
           ./bombadil browser inspect report --no-open --port 1073 &
           for i in $(seq 1 30); do
@@ -462,7 +464,7 @@ jobs:
             --headless --no-sandbox \
             --instrument-javascript="" \
             --output-path inspect-test-output \
-            --time-limit 1m \
+            --time-limit "$TIME_LIMIT" \
             http://localhost:1073 \
             lib/bombadil-inspect/test/inspect.spec.ts
       - name: Upload inspect test output
