@@ -323,9 +323,13 @@ jobs:
           path: docs/manual/target/
 
   inspect-test:
-    name: Inspect UI test
+    name: Inspect UI test (${{ matrix.run }})
     needs: build-x86_64-linux
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
       - uses: browser-actions/setup-chrome@v1
@@ -364,14 +368,17 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: inspect-test-output
+          name: inspect-test-output-${{ matrix.run }}
           path: inspect-test-output/
 
   smoke-test:
-    name: Smoke test (${{ matrix.os }})
+    name: Smoke test (${{ matrix.os }}, ${{ matrix.run }})
     needs: [build-x86_64-linux, build-aarch64-darwin]
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         include:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
@@ -388,7 +395,17 @@ jobs:
           chmod +x bombadil
           ./bombadil --version
       - name: Test terminal subcommand
-        run: ./bombadil terminal test --specification lib/bombadil-terminal/examples/cat.ts head -n 100
+        run: |
+          ./bombadil terminal test \
+            --specification lib/bombadil-terminal/examples/cat.ts \
+            --output-path terminal-test-output \
+            head -n 100
+      - name: Upload terminal test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-test-output-${{ matrix.os }}-${{ matrix.run }}
+          path: terminal-test-output/
 
   test-npm-package:
     name: Test npm package (${{ matrix.os }})
