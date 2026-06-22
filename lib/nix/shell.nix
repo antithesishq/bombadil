@@ -1,17 +1,18 @@
 {
-  pkgs ? import
-    (fetchTarball {
-      url = "https://github.com/NixOS/nixpkgs/archive/4c1018dae018162ec878d42fec712642d214fdfa.tar.gz";
-      sha256 = "sha256-ar3rofg+awPB8QXDaFJhJ2jJhu+KqN/PRCXeyuXR76E=";
-    })
-    {
-      overlays = [
-        (import (fetchTarball {
-          url = "https://github.com/oxalica/rust-overlay/archive/4d6fee71fea68418a48992409b47f1183d0dd111.tar.gz";
-          sha256 = "sha256-5TD8MYqLMcJi9yV/9jq2dVUPtnu/lKZPD61esQCgvqs=";
-        }))
-      ];
-    },
+  pkgs ?
+    import
+      (fetchTarball {
+        url = "https://github.com/NixOS/nixpkgs/archive/4c1018dae018162ec878d42fec712642d214fdfa.tar.gz";
+        sha256 = "sha256-ar3rofg+awPB8QXDaFJhJ2jJhu+KqN/PRCXeyuXR76E=";
+      })
+      {
+        overlays = [
+          (import (fetchTarball {
+            url = "https://github.com/oxalica/rust-overlay/archive/4d6fee71fea68418a48992409b47f1183d0dd111.tar.gz";
+            sha256 = "sha256-5TD8MYqLMcJi9yV/9jq2dVUPtnu/lKZPD61esQCgvqs=";
+          }))
+        ];
+      },
 }:
 let
   rustToolchain = pkgs.rust-bin.stable.latest.default.override {
