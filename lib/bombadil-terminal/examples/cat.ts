@@ -1,6 +1,11 @@
 import { eventually } from "@antithesishq/bombadil";
+import { ActionGenerator, branch, leaf } from "@antithesishq/bombadil/actions";
 import { extract } from "@antithesishq/bombadil/terminal";
-export * from "@antithesishq/bombadil/terminal/defaults";
+import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
+export {
+  exitSuccess,
+  noReplacementChars,
+} from "@antithesishq/bombadil/terminal/defaults";
 
 const nonBlankLines = extract((state) => {
   const lines = [];
@@ -13,6 +18,15 @@ const nonBlankLines = extract((state) => {
   return lines;
 });
 
-export const eventuallyHelloWorld = eventually(() =>
-  nonBlankLines.current.every((line) => line === "hello world"),
+export const eventuallyHelloWorldOrExit = eventually(
+  () =>
+    nonBlankLines.current.filter((line) => line.includes("hello world"))
+      .length > 5,
+).within(5, "seconds");
+
+export const typeHelloWorld = new ActionGenerator(() =>
+  branch([
+    [10, typeBasicInput.generate()],
+    [1, leaf({ TypeText: { text: "hello world" } })],
+  ]),
 );

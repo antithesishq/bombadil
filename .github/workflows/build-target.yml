@@ -1,0 +1,122 @@
+name: Build target
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      rust_target:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+
+env:
+  ZIG_VERSION: "0.15.2"
+  WASM_BINDGEN_VERSION: "0.2.125"
+  TRUNK_VERSION: "0.21.7"
+  BINARYEN_VERSION: "130"
+
+jobs:
+  build:
+    runs-on: ${{ inputs.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang lld musl-tools git ca-certificates curl xz-utils
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ inputs.rust_target }},wasm32-unknown-unknown
+
+      - name: Install Zig
+        # tip of mlugg/setup-zig#chenrui333/node-24 (Node 24 runtime); swap to a tagged release once available
+        uses: mlugg/setup-zig@272b55e6c4fcef353f6d923050ff32f018636378
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Cache Zig global cache (ghostty build.zig.zon deps)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/zig
+            ~/AppData/Local/zig
+            ~/Library/Caches/zig
+          key: zig-cache-${{ runner.os }}-${{ inputs.target }}-${{ env.ZIG_VERSION }}
+          restore-keys: |
+            zig-cache-${{ runner.os }}-${{ inputs.target }}-${{ env.ZIG_VERSION }}-
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: Install trunk / wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk@${{ env.TRUNK_VERSION }},wasm-bindgen-cli@${{ env.WASM_BINDGEN_VERSION }}
+
+      - name: Install binaryen
+        run: |
+          set -euo pipefail
+          case "${{ inputs.target }}" in
+            x86_64-linux)    asset="x86_64-linux"  ;;
+            aarch64-linux)   asset="aarch64-linux" ;;
+            aarch64-darwin)  asset="arm64-macos"   ;;
+            *) echo "::error::unknown target ${{ inputs.target }}"; exit 1 ;;
+          esac
+          tarball="binaryen-version_${BINARYEN_VERSION}-${asset}.tar.gz"
+          url="https://github.com/WebAssembly/binaryen/releases/download/version_${BINARYEN_VERSION}/${tarball}"
+          curl -fsSL "$url" -o "$tarball"
+          tar -xzf "$tarball"
+          echo "${{ github.workspace }}/binaryen-version_${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Build bombadil-cli
+        env:
+          CARGO_BUILD_TARGET: ${{ inputs.rust_target }}
+          CC: clang
+          CXX: clang++
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          CARGO_FLAGS_EXTRA: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '--release' || '' }}
+        run: |
+          # crt-static for static musl binaries on Linux; Darwin links normally.
+          # Setting RUSTFLAGS env overrides .cargo/config.toml's [build].rustflags
+          # entirely (no merging), so include --cfg=web_sys_unstable_apis here too
+          # for the trunk-spawned wasm32 build of bombadil-inspect.
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            export RUSTFLAGS="-C target-feature=+crt-static --cfg=web_sys_unstable_apis"
+            case "${{ inputs.rust_target }}" in
+              x86_64-unknown-linux-musl)
+                export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+                export CC_x86_64_unknown_linux_musl=musl-gcc
+                ;;
+              aarch64-unknown-linux-musl)
+                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc
+                export CC_aarch64_unknown_linux_musl=musl-gcc
+                ;;
+            esac
+          fi
+          cargo build $CARGO_FLAGS_EXTRA -p bombadil-cli \
+            --target ${{ inputs.rust_target }}
+
+      - name: Stage binary
+        env:
+          CARGO_PROFILE: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'release' || 'debug' }}
+        run: |
+          mkdir -p artifact
+          cp target/${{ inputs.rust_target }}/$CARGO_PROFILE/bombadil artifact/bombadil
+          chmod +x artifact/bombadil
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: bombadil-${{ inputs.target }}
+          path: artifact/bombadil

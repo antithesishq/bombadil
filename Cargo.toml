@@ -18,7 +18,11 @@ version = "0.6.1"
 edition = "2024"
 
 [workspace.dependencies]
-antithesis_sdk = { git = "https://github.com/antithesishq/antithesis-sdk-rust", rev = "6829a946e7e970cc743ffe17c3cee7d2bc25425a", features = ["rand_v0_10"] }
+antithesis_sdk = { 
+  version = "0.2.9", 
+  default-features = false, 
+  features = ["rand_v0_10"],
+}
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
@@ -65,10 +69,13 @@ tokio-stream = "0.1.17"
 tower = "0.5.2"
 tower-http = "0.6.8"
 url = "2.5.7"
-wasm-bindgen = "=0.2.114"
+wasm-bindgen = "=0.2.125"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 yew = "0.23"
+
+[profile.test]
+debug = "line-tables-only"
 
 [profile.release]
 opt-level = "z"
