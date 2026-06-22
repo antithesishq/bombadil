@@ -2,13 +2,13 @@
 
 ## Developer environment
 
-You can either use the Nix dev shell (provides everything pinned) or install
-the toolchain yourself.
+You can either use the Nix dev shell (recommended, provides everything pinned)
+or install the toolchain yourself.
 
 ### With Nix
 
 ```bash
-nix develop
+nix-shell lib/nix/shell.nix
 # or, if you have direnv:
 direnv allow .
 ```
@@ -24,11 +24,13 @@ Install the toolchain by hand:
   ghostty terminal. Get it from <https://ziglang.org/download/>.
 - **trunk** + **wasm-bindgen-cli** + **binaryen** — for building the
   `bombadil-inspect` WASM frontend that `bombadil-cli`'s build script bundles.
-  `wasm-bindgen-cli` must match the `=X.Y.Z` pin in `Cargo.toml`; mismatches
-  produce broken bindings.
+  `wasm-bindgen-cli` must match the `=X.Y.Z` pin in `Cargo.toml`.
 - **clang**, **pkg-config**, **cmake**, **git** — native build deps for
   `bombadil-terminal`.
-- **chromium** — for the integration tests that drive a real browser.
+- **Chrome/Chromium** — for the integration tests that drive a real browser.
+
+For release script:
+
 - **Python 3** + **gh** + **basedpyright** + **black** — for the release
   scripts in `lib/release/`.
 
@@ -43,24 +45,8 @@ shell to keep it lighter. To work on the manual in `docs/manual/`:
 
 ```bash
 cd docs/manual
-direnv allow  # loads the 'manual' shell automatically
-make html     # or make pdf, make epub, etc.
-```
-
-Or run directly:
-
-```bash
-nix develop '.#manual' --command make -C docs/manual pdf
-```
-
-## Workspace structure
-
-The project is a Cargo workspace under `lib/`. See `AGENTS.md` for a
-crate-by-crate breakdown. Build individual crates with `-p`:
-
-```bash
-cargo build -p bombadil       # Core library only
-cargo build -p bombadil-cli   # CLI binary (includes library + inspect WASM)
+direnv allow  # or nix-shell
+make dev      # or make html, make pdf, make epub, etc for one-off builds.
 ```
 
 ## Debugging
@@ -68,12 +54,8 @@ cargo build -p bombadil-cli   # CLI binary (includes library + inspect WASM)
 See debug logs:
 
 ```bash
-RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless
+RUST_LOG=bombadil=debug cargo run -- browser test https://example.com --headless
 ```
-
-There's also [VSCode launch configs](development/launch.json) for debugging
-with codelldb. These have only been tested from `nvim-dap`, though. Put that
-in `.vscode/launch.json` and modify at will.
 
 ### Bombadil Inspect
 
@@ -92,24 +74,6 @@ trunk serve
 
 This only runs the frontend. Run the backend using the `inspect` command in a
 separate tab.
-
-## Running in podman
-
-On a Linux host, build the binary with your default toolchain and bake the
-image. The `--target x86_64-unknown-linux-musl` step is only needed if you
-want to mirror CI's fully-static release binary.
-
-```bash
-cargo build --release -p bombadil-cli
-mkdir -p artifact && cp target/release/bombadil artifact/
-docker build -t bombadil_docker:latest .  # use the Dockerfile CI generates
-```
-
-Run it:
-
-```bash
-podman run -ti localhost/bombadil_docker:latest <SOME_URL>
-```
 
 ## Development
 
