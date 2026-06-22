@@ -18,9 +18,6 @@ env:
   WASM_BINDGEN_VERSION: "0.2.125"
   TRUNK_VERSION: "0.21.7"
   BINARYEN_VERSION: "130"
-  # Keep this in sync with flake.nix's ghosttySrc rev and the
-  # GHOSTTY_COMMIT pinned by libghostty-vt-sys's build.rs.
-  GHOSTTY_COMMIT: "bfe633a9487892ff3d27ed727db540267f22ef90"
 
 jobs:
   build:
@@ -53,27 +50,9 @@ jobs:
             ~/.cache/zig
             ~/AppData/Local/zig
             ~/Library/Caches/zig
-          key: zig-cache-${{ runner.os }}-${{ inputs.target }}-${{ env.ZIG_VERSION }}-${{ env.GHOSTTY_COMMIT }}
+          key: zig-cache-${{ runner.os }}-${{ inputs.target }}-${{ env.ZIG_VERSION }}
           restore-keys: |
             zig-cache-${{ runner.os }}-${{ inputs.target }}-${{ env.ZIG_VERSION }}-
-
-      - name: Cache ghostty source checkout
-        id: ghostty-src-cache
-        uses: actions/cache@v4
-        with:
-          path: .ghostty-src
-          key: ghostty-src-${{ env.GHOSTTY_COMMIT }}
-
-      - name: Checkout ghostty source
-        if: steps.ghostty-src-cache.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
-        with:
-          repository: ghostty-org/ghostty
-          ref: ${{ env.GHOSTTY_COMMIT }}
-          path: .ghostty-src
-
-      - name: Export GHOSTTY_SOURCE_DIR
-        run: echo "GHOSTTY_SOURCE_DIR=${{ github.workspace }}/.ghostty-src" >> $GITHUB_ENV
 
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.10

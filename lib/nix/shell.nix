@@ -60,21 +60,6 @@ let
         mainProgram = "wasm-bindgen";
       };
     };
-
-  # Pinned to match `GHOSTTY_COMMIT` in libghostty-vt-sys's build.rs at
-  # the `libghostty-vt` rev used by `lib/bombadil-terminal/Cargo.toml`.
-  # Bump these together when updating libghostty-vt. libghostty-vt-sys's
-  # build.rs reads GHOSTTY_SOURCE_DIR / GHOSTTY_ZIG_SYSTEM_DIR to skip
-  # its in-tree clone and use this pre-fetched source + zig deps.
-  ghosttySrc = pkgs.fetchFromGitHub {
-    owner = "ghostty-org";
-    repo = "ghostty";
-    rev = "bfe633a9487892ff3d27ed727db540267f22ef90";
-    sha256 = "1zmybfhrz64h6kibx23ixqsi7x9aw7c3szyb39zswh7mvg517297";
-  };
-  ghosttyZigDeps = pkgs.callPackage "${ghosttySrc}/build.zig.zon.nix" {
-    name = "bombadil-ghostty-zig-deps";
-  };
 in
 pkgs.mkShell (
   {
@@ -84,9 +69,6 @@ pkgs.mkShell (
       export CXX=${pkgs.clang}/bin/clang++
     '';
     CARGO_INSTALL_ROOT = "${toString ../../.}/.cargo";
-    GHOSTTY_SOURCE_DIR = ghosttySrc;
-    GHOSTTY_ZIG_SYSTEM_DIR = ghosttyZigDeps;
-
     nativeBuildInputs = [ rustToolchain ];
 
     packages = [ (pkgs.callPackage ./cargo-hotpath.nix { }) ];
