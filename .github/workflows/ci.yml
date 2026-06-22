@@ -179,14 +179,6 @@ jobs:
           cp target/${{ matrix.rust_target }}/$CARGO_PROFILE/bombadil artifact/bombadil
           chmod +x artifact/bombadil
 
-      - name: Rewrite dylib refs (Darwin only)
-        if: runner.os == 'macOS'
-        run: |
-          for nixlib in $(otool -L artifact/bombadil | awk '/\/nix\/store/{print $1}'); do
-            base=$(basename "$nixlib")
-            install_name_tool -change "$nixlib" "/usr/lib/$base" artifact/bombadil
-          done
-
       - name: cargo fmt
         if: matrix.target == 'x86_64-linux'
         run: cargo fmt --all -- --check
@@ -207,7 +199,7 @@ jobs:
           # supports-color disables ANSI codes when stdout isn't a TTY (as in
           # CI). Force colors so snapshot tests match the local TTY output.
           FORCE_COLOR: "1"
-        run: cargo test --workspace --exclude bombadil-inspect --exclude bombadil-browser-integration-tests
+        run: cargo test --workspace --exclude bombadil-inspect
 
       - name: Upload binary
         uses: actions/upload-artifact@v4
@@ -215,25 +207,27 @@ jobs:
           name: bombadil-${{ matrix.target }}
           path: artifact/bombadil
 
-      - name: Build Docker image
-        if: matrix.target == 'x86_64-linux'
-        run: |
-          cat > Dockerfile <<'EOF'
-          FROM debian:bookworm-slim
-          RUN apt-get update && \
-              apt-get install -y --no-install-recommends \
-                chromium ca-certificates bash coreutils && \
-              rm -rf /var/lib/apt/lists/* && \
-              useradd -r -m browser && \
-              mkdir -p /home/browser/.cache /home/browser/.config /home/browser/.local /home/browser/.pki && \
-              chown -R browser /home/browser && \
-              mkdir -p /var/www/.config/google-chrome/Crashpad && \
-              chown -R browser /var/www/.config
-          COPY artifact/bombadil /usr/local/bin/bombadil
-          USER browser
-          ENTRYPOINT ["/usr/local/bin/bombadil", "test", "--headless"]
-          EOF
-          docker build -t bombadil_docker:latest .
+      # TODO: Disabled until we have a registry to push to
+      #
+      # - name: Build Docker image
+      #   if: matrix.target == 'x86_64-linux'
+      #   run: |
+      #     cat > Dockerfile <<'EOF'
+      #     FROM debian:bookworm-slim
+      #     RUN apt-get update && \
+      #         apt-get install -y --no-install-recommends \
+      #           chromium ca-certificates bash coreutils && \
+      #         rm -rf /var/lib/apt/lists/* && \
+      #         useradd -r -m browser && \
+      #         mkdir -p /home/browser/.cache /home/browser/.config /home/browser/.local /home/browser/.pki && \
+      #         chown -R browser /home/browser && \
+      #         mkdir -p /var/www/.config/google-chrome/Crashpad && \
+      #         chown -R browser /var/www/.config
+      #     COPY artifact/bombadil /usr/local/bin/bombadil
+      #     USER browser
+      #     ENTRYPOINT ["/usr/local/bin/bombadil", "test", "--headless"]
+      #     EOF
+      #     docker build -t bombadil_docker:latest .
 
   build-npm-package:
     runs-on: ubuntu-latest
@@ -409,7 +403,6 @@ jobs:
             if curl -sf http://localhost:1073 > /dev/null 2>&1; then break; fi
             sleep 1
           done
-          export RUST_LOG=debug
           ./bombadil browser test \
             --headless --no-sandbox \
             --instrument-javascript="" \
