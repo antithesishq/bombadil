@@ -152,15 +152,34 @@ jobs:
           FORCE_COLOR: "1"
         run: cargo test --workspace --exclude bombadil-inspect --exclude bombadil-browser-integration-tests
 
+  browser-integration-tests:
+    name: Integration tests (browser)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang lld git ca-certificates curl xz-utils
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
       - name: Install Chromium
-        if: runner.os == 'Linux'
         uses: browser-actions/setup-chrome@v1
         id: setup-chrome
         with:
           chrome-version: stable
 
-      - name: cargo test (browser integration, isolated network)
-        if: runner.os == 'Linux'
+      - name: cargo test (browser integration tests)
         env:
           CC: clang
           CXX: clang++
@@ -170,16 +189,15 @@ jobs:
           INSTA_UPDATE: "no"
           FORCE_COLOR: "1"
           CHROME: ${{ steps.setup-chrome.outputs.chrome-path }}
-        # Run inside a fresh user+network namespace with only loopback up —
-        # tests can hit local axum servers but anything reaching outbound
-        # fails fast instead of hanging on flaky DNS / external services.
-        # Ubuntu 24.04 restricts unprivileged userns via AppArmor; lift it.
+        # Run inside a fresh user+network namespace with only loopback up.
+        # Tests can hit local servers but anything reaching outbound fails fast.
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          unshare --user --map-root-user --net -- bash -c '
+          EXECUTABLE=$(cargo test --no-run -p bombadil-browser-integration-tests --no-default-features --message-format=json | jq -r 'select(.target.name == "integration_tests") | .executable')
+          unshare --user --map-root-user --net -- bash -c "
             ip link set lo up
-            cargo test -p bombadil-browser-integration-tests
-          '
+            $EXECUTABLE
+          "
 
   build-npm-package:
     runs-on: ubuntu-latest
