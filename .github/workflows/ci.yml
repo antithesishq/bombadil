@@ -149,6 +149,7 @@ jobs:
           CXX: clang++
           SCCACHE_GHA_ENABLED: "true"
           RUSTC_WRAPPER: "sccache"
+          CARGO_FLAGS_EXTRA: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '--release' || '' }}
         run: |
           # crt-static for static musl binaries on Linux; Darwin links normally.
           # Setting RUSTFLAGS env overrides .cargo/config.toml's [build].rustflags
@@ -167,13 +168,15 @@ jobs:
                 ;;
             esac
           fi
-          cargo build --release -p bombadil-cli \
+          cargo build $CARGO_FLAGS_EXTRA -p bombadil-cli \
             --target ${{ matrix.rust_target }}
 
       - name: Stage binary
+        env:
+          CARGO_PROFILE: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && 'release' || 'debug' }}
         run: |
           mkdir -p artifact
-          cp target/${{ matrix.rust_target }}/release/bombadil artifact/bombadil
+          cp target/${{ matrix.rust_target }}/$CARGO_PROFILE/bombadil artifact/bombadil
           chmod +x artifact/bombadil
 
       - name: Rewrite dylib refs (Darwin only)
