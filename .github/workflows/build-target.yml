@@ -23,7 +23,7 @@ jobs:
   build:
     runs-on: ${{ inputs.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -39,12 +39,13 @@ jobs:
           targets: ${{ inputs.rust_target }},wasm32-unknown-unknown
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        # tip of mlugg/setup-zig#chenrui333/node-24 (Node 24 runtime); swap to a tagged release once available
+        uses: mlugg/setup-zig@272b55e6c4fcef353f6d923050ff32f018636378
         with:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Cache Zig global cache (ghostty build.zig.zon deps)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/zig
@@ -115,7 +116,7 @@ jobs:
           chmod +x artifact/bombadil
 
       - name: Upload binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bombadil-${{ inputs.target }}
           path: artifact/bombadil

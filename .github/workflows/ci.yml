@@ -22,7 +22,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify tag matches Cargo.toml version
         run: |
           cargo_version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
@@ -75,7 +75,7 @@ jobs:
     name: Check (fmt + clippy + test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build dependencies
         run: |
@@ -90,12 +90,13 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        # tip of mlugg/setup-zig#chenrui333/node-24 (Node 24 runtime); swap to a tagged release once available
+        uses: mlugg/setup-zig@272b55e6c4fcef353f6d923050ff32f018636378
         with:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Cache Zig global cache (ghostty build.zig.zon deps)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/zig
           key: zig-cache-Linux-x86_64-linux-${{ env.ZIG_VERSION }}
@@ -134,7 +135,7 @@ jobs:
     name: Integration tests (browser)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build dependencies
         run: |
@@ -152,7 +153,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Install Chromium
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
         id: setup-chrome
         with:
           chrome-version: stable
@@ -180,8 +181,8 @@ jobs:
   build-npm-package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - name: Install TypeScript
@@ -279,7 +280,7 @@ jobs:
       - name: Create package tarball
         run: tar -czf bombadil-npm-package.tar.gz -C npm-pkg-dist .
       - name: Upload package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bombadil-npm-package
           path: bombadil-npm-package.tar.gz
@@ -287,7 +288,7 @@ jobs:
   build-manual:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install manual build dependencies
         run: |
@@ -311,13 +312,13 @@ jobs:
         run: tar -czf bombadil-manual.tar.gz -C docs/manual/target .
 
       - name: Upload manual artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bombadil-manual
           path: bombadil-manual.tar.gz
 
       - name: Upload manual for GitHub Pages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: manual-pages
           path: docs/manual/target/
@@ -331,13 +332,13 @@ jobs:
       matrix:
         run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
-      - uses: actions/checkout@v4
-      - uses: browser-actions/setup-chrome@v1
+      - uses: actions/checkout@v7
+      - uses: browser-actions/setup-chrome@v2
         id: setup-chrome
         with:
           chrome-version: stable
       - run: echo "CHROME=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bombadil-x86_64-linux
       - name: Generate report
@@ -366,7 +367,7 @@ jobs:
             lib/bombadil-inspect/test/inspect.spec.ts
       - name: Upload inspect test output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: inspect-test-output-${{ matrix.run }}
           path: inspect-test-output/
@@ -386,8 +387,8 @@ jobs:
             artifact: bombadil-aarch64-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
       - name: Test binary runs
@@ -402,7 +403,7 @@ jobs:
             head -n 100
       - name: Upload terminal test output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: terminal-test-output-${{ matrix.os }}-${{ matrix.run }}
           path: terminal-test-output/
@@ -421,13 +422,13 @@ jobs:
             binary: bombadil-darwin-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bombadil-npm-package
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.artifact }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - name: Test npm package end to end
@@ -458,7 +459,7 @@ jobs:
       ]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Prepare release binaries
@@ -468,7 +469,7 @@ jobs:
             mv artifacts/bombadil-$target/bombadil artifacts/bombadil-$target/bombadil-$target
           done
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           body: ${{ needs.check-version.outputs.changelog }}
@@ -492,14 +493,14 @@ jobs:
       ]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
       - name: Extract npm package
         run: |
           mkdir -p pkg
           tar -xzf artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz -C pkg
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
       - name: Bundle binaries
@@ -523,19 +524,19 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Download manual pages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: manual-pages
           path: manual
       - name: Add llms-full.txt
         run: cp manual/bombadil-manual.txt manual/llms-full.txt
       - name: Upload to GitHub Pages
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: manual
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   all-checks-passed:
     if: always()
