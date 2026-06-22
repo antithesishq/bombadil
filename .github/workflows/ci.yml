@@ -150,7 +150,36 @@ jobs:
           # supports-color disables ANSI codes when stdout isn't a TTY (as in
           # CI). Force colors so snapshot tests match the local TTY output.
           FORCE_COLOR: "1"
-        run: cargo test --workspace --exclude bombadil-inspect
+        run: cargo test --workspace --exclude bombadil-inspect --exclude bombadil-browser-integration-tests
+
+      - name: Install Chromium
+        if: runner.os == 'Linux'
+        uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+        with:
+          chrome-version: stable
+
+      - name: cargo test (browser integration, isolated network)
+        if: runner.os == 'Linux'
+        env:
+          CC: clang
+          CXX: clang++
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          BOMBADIL_SKIP_INSPECT_BUILD: "1"
+          INSTA_UPDATE: "no"
+          FORCE_COLOR: "1"
+          CHROME: ${{ steps.setup-chrome.outputs.chrome-path }}
+        # Run inside a fresh user+network namespace with only loopback up —
+        # tests can hit local axum servers but anything reaching outbound
+        # fails fast instead of hanging on flaky DNS / external services.
+        # Ubuntu 24.04 restricts unprivileged userns via AppArmor; lift it.
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          unshare --user --map-root-user --net -- bash -c '
+            ip link set lo up
+            cargo test -p bombadil-browser-integration-tests
+          '
 
   build-npm-package:
     runs-on: ubuntu-latest
