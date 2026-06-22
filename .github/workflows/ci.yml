@@ -541,3 +541,22 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  all-checks-passed:
+    if: always()
+    needs:
+      - build-x86_64-linux
+      - build-aarch64-linux
+      - build-aarch64-darwin
+      - check
+      - browser-integration-tests
+      - build-npm-package
+      - build-manual
+      - inspect-test
+      - smoke-test
+      - test-npm-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
