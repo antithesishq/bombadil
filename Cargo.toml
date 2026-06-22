@@ -70,6 +70,9 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 yew = "0.23"
 
+[profile.test]
+debug = "line-tables-only"
+
 [profile.release]
 opt-level = "z"
 lto = true
