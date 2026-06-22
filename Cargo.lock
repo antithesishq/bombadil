@@ -84,17 +84,12 @@ dependencies = [
 
 [[package]]
 name = "antithesis_sdk"
-version = "0.2.8"
-source = "git+https://github.com/antithesishq/antithesis-sdk-rust?rev=6829a946e7e970cc743ffe17c3cee7d2bc25425a#6829a946e7e970cc743ffe17c3cee7d2bc25425a"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08410fcac93669a476c006cd6c4512ac1e2b30fd117231a5d55d8a2c76599b82"
 dependencies = [
- "libc",
- "libloading",
- "linkme",
- "once_cell",
  "rand 0.8.6",
  "rand_core 0.10.1",
- "rand_core 0.6.4",
- "rustc_version_runtime",
  "serde",
  "serde_json",
 ]
@@ -2379,16 +2374,6 @@ version = "0.1.1"
 source = "git+https://github.com/Uzaaft/libghostty-rs?rev=455c34200da92e4ef9d56650ab5d716ae639f54d#455c34200da92e4ef9d56650ab5d716ae639f54d"
 
 [[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link",
-]
-
-[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2401,26 +2386,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "linkme"
-version = "0.3.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e83272d46373fb8decca684579ac3e7c8f3d71d4cc3aa693df8759e260ae41cf"
-dependencies = [
- "linkme-impl",
-]
-
-[[package]]
-name = "linkme-impl"
-version = "0.3.36"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32d59e20403c7d08fe62b4376edfe5c7fb2ef1e6b1465379686d0f21c8df444b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -3712,16 +3677,6 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
- "semver 1.0.28",
-]
-
-[[package]]
-name = "rustc_version_runtime"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dd18cd2bae1820af0b6ad5e54f4a51d0f3fcc53b05f845675074efcc7af071d"
-dependencies = [
- "rustc_version 0.4.1",
  "semver 1.0.28",
 ]
 
