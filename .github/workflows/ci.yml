@@ -324,13 +324,9 @@ jobs:
           path: docs/manual/target/
 
   inspect-test:
-    name: Inspect UI test (${{ matrix.run }})
+    name: Inspect UI test
     needs: build-x86_64-linux
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v7
       - uses: browser-actions/setup-chrome@v2
@@ -369,17 +365,15 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: inspect-test-output-${{ matrix.run }}
+          name: inspect-test-output
           path: inspect-test-output/
 
   smoke-test:
-    name: Smoke test (${{ matrix.os }}, ${{ matrix.run }})
+    name: Smoke test (${{ matrix.os }})
     needs: [build-x86_64-linux, build-aarch64-darwin]
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         include:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
@@ -405,7 +399,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: terminal-test-output-${{ matrix.os }}-${{ matrix.run }}
+          name: terminal-test-output-${{ matrix.os }}
           path: terminal-test-output/
 
   test-npm-package:
