@@ -180,6 +180,8 @@ jobs:
           chmod +x artifact/bombadil
 
       - name: cargo fmt
+        env:
+          RUSTC_WRAPPER: "sccache"
         if: matrix.target == 'x86_64-linux'
         run: cargo fmt --all -- --check
 
@@ -188,6 +190,7 @@ jobs:
         env:
           CC: clang
           CXX: clang++
+          RUSTC_WRAPPER: "sccache"
         run: cargo clippy --workspace --exclude bombadil-inspect --all-targets -- -D warnings
 
       - name: cargo test
@@ -195,6 +198,7 @@ jobs:
         env:
           CC: clang
           CXX: clang++
+          RUSTC_WRAPPER: "sccache"
           INSTA_UPDATE: "no"
           # supports-color disables ANSI codes when stdout isn't a TTY (as in
           # CI). Force colors so snapshot tests match the local TTY output.
