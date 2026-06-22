@@ -179,32 +179,6 @@ jobs:
           cp target/${{ matrix.rust_target }}/$CARGO_PROFILE/bombadil artifact/bombadil
           chmod +x artifact/bombadil
 
-      - name: cargo fmt
-        env:
-          RUSTC_WRAPPER: "sccache"
-        if: matrix.target == 'x86_64-linux'
-        run: cargo fmt --all -- --check
-
-      - name: cargo clippy
-        if: matrix.target == 'x86_64-linux'
-        env:
-          CC: clang
-          CXX: clang++
-          RUSTC_WRAPPER: "sccache"
-        run: cargo clippy --workspace --exclude bombadil-inspect --all-targets -- -D warnings
-
-      - name: cargo test
-        if: matrix.target == 'x86_64-linux'
-        env:
-          CC: clang
-          CXX: clang++
-          RUSTC_WRAPPER: "sccache"
-          INSTA_UPDATE: "no"
-          # supports-color disables ANSI codes when stdout isn't a TTY (as in
-          # CI). Force colors so snapshot tests match the local TTY output.
-          FORCE_COLOR: "1"
-        run: cargo test --workspace --exclude bombadil-inspect
-
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -232,6 +206,83 @@ jobs:
       #     ENTRYPOINT ["/usr/local/bin/bombadil", "test", "--headless"]
       #     EOF
       #     docker build -t bombadil_docker:latest .
+
+  check:
+    name: Check (fmt + clippy + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang lld git ca-certificates curl xz-utils
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Cache Zig global cache (ghostty build.zig.zon deps)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/zig
+          key: zig-cache-Linux-x86_64-linux-${{ env.ZIG_VERSION }}-${{ env.GHOSTTY_COMMIT }}
+          restore-keys: |
+            zig-cache-Linux-x86_64-linux-${{ env.ZIG_VERSION }}-
+
+      - name: Cache ghostty source checkout
+        id: ghostty-src-cache
+        uses: actions/cache@v4
+        with:
+          path: .ghostty-src
+          key: ghostty-src-${{ env.GHOSTTY_COMMIT }}
+
+      - name: Checkout ghostty source
+        if: steps.ghostty-src-cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ghostty-org/ghostty
+          ref: ${{ env.GHOSTTY_COMMIT }}
+          path: .ghostty-src
+
+      - name: Export GHOSTTY_SOURCE_DIR
+        run: echo "GHOSTTY_SOURCE_DIR=${{ github.workspace }}/.ghostty-src" >> $GITHUB_ENV
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.10
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        env:
+          CC: clang
+          CXX: clang++
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          BOMBADIL_SKIP_INSPECT_BUILD: "1"
+        run: cargo clippy --workspace --exclude bombadil-inspect --all-targets -- -D warnings
+
+      - name: cargo test
+        env:
+          CC: clang
+          CXX: clang++
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
+          BOMBADIL_SKIP_INSPECT_BUILD: "1"
+          INSTA_UPDATE: "no"
+          # supports-color disables ANSI codes when stdout isn't a TTY (as in
+          # CI). Force colors so snapshot tests match the local TTY output.
+          FORCE_COLOR: "1"
+        run: cargo test --workspace --exclude bombadil-inspect
 
   build-npm-package:
     runs-on: ubuntu-latest
@@ -484,6 +535,7 @@ jobs:
     needs:
       [
         check-version,
+        check,
         build,
         build-npm-package,
         build-manual,
