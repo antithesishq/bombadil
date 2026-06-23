@@ -3,13 +3,14 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
+use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::terminal::{
-    ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
+    self, ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
     TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
@@ -35,10 +36,47 @@ const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TerminalAction {
     TypeText { text: String },
-    PressKey { code: u32 },
     Resize { size: TerminalSize },
     ScrollUp {},
     ScrollDown {},
+}
+
+impl ToSchema<terminal::TerminalAction> for TerminalAction {
+    fn to_schema(&self) -> terminal::TerminalAction {
+        match self {
+            TerminalAction::TypeText { text } => {
+                terminal::TerminalAction::TypeText { text: text.clone() }
+            }
+            TerminalAction::Resize { size } => {
+                terminal::TerminalAction::Resize { size: *size }
+            }
+            TerminalAction::ScrollUp {} => {
+                terminal::TerminalAction::ScrollUp {}
+            }
+            TerminalAction::ScrollDown {} => {
+                terminal::TerminalAction::ScrollDown {}
+            }
+        }
+    }
+}
+
+impl ToInternal<TerminalAction> for terminal::TerminalAction {
+    fn to_internal(&self) -> TerminalAction {
+        match self {
+            terminal::TerminalAction::TypeText { text } => {
+                TerminalAction::TypeText { text: text.clone() }
+            }
+            terminal::TerminalAction::Resize { size } => {
+                TerminalAction::Resize { size: *size }
+            }
+            terminal::TerminalAction::ScrollUp {} => {
+                TerminalAction::ScrollUp {}
+            }
+            terminal::TerminalAction::ScrollDown {} => {
+                TerminalAction::ScrollDown {}
+            }
+        }
+    }
 }
 
 pub struct TerminalDriver {
@@ -217,17 +255,6 @@ impl InterfaceDriver for TerminalDriver {
         match &action {
             TerminalAction::TypeText { text } => {
                 self.process.write(text.as_bytes());
-            }
-            TerminalAction::PressKey { code } => {
-                if let Some(ch) = char::from_u32(*code) {
-                    let mut buf = [0u8; 4];
-                    self.process.write(ch.encode_utf8(&mut buf).as_bytes());
-                } else {
-                    bail!(
-                        "PressKey: code {} is not a valid unicode scalar",
-                        code
-                    );
-                }
             }
             TerminalAction::Resize { size } => {
                 self.size = *size;

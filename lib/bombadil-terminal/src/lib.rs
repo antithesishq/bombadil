@@ -212,7 +212,16 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
 
 #[hotpath::measure]
 fn actions_match(a: &TerminalAction, b: &TerminalAction) -> bool {
-    serde_json::to_value(a).ok() == serde_json::to_value(b).ok()
+    match (a, b) {
+        (TerminalAction::TypeText { .. }, TerminalAction::TypeText { .. }) => {
+            true
+        }
+        (TerminalAction::Resize { .. }, _) => true,
+        (_, TerminalAction::Resize { .. }) => true,
+        (TerminalAction::ScrollUp {}, TerminalAction::ScrollUp {}) => true,
+        (TerminalAction::ScrollDown {}, TerminalAction::ScrollDown {}) => true,
+        _ => serde_json::to_value(a).ok() == serde_json::to_value(b).ok(),
+    }
 }
 
 pub enum ExitReason {

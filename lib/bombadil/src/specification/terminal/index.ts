@@ -13,7 +13,6 @@ export type Size = {
 
 export type Action =
   | { TypeText: { text: string } }
-  | { PressKey: { code: number } }
   | { Resize: { size: Size } }
   | { ScrollUp: {} }
   | { ScrollDown: {} };

@@ -9,16 +9,12 @@ use anyhow::{Result, anyhow};
 use bombadil::runner::PropertyViolation;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
-use bombadil_schema::terminal::{
-    TerminalCell, TerminalGrid, TerminalStateSummary,
-};
-use bombadil_schema::{Time, TraceEntry};
+use bombadil_schema::Time;
+use bombadil_schema::terminal::{TerminalCell, TerminalGrid};
 use serde_json as json;
 use std::fs::File;
 
 use crate::{driver::TerminalAction, state::TerminalState};
-
-pub type TerminalTraceEntry = TraceEntry<TerminalAction, TerminalStateSummary>;
 
 /// Writes trace entries on a dedicated thread so that JSON
 /// serialization and disk I/O (hundreds of kilobytes per state) overlap
@@ -238,23 +234,12 @@ mod tests {
     use bombadil_schema::terminal::{
         TerminalAttributes, TerminalColor, TerminalCursor,
         TerminalCursorPosition, TerminalCursorVisualStyle, TerminalSize,
-        TerminalStateSummary, TerminalStyle, TerminalUnderline,
+        TerminalStateSummary, TerminalStyle, TerminalTraceEntry,
+        TerminalUnderline,
     };
     use small_string::SmallString;
 
-    use serde::Serialize;
-
     use super::*;
-
-    /// The reference layout this writer must stay byte-compatible with.
-    #[derive(Serialize)]
-    struct DerivedEntry<'a> {
-        timestamp: Time,
-        action: Option<&'a TerminalAction>,
-        state: TerminalStateSummary,
-        snapshots: Vec<bombadil_schema::Snapshot>,
-        violations: Vec<bombadil_schema::PropertyViolation>,
-    }
 
     #[test]
     fn write_entry_matches_derived_serde_output() {
@@ -318,9 +303,9 @@ mod tests {
         write_entry(&mut buffer, timestamp, Some(&action), &state, &[], &[])
             .expect("manual serialization failed");
 
-        let derived = json::to_string(&DerivedEntry {
+        let derived = json::to_string(&TerminalTraceEntry {
             timestamp,
-            action: Some(&action),
+            action: Some(action.to_schema()),
             state: TerminalStateSummary {
                 grid: state.grid.clone(),
                 scrollback: state.scrollback.clone(),

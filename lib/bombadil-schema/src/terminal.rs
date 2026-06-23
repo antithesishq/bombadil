@@ -1,7 +1,18 @@
 use std::ops::{Index, IndexMut};
 
+use crate::schema::TraceEntry;
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
+
+pub type TerminalTraceEntry = TraceEntry<TerminalAction, TerminalStateSummary>;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TerminalAction {
+    TypeText { text: String },
+    Resize { size: TerminalSize },
+    ScrollUp {},
+    ScrollDown {},
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalStateSummary {

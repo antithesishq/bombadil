@@ -4,11 +4,14 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::runner::Runner;
+use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil_schema::Time;
-use bombadil_schema::terminal::{ProcessExitStatus, TerminalSize};
+use bombadil_schema::terminal::{
+    ProcessExitStatus, TerminalSize, TerminalTraceEntry,
+};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
-use bombadil_terminal::trace::{TerminalTraceEntry, TraceWriter};
+use bombadil_terminal::trace::TraceWriter;
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -233,7 +236,7 @@ fn load_reproduce_actions(
         let line = line?;
         let entry: TerminalTraceEntry = serde_json::from_str(&line)?;
         if let Some(action) = entry.action {
-            actions.push_back(action);
+            actions.push_back(action.to_internal());
         }
     }
     Ok(actions)

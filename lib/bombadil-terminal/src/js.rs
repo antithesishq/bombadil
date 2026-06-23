@@ -377,16 +377,6 @@ fn action_to_js(action: &TerminalAction, context: &mut Context) -> JsValue {
                 .build();
             (js_string!("TypeText"), payload)
         }
-        TerminalAction::PressKey { code } => {
-            let payload = ObjectInitializer::new(context)
-                .property(
-                    js_string!("code"),
-                    JsValue::from(*code as f64),
-                    Attribute::all(),
-                )
-                .build();
-            (js_string!("PressKey"), payload)
-        }
         TerminalAction::Resize { size } => {
             let size = size_to_js(*size, context);
             let payload = ObjectInitializer::new(context)
@@ -416,10 +406,6 @@ pub enum JsTerminalAction {
         text: String,
     },
     #[serde(rename_all = "camelCase")]
-    PressKey {
-        code: f64,
-    },
-    #[serde(rename_all = "camelCase")]
     Resize {
         size: JsTerminalSize,
     },
@@ -433,10 +419,6 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
         match value {
             JsTerminalAction::TypeText { text } => {
                 Ok(TerminalAction::TypeText { text })
-            }
-            JsTerminalAction::PressKey { code } => {
-                ensure!(code.is_normal(), "key code must be a normal number");
-                Ok(TerminalAction::PressKey { code: code as u32 })
             }
             JsTerminalAction::Resize { size } => Ok(TerminalAction::Resize {
                 size: size.try_into()?,

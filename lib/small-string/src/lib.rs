@@ -58,8 +58,8 @@ impl<'de> Deserialize<'de> for SmallString {
     where
         D: serde::Deserializer<'de>,
     {
-        let chars = <Vec<char>>::deserialize(deserializer)?;
-        Ok(SmallString::from(chars.as_slice()))
+        let string = String::deserialize(deserializer)?;
+        Ok(SmallString::from(string))
     }
 }
 
@@ -81,11 +81,17 @@ impl From<&[char]> for SmallString {
     }
 }
 
-// impl From<String> for SmallString {
-//     fn from(input: String) -> Self {
-//         Self::from(input.as_str())
-//     }
-// }
+impl From<&str> for SmallString {
+    fn from(input: &str) -> Self {
+        Self::from(input.chars().collect::<Vec<char>>().as_slice())
+    }
+}
+
+impl From<String> for SmallString {
+    fn from(input: String) -> Self {
+        Self::from(input.as_str())
+    }
+}
 
 impl std::ops::Deref for SmallString {
     type Target = [char];
