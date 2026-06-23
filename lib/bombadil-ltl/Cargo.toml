@@ -9,4 +9,4 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 anyhow.workspace = true
-proptest.workspace = true
+hegeltest.workspace = true

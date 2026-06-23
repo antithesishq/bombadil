@@ -235,7 +235,7 @@ pub enum TerminalUnderline {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TerminalAttributes(u8);
+pub struct TerminalAttributes(pub u8);
 
 bitflags::bitflags! {
     impl TerminalAttributes: u8 {

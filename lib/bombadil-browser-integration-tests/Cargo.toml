@@ -15,7 +15,7 @@ env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
 log.workspace = true
-proptest.workspace = true
+hegeltest.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }

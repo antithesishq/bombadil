@@ -59,16 +59,15 @@ pub fn format_duration(d: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
+    use hegel::{TestCase, generators::integers};
 
-    proptest! {
-        #[test]
-        fn roundtrip(secs in 1u64..=100_000_000u64) {
-            let d = Duration::from_secs(secs);
-            let formatted = format_duration(d);
-            let parsed = parse_duration(&formatted).unwrap();
-            prop_assert_eq!(parsed, d);
-        }
+    #[hegel::test]
+    fn roundtrip(tc: TestCase) {
+        let secs = tc.draw(integers().min_value(1));
+        let d = Duration::from_secs(secs);
+        let formatted = format_duration(d);
+        let parsed = parse_duration(&formatted).unwrap();
+        assert_eq!(parsed, d);
     }
 
     #[test]

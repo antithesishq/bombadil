@@ -116,25 +116,32 @@ impl std::ops::DerefMut for SmallString {
 
 #[cfg(test)]
 mod tests {
-    use proptest::proptest;
+    use hegel::TestCase;
+    use hegel::generators::text;
 
     use super::{STRING_INLINE_CHARS_COUNT_MAX, SmallString};
 
-    proptest! {
-        #[test]
-        fn test_string_roundtrip(input in ".*") {
-            let chars: Vec<char> = input.chars().collect();
-            let small = SmallString::from(chars.as_slice());
-            assert_eq!(&*small, &chars);
-        }
+    #[hegel::test]
+    fn test_string_roundtrip(tc: TestCase) {
+        let input = tc.draw(text());
+        let chars: Vec<char> = input.chars().collect();
+        let small = SmallString::from(chars.as_slice());
+        assert_eq!(&*small, &chars);
+    }
 
-        #[test]
-        fn test_inline_vs_heap(input in ".*") {
-            let chars: Vec<char> = input.chars().collect();
-            let small = SmallString::from(chars.as_slice());
-            match &small {
-                SmallString::Inline { size, .. } => assert!(chars.len() <= STRING_INLINE_CHARS_COUNT_MAX, "should be heap: len={}", *size),
-                SmallString::Heap(_) => assert!(input.len() > STRING_INLINE_CHARS_COUNT_MAX),
+    #[hegel::test]
+    fn test_inline_vs_heap(tc: TestCase) {
+        let input = tc.draw(text());
+        let chars: Vec<char> = input.chars().collect();
+        let small = SmallString::from(chars.as_slice());
+        match &small {
+            SmallString::Inline { size, .. } => assert!(
+                chars.len() <= STRING_INLINE_CHARS_COUNT_MAX,
+                "should be heap: len={}",
+                *size
+            ),
+            SmallString::Heap(_) => {
+                assert!(input.len() > STRING_INLINE_CHARS_COUNT_MAX)
             }
         }
     }

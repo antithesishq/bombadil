@@ -1,12 +1,13 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 
-use proptest::prelude::*;
-use proptest::test_runner::TestCaseError;
-
 use boa_engine::{
     Context, JsObject, JsValue, NativeFunction, Source,
     context::ContextBuilder, js_string, object::builtins::JsUint8Array,
+};
+use hegel::{
+    TestCase,
+    generators::{integers, vecs},
 };
 
 thread_local! {
@@ -79,21 +80,24 @@ fn call_random_range(
         .ok_or_else(|| "randomRange did not return a number".to_string())
 }
 
-proptest! {
-    #[test]
-    fn test_random_range(
-        min in -1_000_000_000_000i64..999_999_999_999,
-        spread in 1i64..1_000_000_000_000,
-        // 8 bytes covers both the small path (4 bytes) and the large path (8 bytes)
-        random_bytes in prop::collection::vec(any::<u8>(), 8),
-    ) {
-        let max = min + spread;
-        let (mut context, exports_obj) = load_random_module(random_bytes)
-            .map_err(TestCaseError::fail)?;
-        let n = call_random_range(&mut context, &exports_obj, min as f64, max as f64)
-            .map_err(TestCaseError::fail)?;
-        prop_assert!(n >= min as f64, "value {n} < min {min}");
-        prop_assert!(n < max as f64, "value {n} >= max {max}");
-        prop_assert!(n.fract() == 0.0, "value {n} is not an integer");
-    }
+#[hegel::test]
+fn test_random_range(tc: TestCase) {
+    let min = tc.draw(
+        integers()
+            .min_value(-1_000_000_000_000i64)
+            .max_value(999_999_999_999),
+    );
+    let spread =
+        tc.draw(integers().min_value(1i64).max_value(1_000_000_000_000));
+    // 8 bytes covers both the small path (4 bytes) and the large path (8 bytes)
+    let random_bytes = tc.draw(vecs(integers::<u8>()).min_size(8).max_size(8));
+
+    let max = min + spread;
+    let (mut context, exports_obj) = load_random_module(random_bytes).unwrap();
+    let n =
+        call_random_range(&mut context, &exports_obj, min as f64, max as f64)
+            .unwrap();
+    assert!(n >= min as f64, "value {n} < min {min}");
+    assert!(n < max as f64, "value {n} >= max {max}");
+    assert!(n.fract() == 0.0, "value {n} is not an integer");
 }

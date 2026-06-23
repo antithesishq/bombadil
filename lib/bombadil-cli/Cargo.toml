@@ -32,7 +32,7 @@ tokio = { workspace = true, features = ["full"] }
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
-proptest.workspace = true
+hegeltest.workspace = true
 
 [features]
 default = ["terminal"]

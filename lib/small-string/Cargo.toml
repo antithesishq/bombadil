@@ -8,4 +8,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
+hegeltest.workspace = true

@@ -5,7 +5,11 @@ use std::{
 };
 
 use anyhow::Error;
-use proptest::prelude::*;
+use hegel::{
+    Generator, TestCase,
+    generators::{booleans, deferred, just, one_of},
+    tuples,
+};
 
 use crate::{
     eval::*,
@@ -480,32 +484,38 @@ fn variable_index(variable: &Variable) -> usize {
     }
 }
 
-fn prop_variable() -> BoxedStrategy<Variable> {
-    prop_oneof![Just(Variable::X), Just(Variable::Y)].boxed()
+fn prop_variable() -> impl Generator<Variable> {
+    one_of([just(Variable::X).boxed(), just(Variable::Y).boxed()]).boxed()
 }
 
-fn nontemporal_syntax() -> BoxedStrategy<Syntax<SnapshotDomain>> {
-    let leaf = prop_oneof![
-        any::<bool>().prop_map(|value| Syntax::Pure {
-            value,
-            pretty: format!("{}", value)
-        }),
-        prop_variable().prop_map(Syntax::Thunk),
-    ]
-    .boxed();
+fn nontemporal_syntax() -> impl Generator<Syntax<SnapshotDomain>> {
+    let syntax = deferred::<Syntax<SnapshotDomain>>();
+    let leaf = one_of([
+        booleans()
+            .map(|value| Syntax::Pure {
+                value,
+                pretty: format!("{}", value),
+            })
+            .boxed(),
+        prop_variable().map(Syntax::Thunk).boxed(),
+    ]);
 
-    leaf.prop_recursive(8, 256, 10, |inner| {
-        prop_oneof![
-            inner.clone().prop_map(|s| Syntax::Not(Box::new(s))),
-            (inner.clone(), inner.clone())
-                .prop_map(|(l, r)| Syntax::And(Box::new(l), Box::new(r))),
-            (inner.clone(), inner.clone())
-                .prop_map(|(l, r)| Syntax::Or(Box::new(l), Box::new(r))),
-            (inner.clone(), inner.clone())
-                .prop_map(|(l, r)| Syntax::Implies(Box::new(l), Box::new(r))),
-        ]
-    })
-    .boxed()
+    let branch = one_of([
+        syntax.generator().map(|s| Syntax::Not(Box::new(s))).boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::And(Box::new(l), Box::new(r)))
+            .boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::Or(Box::new(l), Box::new(r)))
+            .boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::Implies(Box::new(l), Box::new(r)))
+            .boxed(),
+    ]);
+
+    let result = syntax.generator();
+    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
+    result
 }
 
 /// Recursively compute which thunk indices contributed to a formula being true. Returns
@@ -582,71 +592,63 @@ fn actual_snapshot_indices(value: &Value<SnapshotDomain>) -> BTreeSet<usize> {
     }
 }
 
-proptest! {
-    #[test]
-    fn test_true_snapshots_equal_truth_contributing(
-        syntax in nontemporal_syntax(),
-        state_x in any::<bool>(),
-        state_y in any::<bool>(),
-    ) {
-        let formula = syntax.nnf();
-        let expected = truth_contributing(&formula, state_x, state_y);
+#[hegel::test]
+fn test_true_snapshots_equal_truth_contributing(tc: TestCase) {
+    let syntax = tc.draw(nontemporal_syntax());
+    let state_x = tc.draw(booleans());
+    let state_y = tc.draw(booleans());
+    let formula = syntax.nnf();
+    let expected = truth_contributing(&formula, state_x, state_y);
 
-        let mut evaluate_thunk = |variable: &Variable, negated: bool| {
-            let raw = match variable {
-                Variable::X => state_x,
-                Variable::Y => state_y,
-                Variable::Z => unreachable!(),
-            };
-            let value = if negated { !raw } else { raw };
-            let index = variable_index(variable);
-            let name = match variable {
-                Variable::X => "x_val",
-                Variable::Y => "y_val",
-                Variable::Z => "z_val",
-            };
-            Ok((
-                Formula::Pure {
-                    value,
-                    pretty: format!("{:?}={}", variable, value),
-                },
-                TestState::from_snapshot(snapshot(index, name)),
-            ))
+    let mut evaluate_thunk = |variable: &Variable, negated: bool| {
+        let raw = match variable {
+            Variable::X => state_x,
+            Variable::Y => state_y,
+            Variable::Z => unreachable!(),
         };
-        let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
-            Evaluator::new(&mut evaluate_thunk);
-        let value = evaluator.evaluate(&formula, t0()).unwrap();
+        let value = if negated { !raw } else { raw };
+        let index = variable_index(variable);
+        let name = match variable {
+            Variable::X => "x_val",
+            Variable::Y => "y_val",
+            Variable::Z => "z_val",
+        };
+        Ok((
+            Formula::Pure {
+                value,
+                pretty: format!("{:?}={}", variable, value),
+            },
+            TestState::from_snapshot(snapshot(index, name)),
+        ))
+    };
+    let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
+        Evaluator::new(&mut evaluate_thunk);
+    let value = evaluator.evaluate(&formula, t0()).unwrap();
 
-        match (&expected, &value) {
-            (Some(expected_indices), Value::True(_)) => {
-                let actual = actual_snapshot_indices(&value);
-                prop_assert_eq!(
-                    expected_indices, &actual,
-                    "formula: {:?}, x={}, y={}",
-                    syntax, state_x, state_y,
-                );
-            }
-            (None, Value::False(_, _)) => {}
-            (Some(_), Value::False(_, _)) => {
-                prop_assert!(
-                    false,
-                    "oracle=true, evaluator=false: {:?}, x={}, y={}",
-                    syntax, state_x, state_y,
-                );
-            }
-            (None, Value::True(_)) => {
-                prop_assert!(
-                    false,
-                    "oracle=false, evaluator=true: {:?}, x={}, y={}",
-                    syntax, state_x, state_y,
-                );
-            }
-            (_, Value::Residual(_)) => {
-                prop_assert!(
-                    false,
-                    "non-temporal formula produced Residual",
-                );
-            }
+    match (&expected, &value) {
+        (Some(expected_indices), Value::True(_)) => {
+            let actual = actual_snapshot_indices(&value);
+            assert_eq!(
+                expected_indices, &actual,
+                "formula: {:?}, x={}, y={}",
+                syntax, state_x, state_y,
+            );
+        }
+        (None, Value::False(_, _)) => {}
+        (Some(_), Value::False(_, _)) => {
+            panic!(
+                "oracle=true, evaluator=false: {:?}, x={}, y={}",
+                syntax, state_x, state_y,
+            );
+        }
+        (None, Value::True(_)) => {
+            panic!(
+                "oracle=false, evaluator=true: {:?}, x={}, y={}",
+                syntax, state_x, state_y,
+            );
+        }
+        (_, Value::Residual(_)) => {
+            panic!("non-temporal formula produced Residual",);
         }
     }
 }
