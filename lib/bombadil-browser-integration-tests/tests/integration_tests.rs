@@ -33,7 +33,7 @@ use bombadil_browser::{
 
 /// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
 /// causing a test to hang, so we limit parallelism.
-static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(4);
+static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(16);
 const TEST_TIMEOUT_SECONDS: u64 = 120;
 
 static INIT: Once = Once::new();
