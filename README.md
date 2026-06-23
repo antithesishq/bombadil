@@ -15,8 +15,13 @@ Runs in your local developer environment, in CI, and inside Antithesis.
 Learn all about Bombadil with the following resources:
 
 * [The Bombadil Manual](https://antithesishq.github.io/bombadil/)
-* [Installation](https://antithesishq.github.io/bombadil/2-getting-started.html#installation)
-* [Examples](https://antithesishq.github.io/bombadil/3-specification-language.html#examples)
+* [Installation](https://antithesishq.github.io/bombadil/browser/2-getting-started.html#installation)
+* [Examples](https://antithesishq.github.io/bombadil/browser/3-specification-language.html#examples)
+
+> [!NOTE] 
+> The Bombadil Manual is available for different drivers, i.e.
+> *browser* and *terminal*, and you can switch between the flavors in the
+> navigation sidebar.
 
 Or, if you want to hack on it, see [Contributing](docs/development/contributing.md).
 
