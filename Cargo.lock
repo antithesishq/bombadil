@@ -2360,8 +2360,9 @@ checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libghostty-vt"
-version = "0.1.1"
-source = "git+https://github.com/Uzaaft/libghostty-rs?rev=455c34200da92e4ef9d56650ab5d716ae639f54d#455c34200da92e4ef9d56650ab5d716ae639f54d"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04c77176dd05b2b5718046d807e786473f463ea6d478d56f8c0105e2fe6f71f5"
 dependencies = [
  "bitflags 2.12.1",
  "int-enum",
@@ -2370,8 +2371,9 @@ dependencies = [
 
 [[package]]
 name = "libghostty-vt-sys"
-version = "0.1.1"
-source = "git+https://github.com/Uzaaft/libghostty-rs?rev=455c34200da92e4ef9d56650ab5d716ae639f54d#455c34200da92e4ef9d56650ab5d716ae639f54d"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "404671567c0ac43389a69ae424eefc89390a25d3a5386a54249cdaf13e01b411"
 
 [[package]]
 name = "libm"

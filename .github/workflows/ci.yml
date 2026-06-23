@@ -69,7 +69,7 @@ jobs:
     with:
       target: aarch64-darwin
       rust_target: aarch64-apple-darwin
-      os: macos-latest
+      os: macos-15
 
   check:
     name: Check (fmt + clippy + test)
@@ -377,7 +377,7 @@ jobs:
         include:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
-          - os: macos-latest
+          - os: macos-15
             artifact: bombadil-aarch64-darwin
     runs-on: ${{ matrix.os }}
     steps:
@@ -411,7 +411,7 @@ jobs:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
             binary: bombadil-linux-x64
-          - os: macos-latest
+          - os: macos-15
             artifact: bombadil-aarch64-darwin
             binary: bombadil-darwin-arm64
     runs-on: ${{ matrix.os }}
