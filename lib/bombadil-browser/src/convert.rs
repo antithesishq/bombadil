@@ -5,6 +5,7 @@ pub use bombadil::specification::convert::{
     PrettyFunction, ToInternal, ToSchema, formula_with_pretty_functions,
     violation_with_pretty_functions,
 };
+use bombadil_schema::browser;
 
 impl ToSchema<bombadil_schema::Point> for Point {
     fn to_schema(&self) -> bombadil_schema::Point {
@@ -15,9 +16,9 @@ impl ToSchema<bombadil_schema::Point> for Point {
     }
 }
 
-impl ToSchema<bombadil_schema::Resources> for Resources {
-    fn to_schema(&self) -> bombadil_schema::Resources {
-        bombadil_schema::Resources {
+impl ToSchema<browser::Resources> for Resources {
+    fn to_schema(&self) -> browser::Resources {
+        browser::Resources {
             js_heap_used: self.js_heap_used,
             js_heap_total: self.js_heap_total,
             dom_nodes: self.dom_nodes,
@@ -32,16 +33,16 @@ impl ToSchema<bombadil_schema::Resources> for Resources {
     }
 }
 
-impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
-    fn to_schema(&self) -> bombadil_schema::BrowserAction {
+impl ToSchema<browser::BrowserAction> for BrowserAction {
+    fn to_schema(&self) -> browser::BrowserAction {
         match self {
-            BrowserAction::Back => bombadil_schema::BrowserAction::Back,
-            BrowserAction::Forward => bombadil_schema::BrowserAction::Forward,
+            BrowserAction::Back => browser::BrowserAction::Back,
+            BrowserAction::Forward => browser::BrowserAction::Forward,
             BrowserAction::Click {
                 name,
                 content,
                 point,
-            } => bombadil_schema::BrowserAction::Click {
+            } => browser::BrowserAction::Click {
                 name: name.clone(),
                 content: content.clone(),
                 point: point.to_schema(),
@@ -51,37 +52,37 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
                 content,
                 point,
                 delay_millis,
-            } => bombadil_schema::BrowserAction::DoubleClick {
+            } => browser::BrowserAction::DoubleClick {
                 name: name.clone(),
                 content: content.clone(),
                 point: point.to_schema(),
                 delay_millis: *delay_millis,
             },
             BrowserAction::TypeText { text, delay_millis } => {
-                bombadil_schema::BrowserAction::TypeText {
+                browser::BrowserAction::TypeText {
                     text: text.clone(),
                     delay_millis: *delay_millis,
                 }
             }
             BrowserAction::PressKey { code } => {
-                bombadil_schema::BrowserAction::PressKey { code: *code }
+                browser::BrowserAction::PressKey { code: *code }
             }
             BrowserAction::ScrollUp { origin, distance } => {
-                bombadil_schema::BrowserAction::ScrollUp {
+                browser::BrowserAction::ScrollUp {
                     origin: origin.to_schema(),
                     distance: *distance,
                 }
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                bombadil_schema::BrowserAction::ScrollDown {
+                browser::BrowserAction::ScrollDown {
                     origin: origin.to_schema(),
                     distance: *distance,
                 }
             }
-            BrowserAction::Reload => bombadil_schema::BrowserAction::Reload,
-            BrowserAction::Wait => bombadil_schema::BrowserAction::Wait,
+            BrowserAction::Reload => browser::BrowserAction::Reload,
+            BrowserAction::Wait => browser::BrowserAction::Wait,
             BrowserAction::SetFileInputFiles { selector, files } => {
-                bombadil_schema::BrowserAction::SetFileInputFiles {
+                browser::BrowserAction::SetFileInputFiles {
                     selector: selector.clone(),
                     files: files.clone(),
                 }
@@ -91,14 +92,14 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
                 to,
                 steps,
                 delay_millis,
-            } => bombadil_schema::BrowserAction::MouseDrag {
+            } => browser::BrowserAction::MouseDrag {
                 from: from.to_schema(),
                 to: to.to_schema(),
                 steps: *steps,
                 delay_millis: *delay_millis,
             },
             BrowserAction::SetViewport { width, height } => {
-                bombadil_schema::BrowserAction::SetViewport {
+                browser::BrowserAction::SetViewport {
                     width: *width,
                     height: *height,
                 }
@@ -107,12 +108,12 @@ impl ToSchema<bombadil_schema::BrowserAction> for BrowserAction {
     }
 }
 
-impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
+impl ToInternal<BrowserAction> for browser::BrowserAction {
     fn to_internal(&self) -> BrowserAction {
         match self {
-            bombadil_schema::BrowserAction::Back => BrowserAction::Back,
-            bombadil_schema::BrowserAction::Forward => BrowserAction::Forward,
-            bombadil_schema::BrowserAction::Click {
+            browser::BrowserAction::Back => BrowserAction::Back,
+            browser::BrowserAction::Forward => BrowserAction::Forward,
+            browser::BrowserAction::Click {
                 name,
                 content,
                 point,
@@ -121,7 +122,7 @@ impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
                 content: content.clone(),
                 point: point.to_internal(),
             },
-            bombadil_schema::BrowserAction::DoubleClick {
+            browser::BrowserAction::DoubleClick {
                 name,
                 content,
                 point,
@@ -132,37 +133,36 @@ impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
                 point: point.to_internal(),
                 delay_millis: *delay_millis,
             },
-            bombadil_schema::BrowserAction::TypeText { text, delay_millis } => {
+            browser::BrowserAction::TypeText { text, delay_millis } => {
                 BrowserAction::TypeText {
                     text: text.clone(),
                     delay_millis: *delay_millis,
                 }
             }
-            bombadil_schema::BrowserAction::PressKey { code } => {
+            browser::BrowserAction::PressKey { code } => {
                 BrowserAction::PressKey { code: *code }
             }
-            bombadil_schema::BrowserAction::ScrollUp { origin, distance } => {
+            browser::BrowserAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
                     origin: origin.to_internal(),
                     distance: *distance,
                 }
             }
-            bombadil_schema::BrowserAction::ScrollDown { origin, distance } => {
+            browser::BrowserAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown {
                     origin: origin.to_internal(),
                     distance: *distance,
                 }
             }
-            bombadil_schema::BrowserAction::Reload => BrowserAction::Reload,
-            bombadil_schema::BrowserAction::Wait => BrowserAction::Wait,
-            bombadil_schema::BrowserAction::SetFileInputFiles {
-                selector,
-                files,
-            } => BrowserAction::SetFileInputFiles {
-                selector: selector.clone(),
-                files: files.clone(),
-            },
-            bombadil_schema::BrowserAction::MouseDrag {
+            browser::BrowserAction::Reload => BrowserAction::Reload,
+            browser::BrowserAction::Wait => BrowserAction::Wait,
+            browser::BrowserAction::SetFileInputFiles { selector, files } => {
+                BrowserAction::SetFileInputFiles {
+                    selector: selector.clone(),
+                    files: files.clone(),
+                }
+            }
+            browser::BrowserAction::MouseDrag {
                 from,
                 to,
                 steps,
@@ -173,7 +173,7 @@ impl ToInternal<BrowserAction> for bombadil_schema::BrowserAction {
                 steps: *steps,
                 delay_millis: *delay_millis,
             },
-            bombadil_schema::BrowserAction::SetViewport { width, height } => {
+            browser::BrowserAction::SetViewport { width, height } => {
                 BrowserAction::SetViewport {
                     width: *width,
                     height: *height,

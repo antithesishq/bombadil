@@ -7,7 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use bombadil_schema::BrowserTraceEntry;
+use bombadil_schema::browser::BrowserTraceEntry;
 use include_dir::{Dir, include_dir};
 
 static INSPECT_ASSETS: Dir =

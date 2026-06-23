@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use bombadil_schema::TerminalSize;
+use bombadil_schema::terminal::TerminalSize;
 use bytes::Bytes;
 use portable_pty::{
     Child, CommandBuilder, ExitStatus, MasterPty, NativePtySystem, PtySize,

@@ -2,7 +2,8 @@ use std::cmp::Ordering;
 use std::rc::Rc;
 use std::time::Duration;
 
-use bombadil_schema::{BrowserTraceEntry, PropertyViolation, Time};
+use bombadil_schema::browser::BrowserTraceEntry;
+use bombadil_schema::{PropertyViolation, Time};
 use yew::component;
 use yew::prelude::*;
 

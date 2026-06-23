@@ -8,7 +8,7 @@ use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy, Runner};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
-use bombadil_schema::TerminalSize;
+use bombadil_schema::terminal::TerminalSize;
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;

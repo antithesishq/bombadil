@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
-use bombadil_schema::{BrowserTraceEntry, Time};
+use bombadil_schema::Time;
+use bombadil_schema::browser;
 use serde_json as json;
 use yew::component;
 use yew::prelude::*;
@@ -10,7 +11,7 @@ use crate::render::{markup_to_html, render_violation};
 
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
-    pub entry: Rc<BrowserTraceEntry>,
+    pub entry: Rc<browser::BrowserTraceEntry>,
     pub test_start: Time,
 }
 

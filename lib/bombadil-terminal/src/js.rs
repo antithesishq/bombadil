@@ -10,7 +10,7 @@ use boa_engine::{
     property::Attribute,
 };
 use bombadil::driver::FromGeneratedAction;
-use bombadil_schema::{
+use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalCell, TerminalColor, TerminalCursor,
     TerminalCursorPosition, TerminalCursorVisualStyle, TerminalGrid,
     TerminalSize, TerminalStyle, TerminalUnderline,

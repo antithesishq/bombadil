@@ -8,7 +8,7 @@ use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::{Specification, Verifier};
-use bombadil_schema::{
+use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
     TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,

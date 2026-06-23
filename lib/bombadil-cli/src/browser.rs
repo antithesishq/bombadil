@@ -22,7 +22,7 @@ use bombadil_browser::{
     },
     instrumentation::InstrumentationConfig,
 };
-use bombadil_schema::schema;
+use bombadil_schema::browser;
 
 use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
@@ -329,7 +329,7 @@ async fn resolve_test_mode(
             let mut lines = BufReader::new(trace_file).lines();
             let mut actions: Vec<BrowserAction> = vec![];
             while let Some(line) = lines.next_line().await? {
-                let entry: schema::BrowserTraceEntry = json::from_str(&line)?;
+                let entry: browser::BrowserTraceEntry = json::from_str(&line)?;
                 if let Some(action) = entry.action {
                     actions.push(action.to_internal());
                 }

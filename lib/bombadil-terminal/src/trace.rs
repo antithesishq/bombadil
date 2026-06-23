@@ -9,14 +9,16 @@ use anyhow::{Result, anyhow};
 use bombadil::runner::PropertyViolation;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
-use bombadil_schema::{TerminalCell, TerminalGrid, Time, TraceEntry};
+use bombadil_schema::terminal::{
+    TerminalCell, TerminalGrid, TerminalStateSummary,
+};
+use bombadil_schema::{Time, TraceEntry};
 use serde_json as json;
 use std::fs::File;
 
 use crate::{driver::TerminalAction, state::TerminalState};
 
-pub type TerminalTraceEntry =
-    TraceEntry<TerminalAction, bombadil_schema::TerminalStateSummary>;
+pub type TerminalTraceEntry = TraceEntry<TerminalAction, TerminalStateSummary>;
 
 /// Writes trace entries on a dedicated thread so that JSON
 /// serialization and disk I/O (hundreds of kilobytes per state) overlap
@@ -233,7 +235,7 @@ fn worker_loop(
 mod tests {
     use std::time::SystemTime;
 
-    use bombadil_schema::{
+    use bombadil_schema::terminal::{
         TerminalAttributes, TerminalColor, TerminalCursor,
         TerminalCursorPosition, TerminalCursorVisualStyle, TerminalSize,
         TerminalStateSummary, TerminalStyle, TerminalUnderline,

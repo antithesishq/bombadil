@@ -27,12 +27,14 @@ pub struct TraceEntry<'a> {
     pub resources: Cow<'a, Resources>,
 }
 
-impl<'a> ToSchema<bombadil_schema::BrowserTraceEntry> for TraceEntry<'a> {
-    fn to_schema(&self) -> bombadil_schema::BrowserTraceEntry {
+impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
+    for TraceEntry<'a>
+{
+    fn to_schema(&self) -> bombadil_schema::browser::BrowserTraceEntry {
         bombadil_schema::TraceEntry {
             timestamp: Time::from_system_time(self.timestamp),
             action: self.action.as_ref().map(|a| a.to_schema()),
-            state: bombadil_schema::BrowserStateSummary {
+            state: bombadil_schema::browser::BrowserStateSummary {
                 url: self.url.to_string(),
                 hash_previous: self.hash_previous,
                 hash_current: self.hash_current,

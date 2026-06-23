@@ -1,6 +1,8 @@
 use std::time::SystemTime;
 
-use bombadil_schema::{ProcessExitStatus, TerminalCursor, TerminalGrid};
+use bombadil_schema::terminal::{
+    ProcessExitStatus, TerminalCursor, TerminalGrid,
+};
 use serde::Serialize;
 
 use crate::driver::TerminalAction;

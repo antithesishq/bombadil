@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
-use bombadil_schema::BrowserAction;
-use bombadil_schema::BrowserTraceEntry;
 use bombadil_schema::Point;
+use bombadil_schema::browser::BrowserAction;
+use bombadil_schema::browser::BrowserTraceEntry;
 use wasm_bindgen::JsCast;
 use yew::component;
 use yew::prelude::*;

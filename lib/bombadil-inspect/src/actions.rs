@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
 use bombadil_browser_keys::key_name;
-use bombadil_schema::{BrowserTraceEntry, Point, Time};
+use bombadil_schema::browser::{BrowserAction, BrowserTraceEntry};
+use bombadil_schema::{Point, Time};
 use yew::component;
 use yew::prelude::*;
 
@@ -56,13 +57,13 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
     let (action_header, details): (Html, Option<Vec<(&str, String)>>) =
         match &props.entry.action {
             Some(action) => match action {
-                bombadil_schema::BrowserAction::Back => {
+                BrowserAction::Back => {
                     (html!(<span class="action-name">{"Back"}</span>), None)
                 }
-                bombadil_schema::BrowserAction::Forward => {
+                BrowserAction::Forward => {
                     (html!(<span class="action-name">{"Forward"}</span>), None)
                 }
-                bombadil_schema::BrowserAction::Click {
+                BrowserAction::Click {
                     point,
                     name,
                     content,
@@ -86,7 +87,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::DoubleClick {
+                BrowserAction::DoubleClick {
                     point,
                     delay_millis,
                     name,
@@ -112,10 +113,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::TypeText {
-                    text,
-                    delay_millis,
-                } => (
+                BrowserAction::TypeText { text, delay_millis } => (
                     html!(
                         <>
                             <span class="action-name">{"Type"}</span>
@@ -127,7 +125,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Delay", delay_millis.to_string()),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::PressKey { code, .. } => (
+                BrowserAction::PressKey { code, .. } => (
                     html!(
                         <>
                             <span class="action-name">{"Press"}</span>
@@ -136,43 +134,34 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     ),
                     Some(vec![("Code", code.to_string())]),
                 ),
-                bombadil_schema::BrowserAction::ScrollUp {
-                    origin,
-                    distance,
-                } => (
+                BrowserAction::ScrollUp { origin, distance } => (
                     html!(<span class="action-name">{"Scroll up"}</span>),
                     Some(vec![
                         ("Origin", format_point(origin)),
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::ScrollDown {
-                    origin,
-                    distance,
-                } => (
+                BrowserAction::ScrollDown { origin, distance } => (
                     html!(<span class="action-name">{"Scroll down"}</span>),
                     Some(vec![
                         ("Origin", format_point(origin)),
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::Reload => {
+                BrowserAction::Reload => {
                     (html!(<span class="action-name">{"Reload"}</span>), None)
                 }
-                bombadil_schema::BrowserAction::Wait => {
+                BrowserAction::Wait => {
                     (html!(<span class="action-name">{"Wait"}</span>), None)
                 }
-                bombadil_schema::BrowserAction::SetFileInputFiles {
-                    selector,
-                    files,
-                } => (
+                BrowserAction::SetFileInputFiles { selector, files } => (
                     html!(<span class="action-name">{"Set file input"}</span>),
                     Some(vec![
                         ("Selector", selector.clone()),
                         ("Files", format!("{} file(s)", files.len())),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::MouseDrag {
+                BrowserAction::MouseDrag {
                     from,
                     to,
                     steps,
@@ -186,10 +175,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Delay", format!("{}ms", delay_millis)),
                     ]),
                 ),
-                bombadil_schema::BrowserAction::SetViewport {
-                    width,
-                    height,
-                } => (
+                BrowserAction::SetViewport { width, height } => (
                     html!(<span class="action-name">{"Set viewport"}</span>),
                     Some(vec![("Size", format!("{width}x{height}"))]),
                 ),

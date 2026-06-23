@@ -9,9 +9,9 @@ use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
 use bombadil::tree::Tree;
-use bombadil_schema::{
+use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
-    TerminalStyle,
+    TerminalStyle, TerminalUnderline,
 };
 use owo_colors::{OwoColorize, XtermColors};
 use rand::{RngExt, TryRng};
@@ -254,7 +254,7 @@ fn to_owo_style(value: &TerminalStyle) -> owo_colors::Style {
         style = style.dimmed();
     }
 
-    if !matches!(value.underline, bombadil_schema::TerminalUnderline::None) {
+    if !matches!(value.underline, TerminalUnderline::None) {
         style = style.underline();
     }
 
