@@ -6,8 +6,11 @@ import {
   type TimeUnit,
 } from "@antithesishq/bombadil/internal";
 
-import { ActionGenerator, type Tree } from "@antithesishq/bombadil/actions";
 import * as bombadilActions from "@antithesishq/bombadil/actions";
+import {
+  type Tree,
+  type ActionGenerator,
+} from "@antithesishq/bombadil/actions";
 
 export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
 export {
