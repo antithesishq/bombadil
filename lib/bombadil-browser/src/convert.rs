@@ -100,6 +100,12 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                     height: *height,
                 }
             }
+            BrowserAction::Custom { name, state } => {
+                browser::BrowserAction::Custom {
+                    name: name.clone(),
+                    state: state.clone(),
+                }
+            }
         }
     }
 }
@@ -168,6 +174,12 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                 BrowserAction::SetViewport {
                     width: *width,
                     height: *height,
+                }
+            }
+            browser::BrowserAction::Custom { name, state } => {
+                BrowserAction::Custom {
+                    name: name.clone(),
+                    state: state.clone(),
                 }
             }
         }

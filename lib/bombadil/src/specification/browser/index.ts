@@ -38,7 +38,8 @@ export type Action<Number = number, String = string> =
         delayMillis: Number;
       };
     }
-  | { SetViewport: { width: Number; height: Number } };
+  | { SetViewport: { width: Number; height: Number } }
+  | { Custom: { name: string } };
 
 export type ActionTemplate = Action<Range, StringGenerator>;
 
@@ -150,9 +151,9 @@ export function getFingerprint(el: Element): Fingerprint {
   const accessibleName =
     el.getAttribute("aria-label") ??
     (el.getAttribute("aria-labelledby")
-      ? (document
+      ? document
           .getElementById(el.getAttribute("aria-labelledby")!)
-          ?.textContent?.trim() ?? null)
+          ?.textContent?.trim()
       : null) ??
     el.getAttribute("title");
 
@@ -211,4 +212,14 @@ function getStructuralPath(el: Element): string {
   }
 
   return parts.join(" > ");
+}
+
+export function registerCustomAction(
+  name: string,
+  scriptFunction: (state: Pick<State, "document" | "window">) => void,
+) {
+  bombadil.registerCustomAction<Pick<State, "document" | "window">>(
+    name,
+    scriptFunction,
+  );
 }

@@ -52,11 +52,20 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 }
 
+export class CustomAction<S> {
+  constructor(
+    public name: string,
+    public run: (state: S) => void,
+  ) {}
+}
+
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
   private extractingDepth: number = 0;
   private tracking = false;
   private accesses = new Set<number>();
+
+  customActions: Record<string, CustomAction<S>> = {};
 
   registerExtractor(cell: ExtractorCell<any, S>): number {
     const index = this.extractors.length;
@@ -107,5 +116,9 @@ export class Runtime<S> {
           "Use shared helper functions to avoid duplication.",
       );
     }
+  }
+
+  registerCustomAction(action: CustomAction<S>) {
+    this.customActions[action.name] = action;
   }
 }

@@ -185,4 +185,8 @@ pub enum BrowserAction {
         width: u16,
         height: u16,
     },
+    Custom {
+        name: String,
+        state: serde_json::Value,
+    },
 }
