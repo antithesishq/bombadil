@@ -1,9 +1,90 @@
+use std::{
+    fmt::{Display, Formatter},
+    ops::RangeInclusive,
+};
+
 use bombadil::styled;
 use bombadil_browser_keys::key_name;
 
-use crate::browser::actions::BrowserAction;
+use crate::browser::actions::{BrowserAction, Regexp, StringGenerator};
 
-pub fn format_action(action: &BrowserAction) -> String {
+pub trait Format {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error>;
+}
+
+impl Format for u8 {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
+}
+
+impl Format for u16 {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
+}
+
+impl Format for u64 {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
+}
+
+impl Format for f64 {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{:.01}", self)
+    }
+}
+
+impl Format for String {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self)
+    }
+}
+
+impl<T: Format> Format for RangeInclusive<T> {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        self.start().format(f)?;
+        write!(f, "..=")?;
+        self.end().format(f)
+    }
+}
+
+impl Format for StringGenerator {
+    fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        match self {
+            StringGenerator::Text { length } => {
+                write!(f, "<text {}>", Formatted(length))
+            }
+            StringGenerator::Email => {
+                write!(f, "<email>")
+            }
+            StringGenerator::Regexp {
+                regexp: Regexp(regexp),
+            } => {
+                write!(f, "<regexp {}>", Formatted(regexp))
+            }
+        }
+    }
+}
+
+struct Formatted<'a, T: Format>(&'a T);
+
+impl<'a, T: Format> Display for Formatted<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        self.0.format(f)
+    }
+}
+
+pub fn format_action<
+    U8: Format,
+    U16: Format,
+    U64: Format,
+    F64: Format,
+    Text: Format,
+>(
+    action: &BrowserAction<U8, U16, U64, F64, Text>,
+) -> String {
     match action {
         BrowserAction::Back => styled::maybe_bold("Going back".to_string()),
         BrowserAction::Forward => {
@@ -13,12 +94,9 @@ pub fn format_action(action: &BrowserAction) -> String {
             styled::maybe_bold("Reloading page".to_string())
         }
         BrowserAction::Wait => styled::maybe_bold("Waiting".to_string()),
-        BrowserAction::Click {
-            name,
-            content,
-            point,
-        } => {
-            let content_str = content
+        BrowserAction::Click { fingerprint, point } => {
+            let content_str = fingerprint
+                .text_content
                 .as_ref()
                 .map(|c| {
                     format!(
@@ -28,20 +106,21 @@ pub fn format_action(action: &BrowserAction) -> String {
                 })
                 .unwrap_or_default();
             format!(
-                "{} <{name}> (x: {}, y: {}{})",
+                "{} <{}> (x: {}, y: {}{})",
                 styled::maybe_bold("Clicking".to_string()),
+                fingerprint.tag,
                 styled::maybe_blue(format!("{:.1}", point.x)),
                 styled::maybe_blue(format!("{:.1}", point.y)),
                 content_str
             )
         }
         BrowserAction::DoubleClick {
-            name,
-            content,
+            fingerprint,
             point,
             delay_millis,
         } => {
-            let content_str = content
+            let content_str = fingerprint
+                .text_content
                 .as_ref()
                 .map(|c| {
                     format!(
@@ -51,11 +130,12 @@ pub fn format_action(action: &BrowserAction) -> String {
                 })
                 .unwrap_or_default();
             format!(
-                "{} <{name}> (x: {}, y: {}, delay: {}{})",
+                "{} <{}> (x: {}, y: {}, delay: {}{})",
                 styled::maybe_bold("Double-clicking".to_string()),
+                fingerprint.tag,
                 styled::maybe_blue(format!("{:.1}", point.x)),
                 styled::maybe_blue(format!("{:.1}", point.y)),
-                styled::maybe_blue(format!("{delay_millis}ms")),
+                styled::maybe_blue(format!("{}ms", Formatted(delay_millis))),
                 content_str
             )
         }
@@ -63,8 +143,8 @@ pub fn format_action(action: &BrowserAction) -> String {
             format!(
                 "{} {} (delay: {})",
                 styled::maybe_bold("Typing".to_string()),
-                styled::maybe_blue(format!("{:?}", text)),
-                styled::maybe_blue(format!("{delay_millis}ms"))
+                styled::maybe_blue(format!("{}", Formatted(text))),
+                styled::maybe_blue(format!("{}ms", Formatted(delay_millis)))
             )
         }
         BrowserAction::PressKey { code } => {
@@ -82,7 +162,7 @@ pub fn format_action(action: &BrowserAction) -> String {
                 styled::maybe_bold("Scrolling up".to_string()),
                 styled::maybe_blue(format!("{:.1}", origin.x)),
                 styled::maybe_blue(format!("{:.1}", origin.y)),
-                styled::maybe_blue(format!("{:.0}px", distance))
+                styled::maybe_blue(format!("{}px", Formatted(distance)))
             )
         }
         BrowserAction::ScrollDown { origin, distance } => {
@@ -91,7 +171,7 @@ pub fn format_action(action: &BrowserAction) -> String {
                 styled::maybe_bold("Scrolling down".to_string()),
                 styled::maybe_blue(format!("{:.1}", origin.x)),
                 styled::maybe_blue(format!("{:.1}", origin.y)),
-                styled::maybe_blue(format!("{:.0}px", distance))
+                styled::maybe_blue(format!("{}px", Formatted(distance)))
             )
         }
         BrowserAction::SetFileInputFiles { selector, files } => {
@@ -115,16 +195,16 @@ pub fn format_action(action: &BrowserAction) -> String {
                 styled::maybe_blue(format!("{:.1}", from.y)),
                 styled::maybe_blue(format!("{:.1}", to.x)),
                 styled::maybe_blue(format!("{:.1}", to.y)),
-                styled::maybe_blue(format!("{steps}")),
-                styled::maybe_blue(format!("{delay_millis}ms"))
+                styled::maybe_blue(format!("{}", Formatted(steps))),
+                styled::maybe_blue(format!("{}ms", Formatted(delay_millis)))
             )
         }
         BrowserAction::SetViewport { width, height } => {
             format!(
                 "{} to {}x{}",
                 styled::maybe_bold("Setting viewport".to_string()),
-                styled::maybe_blue(format!("{width}")),
-                styled::maybe_blue(format!("{height}"))
+                styled::maybe_blue(format!("{}", Formatted(width))),
+                styled::maybe_blue(format!("{}", Formatted(height)))
             )
         }
     }

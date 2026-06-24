@@ -1,3 +1,4 @@
+use crate::browser::actions::BrowserActionTemplate;
 use crate::render::format_action;
 use crate::url::is_within_domain;
 use anyhow::{Result, bail};
@@ -63,7 +64,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
     fn pick_action(
         &mut self,
         state: &BrowserState,
-        tree: Tree<BrowserAction>,
+        tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
         let tree = if is_within_domain(&state.url, &self.origin) {
             tree
@@ -74,23 +75,21 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
         .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
 
         match &mut self.mode {
-            TestMode::RandomWalk => Ok(tree.pick(&mut self.rng)?.clone()),
+            TestMode::RandomWalk => {
+                let template = tree.pick(&mut self.rng)?.clone();
+                let action = template.generate(&mut self.rng);
+                Ok(action)
+            }
             TestMode::Reproduce(actions_original) => {
                 if let Some(action_original) = actions_original.pop_front() {
                     let available_actions = tree.values();
-                    let action_reconciled = available_actions
-                        .iter()
-                        .filter_map(|action| {
-                            reconcile_reproducible_action(
-                                action,
-                                &action_original,
-                            )
-                        })
-                        .min_by(|(_, a), (_, b)| a.total_cmp(b))
-                        .map(|(action, _)| action);
+                    let action_reconciled =
+                        available_actions.iter().any(|action_template| {
+                            action_template.accepts(&action_original)
+                        });
 
-                    if let Some(action) = action_reconciled {
-                        Ok(action)
+                    if action_reconciled {
+                        Ok(action_original)
                     } else {
                         println!(
                             "\n{}\n\n{}\n\n{}\n\n{}\n",
@@ -127,7 +126,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserDriver>
     fn on_new_state(
         &mut self,
         state: &BrowserState,
-        tree: Tree<BrowserAction>,
+        tree: Tree<BrowserActionTemplate>,
         last_action: Option<&BrowserAction>,
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
@@ -208,94 +207,5 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserDriver>
             exit_reason: ExitReason::Interrupted,
             violations_count: self.violations_count,
         })
-    }
-}
-
-const RECONCILE_DISTANCE_MAX: f64 = 500.0;
-
-fn reconcile_reproducible_action(
-    candidate: &BrowserAction,
-    original: &BrowserAction,
-) -> Option<(BrowserAction, f64)> {
-    match (candidate, original) {
-        (BrowserAction::Back, BrowserAction::Back) => {
-            Some((BrowserAction::Back, 0.0))
-        }
-        (BrowserAction::Forward, BrowserAction::Forward) => {
-            Some((BrowserAction::Forward, 0.0))
-        }
-        (
-            BrowserAction::Click {
-                name: candidate_name,
-                content: candidate_content,
-                point: candidate_point,
-            },
-            BrowserAction::Click {
-                name: original_name,
-                content: original_content,
-                point: original_point,
-            },
-        ) if candidate_name == original_name
-            && candidate_content == original_content =>
-        {
-            let distance = (candidate_point.x - original_point.x)
-                .hypot(candidate_point.y - original_point.y);
-            (distance < RECONCILE_DISTANCE_MAX)
-                .then(|| (candidate.clone(), distance))
-        }
-        (
-            BrowserAction::DoubleClick {
-                name: candidate_name,
-                content: candidate_content,
-                point: candidate_point,
-                ..
-            },
-            BrowserAction::DoubleClick {
-                name: original_name,
-                content: original_content,
-                point: original_point,
-                ..
-            },
-        ) if candidate_name == original_name
-            && candidate_content == original_content =>
-        {
-            let distance = (candidate_point.x - original_point.x)
-                .hypot(candidate_point.y - original_point.y);
-            (distance < RECONCILE_DISTANCE_MAX)
-                .then(|| (candidate.clone(), distance))
-        }
-        (BrowserAction::TypeText { .. }, BrowserAction::TypeText { .. }) => {
-            Some((original.clone(), 0.0))
-        }
-        (BrowserAction::PressKey { .. }, BrowserAction::PressKey { .. }) => {
-            Some((original.clone(), 0.0))
-        }
-        (BrowserAction::ScrollUp { .. }, BrowserAction::ScrollUp { .. }) => {
-            Some((candidate.clone(), 0.0))
-        }
-        (
-            BrowserAction::ScrollDown { .. },
-            BrowserAction::ScrollDown { .. },
-        ) => Some((candidate.clone(), 0.0)),
-        (BrowserAction::Reload, BrowserAction::Reload) => {
-            Some((BrowserAction::Reload, 0.0))
-        }
-        (BrowserAction::Wait, BrowserAction::Wait) => {
-            Some((BrowserAction::Wait, 0.0))
-        }
-        (
-            BrowserAction::SetFileInputFiles {
-                selector: candidate_selector,
-                ..
-            },
-            BrowserAction::SetFileInputFiles {
-                selector: original_selector,
-                ..
-            },
-        ) if candidate_selector == original_selector => {
-            Some((original.clone(), 0.0))
-        }
-
-        _ => None,
     }
 }

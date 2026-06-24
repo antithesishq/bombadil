@@ -15,6 +15,7 @@ use tokio::sync::mpsc::{
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
+use crate::browser::actions::BrowserActionTemplate;
 use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, BrowserEvent, BrowserOptions, DebuggerOptions};
 use crate::instrumentation::js::EDGE_MAP_SIZE;
@@ -86,6 +87,7 @@ impl BrowserDriver {
 
 impl InterfaceDriver for BrowserDriver {
     type Action = BrowserAction;
+    type ActionTemplate = BrowserActionTemplate;
     type State = BrowserState;
 
     fn initiate(&mut self) -> Result<()> {

@@ -23,7 +23,8 @@ impl FromGeneratedAction for json::Value {
 
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
-    type Action: Clone
+    type Action: Clone + Debug + Serialize + DeserializeOwned;
+    type ActionTemplate: Clone
         + Debug
         + Serialize
         + DeserializeOwned

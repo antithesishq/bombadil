@@ -39,23 +39,19 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
             BrowserAction::Back => browser::BrowserAction::Back,
             BrowserAction::Forward => browser::BrowserAction::Forward,
             BrowserAction::Click {
-                name,
-                content,
-                point,
+                fingerprint,
+                point: position,
             } => browser::BrowserAction::Click {
-                name: name.clone(),
-                content: content.clone(),
-                point: point.to_schema(),
+                fingerprint: fingerprint.clone(),
+                point: position.to_schema(),
             },
             BrowserAction::DoubleClick {
-                name,
-                content,
-                point,
+                fingerprint,
+                point: position,
                 delay_millis,
             } => browser::BrowserAction::DoubleClick {
-                name: name.clone(),
-                content: content.clone(),
-                point: point.to_schema(),
+                fingerprint: fingerprint.clone(),
+                point: position.to_schema(),
                 delay_millis: *delay_millis,
             },
             BrowserAction::TypeText { text, delay_millis } => {
@@ -113,23 +109,18 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
         match self {
             browser::BrowserAction::Back => BrowserAction::Back,
             browser::BrowserAction::Forward => BrowserAction::Forward,
-            browser::BrowserAction::Click {
-                name,
-                content,
-                point,
-            } => BrowserAction::Click {
-                name: name.clone(),
-                content: content.clone(),
-                point: point.to_internal(),
-            },
+            browser::BrowserAction::Click { fingerprint, point } => {
+                BrowserAction::Click {
+                    fingerprint: fingerprint.clone(),
+                    point: point.to_internal(),
+                }
+            }
             browser::BrowserAction::DoubleClick {
-                name,
-                content,
+                fingerprint,
                 point,
                 delay_millis,
             } => BrowserAction::DoubleClick {
-                name: name.clone(),
-                content: content.clone(),
+                fingerprint: fingerprint.clone(),
                 point: point.to_internal(),
                 delay_millis: *delay_millis,
             },

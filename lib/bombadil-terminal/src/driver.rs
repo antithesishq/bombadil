@@ -219,6 +219,7 @@ impl TerminalDriver {
 
 impl InterfaceDriver for TerminalDriver {
     type Action = TerminalAction;
+    type ActionTemplate = TerminalAction; // TODO: separate types for generated and template actions
     type State = TerminalState;
 
     #[hotpath::measure]

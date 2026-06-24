@@ -63,16 +63,12 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 BrowserAction::Forward => {
                     (html!(<span class="action-name">{"Forward"}</span>), None)
                 }
-                BrowserAction::Click {
-                    point,
-                    name,
-                    content,
-                } => (
+                BrowserAction::Click { point, fingerprint } => (
                     html!(
                         <>
                             <span class="action-name">{"Click"}</span>
                             <span class="element-tag">
-                                {"<"}<span class="element-name">{name}</span>{" />"}
+                                {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
                             </span>
                         </>
                     ),
@@ -82,7 +78,10 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                             "Content",
                             format!(
                                 "{:?}",
-                                content.clone().unwrap_or("".into())
+                                fingerprint
+                                    .text_content
+                                    .clone()
+                                    .unwrap_or("".into())
                             ),
                         ),
                     ]),
@@ -90,14 +89,13 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 BrowserAction::DoubleClick {
                     point,
                     delay_millis,
-                    name,
-                    content,
+                    fingerprint,
                 } => (
                     html!(
                         <>
                             <span class="action-name">{"Double-click"}</span>
                             <span class="element-tag">
-                                {"<"}<span class="element-name">{name}</span>{" />"}
+                                {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
                             </span>
                         </>
                     ),
@@ -108,7 +106,10 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                             "Content",
                             format!(
                                 "{:?}",
-                                content.clone().unwrap_or("".into())
+                                fingerprint
+                                    .text_content
+                                    .clone()
+                                    .unwrap_or("".into())
                             ),
                         ),
                     ]),

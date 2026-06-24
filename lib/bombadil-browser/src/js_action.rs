@@ -1,6 +1,16 @@
-use serde::{Deserialize, Serialize};
+use std::ops::RangeInclusive;
 
-use crate::browser::actions::BrowserAction;
+use anyhow::{anyhow, ensure};
+use bombadil_schema::{Rect, browser::Fingerprint};
+use num_traits::NumCast;
+use serde::{
+    Deserialize, Serialize,
+    de::{self, DeserializeOwned},
+};
+
+use crate::browser::actions::{
+    BrowserAction, BrowserActionTemplate, Regexp, StringGenerator,
+};
 use crate::geometry::Point;
 
 /// TypeScript-friendly action representation with camelCase and f64 for numbers.
@@ -11,21 +21,19 @@ pub enum JsAction {
     Forward,
     #[serde(rename_all = "camelCase")]
     Click {
-        name: String,
-        content: Option<String>,
+        fingerprint: JsFingerprint,
         point: Point,
     },
     #[serde(rename_all = "camelCase")]
     DoubleClick {
-        name: String,
-        content: Option<String>,
+        fingerprint: JsFingerprint,
         point: Point,
-        delay_millis: f64,
+        delay_millis: JsRange<f64>,
     },
     #[serde(rename_all = "camelCase")]
     TypeText {
-        text: String,
-        delay_millis: f64,
+        text: JsStringGenerator,
+        delay_millis: JsRange<f64>,
     },
     #[serde(rename_all = "camelCase")]
     PressKey {
@@ -34,12 +42,12 @@ pub enum JsAction {
     #[serde(rename_all = "camelCase")]
     ScrollUp {
         origin: Point,
-        distance: f64,
+        distance: JsRange<f64>,
     },
     #[serde(rename_all = "camelCase")]
     ScrollDown {
         origin: Point,
-        distance: f64,
+        distance: JsRange<f64>,
     },
     Reload,
     Wait,
@@ -52,68 +60,55 @@ pub enum JsAction {
     MouseDrag {
         from: Point,
         to: Point,
-        steps: f64,
-        delay_millis: f64,
+        steps: JsRange<f64>,
+        delay_millis: JsRange<f64>,
     },
     #[serde(rename_all = "camelCase")]
     SetViewport {
-        width: f64,
-        height: f64,
+        width: JsRange<f64>,
+        height: JsRange<f64>,
     },
 }
 
-impl JsAction {
-    pub fn into_browser_action(self) -> anyhow::Result<BrowserAction> {
+impl TryInto<BrowserActionTemplate> for JsAction {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<BrowserActionTemplate, Self::Error> {
         use anyhow::bail;
 
         Ok(match self {
             JsAction::Back => BrowserAction::Back,
             JsAction::Forward => BrowserAction::Forward,
             JsAction::Reload => BrowserAction::Reload,
-            JsAction::Click {
-                name,
-                content,
-                point,
-            } => BrowserAction::Click {
-                name,
-                content,
+            JsAction::Click { fingerprint, point } => BrowserAction::Click {
+                fingerprint: fingerprint.try_into()?,
                 point,
             },
             JsAction::DoubleClick {
-                name,
-                content,
+                fingerprint,
                 point,
                 delay_millis,
             } => {
-                if !delay_millis.is_finite() || delay_millis < 0.0 {
+                let delay_millis: RangeInclusive<u64> =
+                    delay_millis.try_into()?;
+                if *delay_millis.end() > 1000 {
                     bail!(
-                        "delayMillis must be a non-negative finite number, got {}",
-                        delay_millis
-                    );
-                }
-                if delay_millis > 1000.0 {
-                    bail!(
-                        "delayMillis must be at most 1000, got {}",
+                        "delayMillis end must be at most 1000, got {:?}",
                         delay_millis
                     );
                 }
                 BrowserAction::DoubleClick {
-                    name,
-                    content,
+                    fingerprint: fingerprint.try_into()?,
                     point,
-                    delay_millis: delay_millis as u64,
+                    delay_millis,
                 }
             }
             JsAction::TypeText { text, delay_millis } => {
-                if !delay_millis.is_finite() || delay_millis < 0.0 {
-                    bail!(
-                        "delayMillis must be a non-negative finite number, got {}",
-                        delay_millis
-                    );
-                }
+                let delay_millis: RangeInclusive<u64> =
+                    delay_millis.try_into()?;
                 BrowserAction::TypeText {
-                    text,
-                    delay_millis: delay_millis as u64,
+                    text: text.try_into()?,
+                    delay_millis,
                 }
             }
             JsAction::PressKey { code } => {
@@ -129,10 +124,16 @@ impl JsAction {
                 BrowserAction::PressKey { code: code as u8 }
             }
             JsAction::ScrollUp { origin, distance } => {
-                BrowserAction::ScrollUp { origin, distance }
+                BrowserAction::ScrollUp {
+                    origin: origin.try_into()?,
+                    distance: distance.try_into()?,
+                }
             }
             JsAction::ScrollDown { origin, distance } => {
-                BrowserAction::ScrollDown { origin, distance }
+                BrowserAction::ScrollDown {
+                    origin,
+                    distance: distance.try_into()?,
+                }
             }
             JsAction::Wait => BrowserAction::Wait,
             JsAction::SetFileInputFiles { selector, files } => {
@@ -144,69 +145,280 @@ impl JsAction {
                 steps,
                 delay_millis,
             } => {
-                if !steps.is_finite()
-                    || !(1.0..=255.0).contains(&steps)
-                    || steps.fract() != 0.0
-                {
-                    bail!(
-                        "steps must be an integer between 1 and 255, got {}",
-                        steps
-                    );
-                }
-                if !delay_millis.is_finite() || delay_millis < 0.0 {
-                    bail!(
-                        "delayMillis must be a non-negative finite number, got {}",
-                        delay_millis
-                    );
-                }
-                if delay_millis > 1000.0 {
-                    bail!(
-                        "delayMillis must be at most 1000, got {}",
-                        delay_millis
-                    );
-                }
+                let steps: RangeInclusive<u8> = steps.try_into()?;
+                ensure!(
+                    *steps.start() > 0,
+                    "steps start must be greater than 0, got {:?}",
+                    steps
+                );
+                let delay_millis: RangeInclusive<u64> =
+                    delay_millis.try_into()?;
+                ensure!(
+                    *delay_millis.end() <= 1000,
+                    "delayMillis end must be at most 1000, got {:?}",
+                    delay_millis
+                );
                 BrowserAction::MouseDrag {
                     from,
                     to,
-                    steps: steps as u8,
-                    delay_millis: delay_millis as u64,
+                    steps: steps.try_into()?,
+                    delay_millis,
                 }
             }
             JsAction::SetViewport { width, height } => {
-                for (name, value) in [("width", width), ("height", height)] {
-                    if !value.is_finite()
-                        || !(1.0..=10_000.0).contains(&value)
-                        || value.fract() != 0.0
-                    {
+                let width: RangeInclusive<u16> = width.try_into()?;
+                let height: RangeInclusive<u16> = height.try_into()?;
+                for (name, value) in [("width", &width), ("height", &height)] {
+                    if *value.start() == 0 || *value.end() > 10000 {
                         bail!(
-                            "{} must be an integer between 1 and 10000, got {}",
+                            "{} must be an integer range within 1..=10000, got {:?}",
                             name,
                             value
                         );
                     }
                 }
-                BrowserAction::SetViewport {
-                    width: width as u16,
-                    height: height as u16,
+                BrowserAction::SetViewport { width, height }
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsRange<T> {
+    Fixed(T),
+    Range((T, T)),
+}
+
+macro_rules! impl_js_range_try_into {
+    ($($t:ty),+) => {
+        $(
+            impl TryInto<RangeInclusive<$t>> for JsRange<f64> {
+                type Error = anyhow::Error;
+
+                fn try_into(self) -> Result<RangeInclusive<$t>, Self::Error> {
+                    fn cast(x: f64, label: &str) -> anyhow::Result<$t> {
+                        ensure!(x.is_finite(), "{label} has to be a finite number");
+                        ensure!(!x.is_sign_negative(), "{label} must not be negative");
+                        ensure!(x.fract() == 0.0, "{label} must not have a fractional part");
+                        <$t as NumCast>::from(x)
+                            .ok_or(anyhow!("{label} out of range: {x}"))
+                    }
+
+                    match self {
+                        JsRange::Fixed(x) => {
+                            let x = cast(x, "value")?;
+                            Ok(x..=x)
+                        }
+                        JsRange::Range((start, end)) => {
+                            let start = cast(start, "start")?;
+                            let end = cast(end, "end")?;
+                            ensure!(start <= end, "start must be <= end");
+                            Ok(start..=end)
+                        }
+                    }
                 }
             }
+        )+
+    };
+}
+
+impl_js_range_try_into!(u8, u16, u32, u64);
+
+impl TryInto<RangeInclusive<f64>> for JsRange<f64> {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<RangeInclusive<f64>, Self::Error> {
+        fn cast(x: f64, label: &str) -> anyhow::Result<f64> {
+            ensure!(x.is_finite(), "{label} has to be a finite number");
+            ensure!(!x.is_sign_negative(), "{label} must not be negative");
+            Ok(x)
+        }
+
+        match self {
+            JsRange::Fixed(x) => {
+                let x = cast(x, "value")?;
+                Ok(x..=x)
+            }
+            JsRange::Range((start, end)) => {
+                let start = cast(start, "low part of interval")?;
+                let end = cast(end, "high part of interval")?;
+                ensure!(
+                    start <= end,
+                    "low part must be less than or equal to high part of interval"
+                );
+                Ok(start..=end)
+            }
+        }
+    }
+}
+impl<T: Serialize> Serialize for JsRange<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            JsRange::Fixed(x) => x.serialize(serializer),
+            JsRange::Range(range) => range.serialize(serializer),
+        }
+    }
+}
+
+impl<'de, T: DeserializeOwned> Deserialize<'de> for JsRange<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: serde_json::Value = Deserialize::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Array(_) => {
+                let range: (T, T) = serde_json::from_value(value)
+                    .map_err(|err| de::Error::custom(err))?;
+                Ok(JsRange::Range(range))
+            }
+            _ => {
+                let value: T = serde_json::from_value(value)
+                    .map_err(|err| de::Error::custom(err))?;
+                Ok(JsRange::Fixed(value))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JsFingerprint {
+    // Universal strong identifiers
+    test_id: Option<String>,
+    id: Option<String>,
+    role: Option<String>,
+    accessible_name: Option<String>,
+    tag: String,
+
+    // Type-specific weak identifiers
+    href: Option<String>,
+    name_attr: Option<String>,
+    placeholder: Option<String>,
+    input_type: Option<String>,
+
+    // Fallbacks
+    text_content: Option<String>,
+    structural_path: Option<String>,
+}
+
+impl TryInto<Fingerprint> for JsFingerprint {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<Fingerprint, Self::Error> {
+        use anyhow::ensure;
+        if self.structural_path.is_some() {
+            let error_message = "structural_path must not be included when other fingerprint values are present";
+            ensure!(self.test_id.is_none(), error_message);
+            ensure!(self.id.is_none(), error_message);
+            ensure!(self.role.is_none(), error_message);
+            ensure!(self.accessible_name.is_none(), error_message);
+            ensure!(self.href.is_none(), error_message);
+            ensure!(self.name_attr.is_none(), error_message);
+            ensure!(self.placeholder.is_none(), error_message);
+            ensure!(self.input_type.is_none(), error_message);
+            ensure!(self.text_content.is_none(), error_message);
+        }
+        Ok(Fingerprint {
+            test_id: self.test_id.clone(),
+            id: self.id.clone(),
+            role: self.role.clone(),
+            accessible_name: self.accessible_name.clone(),
+            tag: self.tag.clone(),
+            href: self.href.clone(),
+            name_attr: self.name_attr.clone(),
+            placeholder: self.placeholder.clone(),
+            input_type: self.input_type.clone(),
+            text_content: self.text_content.clone(),
+            structural_path: self.structural_path.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+struct JsRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl TryFrom<JsRect> for Rect {
+    type Error = anyhow::Error;
+
+    fn try_from(value: JsRect) -> Result<Self, Self::Error> {
+        use anyhow::ensure;
+
+        ensure!(value.x.is_normal());
+        ensure!(value.y.is_normal());
+        ensure!(value.width.is_normal());
+        ensure!(value.height.is_normal());
+        ensure!(
+            !value.width.is_sign_negative(),
+            "width must be non-negative"
+        );
+        ensure!(
+            !value.height.is_sign_negative(),
+            "height must be non-negative"
+        );
+        ensure!(value.width.fract() != 0.0, "width must be an integer");
+        ensure!(value.height.fract() != 0.0, "height must be an integer");
+
+        Ok(Rect {
+            x: value.x,
+            y: value.y,
+            width: value.width,
+            height: value.height,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum JsStringGenerator {
+    Text { length: JsRange<f64> },
+    Email,
+    Regexp { regexp: String },
+}
+
+impl TryInto<StringGenerator> for JsStringGenerator {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<StringGenerator, Self::Error> {
+        Ok(match self {
+            JsStringGenerator::Text { length } => StringGenerator::Text {
+                length: length.try_into()?,
+            },
+            JsStringGenerator::Email => StringGenerator::Email,
+            JsStringGenerator::Regexp { regexp } => StringGenerator::Regexp {
+                regexp: Regexp(regexp),
+            },
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+
+    use crate::browser::actions::BrowserAction;
+
     use super::*;
 
     #[test]
     fn test_deserialize_js_action_with_float_integers() {
-        let json = r#"{"TypeText": {"text": "hello", "delayMillis": 43.0}}"#;
+        let json = r#"{"TypeText": {"text": "Email", "delayMillis": 43.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
         match action {
-            JsAction::TypeText { delay_millis, .. } => {
-                assert_eq!(delay_millis, 43.0);
+            JsAction::TypeText {
+                delay_millis,
+                text: JsStringGenerator::Email,
+            } => {
+                assert_eq!(delay_millis, JsRange::Fixed(43.0));
             }
-            _ => panic!("expected TypeText"),
+            _ => panic!("expected TypeText with Email"),
         }
 
         let json = r#"{"PressKey": {"code": 13.0}}"#;
@@ -220,24 +432,22 @@ mod tests {
     }
 
     #[test]
-    fn test_to_browser_action_truncates_floats() {
+    fn test_to_browser_action_does_not_silently_truncate_floats() {
         let js_action = JsAction::TypeText {
-            text: "hello".to_string(),
-            delay_millis: 43.9,
+            text: JsStringGenerator::Text {
+                length: JsRange::Range((0.0, 10.0)),
+            },
+            delay_millis: JsRange::Fixed(43.9),
         };
-        let browser_action = js_action.into_browser_action().unwrap();
-        match browser_action {
-            BrowserAction::TypeText { delay_millis, .. } => {
-                assert_eq!(delay_millis, 43);
-            }
-            _ => panic!("expected TypeText"),
-        }
+        let result: Result<BrowserActionTemplate> = js_action.try_into();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("fractional"));
     }
 
     #[test]
     fn test_to_browser_action_validates_code_range() {
         let js_action = JsAction::PressKey { code: 256.0 };
-        let result = js_action.into_browser_action();
+        let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(
             result
@@ -247,7 +457,7 @@ mod tests {
         );
 
         let js_action = JsAction::PressKey { code: 13.5 };
-        let result = js_action.into_browser_action();
+        let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("integer"));
     }
@@ -255,18 +465,22 @@ mod tests {
     #[test]
     fn test_to_browser_action_validates_delay_millis() {
         let js_action = JsAction::TypeText {
-            text: "hello".to_string(),
-            delay_millis: -10.0,
+            text: JsStringGenerator::Text {
+                length: JsRange::Range((0.0, 10.0)),
+            },
+            delay_millis: JsRange::Fixed(-10.0),
         };
-        let result = js_action.into_browser_action();
+        let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("non-negative"));
+        assert!(result.unwrap_err().to_string().contains("negative"));
 
         let js_action = JsAction::TypeText {
-            text: "hello".to_string(),
-            delay_millis: f64::NAN,
+            text: JsStringGenerator::Text {
+                length: JsRange::Range((0.0, 10.0)),
+            },
+            delay_millis: JsRange::Fixed(f64::NAN),
         };
-        let result = js_action.into_browser_action();
+        let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("finite"));
     }
@@ -275,8 +489,7 @@ mod tests {
     fn test_mouse_drag_round_trip() {
         let json = r#"{"MouseDrag": {"from": {"x": 1.0, "y": 2.0}, "to": {"x": 100.0, "y": 200.0}, "steps": 10.0, "delayMillis": 5.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
-        let browser_action = action.into_browser_action().unwrap();
-        match browser_action {
+        match action.try_into().unwrap() {
             BrowserAction::MouseDrag {
                 from,
                 to,
@@ -285,8 +498,8 @@ mod tests {
             } => {
                 assert_eq!((from.x, from.y), (1.0, 2.0));
                 assert_eq!((to.x, to.y), (100.0, 200.0));
-                assert_eq!(steps, 10);
-                assert_eq!(delay_millis, 5);
+                assert_eq!(steps, 10..=10);
+                assert_eq!(delay_millis, 5..=5);
             }
             _ => panic!("expected MouseDrag"),
         }
@@ -294,28 +507,30 @@ mod tests {
 
     #[test]
     fn test_mouse_drag_validates_steps() {
-        let make = |steps: f64| JsAction::MouseDrag {
-            from: Point { x: 0.0, y: 0.0 },
-            to: Point { x: 1.0, y: 1.0 },
-            steps,
-            delay_millis: 0.0,
+        let make = |steps: JsRange<f64>| {
+            TryInto::<BrowserActionTemplate>::try_into(JsAction::MouseDrag {
+                from: Point { x: 0.0, y: 0.0 },
+                to: Point { x: 1.0, y: 1.0 },
+                steps,
+                delay_millis: JsRange::Fixed(0.0),
+            })
         };
 
-        assert!(make(0.0).into_browser_action().is_err());
-        assert!(make(256.0).into_browser_action().is_err());
-        assert!(make(1.5).into_browser_action().is_err());
-        assert!(make(f64::NAN).into_browser_action().is_err());
+        assert!(make(JsRange::Fixed(0.0)).is_err());
+        assert!(make(JsRange::Fixed(256.0)).is_err());
+        assert!(make(JsRange::Fixed(1.5)).is_err());
+        assert!(make(JsRange::Fixed(f64::NAN)).is_err());
     }
 
     #[test]
     fn test_set_viewport_round_trip() {
         let json = r#"{"SetViewport": {"width": 1024.0, "height": 768.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
-        let browser_action = action.into_browser_action().unwrap();
+        let browser_action = action.try_into().unwrap();
         match browser_action {
             BrowserAction::SetViewport { width, height } => {
-                assert_eq!(width, 1024);
-                assert_eq!(height, 768);
+                assert_eq!(width, 1024..=1024);
+                assert_eq!(height, 768..=768);
             }
             _ => panic!("expected SetViewport"),
         }
@@ -323,14 +538,18 @@ mod tests {
 
     #[test]
     fn test_set_viewport_validates_dimensions() {
-        let make =
-            |width: f64, height: f64| JsAction::SetViewport { width, height };
+        let make = |width: JsRange<f64>, height: JsRange<f64>| {
+            TryInto::<BrowserActionTemplate>::try_into(JsAction::SetViewport {
+                width,
+                height,
+            })
+        };
 
-        assert!(make(0.0, 600.0).into_browser_action().is_err());
-        assert!(make(800.0, 0.0).into_browser_action().is_err());
-        assert!(make(-1.0, 600.0).into_browser_action().is_err());
-        assert!(make(10_001.0, 600.0).into_browser_action().is_err());
-        assert!(make(800.5, 600.0).into_browser_action().is_err());
-        assert!(make(f64::NAN, 600.0).into_browser_action().is_err());
+        assert!(make(JsRange::Fixed(0.0), JsRange::Fixed(600.0)).is_err());
+        assert!(make(JsRange::Fixed(800.0), JsRange::Fixed(0.0)).is_err());
+        assert!(make(JsRange::Fixed(-1.0), JsRange::Fixed(600.0)).is_err());
+        assert!(make(JsRange::Fixed(10_001.0), JsRange::Fixed(600.0)).is_err());
+        assert!(make(JsRange::Fixed(800.5), JsRange::Fixed(600.0)).is_err());
+        assert!(make(JsRange::Fixed(f64::NAN), JsRange::Fixed(600.0)).is_err());
     }
 }

@@ -1,9 +1,13 @@
+use std::ops::RangeInclusive;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::FromGeneratedAction;
+use bombadil_schema::browser::Fingerprint;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{dom, emulation, input, page};
+use rand::distr::weighted::WeightedIndex;
+use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 use tokio::time::sleep;
@@ -18,34 +22,33 @@ pub struct ActionOptions {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum BrowserAction {
+pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
+{
     Back,
     Forward,
     Click {
-        name: String,
-        content: Option<String>,
+        fingerprint: Fingerprint,
         point: Point,
     },
     DoubleClick {
-        name: String,
-        content: Option<String>,
+        fingerprint: Fingerprint,
         point: Point,
-        delay_millis: u64,
+        delay_millis: U64,
     },
     TypeText {
-        text: String,
-        delay_millis: u64,
+        text: Text,
+        delay_millis: U64,
     },
     PressKey {
         code: u8,
     },
     ScrollUp {
         origin: Point,
-        distance: f64,
+        distance: F64,
     },
     ScrollDown {
         origin: Point,
-        distance: f64,
+        distance: F64,
     },
     Reload,
     Wait,
@@ -56,19 +59,27 @@ pub enum BrowserAction {
     MouseDrag {
         from: Point,
         to: Point,
-        steps: u8,
-        delay_millis: u64,
+        steps: U8,
+        delay_millis: U64,
     },
     SetViewport {
-        width: u16,
-        height: u16,
+        width: U16,
+        height: U16,
     },
 }
 
-impl FromGeneratedAction for BrowserAction {
+pub type BrowserActionTemplate = BrowserAction<
+    RangeInclusive<u8>,
+    RangeInclusive<u16>,
+    RangeInclusive<u64>,
+    RangeInclusive<f64>,
+    StringGenerator,
+>;
+
+impl FromGeneratedAction for BrowserActionTemplate {
     fn from_generated(value: json::Value) -> Result<Self> {
         let js_action: JsAction = json::from_value(value)?;
-        js_action.into_browser_action()
+        js_action.try_into() //.map_err(|err| anyhow!(err))
     }
 }
 
@@ -141,8 +152,10 @@ impl BrowserAction {
                 )
                 .await?;
             }
-            BrowserAction::Click { point, .. } => {
-                page.click((*point).into()).await?;
+            BrowserAction::Click {
+                point: position, ..
+            } => {
+                page.click((*position).into()).await?;
             }
             BrowserAction::DoubleClick {
                 point,
@@ -287,3 +300,277 @@ impl BrowserAction {
         Ok(())
     }
 }
+
+impl BrowserActionTemplate {
+    pub fn generate<Rng: rand::TryRng + rand::RngExt>(
+        &self,
+        rng: &mut Rng,
+    ) -> BrowserAction {
+        match self {
+            BrowserAction::Back => BrowserAction::Back,
+            BrowserAction::Forward => BrowserAction::Forward,
+            BrowserAction::Click { fingerprint, point } => {
+                BrowserAction::Click {
+                    fingerprint: fingerprint.clone(),
+                    point: point.clone(),
+                }
+            }
+            BrowserAction::DoubleClick {
+                fingerprint,
+                point,
+                delay_millis,
+            } => BrowserAction::DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point.clone(),
+                delay_millis: rng.random_range(delay_millis.clone()),
+            },
+            BrowserAction::TypeText { text, delay_millis } => {
+                BrowserAction::TypeText {
+                    text: text.generate(rng),
+                    delay_millis: rng.random_range(delay_millis.clone()),
+                }
+            }
+            BrowserAction::PressKey { code } => {
+                BrowserAction::PressKey { code: *code }
+            }
+            BrowserAction::ScrollUp { origin, distance } => {
+                let distance = rng.random_range(distance.clone());
+                BrowserAction::ScrollUp {
+                    origin: *origin,
+                    distance,
+                }
+            }
+            BrowserAction::ScrollDown { origin, distance } => {
+                let distance = rng.random_range(distance.clone());
+                BrowserAction::ScrollDown {
+                    origin: *origin,
+                    distance,
+                }
+            }
+            BrowserAction::Reload => BrowserAction::Reload,
+            BrowserAction::Wait => BrowserAction::Wait,
+            BrowserAction::SetFileInputFiles { selector, files } => {
+                BrowserAction::SetFileInputFiles {
+                    selector: selector.clone(),
+                    files: files.clone(),
+                }
+            }
+            BrowserAction::MouseDrag {
+                from,
+                to,
+                steps,
+                delay_millis,
+            } => BrowserAction::MouseDrag {
+                from: *from,
+                to: *to,
+                steps: rng.random_range(steps.clone()),
+                delay_millis: rng.random_range(delay_millis.clone()),
+            },
+            BrowserAction::SetViewport { width, height } => {
+                BrowserAction::SetViewport {
+                    width: rng.random_range(width.clone()),
+                    height: rng.random_range(height.clone()),
+                }
+            }
+        }
+    }
+
+    pub fn accepts(&self, original: &BrowserAction) -> bool {
+        match (self, original) {
+            (BrowserAction::Back, BrowserAction::Back) => true,
+            (BrowserAction::Forward, BrowserAction::Forward) => true,
+            (
+                BrowserAction::Click {
+                    fingerprint: candidate_fingerprint,
+                    ..
+                },
+                BrowserAction::Click {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            ) => candidate_fingerprint.matches(original_fingerprint),
+            (
+                BrowserAction::DoubleClick {
+                    fingerprint: candidate_fingerprint,
+                    ..
+                },
+                BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            ) => candidate_fingerprint.matches(original_fingerprint),
+            (
+                BrowserAction::TypeText {
+                    text: generator, ..
+                },
+                BrowserAction::TypeText { text: original, .. },
+            ) => generator.accepts(original),
+            (
+                BrowserAction::PressKey {
+                    code: code_candidate,
+                },
+                BrowserAction::PressKey {
+                    code: code_original,
+                },
+            ) => code_candidate == code_original,
+            (
+                BrowserAction::ScrollUp {
+                    origin: origin_candidate,
+                    distance: distance_candidate,
+                },
+                BrowserAction::ScrollUp {
+                    origin: origin_original,
+                    distance: distance_original,
+                },
+            ) => {
+                origin_candidate.distance(origin_original) < 1.0
+                    && distance_candidate.contains(distance_original)
+            }
+
+            (
+                BrowserAction::ScrollDown {
+                    origin: origin_candidate,
+                    distance: distance_candidate,
+                },
+                BrowserAction::ScrollDown {
+                    origin: origin_original,
+                    distance: distance_original,
+                },
+            ) => {
+                origin_candidate.distance(origin_original) < 1.0
+                    && distance_candidate.contains(distance_original)
+            }
+            (BrowserAction::Wait, BrowserAction::Wait) => true,
+            (
+                BrowserAction::SetFileInputFiles {
+                    selector: candidate_selector,
+                    ..
+                },
+                BrowserAction::SetFileInputFiles {
+                    selector: original_selector,
+                    ..
+                },
+            ) => candidate_selector == original_selector,
+            _ => false,
+        }
+    }
+}
+
+struct TextGenerator {
+    ranges: Vec<(char, char)>,
+    dist: WeightedIndex<u32>,
+}
+
+impl TextGenerator {
+    fn new() -> Self {
+        let ranges_weights: &[(char, char, u32)] = &[
+            ('A', 'Z', 30),
+            ('a', 'z', 30),
+            ('0', '9', 15),
+            (' ', '/', 10),
+            (':', '@', 10),
+            ('[', '`', 10),
+            ('{', '~', 10),
+            ('\u{00A0}', '\u{00FF}', 8),
+            ('\u{0100}', '\u{017F}', 5),
+            ('\u{0300}', '\u{036F}', 8),
+            ('\u{200B}', '\u{200F}', 8),
+            ('\u{2000}', '\u{206F}', 6),
+            ('\u{FFF0}', '\u{FFFF}', 5),
+            ('\u{0600}', '\u{06FF}', 5),
+            ('\u{0590}', '\u{05FF}', 5),
+            ('\u{FF01}', '\u{FF60}', 5),
+            ('\u{3000}', '\u{303F}', 4),
+            ('\u{1F300}', '\u{1F9FF}', 6),
+            ('\u{E000}', '\u{F8FF}', 3),
+            ('\u{1F000}', '\u{1F02F}', 2),
+        ];
+
+        let ranges =
+            ranges_weights.iter().map(|&(lo, hi, _)| (lo, hi)).collect();
+        let weights: Vec<u32> =
+            ranges_weights.iter().map(|&(_, _, w)| w).collect();
+        let dist = WeightedIndex::new(weights).unwrap();
+
+        Self { ranges, dist }
+    }
+
+    fn sample(&self, rng: &mut impl Rng) -> char {
+        let idx = self.dist.sample(rng);
+        let (lo, hi) = self.ranges[idx];
+        rng.random_range(lo..=hi)
+    }
+
+    fn sample_string(&self, rng: &mut impl Rng, len: usize) -> String {
+        (0..len).map(|_| self.sample(rng)).collect()
+    }
+
+    fn accepts(&self, value: &str) -> bool {
+        value.chars().all(|char| {
+            self.ranges
+                .iter()
+                .any(|(from, to)| *from <= char && char >= *to)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum StringGenerator {
+    Text { length: RangeInclusive<u16> },
+    Email,
+    Regexp { regexp: Regexp },
+}
+
+impl StringGenerator {
+    // TODO: precompile email regexp?
+    const PATTERN_EMAIL: &'static str =
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}";
+
+    pub fn generate(&self, rng: &mut impl Rng) -> String {
+        match self {
+            StringGenerator::Text { length } => {
+                let generator = TextGenerator::new();
+                let length = rng.random_range(length.clone()) as usize;
+                generator.sample_string(rng, length)
+            }
+            StringGenerator::Email => {
+                let generator =
+                    rand_regex::Regex::compile(Self::PATTERN_EMAIL, 100)
+                        .expect("email regex is invalid");
+                rng.sample(&generator)
+            }
+            StringGenerator::Regexp {
+                regexp: Regexp(regexp),
+            } => {
+                // TODO: precompile regexp when loading from JS?
+                let generator = rand_regex::Regex::compile(regexp, 100)
+                    .expect("email regex is invalid");
+                rng.sample(&generator)
+            }
+        }
+    }
+
+    pub fn accepts(&self, value: &str) -> bool {
+        match self {
+            StringGenerator::Text { length } => {
+                if let Ok(value_length) = u16::try_from(value.len()) {
+                    length.contains(&value_length)
+                        && TextGenerator::new().accepts(value)
+                } else {
+                    false
+                }
+            }
+            StringGenerator::Email => regex::Regex::new(Self::PATTERN_EMAIL)
+                .expect("email regex is invalid")
+                .is_match(value),
+            StringGenerator::Regexp {
+                regexp: Regexp(pattern),
+            } => regex::Regex::new(Self::PATTERN_EMAIL)
+                .expect(&format!("email regex is invalid: {pattern}"))
+                .is_match(value),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Regexp(pub String);

@@ -454,10 +454,15 @@ dependencies = [
  "indoc",
  "insta",
  "log",
+ "num-traits",
  "oxc",
  "oxc_str",
  "oxc_traverse",
  "rand 0.10.1",
+ "rand_distr",
+ "rand_regex",
+ "regex",
+ "regex-syntax",
  "scraper",
  "serde",
  "serde_json",
@@ -2671,6 +2676,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -3612,6 +3618,26 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rand_distr"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
+dependencies = [
+ "num-traits",
+ "rand 0.10.1",
+]
+
+[[package]]
+name = "rand_regex"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79e745eeef604742ec751000e44d91cdc0552aacacb2c74bee88cc7685918cfa"
+dependencies = [
+ "rand 0.10.1",
+ "regex-syntax",
+]
 
 [[package]]
 name = "raw-cpuid"

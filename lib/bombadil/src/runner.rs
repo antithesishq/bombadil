@@ -45,7 +45,7 @@ pub trait RunStrategy<D: InterfaceDriver> {
     fn on_new_state(
         &mut self,
         state: &D::State,
-        tree: Tree<D::Action>,
+        tree: Tree<D::ActionTemplate>,
         last_action: Option<&D::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
@@ -104,7 +104,7 @@ impl<D: InterfaceDriver> Runner<D> {
                         );
                     }
 
-                    let step_result = verifier.step::<D::Action>(
+                    let step_result = verifier.step::<D::ActionTemplate>(
                         &snapshots,
                         Time::from_system_time(D::state_timestamp(&state)),
                     )?;
