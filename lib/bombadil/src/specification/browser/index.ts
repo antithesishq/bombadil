@@ -39,7 +39,7 @@ export type Action<Number = number, String = string> =
       };
     }
   | { SetViewport: { width: Number; height: Number } }
-  | { Custom: { name: string } };
+  | { Custom: { name: string; state: Pick<State, "document" | "window"> } };
 
 export type ActionTemplate = Action<Range, StringGenerator>;
 
