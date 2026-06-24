@@ -1,14 +1,12 @@
 import {
+  CustomAction,
   ExtractorCell,
   Runtime,
   type JSON,
   type TimeUnit,
 } from "@antithesishq/bombadil/internal";
 
-import {
-  type ActionGenerator,
-  type Tree,
-} from "@antithesishq/bombadil/actions";
+import { ActionGenerator, type Tree } from "@antithesishq/bombadil/actions";
 import * as bombadilActions from "@antithesishq/bombadil/actions";
 
 export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
@@ -28,16 +26,20 @@ export const runtime = new Runtime<unknown>();
 export function extract<S, T extends JSON>(
   query: (state: S) => T,
 ): ExtractorCell<T, S> {
-  return new ExtractorCell<T, unknown>(
-    runtime,
-    query as (state: unknown) => T,
-  );
+  return new ExtractorCell<T, unknown>(runtime, query as (state: unknown) => T);
 }
 
-export function actions<A>(
-  generate: () => Tree<A> | A[],
-): ActionGenerator<A> {
+export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
   return bombadilActions.actions(generate);
+}
+
+export function registerCustomAction<S>(
+  name: string,
+  scriptFunction: (state: S) => void,
+) {
+  runtime.registerCustomAction(
+    new CustomAction(name, scriptFunction) as CustomAction<unknown>,
+  );
 }
 
 export function weighted<A>(

@@ -65,6 +65,10 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         width: U16,
         height: U16,
     },
+    Custom {
+        name: String,
+        state: json::Value,
+    },
 }
 
 pub type BrowserActionTemplate = BrowserAction<
@@ -294,6 +298,18 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                 )
                 .await?;
+            }
+            BrowserAction::Custom { name, state } => {
+                let state_stringified = json::to_string(state)?;
+
+                page.evaluate(format!(r#"(() => {{
+                    const state = JSON.parse('{state_stringified}');
+                    const action = __bombadilRequire('@antithesishq/bombadil').runtime.customActions["{name}"];
+                    if (!action) {{
+                        throw new Error("Custom action {name} not found");
+                    }}
+                    action.run({{ ...state, document, window }});
+                }})()"#)).await?;
             }
         };
         Ok(())

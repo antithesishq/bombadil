@@ -180,6 +180,13 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     html!(<span class="action-name">{"Set viewport"}</span>),
                     Some(vec![("Size", format!("{width}x{height}"))]),
                 ),
+                BrowserAction::Custom { name, state } => (
+                    html!(<span class="action-name">{"Custom action"}</span>),
+                    Some(vec![
+                        ("Name", name.clone()),
+                        ("State", format!("{:?}", state)),
+                    ]),
+                ),
             },
             None => return html! {},
         };
