@@ -10,6 +10,7 @@ pub type TerminalTraceEntry = TraceEntry<TerminalAction, TerminalStateSummary>;
 pub enum TerminalAction {
     TypeText { text: String },
     Resize { size: TerminalSize },
+    Click { row: u16, column: u16 },
     ScrollUp {},
     ScrollDown {},
 }
@@ -54,9 +55,9 @@ pub enum TerminalCursorVisualStyle {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct TerminalSize {
-    pub columns: u16,
-    pub rows: u16,
+pub struct TerminalSize<U16 = u16> {
+    pub columns: U16,
+    pub rows: U16,
 }
 
 impl TerminalSize {

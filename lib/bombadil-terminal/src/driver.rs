@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::ops::RangeInclusive;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
@@ -8,6 +11,7 @@ use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
+use bombadil::specification::generators::StringGenerator;
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil_schema::terminal::{
     self, ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
@@ -31,14 +35,85 @@ use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
 
-const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(200);
+const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(1000);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum TerminalAction {
-    TypeText { text: String },
-    Resize { size: TerminalSize },
+pub enum TerminalAction<U16 = u16, Text = String> {
+    TypeText { text: Text },
+    Resize { size: TerminalSize<U16> },
+    Click { row: U16, column: U16 },
     ScrollUp {},
     ScrollDown {},
+}
+
+pub type TerminalActionTemplate =
+    TerminalAction<RangeInclusive<u16>, StringGenerator>;
+
+impl TerminalActionTemplate {
+    pub fn generate<Rng: rand::TryRng + rand::RngExt>(
+        &self,
+        rng: &mut Rng,
+    ) -> TerminalAction {
+        match self {
+            TerminalAction::TypeText { text } => TerminalAction::TypeText {
+                text: text.generate(rng),
+            },
+            TerminalAction::Resize { size } => TerminalAction::Resize {
+                size: TerminalSize {
+                    rows: rng.random_range(size.rows.clone()),
+                    columns: rng.random_range(size.columns.clone()),
+                },
+            },
+            TerminalAction::ScrollUp {} => TerminalAction::ScrollUp {},
+            TerminalAction::ScrollDown {} => TerminalAction::ScrollDown {},
+            TerminalAction::Click { row, column } => TerminalAction::Click {
+                row: rng.random_range(row.clone()),
+                column: rng.random_range(column.clone()),
+            },
+        }
+    }
+
+    pub fn accepts(&self, original: &TerminalAction) -> bool {
+        match (self, original) {
+            (
+                TerminalAction::TypeText {
+                    text: text_template,
+                },
+                TerminalAction::TypeText {
+                    text: text_original,
+                },
+            ) => text_template.accepts(text_original),
+            (
+                TerminalAction::Resize {
+                    size: size_template,
+                },
+                TerminalAction::Resize {
+                    size: size_original,
+                },
+            ) => {
+                size_template.rows.contains(&size_original.rows)
+                    && size_template.columns.contains(&size_original.columns)
+            }
+            (
+                TerminalAction::Click {
+                    row: row_template,
+                    column: column_template,
+                },
+                TerminalAction::Click {
+                    row: row_original,
+                    column: column_original,
+                },
+            ) => {
+                row_template.contains(row_original)
+                    && column_template.contains(column_original)
+            }
+            (TerminalAction::ScrollUp {}, TerminalAction::ScrollUp {}) => true,
+            (TerminalAction::ScrollDown {}, TerminalAction::ScrollDown {}) => {
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 impl ToSchema<terminal::TerminalAction> for TerminalAction {
@@ -55,6 +130,12 @@ impl ToSchema<terminal::TerminalAction> for TerminalAction {
             }
             TerminalAction::ScrollDown {} => {
                 terminal::TerminalAction::ScrollDown {}
+            }
+            TerminalAction::Click { row, column } => {
+                terminal::TerminalAction::Click {
+                    row: *row,
+                    column: *column,
+                }
             }
         }
     }
@@ -75,6 +156,12 @@ impl ToInternal<TerminalAction> for terminal::TerminalAction {
             terminal::TerminalAction::ScrollDown {} => {
                 TerminalAction::ScrollDown {}
             }
+            terminal::TerminalAction::Click { row, column } => {
+                TerminalAction::Click {
+                    row: *row,
+                    column: *column,
+                }
+            }
         }
     }
 }
@@ -82,7 +169,7 @@ impl ToInternal<TerminalAction> for terminal::TerminalAction {
 pub struct TerminalDriver {
     extractor: Extractors,
     terminal: Terminal<'static, 'static>,
-    process: PtyProcess,
+    process: Rc<RefCell<PtyProcess>>,
     output: PtyOutput,
     size: TerminalSize,
     quiescence_timeout: Duration,
@@ -114,13 +201,20 @@ impl TerminalDriver {
         let program = program.to_string();
         let arguments = arguments.to_vec();
 
-        let terminal = Terminal::new(TerminalOptions {
+        let mut terminal = Terminal::new(TerminalOptions {
             cols: size.columns,
             rows: size.rows,
             max_scrollback: scrollback_lines_max,
         })?;
 
         let (process, output) = PtyProcess::spawn(size, &program, &arguments)?;
+        let process = Rc::new(RefCell::new(process));
+
+        let callback_process = process.clone();
+        terminal.on_pty_write(move |_, data| {
+            let mut process = callback_process.borrow_mut();
+            process.write(data);
+        })?;
 
         Ok((
             Self {
@@ -206,12 +300,12 @@ impl TerminalDriver {
             }),
             scroll_offset,
             cursor,
-            exit_status: self.process.exit_status()?.map(|status| {
-                ProcessExitStatus {
+            exit_status: self.process.borrow_mut().exit_status()?.map(
+                |status| ProcessExitStatus {
                     signal: status.signal().map(ToString::to_string),
                     code: status.exit_code(),
-                }
-            }),
+                },
+            ),
             last_action: self.last_action.clone(),
         })
     }
@@ -219,7 +313,7 @@ impl TerminalDriver {
 
 impl InterfaceDriver for TerminalDriver {
     type Action = TerminalAction;
-    type ActionTemplate = TerminalAction; // TODO: separate types for generated and template actions
+    type ActionTemplate = TerminalActionTemplate;
     type State = TerminalState;
 
     #[hotpath::measure]
@@ -228,8 +322,8 @@ impl InterfaceDriver for TerminalDriver {
         Ok(())
     }
 
-    fn terminate(mut self) -> Result<()> {
-        self.process.kill();
+    fn terminate(self) -> Result<()> {
+        self.process.borrow_mut().kill();
         Ok(())
     }
 
@@ -255,18 +349,30 @@ impl InterfaceDriver for TerminalDriver {
     fn apply(&mut self, action: TerminalAction) -> Result<()> {
         match &action {
             TerminalAction::TypeText { text } => {
-                self.process.write(text.as_bytes());
+                self.process.borrow_mut().write(text.as_bytes());
             }
             TerminalAction::Resize { size } => {
                 self.size = *size;
                 self.terminal.resize(size.columns, size.rows, 0, 0)?;
-                self.process.resize(*size)?;
+                self.process.borrow_mut().resize(*size)?;
             }
             TerminalAction::ScrollUp {} => {
                 self.terminal.scroll_viewport(ScrollViewport::Top);
             }
             TerminalAction::ScrollDown {} => {
                 self.terminal.scroll_viewport(ScrollViewport::Bottom);
+            }
+            TerminalAction::Click { row, column } => {
+                self.process.borrow_mut().write(
+                    &format!(
+                        "\x1b[<0;{};{}M\x1b[<0;{};{}m",
+                        column + 1,
+                        row + 1,
+                        column + 1,
+                        row + 1,
+                    )
+                    .into_bytes(),
+                );
             }
         }
         self.last_action = Some(action);

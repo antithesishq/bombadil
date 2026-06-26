@@ -132,7 +132,7 @@ expression: bundle
     module.exports.__esModule=true;const { ExtractorCell, Runtime } = __bombadilRequire("@antithesishq/bombadil/internal");
     __bombadilRequire("@antithesishq/bombadil/actions");
     const bombadilActions = __bombadilRequire("@antithesishq/bombadil/actions");
-    const { ActionGenerator, from, strings, emails, integers, keycodes, randomRange } = __bombadilRequire("@antithesishq/bombadil/actions");
+    const { ActionGenerator } = __bombadilRequire("@antithesishq/bombadil/actions");
     const runtime = new Runtime();
     function extract(query) {
     	return new ExtractorCell(runtime, query);
@@ -295,12 +295,6 @@ expression: bundle
     	return new Eventually(null, now(x));
     }
     module.exports.ActionGenerator = ActionGenerator;
-    module.exports.from = from;
-    module.exports.strings = strings;
-    module.exports.emails = emails;
-    module.exports.integers = integers;
-    module.exports.keycodes = keycodes;
-    module.exports.randomRange = randomRange;
     module.exports.runtime = runtime;
     module.exports.extract = extract;
     module.exports.actions = actions;
@@ -323,9 +317,7 @@ expression: bundle
   };
 
   modules["@antithesishq/bombadil/actions"] = function(module, exports, require) {
-    module.exports.__esModule=true;__bombadilRequire("@antithesishq/bombadil/random");
-    const { from, strings, emails, integers, keycodes, randomRange } = __bombadilRequire("@antithesishq/bombadil/random");
-    function leaf(value) {
+    module.exports.__esModule=true;function leaf(value) {
     	return { value };
     }
     function branch(branches) {
@@ -360,17 +352,28 @@ expression: bundle
     		}));
     	});
     }
-    module.exports.from = from;
-    module.exports.strings = strings;
-    module.exports.emails = emails;
-    module.exports.integers = integers;
-    module.exports.keycodes = keycodes;
-    module.exports.randomRange = randomRange;
+    let CharSet;
+    (function(_CharSet) {
+    	function fromRange(from, to) {
+    		return [{ Range: [from, to] }];
+    	}
+    	_CharSet.fromRange = fromRange;
+    	function fromLiterals(...literals) {
+    		return literals.map((literal) => ({ Literal: literal }));
+    	}
+    	_CharSet.fromLiterals = fromLiterals;
+    	function union(...sets) {
+    		// TODO: compute overlaps?
+    		return sets.flat(1);
+    	}
+    	_CharSet.union = union;
+    })(CharSet || (CharSet = {}));
     module.exports.leaf = leaf;
     module.exports.branch = branch;
     module.exports.ActionGenerator = ActionGenerator;
     module.exports.actions = actions;
     module.exports.weighted = weighted;
+    module.exports.CharSet = CharSet;
   };
 
   modules["@antithesishq/bombadil/internal"] = function(module, exports, require) {
@@ -450,113 +453,6 @@ expression: bundle
     }
     module.exports.ExtractorCell = ExtractorCell;
     module.exports.Runtime = Runtime;
-  };
-
-  modules["@antithesishq/bombadil/random"] = function(module, exports, require) {
-    module.exports.__esModule=true;function randomU32() {
-    	return new DataView(__bombadil_random_bytes(4).buffer).getUint32(0);
-    }
-    function randomRange(min, max) {
-    	if (min >= max) {
-    		throw new RangeError(`min (${min}) must be less than max (${max})`);
-    	}
-    	const range = max - min;
-    	if (range <= 4294967295) {
-    		return min + randomU32() % range;
-    	}
-    	// For ranges exceeding 32 bits, generate a uniform float in [0, 1) with
-    	// 53 bits of precision (the maximum for a JS number) and scale it.
-    	const view = new DataView(__bombadil_random_bytes(8).buffer);
-    	const uniform = ((view.getUint32(0) >>> 5) * 67108864 + (view.getUint32(4) >>> 6)) / 9007199254740992;
-    	return min + Math.floor(uniform * range);
-    }
-    function randomChoice(items) {
-    	if (items.length === 0) {
-    		throw new Error("cannot choose from an empty array of items");
-    	}
-    	return items[randomU32() % items.length];
-    }
-    class From {
-    	constructor(elements) {
-    		this.elements = elements;
-    	}
-    	generate() {
-    		return randomChoice(this.elements);
-    	}
-    }
-    function from(elements) {
-    	if (elements.length === 0) {
-    		throw new Error("`from` needs at least one element");
-    	}
-    	return new From(elements);
-    }
-    const ALPHANUMERIC = "abcdefghijklmnopqrstuvwxyz0123456789";
-    class StringGenerator {
-    	size = {
-    		min: 0,
-    		max: 16
-    	};
-    	generate() {
-    		const len = randomRange(this.size.min, this.size.max);
-    		return Array.from({ length: len }, () => randomChoice([...ALPHANUMERIC])).join("");
-    	}
-    	minSize(value) {
-    		this.size.min = value;
-    		return this;
-    	}
-    	maxSize(value) {
-    		this.size.max = value;
-    		return this;
-    	}
-    }
-    function strings() {
-    	return new StringGenerator();
-    }
-    class EmailGenerator {
-    	generate() {
-    		const user = Array.from({ length: randomRange(3, 10) }, () => randomChoice([...ALPHANUMERIC])).join("");
-    		const domain = Array.from({ length: randomRange(3, 8) }, () => randomChoice([...ALPHANUMERIC])).join("");
-    		return `${user}@${domain}.com`;
-    	}
-    }
-    function emails() {
-    	return new EmailGenerator();
-    }
-    class IntegerGenerator {
-    	range = {
-    		min: Number.MIN_SAFE_INTEGER,
-    		max: Number.MAX_SAFE_INTEGER
-    	};
-    	generate() {
-    		return randomRange(this.range.min, this.range.max);
-    	}
-    	min(value) {
-    		this.range.min = value;
-    		return this;
-    	}
-    	max(value) {
-    		this.range.max = value;
-    		return this;
-    	}
-    }
-    function integers() {
-    	return new IntegerGenerator();
-    }
-    function keycodes() {
-    	return from([
-    		8,
-    		9,
-    		13,
-    		27
-    	]);
-    }
-    module.exports.randomRange = randomRange;
-    module.exports.From = From;
-    module.exports.from = from;
-    module.exports.strings = strings;
-    module.exports.emails = emails;
-    module.exports.integers = integers;
-    module.exports.keycodes = keycodes;
   };
 
   return require("./index.ts");

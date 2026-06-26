@@ -1,12 +1,25 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use anyhow::{anyhow, ensure};
 use boa_engine::{
     Context, JsObject, JsValue, Module, js_string, property::PropertyKey,
 };
+use num_traits::NumCast;
+use serde::{
+    Deserialize, Serialize,
+    de::{self},
+};
+use std::ops::RangeInclusive;
 
-use crate::specification::domain::{BombadilDomain, Snapshot};
-use crate::specification::result::{Result, SpecificationError};
+use crate::specification::{
+    domain::{BombadilDomain, Snapshot},
+    generators::{CharSetEntry, StringGenerator},
+};
+use crate::specification::{
+    generators::Regexp,
+    result::{Result, SpecificationError},
+};
 use bombadil_ltl::syntax::Syntax;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -300,5 +313,166 @@ impl Extractors {
 impl Default for Extractors {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum JsRange {
+    Fixed(f64),
+    Range((f64, f64)),
+}
+
+macro_rules! impl_js_range_try_from {
+    ($($t:ty),+) => {
+        $(
+            impl TryFrom<JsRange> for RangeInclusive<$t> {
+                type Error = anyhow::Error;
+
+                fn try_from(value: JsRange) -> anyhow::Result<RangeInclusive<$t>, Self::Error> {
+                    fn cast(x: f64, label: &str) -> anyhow::Result<$t> {
+                        ensure!(x.is_finite(), "{label} has to be a finite number");
+                        ensure!(!x.is_sign_negative(), "{label} must not be negative");
+                        ensure!(x.fract() == 0.0, "{label} must not have a fractional part");
+                        <$t as NumCast>::from(x)
+                            .ok_or(anyhow!("{label} out of range: {x}"))
+                    }
+
+                    match value {
+                        JsRange::Fixed(x) => {
+                            let x = cast(x, "value")?;
+                            Ok(x..=x)
+                        }
+                        JsRange::Range((start, end)) => {
+                            let start = cast(start, "start")?;
+                            let end = cast(end, "end")?;
+                            ensure!(start <= end, "start must be <= end");
+                            Ok(start..=end)
+                        }
+                    }
+                }
+            }
+
+            impl TryFrom<RangeInclusive<$t>> for JsRange {
+                type Error = anyhow::Error;
+
+                fn try_from(value: RangeInclusive<$t>) -> anyhow::Result<JsRange, Self::Error> {
+                    Ok(JsRange::Range((*value.start() as f64, *value.end() as f64)))
+                }
+            }
+        )+
+    };
+}
+
+impl_js_range_try_from!(u8, u16, u32, u64);
+
+impl TryInto<RangeInclusive<f64>> for JsRange {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> anyhow::Result<RangeInclusive<f64>, Self::Error> {
+        fn cast(x: f64, label: &str) -> anyhow::Result<f64> {
+            ensure!(x.is_finite(), "{label} has to be a finite number");
+            ensure!(!x.is_sign_negative(), "{label} must not be negative");
+            Ok(x)
+        }
+
+        match self {
+            JsRange::Fixed(x) => {
+                let x = cast(x, "value")?;
+                Ok(x..=x)
+            }
+            JsRange::Range((start, end)) => {
+                let start = cast(start, "low part of interval")?;
+                let end = cast(end, "high part of interval")?;
+                ensure!(
+                    start <= end,
+                    "low part must be less than or equal to high part of interval"
+                );
+                Ok(start..=end)
+            }
+        }
+    }
+}
+impl Serialize for JsRange {
+    fn serialize<S>(&self, serializer: S) -> anyhow::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            JsRange::Fixed(x) => x.serialize(serializer),
+            JsRange::Range(range) => range.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for JsRange {
+    fn deserialize<D>(deserializer: D) -> anyhow::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value: serde_json::Value = Deserialize::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Array(_) => {
+                let range: (f64, f64) =
+                    serde_json::from_value(value).map_err(de::Error::custom)?;
+                Ok(JsRange::Range(range))
+            }
+            _ => {
+                let value: f64 =
+                    serde_json::from_value(value).map_err(de::Error::custom)?;
+                Ok(JsRange::Fixed(value))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum JsStringGenerator {
+    Text(JsRange),
+    Email,
+    Regexp(String),
+    CharSet(Vec<JsCharSetEntry>),
+}
+
+impl TryInto<StringGenerator> for JsStringGenerator {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> anyhow::Result<StringGenerator, Self::Error> {
+        Ok(match self {
+            JsStringGenerator::Text(length) => StringGenerator::Text {
+                length: length.try_into()?,
+            },
+            JsStringGenerator::Email => StringGenerator::Email,
+            JsStringGenerator::Regexp(regexp) => StringGenerator::Regexp {
+                regexp: Regexp(regexp),
+            },
+            JsStringGenerator::CharSet(entries) => {
+                let mut converted = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    converted.push(entry.try_into()?);
+                }
+                StringGenerator::CharSet { entries: converted }
+            }
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum JsCharSetEntry {
+    Range(JsRange),
+    Literal(String),
+}
+
+impl TryFrom<JsCharSetEntry> for CharSetEntry {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        value: JsCharSetEntry,
+    ) -> std::result::Result<Self, Self::Error> {
+        match value {
+            JsCharSetEntry::Range(js_range) => {
+                Ok(CharSetEntry::Range(js_range.try_into()?))
+            }
+            JsCharSetEntry::Literal(s) => Ok(CharSetEntry::Literal(s)),
+        }
     }
 }

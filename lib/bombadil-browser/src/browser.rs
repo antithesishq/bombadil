@@ -64,7 +64,7 @@ struct InnerState {
 enum InnerStateKind {
     Pausing,
     Paused,
-    Resuming(BrowserAction),
+    Resuming(Box<BrowserAction>),
     Navigating { url: String },
     Loading,
     Running(quiescence::QuiescenceTimer),
@@ -937,7 +937,7 @@ async fn process_event(
                 .execute(debugger::ResumeParams::builder().build())
                 .await?;
             InnerState {
-                kind: Resuming(browser_action),
+                kind: Resuming(Box::new(browser_action)),
                 shared,
             }
         }

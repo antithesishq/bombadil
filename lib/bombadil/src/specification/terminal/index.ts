@@ -5,17 +5,21 @@ import {
   type Tree,
 } from "@antithesishq/bombadil";
 import * as bombadil from "@antithesishq/bombadil";
+import { Range, StringGenerator } from "@antithesishq/bombadil/actions";
 
-export type Size = {
-  columns: number;
-  rows: number;
+export type Size<Number = number> = {
+  columns: Number;
+  rows: Number;
 };
 
-export type Action =
-  | { TypeText: { text: string } }
-  | { Resize: { size: Size } }
+export type Action<Number = number, String = string> =
+  | { TypeText: String }
+  | { Resize: Size<Number> }
+  | { Click: { row: Range, column: Range } }
   | { ScrollUp: {} }
   | { ScrollDown: {} };
+
+export type ActionTemplate = Action<Range, StringGenerator>;
 
 export interface Grid {
   size: Size;
@@ -115,13 +119,13 @@ export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
 }
 
 export function actions(
-  generate: () => Tree<Action> | Action[],
-): ActionGenerator<Action> {
-  return bombadil.actions<Action>(generate);
+  generate: () => Tree<ActionTemplate> | ActionTemplate[],
+): ActionGenerator<ActionTemplate> {
+  return bombadil.actions<ActionTemplate>(generate);
 }
 
 export function weighted(
-  value: [number, Action | ActionGenerator<Action>][],
-): ActionGenerator<Action> {
-  return bombadil.weighted<Action>(value);
+  value: [number, ActionTemplate | ActionGenerator<ActionTemplate>][],
+): ActionGenerator<ActionTemplate> {
+  return bombadil.weighted<ActionTemplate>(value);
 }

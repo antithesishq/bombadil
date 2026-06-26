@@ -20,7 +20,12 @@ oxc_resolver.workspace = true
 oxc_str.workspace = true
 oxc_traverse.workspace = true
 owo-colors = { workspace = true, features = ["supports-colors"] }
+num-traits.workspace = true
 rand.workspace = true
+rand_distr.workspace = true
+rand_regex.workspace = true
+regex.workspace = true
+regex-syntax.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 supports-color.workspace = true

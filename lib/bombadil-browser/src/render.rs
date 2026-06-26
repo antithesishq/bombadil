@@ -3,10 +3,13 @@ use std::{
     ops::RangeInclusive,
 };
 
-use bombadil::styled;
+use bombadil::{
+    specification::generators::{CharSetEntry, Regexp, StringGenerator},
+    styled,
+};
 use bombadil_browser_keys::key_name;
 
-use crate::browser::actions::{BrowserAction, Regexp, StringGenerator};
+use crate::browser::actions::BrowserAction;
 
 pub trait Format {
     fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error>;
@@ -63,6 +66,20 @@ impl Format for StringGenerator {
                 regexp: Regexp(regexp),
             } => {
                 write!(f, "<regexp {}>", Formatted(regexp))
+            }
+            StringGenerator::CharSet { entries } => {
+                write!(f, "<charset ")?;
+                for entry in entries {
+                    match entry {
+                        CharSetEntry::Range(range) => {
+                            write!(f, "\\u{{{}}}", range.start())?;
+                            write!(f, "..=")?;
+                            write!(f, "\\u{{{}}}", range.end())?;
+                        }
+                        CharSetEntry::Literal(_) => todo!(),
+                    }
+                }
+                write!(f, ">")
             }
         }
     }

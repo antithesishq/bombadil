@@ -3,39 +3,59 @@
   "compilerOptions": {
     // File Layout
     "rootDir": "./.",
-
     "paths": {
-      "@antithesishq/bombadil": ["./index.ts"],
-      "@antithesishq/bombadil/browser": ["./browser/index.ts"],
-      "@antithesishq/bombadil/browser/defaults": ["./browser/defaults.ts"],
-      "@antithesishq/bombadil/browser/defaults/actions": ["./browser/defaults/actions.ts"],
-      "@antithesishq/bombadil/browser/defaults/properties": ["./browser/defaults/properties.ts"],
-      "@antithesishq/bombadil/browser/dom": ["./browser/dom.ts"],
-      "@antithesishq/bombadil/terminal": ["./terminal/index.ts"],
-      "@antithesishq/bombadil/terminal/defaults": ["./terminal/defaults.ts"],
-      "@antithesishq/bombadil/terminal/defaults/properties": ["./terminal/defaults/properties.ts"],
-      "@antithesishq/bombadil/terminal/defaults/actions": ["./terminal/defaults/actions.ts"],
-      "@antithesishq/bombadil/internal": ["./internal.ts"],
-      "@antithesishq/bombadil/random": ["./random.ts"],
-      "@antithesishq/bombadil/actions": ["./actions.ts"]
+      "@antithesishq/bombadil": [
+        "./index.ts"
+      ],
+      "@antithesishq/bombadil/browser": [
+        "./browser/index.ts"
+      ],
+      "@antithesishq/bombadil/browser/defaults": [
+        "./browser/defaults.ts"
+      ],
+      "@antithesishq/bombadil/browser/defaults/actions": [
+        "./browser/defaults/actions.ts"
+      ],
+      "@antithesishq/bombadil/browser/defaults/properties": [
+        "./browser/defaults/properties.ts"
+      ],
+      "@antithesishq/bombadil/browser/dom": [
+        "./browser/dom.ts"
+      ],
+      "@antithesishq/bombadil/terminal": [
+        "./terminal/index.ts"
+      ],
+      "@antithesishq/bombadil/terminal/defaults": [
+        "./terminal/defaults.ts"
+      ],
+      "@antithesishq/bombadil/terminal/defaults/properties": [
+        "./terminal/defaults/properties.ts"
+      ],
+      "@antithesishq/bombadil/terminal/defaults/actions": [
+        "./terminal/defaults/actions.ts"
+      ],
+      "@antithesishq/bombadil/internal": [
+        "./internal.ts"
+      ],
+      "@antithesishq/bombadil/actions": [
+        "./actions.ts"
+      ]
     },
-
     // Environment Settings
     "module": "nodenext",
     "target": "esnext",
     "types": [],
-
-    "lib": ["es2021", "dom"],
-
+    "lib": [
+      "es2021",
+      "dom"
+    ],
     // Other Outputs
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-
     // Stricter Typechecking Options
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-
     // Style Options
     "noImplicitReturns": true,
     "noImplicitOverride": true,
@@ -44,7 +64,7 @@
     "noFallthroughCasesInSwitch": true,
     "noPropertyAccessFromIndexSignature": true,
     "allowImportingTsExtensions": true,
-
+    "emitDeclarationOnly": true,
     // Recommended Options
     "strict": true,
     "isolatedModules": true,
@@ -52,5 +72,7 @@
     "moduleDetection": "force",
     "skipLibCheck": true
   },
-  "exclude": ["**/node_modules"]
+  "exclude": [
+    "**/node_modules"
+  ]
 }

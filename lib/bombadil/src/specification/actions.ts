@@ -1,15 +1,3 @@
-import { type Generator } from "@antithesishq/bombadil/random";
-
-export type { Generator } from "@antithesishq/bombadil/random";
-export {
-  from,
-  strings,
-  emails,
-  integers,
-  keycodes,
-  randomRange,
-} from "@antithesishq/bombadil/random";
-
 // Tree
 
 export type Tree<T> = { value: T } | { branches: [number, Tree<T>][] };
@@ -29,7 +17,7 @@ export function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
   return { branches };
 }
 
-export class ActionGenerator<A> implements Generator<Tree<A>> {
+export class ActionGenerator<A> {
   constructor(public generate: () => Tree<A>) { }
 }
 
@@ -58,4 +46,34 @@ export function weighted<A>(
       }),
     );
   });
+}
+
+export type Range = number | [number, number];
+
+export type StringGenerator =
+  | "Email"
+  | { Text: Range }
+  | { CharSet: CharSet.Entries }
+  | { Regexp: string }
+
+export namespace CharSet {
+  export type Entry =
+    | { Range: Range }
+    | { Literal: string }
+
+  export type Entries = Entry[];
+
+  export function fromRange(from: number, to: number): CharSet.Entries {
+    return [{ Range: [from, to] }];
+  }
+
+  export function fromLiterals(...literals: string[]): CharSet.Entries {
+    return literals.map((literal) => ({ Literal: literal }))
+      ;
+  }
+
+  export function union(...sets: CharSet.Entries[]): CharSet.Entries {
+    // TODO: compute overlaps?
+    return sets.flat(1);
+  }
 }

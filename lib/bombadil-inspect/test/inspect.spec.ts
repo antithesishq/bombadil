@@ -1,5 +1,9 @@
-import { always, eventually, randomRange } from "@antithesishq/bombadil";
-import { actions, extract } from "@antithesishq/bombadil/browser";
+import { always, eventually } from "@antithesishq/bombadil";
+import {
+  actions,
+  extract,
+  getFingerprint,
+} from "@antithesishq/bombadil/browser";
 import { lastAction } from "@antithesishq/bombadil/browser/defaults/actions";
 export * from "@antithesishq/bombadil/browser/defaults";
 
@@ -19,8 +23,10 @@ function isLoading() {
 const timelineRect = extract((state) => {
   const element = state.document.querySelector(".timeline svg");
   if (!element) return null;
+  const fingerprint = getFingerprint(element);
   const rect = element.getBoundingClientRect();
   return {
+    fingerprint,
     x: rect.x,
     y: rect.y,
     width: rect.width,
@@ -31,11 +37,18 @@ const timelineRect = extract((state) => {
 export const clickTimeline = actions(() => {
   const rect = timelineRect.current;
   if (!rect || isLoading()) return [];
-  const point = {
-    x: randomRange(rect.x, rect.x + rect.width),
-    y: randomRange(rect.y, rect.y + rect.height),
-  };
-  return [{ Click: { name: "timeline", point } }];
+  return [
+    {
+      Click: {
+        name: "timeline",
+        fingerprint: rect.fingerprint,
+        point: {
+          x: [rect.x, rect.x + rect.width],
+          y: [rect.y, rect.y + rect.height],
+        },
+      },
+    },
+  ];
 });
 
 const cursorSpan = extract((state) => {
@@ -93,10 +106,10 @@ export const clickTimelineMovesCursorCorrectly = always(() => {
   if (!timelineRect.current || !chartSpan.current || !cursorSpan.current)
     return true;
   const {
-    Click: { name, point },
+    Click: { fingerprint, point },
   } = lastAction.current;
   // And that the click was within the timeline.
-  if (name !== "timeline") return true;
+  if (fingerprint.accessibleName !== "timeline") return true;
 
   // If the click is left of the timeline, we pick the first transition.
   if (point.x <= chartSpan.current.left) {

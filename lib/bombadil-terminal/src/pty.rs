@@ -82,6 +82,9 @@ impl PtyProcess {
         if let Err(error) = self.input_write.write_all(input) {
             log::warn!("PTY write error: {error}");
         }
+        if let Err(error) = self.input_write.flush() {
+            log::warn!("PTY flush error: {error}");
+        }
     }
 
     pub fn resize(&mut self, size: TerminalSize) -> Result<()> {

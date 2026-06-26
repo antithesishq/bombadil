@@ -71,18 +71,17 @@ impl Fingerprint {
         }
 
         // (role, accessible_name) pair
-        if let (Some(role_self), Some(role_other)) = (&self.role, &other.role) {
-            if let (Some(accessible_name_self), Some(accessible_name_other)) =
+        if let (Some(role_self), Some(role_other)) = (&self.role, &other.role)
+            && let (Some(accessible_name_self), Some(accessible_name_other)) =
                 (&self.accessible_name, &other.accessible_name)
+        {
+            if role_self == role_other
+                && accessible_name_self == accessible_name_other
             {
-                if role_self == role_other
-                    && accessible_name_self == accessible_name_other
-                {
-                    return true;
-                }
-                if role_self == role_other {
-                    return false;
-                }
+                return true;
+            }
+            if role_self == role_other {
+                return false;
             }
         }
 
@@ -91,52 +90,41 @@ impl Fingerprint {
             "a" => {
                 if let (Some(name_self), Some(name_other)) =
                     (&self.href, &other.href)
+                    && name_self == name_other
                 {
-                    if name_self == name_other {
-                        return match (
-                            &self.accessible_name,
-                            &other.accessible_name,
-                        ) {
-                            (
-                                Some(accessible_name_self),
-                                Some(accessible_name_other),
-                            ) => accessible_name_self == accessible_name_other,
-                            _ => true,
-                        };
-                    }
+                    return match (&self.accessible_name, &other.accessible_name)
+                    {
+                        (
+                            Some(accessible_name_self),
+                            Some(accessible_name_other),
+                        ) => accessible_name_self == accessible_name_other,
+                        _ => true,
+                    };
                 }
             }
             "button" => {
-                if let (
-                    Some(accessible_name_self),
-                    Some(accessible_name_other),
-                ) = (&self.accessible_name, &other.accessible_name)
+                if let (Some(accessible_name_self), Some(accessible_name_other)) =
+                    (&self.accessible_name, &other.accessible_name)
+                    && accessible_name_self == accessible_name_other
+                    && self.tag == other.tag
                 {
-                    if accessible_name_self == accessible_name_other
-                        && self.tag == other.tag
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             "input" | "textarea" | "select" => {
                 if let (Some(name_attr_self), Some(name_attr_other)) =
                     (&self.name_attr, &other.name_attr)
+                    && name_attr_self == name_attr_other
+                    && self.input_type == other.input_type
                 {
-                    if name_attr_self == name_attr_other
-                        && self.input_type == other.input_type
-                    {
-                        return true;
-                    }
+                    return true;
                 }
                 if let (Some(placeholder_self), Some(placeholder_other)) =
                     (&self.placeholder, &other.placeholder)
+                    && placeholder_self == placeholder_other
+                    && self.input_type == other.input_type
                 {
-                    if placeholder_self == placeholder_other
-                        && self.input_type == other.input_type
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
             _ => {}

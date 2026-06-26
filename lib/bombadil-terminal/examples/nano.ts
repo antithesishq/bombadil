@@ -1,4 +1,4 @@
-import { always, Cell, next, now } from "@antithesishq/bombadil";
+import { always, Cell, next } from "@antithesishq/bombadil";
 import { extract, weighted } from "@antithesishq/bombadil/terminal";
 import { CharSets } from "@antithesishq/bombadil/terminal/defaults/actions";
 import {
@@ -23,8 +23,8 @@ function justExited(): boolean {
   return (
     !!lastAction.current &&
     "TypeText" in lastAction.current &&
-    (lastAction.current.TypeText.text.includes("\x03") ||
-      lastAction.current.TypeText.text.includes("\x04"))
+    (lastAction.current.TypeText.includes("\x03") ||
+      lastAction.current.TypeText.includes("\x04"))
   );
 }
 

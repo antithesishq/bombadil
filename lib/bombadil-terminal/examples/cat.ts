@@ -1,6 +1,6 @@
 import { eventually } from "@antithesishq/bombadil";
 import { ActionGenerator, branch, leaf } from "@antithesishq/bombadil/actions";
-import { extract } from "@antithesishq/bombadil/terminal";
+import { ActionTemplate, extract } from "@antithesishq/bombadil/terminal";
 import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
 export {
   exitSuccess,
@@ -27,6 +27,6 @@ export const eventuallyHelloWorldOrExit = eventually(
 export const typeHelloWorld = new ActionGenerator(() =>
   branch([
     [10, typeBasicInput.generate()],
-    [1, leaf({ TypeText: { text: "hello world" } })],
+    [1, leaf({ TypeText: { Regexp: "hello world" } } as ActionTemplate)],
   ]),
 );

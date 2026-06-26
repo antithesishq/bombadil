@@ -57,20 +57,16 @@ const uncaughtExceptions = extract((state) =>
   state.errors.uncaughtExceptions.map(formatException),
 );
 
-export const noUncaughtExceptions = always(
-  () =>
-    uncaughtExceptions.current.every(
-      (e) =>
-        !e.startsWith("Uncaught") ||
-        e.startsWith("Uncaught (in promise)"),
-    ),
+export const noUncaughtExceptions = always(() =>
+  uncaughtExceptions.current.every(
+    (e) => !e.startsWith("Uncaught") || e.startsWith("Uncaught (in promise)"),
+  ),
 );
 
-export const noUnhandledPromiseRejections = always(
-  () =>
-    uncaughtExceptions.current.every(
-      (e) => !e.startsWith("Uncaught (in promise)"),
-    ),
+export const noUnhandledPromiseRejections = always(() =>
+  uncaughtExceptions.current.every(
+    (e) => !e.startsWith("Uncaught (in promise)"),
+  ),
 );
 
 const consoleErrors = extract((state) =>

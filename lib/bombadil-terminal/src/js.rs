@@ -1,15 +1,17 @@
-use std::sync::Arc;
+use std::{ops::RangeInclusive, sync::Arc};
 
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use boa_engine::{
     Context, JsResult, JsString, JsValue, NativeFunction,
     gc::{Finalize, Trace, empty_trace},
-    js_string,
-    object::ObjectInitializer,
-    object::builtins::JsArray,
+    js_string, js_value,
+    object::{ObjectInitializer, builtins::JsArray},
     property::Attribute,
 };
-use bombadil::driver::FromGeneratedAction;
+use bombadil::{
+    driver::FromGeneratedAction,
+    specification::js::{JsRange, JsStringGenerator},
+};
 use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalCell, TerminalColor, TerminalCursor,
     TerminalCursorPosition, TerminalCursorVisualStyle, TerminalGrid,
@@ -18,9 +20,12 @@ use bombadil_schema::terminal::{
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
-use crate::{driver::TerminalAction, state::TerminalState};
+use crate::{
+    driver::{TerminalAction, TerminalActionTemplate},
+    state::TerminalState,
+};
 
-impl FromGeneratedAction for TerminalAction {
+impl FromGeneratedAction for TerminalActionTemplate {
     fn from_generated(value: json::Value) -> Result<Self> {
         let js_action: JsTerminalAction = json::from_value(value)?;
         js_action.try_into()
@@ -366,32 +371,36 @@ fn size_to_js(size: TerminalSize, context: &mut Context) -> JsValue {
 }
 
 fn action_to_js(action: &TerminalAction, context: &mut Context) -> JsValue {
-    let (key, payload) = match action {
+    let (key, payload): (JsString, JsValue) = match action {
         TerminalAction::TypeText { text } => {
-            let payload = ObjectInitializer::new(context)
-                .property(
-                    js_string!("text"),
-                    JsString::from(text.as_str()),
-                    Attribute::all(),
-                )
-                .build();
-            (js_string!("TypeText"), payload)
+            (js_string!("TypeText"), js_value!(js_string!(text.as_str())))
         }
         TerminalAction::Resize { size } => {
             let size = size_to_js(*size, context);
             let payload = ObjectInitializer::new(context)
                 .property(js_string!("size"), size, Attribute::all())
                 .build();
-            (js_string!("Resize"), payload)
+            (js_string!("Resize"), js_value!(payload))
         }
         TerminalAction::ScrollUp {} => (
             js_string!("ScrollUp"),
-            ObjectInitializer::new(context).build(),
+            js_value!(ObjectInitializer::new(context).build()),
         ),
         TerminalAction::ScrollDown {} => (
             js_string!("ScrollDown"),
-            ObjectInitializer::new(context).build(),
+            js_value!(ObjectInitializer::new(context).build()),
         ),
+        TerminalAction::Click { row, column } => {
+            let payload = ObjectInitializer::new(context)
+                .property(js_string!("row"), js_value!(*row), Attribute::all())
+                .property(
+                    js_string!("column"),
+                    js_value!(*column),
+                    Attribute::all(),
+                )
+                .build();
+            (js_string!("Click"), js_value!(payload))
+        }
     };
     ObjectInitializer::new(context)
         .property(key, payload, Attribute::all())
@@ -401,31 +410,36 @@ fn action_to_js(action: &TerminalAction, context: &mut Context) -> JsValue {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum JsTerminalAction {
+    TypeText(JsStringGenerator),
+    Resize(JsTerminalSize),
     #[serde(rename_all = "camelCase")]
-    TypeText {
-        text: String,
-    },
-    #[serde(rename_all = "camelCase")]
-    Resize {
-        size: JsTerminalSize,
+    Click {
+        row: JsRange,
+        column: JsRange,
     },
     ScrollUp {},
     ScrollDown {},
 }
 
-impl TryFrom<JsTerminalAction> for TerminalAction {
+impl TryFrom<JsTerminalAction> for TerminalActionTemplate {
     type Error = anyhow::Error;
     fn try_from(value: JsTerminalAction) -> Result<Self> {
         match value {
-            JsTerminalAction::TypeText { text } => {
-                Ok(TerminalAction::TypeText { text })
-            }
-            JsTerminalAction::Resize { size } => Ok(TerminalAction::Resize {
+            JsTerminalAction::TypeText(text) => Ok(TerminalAction::TypeText {
+                text: text.try_into()?,
+            }),
+            JsTerminalAction::Resize(size) => Ok(TerminalAction::Resize {
                 size: size.try_into()?,
             }),
             JsTerminalAction::ScrollUp {} => Ok(TerminalAction::ScrollUp {}),
             JsTerminalAction::ScrollDown {} => {
                 Ok(TerminalAction::ScrollDown {})
+            }
+            JsTerminalAction::Click { row, column } => {
+                Ok(TerminalAction::Click {
+                    row: row.try_into()?,
+                    column: column.try_into()?,
+                })
             }
         }
     }
@@ -434,27 +448,28 @@ impl TryFrom<JsTerminalAction> for TerminalAction {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsTerminalSize {
-    rows: f64,
-    columns: f64,
+    rows: JsRange,
+    columns: JsRange,
 }
 
-impl From<TerminalSize> for JsTerminalSize {
-    fn from(value: TerminalSize) -> Self {
-        JsTerminalSize {
-            rows: value.rows as f64,
-            columns: value.columns as f64,
-        }
+impl TryFrom<TerminalSize<RangeInclusive<u16>>> for JsTerminalSize {
+    type Error = anyhow::Error;
+    fn try_from(
+        value: TerminalSize<RangeInclusive<u16>>,
+    ) -> anyhow::Result<Self> {
+        Ok(JsTerminalSize {
+            rows: value.rows.try_into()?,
+            columns: value.columns.try_into()?,
+        })
     }
 }
 
-impl TryFrom<JsTerminalSize> for TerminalSize {
+impl TryFrom<JsTerminalSize> for TerminalSize<RangeInclusive<u16>> {
     type Error = anyhow::Error;
     fn try_from(value: JsTerminalSize) -> Result<Self> {
-        ensure!(value.rows.is_normal(), "rows must be a normal number");
-        ensure!(value.columns.is_normal(), "columns must be a normal number");
         Ok(TerminalSize {
-            rows: value.rows as u16,
-            columns: value.columns as u16,
+            rows: value.rows.try_into()?,
+            columns: value.columns.try_into()?,
         })
     }
 }

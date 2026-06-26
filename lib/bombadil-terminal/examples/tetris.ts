@@ -1,10 +1,9 @@
 import { always } from "@antithesishq/bombadil";
-import { branch } from "@antithesishq/bombadil/actions";
+import { branch, CharSet } from "@antithesishq/bombadil/actions";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
 import {
   typeFromSet,
   CharSets,
-  CharSet,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 
 const nonBlankLines = extract((state) => {

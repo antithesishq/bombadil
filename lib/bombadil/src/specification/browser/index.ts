@@ -5,40 +5,42 @@ import {
   type Tree,
 } from "@antithesishq/bombadil";
 import * as bombadil from "@antithesishq/bombadil";
+import { Range, StringGenerator } from "@antithesishq/bombadil/actions";
 
-export type Point = {
-  x: number;
-  y: number;
+export type Point<Number = number> = {
+  x: Number;
+  y: Number;
 };
 
-export type Action =
+export type Action<Number = number, String = string> =
   | "Back"
   | "Forward"
   | "Reload"
   | "Wait"
-  | { Click: { name: string; content?: string; point: Point } }
+  | { Click: { fingerprint: Fingerprint; point: Point<Number> } }
   | {
     DoubleClick: {
-      name: string;
-      content?: string;
-      point: Point;
-      delayMillis: number;
+      fingerprint: Fingerprint;
+      point: Point<Number>;
+      delayMillis: Range;
     };
   }
-  | { TypeText: { text: string; delayMillis: number } }
+  | { TypeText: { text: String; delayMillis: Range } }
   | { PressKey: { code: number } }
-  | { ScrollUp: { origin: Point; distance: number } }
-  | { ScrollDown: { origin: Point; distance: number } }
+  | { ScrollUp: { origin: Point; distance: Number } }
+  | { ScrollDown: { origin: Point; distance: Number } }
   | { SetFileInputFiles: { selector: string; files: string[] } }
   | {
     MouseDrag: {
       from: Point;
       to: Point;
-      steps: number;
-      delayMillis: number;
+      steps: Number;
+      delayMillis: Number;
     };
   }
-  | { SetViewport: { width: number; height: number } };
+  | { SetViewport: { width: Number; height: Number } };
+
+export type ActionTemplate = Action<Range, StringGenerator>;
 
 export interface State {
   document: HTMLDocument;
@@ -92,13 +94,97 @@ export function extract<T extends JSON>(
 }
 
 export function actions(
-  generate: () => Tree<Action> | Action[],
-): ActionGenerator<Action> {
-  return bombadil.actions<Action>(generate);
+  generate: () => Tree<ActionTemplate> | ActionTemplate[],
+): ActionGenerator<ActionTemplate> {
+  return bombadil.actions<ActionTemplate>(generate);
 }
 
 export function weighted(
-  value: [number, Action | ActionGenerator<Action>][],
-): ActionGenerator<Action> {
-  return bombadil.weighted<Action>(value);
+  value: [number, ActionTemplate | ActionGenerator<ActionTemplate>][],
+): ActionGenerator<ActionTemplate> {
+  return bombadil.weighted<ActionTemplate>(value);
+}
+
+// Fingerprints
+
+export type Fingerprint = {
+  testId: string | null;
+  id: string | null;
+  role: string | null;
+  accessibleName: string | null;
+  tag: string;
+  href: string | null;
+  nameAttr: string | null;
+  placeholder: string | null;
+  inputType: string | null;
+  textContent: string | null;
+  structuralPath: string | null;
+}
+
+export function getFingerprint(el: Element): Fingerprint {
+  const tag = el.tagName.toLowerCase();
+
+  const testId =
+    el.getAttribute("data-testid") ??
+    el.getAttribute("data-test-id") ??
+    el.getAttribute("data-cy") ??
+    el.getAttribute("data-test");
+
+  const id = el.getAttribute("id");
+  const role = el.getAttribute("role");
+
+  const accessibleName =
+    el.getAttribute("aria-label") ??
+    (el.getAttribute("aria-labelledby")
+      ? document.getElementById(el.getAttribute("aria-labelledby")!)?.textContent?.trim() ?? null
+      : null) ??
+    el.getAttribute("title");
+
+  const href = el.getAttribute("href");
+  const nameAttr = el.getAttribute("name");
+  const placeholder = el.getAttribute("placeholder");
+  const inputType = el.getAttribute("type");
+
+  const rawText = el.textContent?.trim();
+  const textContent =
+    rawText && rawText.length > 0 && rawText.length <= 200 ? rawText : null;
+
+  const hasStrongIdentifier =
+    testId || id || role || accessibleName || href || nameAttr || placeholder || inputType || textContent;
+
+  const structuralPath = hasStrongIdentifier ? null : getStructuralPath(el);
+
+  return {
+    tag,
+    testId,
+    id,
+    role,
+    accessibleName,
+    href,
+    nameAttr,
+    placeholder,
+    inputType,
+    textContent,
+    structuralPath,
+  };
+}
+
+function getStructuralPath(el: Element): string {
+  const parts: string[] = [];
+  let current: Element | null = el;
+
+  while (current && current !== document.documentElement) {
+    const parent: HTMLElement | null = current.parentElement;
+    if (!parent) break;
+
+    const siblings = Array.from(parent.children).filter(
+      (c) => c.tagName === current!.tagName
+    );
+    const index = siblings.indexOf(current as HTMLElement);
+    const suffix = siblings.length > 1 ? `[${index}]` : "";
+    parts.unshift(`${current.tagName.toLowerCase()}${suffix}`);
+    current = parent;
+  }
+
+  return parts.join(" > ");
 }

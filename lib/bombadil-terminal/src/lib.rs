@@ -16,7 +16,7 @@ use bombadil_schema::terminal::{
 use owo_colors::{OwoColorize, XtermColors};
 use rand::{RngExt, TryRng};
 
-use crate::driver::{TerminalAction, TerminalDriver};
+use crate::driver::{TerminalAction, TerminalActionTemplate, TerminalDriver};
 use crate::state::TerminalState;
 use crate::trace::TraceWriter;
 
@@ -48,26 +48,28 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
     #[hotpath::measure]
     fn pick_action(
         &mut self,
-        tree: Tree<TerminalAction>,
+        tree: Tree<TerminalActionTemplate>,
     ) -> Result<TerminalAction> {
         let tree = tree
             .prune()
             .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TerminalTestMode::RandomWalk => {
-                Ok(tree.pick(&mut self.rng)?.clone())
+                Ok(tree.pick(&mut self.rng)?.generate(&mut self.rng))
             }
             TerminalTestMode::Reproduce(actions) => {
                 let original = actions.pop_front().ok_or_else(|| {
                     anyhow!("no remaining actions in reproduce queue")
                 })?;
                 let available = tree.values();
-                if available.iter().any(|a| actions_match(a, &original)) {
+                if available.iter().any(|template| template.accepts(&original))
+                {
                     Ok(original)
                 } else {
                     bail!(
-                        "reproduce: action {:?} not produced by the spec at this state",
-                        original
+                        "reproduce: action {:?} not produced by the spec at this state:\n\n{:?}",
+                        original,
+                        available
                     );
                 }
             }
@@ -94,7 +96,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
     fn on_new_state(
         &mut self,
         state: &TerminalState,
-        tree: Tree<TerminalAction>,
+        tree: Tree<TerminalActionTemplate>,
         last_action: Option<&TerminalAction>,
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
@@ -207,20 +209,6 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
             writer.flush()?;
         }
         Ok(ExitReason::Interrupted)
-    }
-}
-
-#[hotpath::measure]
-fn actions_match(a: &TerminalAction, b: &TerminalAction) -> bool {
-    match (a, b) {
-        (TerminalAction::TypeText { .. }, TerminalAction::TypeText { .. }) => {
-            true
-        }
-        (TerminalAction::Resize { .. }, _) => true,
-        (_, TerminalAction::Resize { .. }) => true,
-        (TerminalAction::ScrollUp {}, TerminalAction::ScrollUp {}) => true,
-        (TerminalAction::ScrollDown {}, TerminalAction::ScrollDown {}) => true,
-        _ => serde_json::to_value(a).ok() == serde_json::to_value(b).ok(),
     }
 }
 

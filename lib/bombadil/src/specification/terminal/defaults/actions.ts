@@ -1,69 +1,17 @@
-import { Action, actions, State } from "@antithesishq/bombadil/terminal";
-import { integers } from "@antithesishq/bombadil/random";
+import {
+  Action,
+  actions,
+  ActionTemplate,
+  State,
+} from "@antithesishq/bombadil/terminal";
 import { ActionGenerator, extract } from "@antithesishq/bombadil";
-
-export class CharSet {
-  private entries: CharSetEntry[];
-
-  private constructor(entries: CharSetEntry[]) {
-    this.entries = entries;
-  }
-
-  static fromRange(from: number, to: number): CharSet {
-    return new CharSet([{ kind: "range", from, to }]);
-  }
-
-  static fromLiterals(...literals: string[]): CharSet {
-    return new CharSet(
-      literals.map((literal) => ({ kind: "literal", literal })),
-    );
-  }
-
-  union(other: CharSet): CharSet {
-    return new CharSet([...this.entries, ...other.entries]);
-  }
-
-  generate(): string {
-    // weight ranges by size, literals by 1
-    const weights = this.entries.map((e) =>
-      e.kind === "range" ? e.to - e.from + 1 : 1,
-    );
-    const total = weights.reduce((a, b) => a + b, 0);
-    let pick = integers()
-      .min(0)
-      .max(total - 1)
-      .generate();
-    for (let i = 0; i < this.entries.length; i++) {
-      pick -= weights[i]!;
-      if (pick < 0) {
-        const entry = this.entries[i]!;
-        if (entry.kind === "range") {
-          const codepoint =
-            entry.from +
-            integers()
-              .min(0)
-              .max(entry.to - entry.from)
-              .generate();
-          return String.fromCodePoint(codepoint);
-        } else {
-          return entry.literal;
-        }
-      }
-    }
-    throw new Error("unreachable");
-  }
-}
-
-type CharSetEntry =
-  | { kind: "range"; from: number; to: number }
-  | { kind: "literal"; literal: string };
+import { CharSet } from "@antithesishq/bombadil/actions";
 
 export namespace CharSets {
   export const CONTROL_COMMON = CharSet.fromLiterals(
-    "\x04", // Ctrl+D
+    // "\x04", // Ctrl+D
     "\r", // Enter
     "\t", // Tab
-    "\x7f", // Backspace
     // NOTE: "\x1a" (Ctrl+Z) deliberately excluded until we have better process control.
   );
 
@@ -71,7 +19,7 @@ export namespace CharSets {
   export const CONTROL_EDITING = CharSet.fromLiterals(
     "\x01", // Ctrl+A - Goto BOL
     "\x02", // Ctrl+B - Prev char
-    "\x03", // Ctrl+C
+    // "\x03", // Ctrl+C
     "\x05", // Ctrl+E - Goto EOL
     "\x06", // Ctrl+F - Next char
     "\x08", // Ctrl+H - Backspace alt
@@ -82,6 +30,7 @@ export namespace CharSets {
     "\x17", // Ctrl+W - Delete prev word
     "\x19", // Ctrl+Y - Yank
     "\x1f", // Ctrl+_ - Undo
+    "\x7f", // DEL/Backspace
   );
 
   export const CONTROL_ARROWS = CharSet.fromLiterals(
@@ -121,11 +70,14 @@ export namespace CharSets {
     "\x1b[Z", // Shift+Tab
   );
 
-  export const CONTROL_ALL = CONTROL_COMMON.union(CONTROL_EDITING)
-    .union(CONTROL_EDITING_ALT)
-    .union(CONTROL_ARROWS)
-    .union(CONTROL_ARROWS_MODIFIED)
-    .union(CONTROL_NAVIGATION);
+  export const CONTROL_ALL = CharSet.union(
+    CONTROL_COMMON,
+    CONTROL_EDITING,
+    CONTROL_EDITING_ALT,
+    CONTROL_ARROWS,
+    CONTROL_ARROWS_MODIFIED,
+    CONTROL_NAVIGATION,
+  );
 
   export const FUNCTION_KEYS = CharSet.fromLiterals(
     // F1-F4: SS3 sequences
@@ -156,21 +108,24 @@ export namespace CharSets {
     0x1f43f,
   );
 
-  export const UNICODE_SAFE = ASCII_PRINTABLE.union(UNICODE_LATIN_EXTENDED)
-    .union(UNICODE_GREEK)
-    .union(UNICODE_CYRILLIC)
-    .union(UNICODE_CJK)
-    .union(UNICODE_HANGUL)
-    .union(UNICODE_EMOTICONS)
-    .union(UNICODE_SYMBOLS_PICTOGRAPHS_SAFE);
+  export const UNICODE_SAFE = CharSet.union(
+    ASCII_PRINTABLE,
+    UNICODE_LATIN_EXTENDED,
+    UNICODE_GREEK,
+    UNICODE_CYRILLIC,
+    UNICODE_CJK,
+    UNICODE_HANGUL,
+    UNICODE_EMOTICONS,
+    UNICODE_SYMBOLS_PICTOGRAPHS_SAFE,
+  );
 }
 
-export function typeFromSet(set: CharSet): ActionGenerator<Action> {
+export function typeFromSet(
+  set: CharSet.Entries,
+): ActionGenerator<ActionTemplate> {
   return actions(() => [
     {
-      TypeText: {
-        text: set.generate(),
-      },
+      TypeText: { CharSet: set },
     },
   ]);
 }

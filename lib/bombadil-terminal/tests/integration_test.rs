@@ -9,6 +9,7 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
 use bombadil_schema::terminal::TerminalSize;
+use bombadil_terminal::driver::TerminalActionTemplate;
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;
@@ -152,7 +153,7 @@ export const eventuallyReadyFromCells = eventually(
     () => screenFromCells.current.includes("ready"),
 );
 
-export const noop = actions(() => [{ TypeText: { text: "" } }]);
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
 "#,
         )
         .run();
@@ -178,7 +179,7 @@ export const eventuallyReady = eventually(
     () => lines.current.every(line => line.includes("y")),
 );
 
-export const noop = actions(() => [{ TypeText: { text: "" } }]);
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
 "#,
         )
         .run();
@@ -256,7 +257,7 @@ export const eventuallyColoredSegments = eventually(() => {
     );
 });
 
-export const noop = actions(() => [{ TypeText: { text: "" } }]);
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
 "#,
     )
     .run();
@@ -296,7 +297,7 @@ export const eventuallyCursorState = eventually(() => {
     );
 });
 
-export const noop = actions(() => [{ TypeText: { text: "" } }]);
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
 "#,
     )
     .run();
@@ -333,7 +334,7 @@ export const eventuallyWrapped = eventually(() => {
     return row0 === "x".repeat(79) + " " && row1.startsWith("😎");
 });
 
-export const noop = actions(() => [{ TypeText: { text: "" } }]);
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
 "#,
     )
     .run();
@@ -350,7 +351,7 @@ impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
     fn on_new_state(
         &mut self,
         state: &TerminalState,
-        tree: Tree<TerminalAction>,
+        tree: Tree<TerminalActionTemplate>,
         _last_action: Option<&TerminalAction>,
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
@@ -362,7 +363,9 @@ impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
         if state.exit_status.is_some() {
             return Ok(ControlFlow::Stop(()));
         }
-        Ok(ControlFlow::Continue(tree.pick(&mut self.rng)?.clone()))
+        Ok(ControlFlow::Continue(
+            tree.pick(&mut self.rng)?.generate(&mut self.rng),
+        ))
     }
 
     fn on_interrupted(&mut self) -> Result<()> {

@@ -24,37 +24,29 @@ export const typeRandom = weighted([
     actions(() => {
       const line = statusLine.current?.line;
       if (!line) return [];
-
       const column = statusLine.current.text.indexOf("keybindings");
-
-      const click =
-        `\x1b[<0;${column + 1};${line + 1}M` + // left-button press
-        `\x1b[<0;${column + 1};${line + 1}m`; // release
-
-      return [{ TypeText: { text: click } }];
+      if (column < 0) return [];
+      return [{ Click: { row: line, column } }];
     }),
   ],
-  // TODO: restore when ghostty doesn't have the overflow on resize
-  // [
-  //   1,
-  //   actions(() => [
-  //     {
-  //       Resize: {
-  //         size: {
-  //           columns: integers().min(40).max(80).generate(),
-  //           rows: integers().min(10).max(30).generate(),
-  //         },
-  //       },
-  //     },
-  //   ]),
-  // ],
+  [
+    5,
+    actions(() => [
+      {
+        Resize: {
+          columns: [80, 120],
+          rows: [24, 48],
+        }
+      }
+    ]),
+  ],
 ]);
 
 function justExited(): boolean {
   return (
     !!lastAction.current &&
     "TypeText" in lastAction.current &&
-    lastAction.current.TypeText.text.includes("\x03")
+    lastAction.current.TypeText.includes("\x03")
   );
 }
 

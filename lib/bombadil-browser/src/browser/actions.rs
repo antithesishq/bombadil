@@ -3,11 +3,10 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::FromGeneratedAction;
+use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
 use chromiumoxide::Page;
 use chromiumoxide::cdp::browser_protocol::{dom, emulation, input, page};
-use rand::distr::weighted::WeightedIndex;
-use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 use tokio::time::sleep;
@@ -312,7 +311,7 @@ impl BrowserActionTemplate {
             BrowserAction::Click { fingerprint, point } => {
                 BrowserAction::Click {
                     fingerprint: fingerprint.clone(),
-                    point: point.clone(),
+                    point: *point,
                 }
             }
             BrowserAction::DoubleClick {
@@ -321,7 +320,7 @@ impl BrowserActionTemplate {
                 delay_millis,
             } => BrowserAction::DoubleClick {
                 fingerprint: fingerprint.clone(),
-                point: point.clone(),
+                point: *point,
                 delay_millis: rng.random_range(delay_millis.clone()),
             },
             BrowserAction::TypeText { text, delay_millis } => {
@@ -455,122 +454,3 @@ impl BrowserActionTemplate {
         }
     }
 }
-
-struct TextGenerator {
-    ranges: Vec<(char, char)>,
-    dist: WeightedIndex<u32>,
-}
-
-impl TextGenerator {
-    fn new() -> Self {
-        let ranges_weights: &[(char, char, u32)] = &[
-            ('A', 'Z', 30),
-            ('a', 'z', 30),
-            ('0', '9', 15),
-            (' ', '/', 10),
-            (':', '@', 10),
-            ('[', '`', 10),
-            ('{', '~', 10),
-            ('\u{00A0}', '\u{00FF}', 8),
-            ('\u{0100}', '\u{017F}', 5),
-            ('\u{0300}', '\u{036F}', 8),
-            ('\u{200B}', '\u{200F}', 8),
-            ('\u{2000}', '\u{206F}', 6),
-            ('\u{FFF0}', '\u{FFFF}', 5),
-            ('\u{0600}', '\u{06FF}', 5),
-            ('\u{0590}', '\u{05FF}', 5),
-            ('\u{FF01}', '\u{FF60}', 5),
-            ('\u{3000}', '\u{303F}', 4),
-            ('\u{1F300}', '\u{1F9FF}', 6),
-            ('\u{E000}', '\u{F8FF}', 3),
-            ('\u{1F000}', '\u{1F02F}', 2),
-        ];
-
-        let ranges =
-            ranges_weights.iter().map(|&(lo, hi, _)| (lo, hi)).collect();
-        let weights: Vec<u32> =
-            ranges_weights.iter().map(|&(_, _, w)| w).collect();
-        let dist = WeightedIndex::new(weights).unwrap();
-
-        Self { ranges, dist }
-    }
-
-    fn sample(&self, rng: &mut impl Rng) -> char {
-        let idx = self.dist.sample(rng);
-        let (lo, hi) = self.ranges[idx];
-        rng.random_range(lo..=hi)
-    }
-
-    fn sample_string(&self, rng: &mut impl Rng, len: usize) -> String {
-        (0..len).map(|_| self.sample(rng)).collect()
-    }
-
-    fn accepts(&self, value: &str) -> bool {
-        value.chars().all(|char| {
-            self.ranges
-                .iter()
-                .any(|(from, to)| *from <= char && char >= *to)
-        })
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum StringGenerator {
-    Text { length: RangeInclusive<u16> },
-    Email,
-    Regexp { regexp: Regexp },
-}
-
-impl StringGenerator {
-    // TODO: precompile email regexp?
-    const PATTERN_EMAIL: &'static str =
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}";
-
-    pub fn generate(&self, rng: &mut impl Rng) -> String {
-        match self {
-            StringGenerator::Text { length } => {
-                let generator = TextGenerator::new();
-                let length = rng.random_range(length.clone()) as usize;
-                generator.sample_string(rng, length)
-            }
-            StringGenerator::Email => {
-                let generator =
-                    rand_regex::Regex::compile(Self::PATTERN_EMAIL, 100)
-                        .expect("email regex is invalid");
-                rng.sample(&generator)
-            }
-            StringGenerator::Regexp {
-                regexp: Regexp(regexp),
-            } => {
-                // TODO: precompile regexp when loading from JS?
-                let generator = rand_regex::Regex::compile(regexp, 100)
-                    .expect("email regex is invalid");
-                rng.sample(&generator)
-            }
-        }
-    }
-
-    pub fn accepts(&self, value: &str) -> bool {
-        match self {
-            StringGenerator::Text { length } => {
-                if let Ok(value_length) = u16::try_from(value.len()) {
-                    length.contains(&value_length)
-                        && TextGenerator::new().accepts(value)
-                } else {
-                    false
-                }
-            }
-            StringGenerator::Email => regex::Regex::new(Self::PATTERN_EMAIL)
-                .expect("email regex is invalid")
-                .is_match(value),
-            StringGenerator::Regexp {
-                regexp: Regexp(pattern),
-            } => regex::Regex::new(Self::PATTERN_EMAIL)
-                .expect(&format!("email regex is invalid: {pattern}"))
-                .is_match(value),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Regexp(pub String);

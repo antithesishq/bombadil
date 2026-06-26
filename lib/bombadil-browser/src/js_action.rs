@@ -1,16 +1,11 @@
 use std::ops::RangeInclusive;
 
-use anyhow::{anyhow, ensure};
+use anyhow::ensure;
+use bombadil::specification::js::{JsRange, JsStringGenerator};
 use bombadil_schema::{Rect, browser::Fingerprint};
-use num_traits::NumCast;
-use serde::{
-    Deserialize, Serialize,
-    de::{self, DeserializeOwned},
-};
+use serde::{Deserialize, Serialize};
 
-use crate::browser::actions::{
-    BrowserAction, BrowserActionTemplate, Regexp, StringGenerator,
-};
+use crate::browser::actions::{BrowserAction, BrowserActionTemplate};
 use crate::geometry::Point;
 
 /// TypeScript-friendly action representation with camelCase and f64 for numbers.
@@ -28,12 +23,12 @@ pub enum JsAction {
     DoubleClick {
         fingerprint: JsFingerprint,
         point: Point,
-        delay_millis: JsRange<f64>,
+        delay_millis: JsRange,
     },
     #[serde(rename_all = "camelCase")]
     TypeText {
         text: JsStringGenerator,
-        delay_millis: JsRange<f64>,
+        delay_millis: JsRange,
     },
     #[serde(rename_all = "camelCase")]
     PressKey {
@@ -42,12 +37,12 @@ pub enum JsAction {
     #[serde(rename_all = "camelCase")]
     ScrollUp {
         origin: Point,
-        distance: JsRange<f64>,
+        distance: JsRange,
     },
     #[serde(rename_all = "camelCase")]
     ScrollDown {
         origin: Point,
-        distance: JsRange<f64>,
+        distance: JsRange,
     },
     Reload,
     Wait,
@@ -60,13 +55,13 @@ pub enum JsAction {
     MouseDrag {
         from: Point,
         to: Point,
-        steps: JsRange<f64>,
-        delay_millis: JsRange<f64>,
+        steps: JsRange,
+        delay_millis: JsRange,
     },
     #[serde(rename_all = "camelCase")]
     SetViewport {
-        width: JsRange<f64>,
-        height: JsRange<f64>,
+        width: JsRange,
+        height: JsRange,
     },
 }
 
@@ -125,7 +120,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
             }
             JsAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
-                    origin: origin.try_into()?,
+                    origin,
                     distance: distance.try_into()?,
                 }
             }
@@ -161,7 +156,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 BrowserAction::MouseDrag {
                     from,
                     to,
-                    steps: steps.try_into()?,
+                    steps,
                     delay_millis,
                 }
             }
@@ -180,107 +175,6 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 BrowserAction::SetViewport { width, height }
             }
         })
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum JsRange<T> {
-    Fixed(T),
-    Range((T, T)),
-}
-
-macro_rules! impl_js_range_try_into {
-    ($($t:ty),+) => {
-        $(
-            impl TryInto<RangeInclusive<$t>> for JsRange<f64> {
-                type Error = anyhow::Error;
-
-                fn try_into(self) -> Result<RangeInclusive<$t>, Self::Error> {
-                    fn cast(x: f64, label: &str) -> anyhow::Result<$t> {
-                        ensure!(x.is_finite(), "{label} has to be a finite number");
-                        ensure!(!x.is_sign_negative(), "{label} must not be negative");
-                        ensure!(x.fract() == 0.0, "{label} must not have a fractional part");
-                        <$t as NumCast>::from(x)
-                            .ok_or(anyhow!("{label} out of range: {x}"))
-                    }
-
-                    match self {
-                        JsRange::Fixed(x) => {
-                            let x = cast(x, "value")?;
-                            Ok(x..=x)
-                        }
-                        JsRange::Range((start, end)) => {
-                            let start = cast(start, "start")?;
-                            let end = cast(end, "end")?;
-                            ensure!(start <= end, "start must be <= end");
-                            Ok(start..=end)
-                        }
-                    }
-                }
-            }
-        )+
-    };
-}
-
-impl_js_range_try_into!(u8, u16, u32, u64);
-
-impl TryInto<RangeInclusive<f64>> for JsRange<f64> {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<RangeInclusive<f64>, Self::Error> {
-        fn cast(x: f64, label: &str) -> anyhow::Result<f64> {
-            ensure!(x.is_finite(), "{label} has to be a finite number");
-            ensure!(!x.is_sign_negative(), "{label} must not be negative");
-            Ok(x)
-        }
-
-        match self {
-            JsRange::Fixed(x) => {
-                let x = cast(x, "value")?;
-                Ok(x..=x)
-            }
-            JsRange::Range((start, end)) => {
-                let start = cast(start, "low part of interval")?;
-                let end = cast(end, "high part of interval")?;
-                ensure!(
-                    start <= end,
-                    "low part must be less than or equal to high part of interval"
-                );
-                Ok(start..=end)
-            }
-        }
-    }
-}
-impl<T: Serialize> Serialize for JsRange<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            JsRange::Fixed(x) => x.serialize(serializer),
-            JsRange::Range(range) => range.serialize(serializer),
-        }
-    }
-}
-
-impl<'de, T: DeserializeOwned> Deserialize<'de> for JsRange<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value: serde_json::Value = Deserialize::deserialize(deserializer)?;
-        match value {
-            serde_json::Value::Array(_) => {
-                let range: (T, T) = serde_json::from_value(value)
-                    .map_err(|err| de::Error::custom(err))?;
-                Ok(JsRange::Range(range))
-            }
-            _ => {
-                let value: T = serde_json::from_value(value)
-                    .map_err(|err| de::Error::custom(err))?;
-                Ok(JsRange::Fixed(value))
-            }
-        }
     }
 }
 
@@ -376,29 +270,6 @@ impl TryFrom<JsRect> for Rect {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum JsStringGenerator {
-    Text { length: JsRange<f64> },
-    Email,
-    Regexp { regexp: String },
-}
-
-impl TryInto<StringGenerator> for JsStringGenerator {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<StringGenerator, Self::Error> {
-        Ok(match self {
-            JsStringGenerator::Text { length } => StringGenerator::Text {
-                length: length.try_into()?,
-            },
-            JsStringGenerator::Email => StringGenerator::Email,
-            JsStringGenerator::Regexp { regexp } => StringGenerator::Regexp {
-                regexp: Regexp(regexp),
-            },
-        })
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -434,9 +305,7 @@ mod tests {
     #[test]
     fn test_to_browser_action_does_not_silently_truncate_floats() {
         let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text {
-                length: JsRange::Range((0.0, 10.0)),
-            },
+            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
             delay_millis: JsRange::Fixed(43.9),
         };
         let result: Result<BrowserActionTemplate> = js_action.try_into();
@@ -465,9 +334,7 @@ mod tests {
     #[test]
     fn test_to_browser_action_validates_delay_millis() {
         let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text {
-                length: JsRange::Range((0.0, 10.0)),
-            },
+            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
             delay_millis: JsRange::Fixed(-10.0),
         };
         let result: Result<BrowserActionTemplate> = js_action.try_into();
@@ -475,9 +342,7 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("negative"));
 
         let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text {
-                length: JsRange::Range((0.0, 10.0)),
-            },
+            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
             delay_millis: JsRange::Fixed(f64::NAN),
         };
         let result: Result<BrowserActionTemplate> = js_action.try_into();
@@ -507,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_mouse_drag_validates_steps() {
-        let make = |steps: JsRange<f64>| {
+        let make = |steps: JsRange| {
             TryInto::<BrowserActionTemplate>::try_into(JsAction::MouseDrag {
                 from: Point { x: 0.0, y: 0.0 },
                 to: Point { x: 1.0, y: 1.0 },
@@ -538,7 +403,7 @@ mod tests {
 
     #[test]
     fn test_set_viewport_validates_dimensions() {
-        let make = |width: JsRange<f64>, height: JsRange<f64>| {
+        let make = |width: JsRange, height: JsRange| {
             TryInto::<BrowserActionTemplate>::try_into(JsAction::SetViewport {
                 width,
                 height,

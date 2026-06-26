@@ -688,17 +688,21 @@ async fn test_double_click() {
         .specification(
             r#"
 import { eventually } from "@antithesishq/bombadil";
-import { actions, extract } from "@antithesishq/bombadil/browser";
+import { actions, extract, getFingerprint } from "@antithesishq/bombadil/browser";
 
 const counterValue = extract((state) => {
   const element = state.document.body.querySelector("\#counter");
   return parseInt(element?.textContent ?? "0", 10);
 });
 
+const fingerprint = extract((state) => {
+  return getFingerprint(state.document.getElementById( "double-click-target"));
+});
+
 export const doubleClicks = actions(() => [
   {
     DoubleClick: {
-      name: "double-click-target",
+      fingerprint: fingerprint.current,
       point: { x: 400, y: 300 },
       delayMillis: 100,
     },

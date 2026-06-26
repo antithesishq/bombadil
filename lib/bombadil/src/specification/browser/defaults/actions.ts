@@ -1,10 +1,12 @@
-import { strings, emails, integers, keycodes } from "@antithesishq/bombadil";
 import type { Cell } from "@antithesishq/bombadil";
+import type { Range } from "@antithesishq/bombadil/actions";
 import {
   actions,
   weighted,
   extract,
   type Action,
+  Fingerprint,
+  getFingerprint,
 } from "@antithesishq/bombadil/browser";
 import {
   clickablePoint,
@@ -78,7 +80,7 @@ export const scroll = actions(() => {
           },
           distance: Math.min(window.current.inner.height / 2, scrollYMaxDiff),
         },
-      } as Action,
+      },
     ];
   } else if (window.current.scroll.y > 0) {
     return [
@@ -90,7 +92,7 @@ export const scroll = actions(() => {
           },
           distance: window.current.scroll.y,
         },
-      } as Action,
+      },
     ];
   }
 
@@ -98,6 +100,11 @@ export const scroll = actions(() => {
 });
 
 // Clicks
+
+type ClickTarget = {
+  fingerprint: Fingerprint;
+  point: { x: number; y: number };
+};
 
 const clickablePoints = extract((state) => {
   if (!state.document.body) return [];
@@ -116,11 +123,6 @@ const clickablePoints = extract((state) => {
 
   const FORM_CONTROL_TAGS = ["button", "input", "textarea"];
 
-  type ClickTarget = {
-    name: string;
-    content: string;
-    point: { x: number; y: number };
-  };
   const targets: ClickTarget[] = [];
   const added = new Set<Element>();
 
@@ -148,8 +150,7 @@ const clickablePoints = extract((state) => {
     if (!inViewport(state.window, point)) continue;
 
     targets.push({
-      name: anchor.nodeName,
-      content: (anchor.textContent ?? "").trim().replace(/\s+/g, " "),
+      fingerprint: getFingerprint(anchor),
       point,
     });
     added.add(anchor);
@@ -194,8 +195,7 @@ const clickablePoints = extract((state) => {
     }
 
     targets.push({
-      name: element.nodeName,
-      content: (element.textContent ?? "").trim().replace(/\s+/g, " "),
+      fingerprint: getFingerprint(element),
       point,
     });
     added.add(element);
@@ -214,8 +214,7 @@ const clickablePoints = extract((state) => {
     if (!inViewport(state.window, point)) continue;
 
     targets.push({
-      name: element.nodeName,
-      content: (element.textContent ?? "").trim().replace(/\s+/g, " "),
+      fingerprint: getFingerprint(element),
       point,
     });
     added.add(element);
@@ -226,12 +225,9 @@ const clickablePoints = extract((state) => {
 
 export const clicks = actions(() => {
   if (contentType.current !== "text/html") return [];
-  return clickablePoints.current.map(
-    ({ name, content, point }) =>
-      ({
-        Click: { name, content, point },
-      }) as Action,
-  );
+  return (clickablePoints.current ?? []).map(({ fingerprint, point }) => ({
+    Click: { fingerprint, point },
+  }));
 });
 
 // Inputs
@@ -258,37 +254,43 @@ export const inputs = actions(() => {
 
   if (type === "file") return [];
 
-  const delayMillis = integers().min(1).max(100).generate();
+  const delayMillis: Range = [1, 100];
+
+  const keycodes = weighted([
+    [1, { PressKey: { code: 8 } }],
+    [1, { PressKey: { code: 9 } }],
+    [1, { PressKey: { code: 13 } }],
+    [1, { PressKey: { code: 27 } }],
+  ]);
 
   if (type === "textarea") {
     return weighted([
-      [1, { PressKey: { code: keycodes().generate() } }],
-      [3, { TypeText: { text: strings().minSize(1).generate(), delayMillis } }],
+      [1, keycodes],
+      [4, { TypeText: { text: { Text: [1, 100] }, delayMillis } }],
     ]).generate();
   }
 
   switch (type) {
     case "text":
       return weighted([
-        [1, { PressKey: { code: keycodes().generate() } }],
-        [
-          3,
-          { TypeText: { text: strings().minSize(1).generate(), delayMillis } },
-        ],
+        [1, keycodes],
+        [3, { TypeText: { text: { Text: [1, 100] }, delayMillis } }],
       ]).generate();
     case "email":
       return weighted([
-        [1, { PressKey: { code: keycodes().generate() } }],
-        [3, { TypeText: { text: emails().generate(), delayMillis } }],
+        [1, keycodes],
+        [3, { TypeText: { text: "Email", delayMillis } }],
       ]).generate();
     case "number":
       return weighted([
-        [1, { PressKey: { code: keycodes().generate() } }],
+        [1, keycodes],
         [
           3,
           {
             TypeText: {
-              text: integers().min(0).max(10000).generate().toString(),
+              text: {
+                Regexp: "\d{1,5}",
+              },
               delayMillis,
             },
           },
@@ -302,18 +304,18 @@ export const inputs = actions(() => {
 // Navigation
 
 export const back = actions(() => {
-  if (canGoBack.current) return ["Back" as Action];
+  if (canGoBack.current) return ["Back"];
   return [];
 });
 
 export const forward = actions(() => {
-  if (canGoForwardSameOrigin.current) return ["Forward" as Action];
+  if (canGoForwardSameOrigin.current) return ["Forward"];
   return [];
 });
 
 export const reload = actions(() => {
   if (lastAction.current !== "Reload" && lastAction.current !== "Wait")
-    return ["Reload" as Action];
+    return ["Reload"];
   return [];
 });
 

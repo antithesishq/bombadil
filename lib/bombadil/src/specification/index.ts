@@ -15,13 +15,6 @@ export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
 export {
   ActionGenerator,
   type Tree,
-  type Generator,
-  from,
-  strings,
-  emails,
-  integers,
-  keycodes,
-  randomRange,
 } from "@antithesishq/bombadil/actions";
 
 /**

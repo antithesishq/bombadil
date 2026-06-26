@@ -25,5 +25,13 @@ pub fn format_action(action: &TerminalAction) -> String {
         TerminalAction::ScrollDown {} => {
             styled::maybe_bold("Scrolling down".to_string())
         }
+        TerminalAction::Click { row, column } => {
+            format!(
+                "{} at row {}, column {}",
+                styled::maybe_bold("Clicking".to_string()),
+                styled::maybe_blue(format!("{}", row)),
+                styled::maybe_blue(format!("{}", column)),
+            )
+        }
     }
 }
