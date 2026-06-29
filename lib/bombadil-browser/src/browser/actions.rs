@@ -302,13 +302,17 @@ impl BrowserAction {
             BrowserAction::Custom { name, state } => {
                 let state_stringified = json::to_string(state)?;
 
-                page.evaluate(format!(r#"(() => {{
+                page.evaluate(format!(r#"(async () => {{
                     const state = JSON.parse('{state_stringified}');
                     const action = __bombadilRequire('@antithesishq/bombadil').runtime.customActions["{name}"];
                     if (!action) {{
                         throw new Error("Custom action {name} not found");
                     }}
-                    action.run({{ ...state, document, window }});
+                    try {{
+                        await action.run({{ ...state, document, window }});
+                    }} catch (err) {{
+                        throw new Error(`Error executing custom action {name}: ${{err}}`);
+                    }}
                 }})()"#)).await?;
             }
         };
@@ -387,6 +391,10 @@ impl BrowserActionTemplate {
                     height: rng.random_range(height.clone()),
                 }
             }
+            BrowserAction::Custom { name, state } => BrowserAction::Custom {
+                name: name.clone(),
+                state: state.clone(),
+            },
         }
     }
 

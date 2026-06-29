@@ -200,7 +200,7 @@ function getStructuralPath(el: Element): string {
 
 export function registerCustomAction(
   name: string,
-  scriptFunction: (state: Pick<State, "document" | "window">) => void,
+  scriptFunction: (state: Pick<State, "document" | "window">) => Promise<void>,
 ) {
   bombadil.registerCustomAction<Pick<State, "document" | "window">>(
     name,
