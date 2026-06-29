@@ -4,7 +4,7 @@
 
 Major updates:
 
-* Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`) (#232)
+* Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
 
 ## 0.6.1
 
