@@ -5,9 +5,8 @@ use boa_engine::{
     Context, JsError, JsObject, JsValue, NativeFunction, Source,
     context::ContextBuilder, js_string,
 };
-use bombadil::specification::{domain::Snapshot, verifier};
+use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
-use rand::{RngExt, TryRng};
 use serde::Deserialize;
 use serde_json as json;
 
@@ -26,21 +25,10 @@ pub struct Extractors {
 }
 
 impl Extractors {
-    pub fn initialize<Rng: TryRng + RngExt + 'static>(
-        bundle_code: &str,
-        rng: Rng,
-    ) -> Result<Self> {
+    pub fn initialize(bundle_code: &str) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|e| anyhow!("Boa build: {e}"))?;
-
-        context
-            .register_global_builtin_callable(
-                js_string!("__bombadil_random_bytes"),
-                1,
-                verifier::random_bytes_native_function(rng),
-            )
-            .map_err(from_js_error)?;
 
         let console_obj =
             boa_engine::object::ObjectInitializer::new(&mut context)

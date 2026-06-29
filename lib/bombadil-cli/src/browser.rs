@@ -396,7 +396,6 @@ async fn browser_test(
     // blocking the async runtime.
     let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
         let runner = bombadil_browser::runner::launch(
-            AntithesisRng,
             origin.clone(),
             specification,
             browser_options,

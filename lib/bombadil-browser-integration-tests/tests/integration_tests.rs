@@ -315,7 +315,6 @@ impl<'a> BrowserIntegrationTest<'a> {
         // worker thread/runtime), so build and run them on a blocking thread.
         let run_handle = tokio::task::spawn_blocking(move || {
             let runner = runner::launch(
-                rand::prelude::StdRng::seed_from_u64(seed),
                 origin.clone(),
                 specification,
                 browser_options,
