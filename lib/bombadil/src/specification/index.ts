@@ -13,10 +13,7 @@ import {
 } from "@antithesishq/bombadil/actions";
 
 export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
-export {
-  ActionGenerator,
-  type Tree,
-} from "@antithesishq/bombadil/actions";
+export { ActionGenerator, type Tree } from "@antithesishq/bombadil/actions";
 
 /**
  * The runtime singleton that all `extract` calls register into and that
@@ -38,7 +35,7 @@ export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
 
 export function registerCustomAction<S>(
   name: string,
-  scriptFunction: (state: S) => void,
+  scriptFunction: (state: S) => Promise<void>,
 ) {
   runtime.registerCustomAction(
     new CustomAction(name, scriptFunction) as CustomAction<unknown>,
