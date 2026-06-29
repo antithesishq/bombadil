@@ -326,11 +326,13 @@ Like with [default properties](#default-properties-and-action-generators),
 there are default actions provided by Bombadil. These will get you a long way,
 but there are times where you'll need to define your own action generators.
 
-For every state that Bombadil captures, all action generators are run, contributing
-to a tree structure of *possible* actions. Bombadil then randomly picks one in that
-tree. Why a tree, though? It's because the branches are *weighted* --- equally, by default.
-But you can override this to control the probability of
-an action being picked.
+For every state that Bombadil captures, all action generators are run,
+contributing to a tree structure of *possible* actions. These are called
+*action templates* and are parameterized by ranges of values. Bombadil then
+randomly picks one in that tree, and picks random values within the ranges for
+the parameters. Why a tree, though? It's because the branches are *weighted*
+--- equally, by default. But you can override this to control the probability
+of an action being picked.
 
 To define a custom action generator, you use the `actions` function, which
 takes a thunk that returns an array of actions:
@@ -344,30 +346,16 @@ export const myAction = actions(() => {
 ```
 
 In the returned array, each element is a value of the following `Action` type,
-provided by [the NPM package](#typescript-support):
+provided by [the NPM package](#typescript-support).
+[See the [TypeScript source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/browser/index.ts) for reference.]{.browser}
+[See the [TypeScript source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/index.ts) for reference.]{.terminal}
 
 ::: browser
-<!-- TODO: link to `Action` type when we have generated TypeScript reference rather than hard coding it here -->
-```typescript
-interface Point {
-    x: number;
-    y: number;
-}
-
-type Action =
-    | "Back"
-    | "Forward"
-    | "Reload"
-    | "Wait"
-    | { Click: { name: string; content?: string; point: Point } }
-    // Many others...
-    ;
-```
 
 Here's a generator for clicks in the center of a `canvas` element:
 
 ```typescript
-const canvasCenter = extract((state) => {
+const canvas = extract((state) => {
     const canvas = state.document.querySelector("#my-canvas");
     if (!canvas) {
         return null;
@@ -375,8 +363,11 @@ const canvasCenter = extract((state) => {
     const rect = canvas.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
         return {
-            x: rect.left + rect.width / 2,
-            y: rect.top + rect.height / 2,
+            fingerprint: getFingerprint(canvas),
+            point: {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            }
         };
     }
     return null;
@@ -384,8 +375,7 @@ const canvasCenter = extract((state) => {
 
 
 export const clickCanvas = actions(() => {
-    const point = canvasCenter.current;
-    return point ? [{ Click: { name: "canvas", point } }] : [];
+    return canvas.current ? [{ Click: canvasClick.current }] : [];
 });
 ```
 
@@ -393,34 +383,41 @@ For double-click actions, specify the delay between clicks in milliseconds (0-10
 
 ```typescript
 export const doubleClickCanvas = actions(() => {
-    const point = canvasCenter.current;
-    return point ? [{
+    return canvas.current ? [{
         DoubleClick: {
-            name: "canvas",
-            point,
+            ...canvas,
             delayMillis: 100,
         }
     }] : [];
 });
 ```
-:::
 
-::: terminal
-<!-- TODO: link to `Action` type when we have generated TypeScript reference rather than hard coding it here -->
+Most action parameters can also be specified as ranges, where Bombadil picks a
+random value within the range:
+
+
 ```typescript
-export type Action =
-  | { TypeText: { text: string } }
-  | { PressKey: { code: number } }
-  | { Resize: { size: Size } }
-  | { ScrollUp: {} }
-  | { ScrollDown: {} };
+export const doubleClickCanvas = actions(() => {
+    return canvas.current ? [{
+        DoubleClick: {
+            ...canvas,
+            delayMillis: [50, 500],
+        }
+    }] : [];
+});
 ```
 
-Here's a generator that sends a single `help` command:
+:::
+
+::: terminal Here's a generator that sends either a `help` command or an `incr`
+command with an numeric argument:
 
 ```typescript
-export const sendHelp = actions(() => {
-    return [{ TypeText: { text: "help\n" } }];
+export const sendCommand = actions(() => {
+    return [
+        { TypeText: { Regexp: "help\n" } },
+        { TypeText: { Regexp: "incr \d{2,4}\n" } },
+    ];
 });
 ```
 :::
