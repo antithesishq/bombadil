@@ -76,6 +76,7 @@ struct BrowserIntegrationTest<'a> {
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
+    cookies: Vec<(String, String)>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -88,6 +89,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             specification: None,
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
+            cookies: vec![],
         }
     }
 
@@ -122,6 +124,11 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn cookies(mut self, cookies: Vec<(String, String)>) -> Self {
+        self.cookies = cookies;
+        self
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -141,6 +148,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             specification,
             grant_permissions,
             extra_headers,
+            cookies,
         } = self;
         setup();
         let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -251,6 +259,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions,
             extra_headers,
+            cookies,
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -506,6 +515,7 @@ async fn test_browser_lifecycle() {
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions: vec![],
             extra_headers: Default::default(),
+            cookies: vec![],
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -938,6 +948,30 @@ const loaded = extract((state) => {
 
 export const secretResourceLoaded = eventually(
   () => loaded.current === true
+).within(10, "seconds");
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_cookies() {
+    BrowserIntegrationTest::new("fetch-headers")
+        .cookies(vec![("session".to_string(), "bombadil".to_string())])
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const cookieSet = extract((state) => {
+  return state.document.cookie.includes("session=bombadil");
+});
+
+export const sessionCookiePresent = eventually(
+  () => cookieSet.current === true
 ).within(10, "seconds");
 "#,
         )

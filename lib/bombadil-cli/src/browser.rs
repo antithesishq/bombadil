@@ -120,6 +120,12 @@ pub struct TestSharedOptions {
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     pub headers: Vec<(String, String)>,
+    /// Cookie to set in the browser before testing, in NAME=VALUE format.
+    /// Set as a real browser cookie scoped to the origin (so client-side auth
+    /// flows that read cookies work), unlike --header which only sends a
+    /// static request header. Can be specified multiple times.
+    #[arg(long = "cookie", value_name = "NAME=VALUE", value_parser = parse_header)]
+    pub cookies: Vec<(String, String)>,
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
@@ -286,6 +292,7 @@ fn browser_options_from_shared(
             .filter(|s| !s.is_empty())
             .collect(),
         extra_headers: shared.headers.iter().cloned().collect(),
+        cookies: shared.cookies.clone(),
     }
 }
 
@@ -313,6 +320,9 @@ fn reproduce_command_args(
     }
     for (key, value) in &shared.headers {
         args.push(format!("--header {key}={value}"));
+    }
+    for (name, value) in &shared.cookies {
+        args.push(format!("--cookie {name}={value}"));
     }
     args
 }

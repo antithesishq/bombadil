@@ -1,5 +1,11 @@
 # The Bombadil Changelog
 
+## Unreleased
+
+Major updates:
+
+* Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
+
 ## 0.6.1
 
 # Major updates:

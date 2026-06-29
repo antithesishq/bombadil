@@ -185,6 +185,7 @@ pub struct BrowserOptions {
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
+    pub cookies: Vec<(String, String)>,
 }
 
 #[derive(Clone)]
@@ -271,6 +272,29 @@ impl Browser {
                 )?),
             ))
             .await?;
+        }
+
+        if !browser_options.cookies.is_empty() {
+            // Cookies are associated with the origin URL so that the
+            // browser derives an appropriate domain, path, and scheme.
+            // Unlike a static Cookie request header, these become real
+            // browser cookies and are sent on every navigation, which is
+            // what client-side auth flows (e.g. MSAL) rely on.
+            let cookies = browser_options
+                .cookies
+                .iter()
+                .map(|(name, value)| {
+                    network::CookieParam::builder()
+                        .name(name)
+                        .value(value)
+                        .url(origin.as_str())
+                        .build()
+                        .map_err(|s| {
+                            anyhow!(s).context("build CookieParam failed")
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            page.execute(network::SetCookiesParams::new(cookies)).await?;
         }
 
         // Prevent file downloads to avoid getting stuck
