@@ -126,8 +126,8 @@ pub fn format_action<
                 "{} <{}> (x: {}, y: {}{})",
                 styled::maybe_bold("Clicking".to_string()),
                 fingerprint.tag,
-                styled::maybe_blue(format!("{:.1}", point.x)),
-                styled::maybe_blue(format!("{:.1}", point.y)),
+                styled::maybe_blue(format!("{}", Formatted(&point.x))),
+                styled::maybe_blue(format!("{}", Formatted(&point.y))),
                 content_str
             )
         }
@@ -150,8 +150,8 @@ pub fn format_action<
                 "{} <{}> (x: {}, y: {}, delay: {}{})",
                 styled::maybe_bold("Double-clicking".to_string()),
                 fingerprint.tag,
-                styled::maybe_blue(format!("{:.1}", point.x)),
-                styled::maybe_blue(format!("{:.1}", point.y)),
+                styled::maybe_blue(format!("{}", Formatted(&point.x))),
+                styled::maybe_blue(format!("{}", Formatted(&point.y))),
                 styled::maybe_blue(format!("{}ms", Formatted(delay_millis))),
                 content_str
             )
@@ -177,8 +177,8 @@ pub fn format_action<
             format!(
                 "{} (x: {}, y: {}, distance: {})",
                 styled::maybe_bold("Scrolling up".to_string()),
-                styled::maybe_blue(format!("{:.1}", origin.x)),
-                styled::maybe_blue(format!("{:.1}", origin.y)),
+                styled::maybe_blue(format!("{}", Formatted(&origin.x))),
+                styled::maybe_blue(format!("{}", Formatted(&origin.y))),
                 styled::maybe_blue(format!("{}px", Formatted(distance)))
             )
         }
@@ -186,8 +186,8 @@ pub fn format_action<
             format!(
                 "{} (x: {}, y: {}, distance: {})",
                 styled::maybe_bold("Scrolling down".to_string()),
-                styled::maybe_blue(format!("{:.1}", origin.x)),
-                styled::maybe_blue(format!("{:.1}", origin.y)),
+                styled::maybe_blue(format!("{}", Formatted(&origin.x))),
+                styled::maybe_blue(format!("{}", Formatted(&origin.y))),
                 styled::maybe_blue(format!("{}px", Formatted(distance)))
             )
         }
@@ -208,10 +208,10 @@ pub fn format_action<
             format!(
                 "{} from (x: {}, y: {}) to (x: {}, y: {}) ({} steps, delay: {})",
                 styled::maybe_bold("Dragging".to_string()),
-                styled::maybe_blue(format!("{:.1}", from.x)),
-                styled::maybe_blue(format!("{:.1}", from.y)),
-                styled::maybe_blue(format!("{:.1}", to.x)),
-                styled::maybe_blue(format!("{:.1}", to.y)),
+                styled::maybe_blue(format!("{}", Formatted(&from.x))),
+                styled::maybe_blue(format!("{}", Formatted(&from.y))),
+                styled::maybe_blue(format!("{}", Formatted(&to.x))),
+                styled::maybe_blue(format!("{}", Formatted(&to.y))),
                 styled::maybe_blue(format!("{}", Formatted(steps))),
                 styled::maybe_blue(format!("{}ms", Formatted(delay_millis)))
             )

@@ -27,11 +27,11 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     Forward,
     Click {
         fingerprint: Fingerprint,
-        point: Point,
+        point: Point<F64>,
     },
     DoubleClick {
         fingerprint: Fingerprint,
-        point: Point,
+        point: Point<F64>,
         delay_millis: U64,
     },
     TypeText {
@@ -42,11 +42,11 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         code: u8,
     },
     ScrollUp {
-        origin: Point,
+        origin: Point<F64>,
         distance: F64,
     },
     ScrollDown {
-        origin: Point,
+        origin: Point<F64>,
         distance: F64,
     },
     Reload,
@@ -56,8 +56,8 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         files: Vec<String>,
     },
     MouseDrag {
-        from: Point,
-        to: Point,
+        from: Point<F64>,
+        to: Point<F64>,
         steps: U8,
         delay_millis: U64,
     },
@@ -78,7 +78,7 @@ pub type BrowserActionTemplate = BrowserAction<
 impl FromGeneratedAction for BrowserActionTemplate {
     fn from_generated(value: json::Value) -> Result<Self> {
         let js_action: JsAction = json::from_value(value)?;
-        js_action.try_into() //.map_err(|err| anyhow!(err))
+        js_action.try_into()
     }
 }
 
@@ -311,7 +311,7 @@ impl BrowserActionTemplate {
             BrowserAction::Click { fingerprint, point } => {
                 BrowserAction::Click {
                     fingerprint: fingerprint.clone(),
-                    point: *point,
+                    point: point.generate(rng),
                 }
             }
             BrowserAction::DoubleClick {
@@ -320,7 +320,7 @@ impl BrowserActionTemplate {
                 delay_millis,
             } => BrowserAction::DoubleClick {
                 fingerprint: fingerprint.clone(),
-                point: *point,
+                point: point.generate(rng),
                 delay_millis: rng.random_range(delay_millis.clone()),
             },
             BrowserAction::TypeText { text, delay_millis } => {
@@ -335,14 +335,14 @@ impl BrowserActionTemplate {
             BrowserAction::ScrollUp { origin, distance } => {
                 let distance = rng.random_range(distance.clone());
                 BrowserAction::ScrollUp {
-                    origin: *origin,
+                    origin: origin.generate(rng),
                     distance,
                 }
             }
             BrowserAction::ScrollDown { origin, distance } => {
                 let distance = rng.random_range(distance.clone());
                 BrowserAction::ScrollDown {
-                    origin: *origin,
+                    origin: origin.generate(rng),
                     distance,
                 }
             }
@@ -360,8 +360,8 @@ impl BrowserActionTemplate {
                 steps,
                 delay_millis,
             } => BrowserAction::MouseDrag {
-                from: *from,
-                to: *to,
+                from: from.generate(rng),
+                to: to.generate(rng),
                 steps: rng.random_range(steps.clone()),
                 delay_millis: rng.random_range(delay_millis.clone()),
             },
@@ -422,7 +422,7 @@ impl BrowserActionTemplate {
                     distance: distance_original,
                 },
             ) => {
-                origin_candidate.distance(origin_original) < 1.0
+                origin_candidate.accepts(origin_original)
                     && distance_candidate.contains(distance_original)
             }
 
@@ -436,7 +436,7 @@ impl BrowserActionTemplate {
                     distance: distance_original,
                 },
             ) => {
-                origin_candidate.distance(origin_original) < 1.0
+                origin_candidate.accepts(origin_original)
                     && distance_candidate.contains(distance_original)
             }
             (BrowserAction::Wait, BrowserAction::Wait) => true,

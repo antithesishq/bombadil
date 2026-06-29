@@ -1,3 +1,4 @@
+use std::convert::TryInto;
 use std::ops::RangeInclusive;
 
 use anyhow::ensure;
@@ -17,12 +18,12 @@ pub enum JsAction {
     #[serde(rename_all = "camelCase")]
     Click {
         fingerprint: JsFingerprint,
-        point: Point,
+        point: JsPoint,
     },
     #[serde(rename_all = "camelCase")]
     DoubleClick {
         fingerprint: JsFingerprint,
-        point: Point,
+        point: JsPoint,
         delay_millis: JsRange,
     },
     #[serde(rename_all = "camelCase")]
@@ -36,12 +37,12 @@ pub enum JsAction {
     },
     #[serde(rename_all = "camelCase")]
     ScrollUp {
-        origin: Point,
+        origin: JsPoint,
         distance: JsRange,
     },
     #[serde(rename_all = "camelCase")]
     ScrollDown {
-        origin: Point,
+        origin: JsPoint,
         distance: JsRange,
     },
     Reload,
@@ -53,8 +54,8 @@ pub enum JsAction {
     },
     #[serde(rename_all = "camelCase")]
     MouseDrag {
-        from: Point,
-        to: Point,
+        from: JsPoint,
+        to: JsPoint,
         steps: JsRange,
         delay_millis: JsRange,
     },
@@ -77,7 +78,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
             JsAction::Reload => BrowserAction::Reload,
             JsAction::Click { fingerprint, point } => BrowserAction::Click {
                 fingerprint: fingerprint.try_into()?,
-                point,
+                point: point.try_into()?,
             },
             JsAction::DoubleClick {
                 fingerprint,
@@ -94,7 +95,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 }
                 BrowserAction::DoubleClick {
                     fingerprint: fingerprint.try_into()?,
-                    point,
+                    point: point.try_into()?,
                     delay_millis,
                 }
             }
@@ -120,13 +121,13 @@ impl TryInto<BrowserActionTemplate> for JsAction {
             }
             JsAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
-                    origin,
+                    origin: origin.try_into()?,
                     distance: distance.try_into()?,
                 }
             }
             JsAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown {
-                    origin,
+                    origin: origin.try_into()?,
                     distance: distance.try_into()?,
                 }
             }
@@ -154,8 +155,8 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                     delay_millis
                 );
                 BrowserAction::MouseDrag {
-                    from,
-                    to,
+                    from: from.try_into()?,
+                    to: to.try_into()?,
                     steps,
                     delay_millis,
                 }
@@ -270,6 +271,23 @@ impl TryFrom<JsRect> for Rect {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JsPoint {
+    pub x: JsRange,
+    pub y: JsRange,
+}
+
+impl TryFrom<JsPoint> for Point<RangeInclusive<f64>> {
+    type Error = anyhow::Error;
+
+    fn try_from(value: JsPoint) -> Result<Self, Self::Error> {
+        Ok(Point {
+            x: value.x.try_into()?,
+            y: value.y.try_into()?,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -352,7 +370,7 @@ mod tests {
 
     #[test]
     fn test_mouse_drag_round_trip() {
-        let json = r#"{"MouseDrag": {"from": {"x": 1.0, "y": 2.0}, "to": {"x": 100.0, "y": 200.0}, "steps": 10.0, "delayMillis": 5.0}}"#;
+        let json = r#"{"MouseDrag": {"from": {"x": 1.0, "y": [1.0, 2.0]}, "to": {"x": 100.0, "y": [200.0, 300.0]}, "steps": 10.0, "delayMillis": 5.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
         match action.try_into().unwrap() {
             BrowserAction::MouseDrag {
@@ -361,8 +379,10 @@ mod tests {
                 steps,
                 delay_millis,
             } => {
-                assert_eq!((from.x, from.y), (1.0, 2.0));
-                assert_eq!((to.x, to.y), (100.0, 200.0));
+                assert_eq!(from.x.into_inner(), (1.0, 1.0));
+                assert_eq!(from.y.into_inner(), (1.0, 2.0));
+                assert_eq!(to.x.into_inner(), (100.0, 100.0));
+                assert_eq!(to.y.into_inner(), (200.0, 300.0));
                 assert_eq!(steps, 10..=10);
                 assert_eq!(delay_millis, 5..=5);
             }
@@ -374,8 +394,14 @@ mod tests {
     fn test_mouse_drag_validates_steps() {
         let make = |steps: JsRange| {
             TryInto::<BrowserActionTemplate>::try_into(JsAction::MouseDrag {
-                from: Point { x: 0.0, y: 0.0 },
-                to: Point { x: 1.0, y: 1.0 },
+                from: JsPoint {
+                    x: JsRange::Fixed(0.0),
+                    y: JsRange::Fixed(0.0),
+                },
+                to: JsPoint {
+                    x: JsRange::Fixed(1.0),
+                    y: JsRange::Fixed(1.0),
+                },
                 steps,
                 delay_millis: JsRange::Fixed(0.0),
             })
