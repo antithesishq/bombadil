@@ -294,7 +294,8 @@ impl Browser {
                         })
                 })
                 .collect::<Result<Vec<_>>>()?;
-            page.execute(network::SetCookiesParams::new(cookies)).await?;
+            page.execute(network::SetCookiesParams::new(cookies))
+                .await?;
         }
 
         // Prevent file downloads to avoid getting stuck
