@@ -69,7 +69,7 @@ in `.vscode/launch.json` and modify at will.
 Inspect a trace file with Bombadil Inspect:
 
 ```bash
-cargo run -- inspect /path/to/trace
+cargo run -- browser inspect /path/to/trace
 ```
 
 To work on the Inspect frontend:
@@ -100,10 +100,21 @@ podman run -ti localhost/bombadil_docker:latest <SOME_URL>
 
 ## Development
 
-### Integration tests
+### Checks
+
+These are useful to run locally before pushing and relying on CI:
 
 ```bash
-cargo test -p bombadil-browser-integration-tests
+cargo build --workspace --exclude bombadil-inspect
+cargo clippy --workspace --exclude bombadil-inspect --fix --allow-dirty
+cargo fmt --all
+cargo test
+```
+
+Or run them with Nix:
+
+```bash
+nix flake check .
 ```
 
 ## Releasing
