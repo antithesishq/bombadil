@@ -429,11 +429,7 @@ mod tests {
 
         assert_eq!(
             inline_codes(&rendered),
-            vec![
-                "!(first)".into(),
-                "!(second)".into(),
-                "!(third)".into(),
-            ]
+            vec!["!(first)".into(), "!(second)".into(), "!(third)".into(),]
         );
     }
 
