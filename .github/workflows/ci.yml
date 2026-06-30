@@ -264,7 +264,7 @@ jobs:
       - name: Test terminal subcommand
         run: |
           ./bombadil terminal test \
-            --specification lib/bombadil-terminal/examples/cat.ts \
+            --specification examples/cat.ts \
             --output-path terminal-test-output \
             head -n 100
       - name: Upload terminal test output

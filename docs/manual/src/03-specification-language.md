@@ -604,7 +604,7 @@ would catch as a violation.
 The terminal driver is experimental, and the catalog of common patterns
 is not yet collected. For now, see the [default specification source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/defaults.ts) 
 and the
-[examples](https://github.com/antithesishq/bombadil/tree/v%version%/lib/bombadil-terminal/examples).
+[examples](https://github.com/antithesishq/bombadil/tree/v%version%/examples).
 :::
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of

@@ -59,18 +59,28 @@ let
   ];
   src = lib.cleanSourceWith {
     src = ../..;
+    # Directories outside the nix build closure:
+    # - `examples/` holds runtime-only specification files consumed by
+    #   `bombadil terminal test --specification …`.
+    # - `docs/` builds via its own derivation (`docs/manual/default.nix`);
+    #   nothing in the workspace references it at build time.
+    # Excluding them keeps edits there from invalidating bin/checks/tests.
     filter =
       path: type:
-      (lib.hasSuffix ".ts" path)
-      || (lib.hasSuffix ".json" path)
-      || (lib.hasSuffix ".snap" path)
-      || (lib.hasSuffix ".html" path)
-      || (lib.hasSuffix ".xml" path)
-      || (lib.hasSuffix ".js" path)
-      || (lib.hasSuffix ".css" path)
-      || (lib.hasSuffix ".txt" path)
-      || (lib.hasSuffix ".dat" path)
-      || (craneLib.filterCargoSources path type);
+      !(lib.hasInfix "/examples/" path)
+      && !(lib.hasInfix "/docs/" path)
+      && (
+        (lib.hasSuffix ".ts" path)
+        || (lib.hasSuffix ".json" path)
+        || (lib.hasSuffix ".snap" path)
+        || (lib.hasSuffix ".html" path)
+        || (lib.hasSuffix ".xml" path)
+        || (lib.hasSuffix ".js" path)
+        || (lib.hasSuffix ".css" path)
+        || (lib.hasSuffix ".txt" path)
+        || (lib.hasSuffix ".dat" path)
+        || (craneLib.filterCargoSources path type)
+      );
   };
 
   # Workspace crate names, extracted from each member's Cargo.toml.
