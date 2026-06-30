@@ -27,6 +27,7 @@ use bombadil_browser::{
         actions::BrowserAction,
     },
     convert::ToSchema,
+    cookie::BrowserCookie,
     runner,
     strategy::{TestStrategy, TraceWriter},
 };
@@ -76,8 +77,7 @@ struct BrowserIntegrationTest<'a> {
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
-    cookies: Vec<(String, String)>,
-    cookie_domain: Option<String>,
+    cookies: Vec<BrowserCookie>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -91,7 +91,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
             cookies: vec![],
-            cookie_domain: None,
         }
     }
 
@@ -126,13 +125,8 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
-    fn cookies(mut self, cookies: Vec<(String, String)>) -> Self {
+    fn cookies(mut self, cookies: Vec<BrowserCookie>) -> Self {
         self.cookies = cookies;
-        self
-    }
-
-    fn cookie_domain(mut self, domain: impl Into<String>) -> Self {
-        self.cookie_domain = Some(domain.into());
         self
     }
 
@@ -156,7 +150,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
-            cookie_domain,
         } = self;
         setup();
         let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -268,7 +261,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
-            cookie_domain,
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -524,7 +516,6 @@ async fn test_browser_lifecycle() {
             grant_permissions: vec![],
             extra_headers: Default::default(),
             cookies: vec![],
-            cookie_domain: None,
         },
         DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -971,7 +962,7 @@ export const secretResourceLoaded = eventually(
 #[tokio::test]
 async fn test_cookies() {
     BrowserIntegrationTest::new("fetch-headers")
-        .cookies(vec![("session".to_string(), "bombadil".to_string())])
+        .cookies(vec![BrowserCookie::parse("session=bombadil").unwrap()])
         .time_limit(Duration::from_secs(15))
         .specification(
             r#"
@@ -995,8 +986,9 @@ export const sessionCookiePresent = eventually(
 #[tokio::test]
 async fn test_cookie_domain() {
     BrowserIntegrationTest::new("cookie-domain")
-        .cookies(vec![("session".to_string(), "bombadil".to_string())])
-        .cookie_domain("localhost")
+        .cookies(vec![
+            BrowserCookie::parse("session=bombadil; Domain=localhost").unwrap(),
+        ])
         .time_limit(Duration::from_secs(15))
         .specification(
             r##"

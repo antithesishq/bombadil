@@ -4,7 +4,7 @@
 
 Major updates:
 
-* Add `--cookie-domain` option to scope `--cookie` values to a parent domain (e.g. `.example.com`), so cookies are shared across subdomains
+* Extend `--cookie` to accept Set-Cookie syntax (`NAME=VALUE; Domain=...; Path=...; Secure; HttpOnly`). Plain `NAME=VALUE` still scopes to the origin
 
 ## 0.6.1
 

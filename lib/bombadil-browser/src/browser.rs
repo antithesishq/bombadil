@@ -32,6 +32,7 @@ use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
+use crate::cookie::{BrowserCookie, build_cookie_param};
 
 pub mod actions;
 pub mod activity;
@@ -185,30 +186,7 @@ pub struct BrowserOptions {
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
-    pub cookies: Vec<(String, String)>,
-    /// When set, cookies are scoped to this domain (e.g. `.example.com`) instead
-    /// of the origin host only. Useful when the test navigates across subdomains.
-    pub cookie_domain: Option<String>,
-}
-
-fn build_cookie_param(
-    name: &str,
-    value: &str,
-    origin: &Url,
-    cookie_domain: Option<&str>,
-) -> Result<network::CookieParam> {
-    let mut builder = network::CookieParam::builder().name(name).value(value);
-    if let Some(domain) = cookie_domain {
-        builder = builder
-            .domain(domain)
-            .path("/")
-            .secure(origin.scheme() == "https");
-    } else {
-        builder = builder.url(origin.as_str());
-    }
-    builder
-        .build()
-        .map_err(|s| anyhow!(s).context("build CookieParam failed"))
+    pub cookies: Vec<BrowserCookie>,
 }
 
 #[derive(Clone)]
@@ -300,20 +278,12 @@ impl Browser {
         if !browser_options.cookies.is_empty() {
             // Unlike a static Cookie request header, these become real browser
             // cookies and are sent on every navigation, which is what client-side
-            // auth flows (e.g. MSAL) rely on. By default cookies are associated
-            // with the origin URL; --cookie-domain overrides the domain so cookies
-            // are shared across subdomains (e.g. apex + item-sales).
+            // auth flows (e.g. MSAL) rely on. Plain NAME=VALUE scopes to the
+            // origin URL; Set-Cookie attributes (Domain, Path, etc.) override that.
             let cookies = browser_options
                 .cookies
                 .iter()
-                .map(|(name, value)| {
-                    build_cookie_param(
-                        name,
-                        value,
-                        &origin,
-                        browser_options.cookie_domain.as_deref(),
-                    )
-                })
+                .map(|cookie| build_cookie_param(cookie, &origin))
                 .collect::<Result<Vec<_>>>()?;
             page.execute(network::SetCookiesParams::new(cookies))
                 .await?;
