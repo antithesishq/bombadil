@@ -64,11 +64,14 @@ let
     #   `bombadil terminal test --specification …`.
     # - `docs/` builds via its own derivation (`docs/manual/default.nix`);
     #   nothing in the workspace references it at build time.
+    # - `.github/` is CI config and issue templates; never an input to the
+    #   nix build.
     # Excluding them keeps edits there from invalidating bin/checks/tests.
     filter =
       path: type:
       !(lib.hasInfix "/examples/" path)
       && !(lib.hasInfix "/docs/" path)
+      && !(lib.hasInfix "/.github/" path)
       && (
         (lib.hasSuffix ".ts" path)
         || (lib.hasSuffix ".json" path)
