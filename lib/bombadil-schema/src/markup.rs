@@ -60,6 +60,26 @@ fn get_violation_time(violation: &Violation) -> Time {
     }
 }
 
+fn flatten_binary_violations<'a>(
+    violation: &'a Violation,
+    split: fn(&'a Violation) -> Option<(&'a Violation, &'a Violation)>,
+) -> Vec<&'a Violation> {
+    let mut stack = vec![violation];
+    let mut leaves = Vec::new();
+
+    while let Some(node) = stack.pop() {
+        if let Some((left, right)) = split(node) {
+            stack.push(right);
+            stack.push(left);
+        } else {
+            leaves.push(node);
+        }
+    }
+
+    leaves.reverse();
+    leaves
+}
+
 fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
     match violation {
         Violation::False {
@@ -124,16 +144,32 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
             Markup::Span(vec![Inline::Text("however".into())]),
             render_violation_inner(violation, *time),
         ]),
-        Violation::And { left, right } => Markup::Join(vec![
-            render_violation_inner(left, current_time),
-            Markup::Span(vec![Inline::Keyword("and".into())]),
-            render_violation_inner(right, current_time),
-        ]),
-        Violation::Or { left, right } => Markup::Join(vec![
-            render_violation_inner(left, current_time),
-            Markup::Span(vec![Inline::Keyword("and".into())]),
-            render_violation_inner(right, current_time),
-        ]),
+        Violation::And { .. } => {
+            let leaves = flatten_binary_violations(
+                violation,
+                |node| {
+                    if let Violation::And { left, right } = node {
+                        Some((left.as_ref(), right.as_ref()))
+                    } else {
+                        None
+                    }
+                },
+            );
+            render_violation_list(&leaves, current_time, "and")
+        }
+        Violation::Or { .. } => {
+            let leaves = flatten_binary_violations(
+                violation,
+                |node| {
+                    if let Violation::Or { left, right } = node {
+                        Some((left.as_ref(), right.as_ref()))
+                    } else {
+                        None
+                    }
+                },
+            );
+            render_violation_list(&leaves, current_time, "and")
+        }
         Violation::Implies {
             left,
             right,
@@ -159,6 +195,23 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
             }
         }
     }
+}
+
+fn render_violation_list(
+    violations: &[&Violation],
+    current_time: Time,
+    separator: &str,
+) -> Markup {
+    let mut parts = Vec::with_capacity(violations.len() * 2 - 1);
+    for (index, violation) in violations.iter().enumerate() {
+        if index > 0 {
+            parts.push(Markup::Span(vec![Inline::Keyword(
+                separator.into(),
+            )]));
+        }
+        parts.push(render_violation_inner(violation, current_time));
+    }
+    Markup::Join(parts)
 }
 
 fn render_code(code: String) -> Markup {
@@ -309,5 +362,44 @@ fn render_formula(formula: &Formula) -> Markup {
             Markup::Span(vec![Inline::Text(format_bound(*bound))]),
             render_formula(formula),
         ]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{EventuallyViolation, Formula, PropertyViolation};
+    use std::time::{Duration, SystemTime};
+
+    fn time(ms: u64) -> Time {
+        Time::from_system_time(SystemTime::UNIX_EPOCH + Duration::from_millis(ms))
+    }
+
+    fn eventually_violation() -> Violation {
+        Violation::Eventually {
+            subformula: Box::new(Formula::Thunk {
+                function: "() => false".into(),
+                negated: false,
+            }),
+            reason: EventuallyViolation::TimedOut(time(1)),
+        }
+    }
+
+    #[test]
+    fn deep_and_chain_renders_without_stack_overflow() {
+        let mut violation = eventually_violation();
+        for _ in 0..500 {
+            violation = Violation::And {
+                left: Box::new(violation),
+                right: Box::new(eventually_violation()),
+            };
+        }
+
+        let rendered = render_violation(&PropertyViolation {
+            name: "test".into(),
+            violation,
+        });
+
+        assert!(matches!(rendered, Markup::Join(_)));
     }
 }

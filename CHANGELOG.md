@@ -6,6 +6,11 @@ Major updates:
 
 * Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
 
+Bug fixes:
+
+* Fix stack overflow when rendering violation messages with deeply nested `And` trees
+* Fix Inspect failing to load traces when violation JSON exceeds serde's recursion limit
+
 ## 0.6.1
 
 # Major updates:

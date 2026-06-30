@@ -10,6 +10,7 @@ use axum::{
 use bombadil_schema::browser::BrowserTraceEntry;
 use include_dir::{Dir, include_dir};
 
+
 static INSPECT_ASSETS: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/../../target/inspect");
 
@@ -64,29 +65,56 @@ async fn trace_handler(
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-    let entries: Vec<BrowserTraceEntry> = content
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(
-            |line| -> Result<BrowserTraceEntry, axum::http::StatusCode> {
-                let mut entry: BrowserTraceEntry = serde_json::from_str(line)
-                    .map_err(|error| {
-                    log::error!("Failed to parse trace entry: {}", error);
+    let mut entries = Vec::new();
+    for (index, line) in content.lines().filter(|line| !line.is_empty()).enumerate()
+    {
+        let mut entry = match parse_trace_entry(line) {
+            Ok(entry) => entry,
+            Err(error) => {
+                log::warn!(
+                    "Trace entry {} failed to parse ({}). Loading without violations.",
+                    index,
+                    error
+                );
+                parse_trace_entry_without_violations(line).map_err(|error| {
+                    log::error!(
+                        "Failed to parse trace entry {} even without violations: {}",
+                        index,
+                        error
+                    );
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR
-                })?;
-                let filename = std::path::Path::new(&entry.state.screenshot)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                entry.state.screenshot =
-                    format!("/api/screenshots/{}", filename);
-                Ok(entry)
-            },
-        )
-        .collect::<Result<Vec<_>, _>>()?;
+                })?
+            }
+        };
+        let filename = std::path::Path::new(&entry.state.screenshot)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_string();
+        entry.state.screenshot = format!("/api/screenshots/{}", filename);
+        entries.push(entry);
+    }
 
     Ok(Json(entries))
+}
+
+fn parse_trace_entry(line: &str) -> Result<BrowserTraceEntry, serde_json::Error> {
+    serde_json::from_str(line)
+}
+
+fn parse_trace_entry_without_violations(
+    line: &str,
+) -> Result<BrowserTraceEntry, serde_json::Error> {
+    serde_json::from_str(&strip_violations_field(line))
+}
+
+fn strip_violations_field(line: &str) -> String {
+    let Some(index) = line.rfind(",\"violations\":") else {
+        return line.to_string();
+    };
+    let mut stripped = line[..index].to_string();
+    stripped.push('}');
+    stripped
 }
 
 async fn screenshot_handler(
