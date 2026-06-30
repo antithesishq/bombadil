@@ -1,0 +1,91 @@
+done 1790
+ry": {
+    "property": "loadingEventuallyClears",
+    "spec_formula": "always(() => now(() => isLoading.current).implies(eventually(() => !isLoading.current).within(20, \"seconds\")))",
+    "trace_states": 210,
+    "states_with_violations": 37,
+    "max_and_depth": 219,
+    "deepest_violation_trace_line": 210,
+    "node_counts_at_max_depth": {
+      "Always": 217,
+      "And": 194,
+      "Implies": 195,
+      "Eventually": 195
+    },
+    "raw_violation_json_bytes": 129666
+  },
+  "violation_truncated": {
+    "Always": {
+      "start": "<timestamp>",
+      "time": "<timestamp>",
+      "subformula": "() => now(() => isLoading.current).implies(eventually(() => !isLoading.current).within(20, \"seconds\"))",
+      "violation": {
+        "And": {
+          "left": {
+            "Always": {
+              "start": "<timestamp>",
+              "time": "<timestamp>",
+              "subformula": "() => now(() => isLoading.current).implies(eventually(() => !isLoading.current).within(20, \"seconds\"))",
+              "violation": {
+                "Implies": {
+                  "left": "() => isLoading.current",
+                  "right": {
+                    "Eventually": {
+                      "subformula": "() => !isLoading.current",
+                      "reason": "TimedOut"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "right": {
+            "And": {
+              "left": {
+                "Always": {
+                  "start": "<timestamp>",
+                  "time": "<timestamp>",
+                  "subformula": "() => now(() => isLoading.current).implies(eventually(() => !isLoading.current).within(20, \"seconds\"))",
+                  "violation": {
+                    "Implies": {
+                      "left": "() => isLoading.current",
+                      "right": {
+                        "Eventually": {
+                          "subformula": "() => !isLoading.current",
+                          "reason": "TimedOut"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "right": {
+                "And": {
+                  "left": {
+                    "Always": {
+                      "start": "<timestamp>",
+                      "time": "<timestamp>",
+                      "subformula": "() => now(() => isLoading.current).implies(eventually(() => !isLoading.current).within(20, \"seconds\"))",
+                      "violation": {
+                        "Implies": {
+                          "left": "() => isLoading.current",
+                          "right": {
+                            "Eventually": {
+                              "subformula": "() => !isLoading.current",
+                              "reason": "TimedOut"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "right": "<truncated: more And nodes at each prior timestep>"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
