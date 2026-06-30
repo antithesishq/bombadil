@@ -58,6 +58,7 @@ impl GridCapture {
     }
 }
 
+#[hotpath::measure]
 pub fn terminal_state_to_js(
     state: Arc<TerminalState>,
     context: &mut Context,
@@ -217,6 +218,7 @@ fn row_index_arg(
     Ok(Some(index as u16))
 }
 
+#[hotpath::measure]
 fn row_text_at(
     _this: &JsValue,
     args: &[JsValue],
@@ -241,6 +243,7 @@ fn row_text_at(
     Ok(JsString::from(text.as_str()).into())
 }
 
+#[hotpath::measure]
 fn row_at(
     _this: &JsValue,
     args: &[JsValue],

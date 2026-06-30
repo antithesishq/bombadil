@@ -36,6 +36,11 @@ use crate::state::TerminalState;
 
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(1000);
 
+/// Limit on how long `drain_output` collects output for a state. This
+/// guards against programs that continously render within the quiescence
+/// time.
+const DRAIN_DURATION_MAX: Duration = Duration::from_secs(1);
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TerminalAction<U16 = u16, Text = String> {
     TypeText { text: Text },
@@ -233,12 +238,17 @@ impl TerminalDriver {
     }
 
     #[hotpath::measure]
-    fn drain_output(&mut self, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
-        while let ReadResult::Chunk(data) = self.output.try_read()
-            && Instant::now() < deadline
-        {
-            self.terminal.vt_write(&data);
+    fn drain_output(&mut self, quiescence_timeout: Duration) {
+        let deadline = Instant::now() + DRAIN_DURATION_MAX;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match self.output.read_until(quiescence_timeout.min(remaining)) {
+                ReadResult::Chunk(data) => self.terminal.vt_write(&data),
+                ReadResult::Empty | ReadResult::Ended => break,
+            }
         }
     }
 
@@ -328,16 +338,7 @@ impl InterfaceDriver for TerminalDriver {
 
     #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        match self.output.try_read() {
-            ReadResult::Chunk(data) => {
-                assert!(!data.is_empty(), "chunk is empty");
-                self.terminal.vt_write(&data);
-                self.drain_output(self.quiescence_timeout);
-            }
-            ReadResult::Empty => {}
-            ReadResult::Ended => {}
-        }
-
+        self.drain_output(self.quiescence_timeout);
         match self.extract_state() {
             Ok(state) => Some(DriverEvent::StateChanged(state)),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),

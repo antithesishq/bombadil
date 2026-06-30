@@ -110,6 +110,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         Evaluator { evaluate_thunk }
     }
 
+    #[hotpath::measure]
     pub fn evaluate(
         &mut self,
         formula: &Formula<D>,
@@ -592,6 +593,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         })
     }
 
+    #[hotpath::measure]
     pub fn step(
         &mut self,
         residual: &Residual<D>,

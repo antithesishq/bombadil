@@ -7,6 +7,9 @@ edition.workspace = true
 name = "bombadil_ltl"
 path = "src/lib.rs"
 
+[dependencies]
+hotpath.workspace = true
+
 [dev-dependencies]
 anyhow.workspace = true
 hegeltest.workspace = true
