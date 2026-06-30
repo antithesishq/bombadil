@@ -427,10 +427,11 @@ mod tests {
             violation,
         });
 
-        assert_eq!(
-            inline_codes(&rendered),
-            vec!["!(first)".into(), "!(second)".into(), "!(third)".into(),]
-        );
+        let expected: Vec<String> = ["!(first)", "!(second)", "!(third)"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(inline_codes(&rendered), expected);
     }
 
     #[test]
