@@ -5,10 +5,7 @@
 Major updates:
 
 * Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
-
-Bug fixes:
-
-* Use Chrome's `--headless=new` mode when `--headless` is set, so modern Chromium does not fall back to a visible window
+* Pass `--headless=new` when launching a managed browser with `--headless`, instead of chromiumoxide's default `--headless` flag
 
 ## 0.6.1
 
