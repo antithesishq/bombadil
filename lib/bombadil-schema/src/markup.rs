@@ -76,7 +76,6 @@ fn flatten_binary_violations<'a>(
         }
     }
 
-    leaves.reverse();
     leaves
 }
 
@@ -360,7 +359,9 @@ fn render_formula(formula: &Formula) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{EventuallyViolation, Formula, PropertyViolation};
+    use crate::schema::{
+        EventuallyViolation, Formula, PropertyViolation, Violation,
+    };
     use std::time::{Duration, SystemTime};
 
     fn time(ms: u64) -> Time {
@@ -377,6 +378,63 @@ mod tests {
             }),
             reason: EventuallyViolation::TimedOut(time(1)),
         }
+    }
+
+    fn false_violation(condition: &str) -> Violation {
+        Violation::False {
+            time: time(0),
+            condition: condition.into(),
+            snapshots: vec![],
+        }
+    }
+
+    fn inline_codes(markup: &Markup) -> Vec<String> {
+        let mut codes = Vec::new();
+        collect_inline_codes(markup, &mut codes);
+        codes
+    }
+
+    fn collect_inline_codes(markup: &Markup, codes: &mut Vec<String>) {
+        match markup {
+            Markup::Span(inlines) => {
+                for inline in inlines {
+                    if let Inline::Code(code) = inline {
+                        codes.push(code.clone());
+                    }
+                }
+            }
+            Markup::Join(parts) | Markup::Stack(parts) => {
+                for part in parts {
+                    collect_inline_codes(part, codes);
+                }
+            }
+            Markup::Snapshots(_) | Markup::CodeBlock(_) | Markup::Comma => {}
+        }
+    }
+
+    #[test]
+    fn flatten_binary_violations_preserves_left_to_right_order() {
+        let violation = Violation::Or {
+            left: Box::new(false_violation("first")),
+            right: Box::new(Violation::Or {
+                left: Box::new(false_violation("second")),
+                right: Box::new(false_violation("third")),
+            }),
+        };
+
+        let rendered = render_violation(&PropertyViolation {
+            name: "test".into(),
+            violation,
+        });
+
+        assert_eq!(
+            inline_codes(&rendered),
+            vec![
+                "!(first)".into(),
+                "!(second)".into(),
+                "!(third)".into(),
+            ]
+        );
     }
 
     #[test]
