@@ -21,7 +21,7 @@
 ::: {#arguments-test}
 | Argument | Description |
 |----------|-------------|
-| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites) |
+| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites). The origin host is always allowed; use `--allow-url` to widen the boundary |
 | `[SPECIFICATION_FILE]` | A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil` package on NPM |
 :::
 
@@ -39,6 +39,7 @@
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <NAME=VALUE>` | Cookie to set in the browser before testing, in `NAME=VALUE` format. Set as a real browser cookie scoped to the origin, unlike `--header` which only sends a static request header. Can be specified multiple times. | |
+| `--allow-url <URL_OR_DOMAIN>` | Additional URL or domain where exploration is allowed. Domains allow that host and its subdomains; URLs allow prefix-matched paths on that host. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--headless` | Whether the browser should run in a visible window or not | |
 | `--no-sandbox` | Disable Chromium sandboxing | |
@@ -52,7 +53,7 @@
 ::: {#arguments-test-external}
 | Argument | Description |
 |----------|-------------|
-| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites) |
+| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites). The origin host is always allowed; use `--allow-url` to widen the boundary |
 | `[SPECIFICATION_FILE]` | A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil` package on NPM |
 :::
 
@@ -70,6 +71,7 @@
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <NAME=VALUE>` | Cookie to set in the browser before testing, in `NAME=VALUE` format. Set as a real browser cookie scoped to the origin, unlike `--header` which only sends a static request header. Can be specified multiple times. | |
+| `--allow-url <URL_OR_DOMAIN>` | Additional URL or domain where exploration is allowed. Domains allow that host and its subdomains; URLs allow prefix-matched paths on that host. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--remote-debugger <REMOTE_DEBUGGER>` | Address to the remote debugger's server, e.g. http://localhost:9222 | |
 | `--create-target` | Whether Bombadil should create a new tab and navigate to the origin URL in it, as part of starting the test (this should probably be false if you test an Electron app) | |

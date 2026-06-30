@@ -1,10 +1,13 @@
 use anyhow::{Result, anyhow};
 use url::Url;
 
+use crate::allow_url::{build_allow_list, is_url_allowed};
+
 pub fn is_within_domain(uri: &Url, domain: &Url) -> bool {
-    (uri.host().is_none() || uri.host() == domain.host())
-        && (uri.port().is_none() || uri.port() == domain.port())
+    is_url_allowed(uri, &build_allow_list(domain, &[]), domain)
 }
+
+pub use crate::allow_url::AllowUrl;
 
 #[allow(unused, reason = "porting this to js scripts")]
 pub fn parse_browser_url(string: &str, context: &Url) -> Result<Url> {

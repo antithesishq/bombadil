@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Subdomain origin</title>
+    <style>
+      button {
+        display: block;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="go">Go to subdomain</button>
+    <script>
+      document.getElementById("go").addEventListener("click", () => {
+        const port = window.location.port;
+        window.location = `http://app.localhost:${port}/subdomain-origin/inner.html`;
+      });
+    </script>
+  </body>
+</html>

@@ -17,6 +17,7 @@ use tokio::{fs::File, io::BufReader};
 
 use bombadil::{specification::verifier::Specification, styled};
 use bombadil_browser::{
+    allow_url::{AllowUrl, build_allow_list},
     browser::{
         BrowserOptions, DebuggerOptions, Emulation, actions::BrowserAction,
     },
@@ -76,7 +77,8 @@ pub enum BrowserCommand {
 #[derive(Args)]
 pub struct TestSharedOptions {
     /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
-    /// other websites)
+    /// other websites). The origin host is always allowed; use `--allow-url` to widen the
+    /// boundary to other domains or path prefixes.
     pub origin: Origin,
     /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
     /// package on NPM
@@ -126,6 +128,12 @@ pub struct TestSharedOptions {
     /// static request header. Can be specified multiple times.
     #[arg(long = "cookie", value_name = "NAME=VALUE", value_parser = parse_header)]
     pub cookies: Vec<(String, String)>,
+    /// Additional URL or domain where exploration is allowed. The origin is always included.
+    /// Domains (e.g. `example.com`, `.example.com`) allow that host and its subdomains.
+    /// URLs (e.g. `https://example.com/my/feature`) allow prefix-matched paths on that host.
+    /// Can be specified multiple times.
+    #[arg(long = "allow-url", value_name = "URL_OR_DOMAIN", value_parser = parse_allow_url)]
+    pub allow_urls: Vec<AllowUrl>,
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
@@ -241,6 +249,10 @@ fn parse_header(s: &str) -> std::result::Result<(String, String), String> {
         .ok_or_else(|| format!("invalid header {:?}, expected KEY=VALUE", s))
 }
 
+fn parse_allow_url(s: &str) -> std::result::Result<AllowUrl, String> {
+    AllowUrl::parse(s)
+}
+
 fn parse_instrumentation_config(
     s: &str,
 ) -> std::result::Result<InstrumentationConfig, String> {
@@ -324,6 +336,9 @@ fn reproduce_command_args(
     for (name, value) in &shared.cookies {
         args.push(format!("--cookie {name}={value}"));
     }
+    for allow_url in &shared.allow_urls {
+        args.push(format!("--allow-url {}", allow_url.cli_value()));
+    }
     args
 }
 
@@ -402,6 +417,7 @@ async fn browser_test(
             debugger_options,
         )?;
 
+        let allow_urls = build_allow_list(&origin, &shared_options.allow_urls);
         let mut strategy = TestStrategy {
             rng: AntithesisRng,
             mode,
@@ -415,6 +431,7 @@ async fn browser_test(
             output_path: strategy_output_path,
             violations_count: 0,
             origin,
+            allow_urls,
         };
 
         runner.run(&mut strategy)

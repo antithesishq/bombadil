@@ -4,6 +4,7 @@
 
 Major updates:
 
+* Add `--allow-url` to widen the exploration boundary beyond the origin host, accepting domains (with subdomains) or URL path prefixes
 * Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
 
 ## 0.6.1
