@@ -125,12 +125,15 @@ pub enum ReadResult {
 }
 
 impl PtyOutput {
-    pub fn try_read(&mut self) -> ReadResult {
+    /// Block for up to `timeout` waiting for the next chunk. Returns
+    /// `Empty` only if no chunk arrived in that window — used by the
+    /// driver to drain output to quiescence.
+    pub fn read_until(&mut self, timeout: std::time::Duration) -> ReadResult {
         use ReadResult::*;
-        match self.output_read.try_recv() {
+        match self.output_read.recv_timeout(timeout) {
             Ok(bytes) => Chunk(bytes),
-            Err(mpsc::TryRecvError::Empty) => Empty,
-            Err(mpsc::TryRecvError::Disconnected) => Ended,
+            Err(mpsc::RecvTimeoutError::Timeout) => Empty,
+            Err(mpsc::RecvTimeoutError::Disconnected) => Ended,
         }
     }
 }

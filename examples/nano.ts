@@ -15,16 +15,12 @@ const statusLinesText: Cell<string> = extract((state) => {
 export const hasStandardBindings = always(
   next(() => {
     const text = statusLinesText.current ?? "";
-    // Bail out in transient or non-main-mode states:
+    // Bail out only in genuinely-non-main-mode states:
     //  - just exited (Ctrl-C / Ctrl-D)
-    //  - mid-redraw blank screen (e.g. nano takes several frames to repaint
-    //    after a resize, so checking just the immediately-following state
-    //    isn't enough — detect the blank menu directly)
     //  - prompt mode (Save / Open / Search / Replace / Y-N): the menu shows
-    //    `^C Cancel` instead of `^X Exit`, so main bindings aren't present.
-    if (justExited() || text.trim() === "" || text.includes("Cancel")) {
-      return true;
-    }
+    //    `^C Cancel` instead of `^X Exit`, so the main bindings legitimately
+    //    aren't present.
+    if (justExited() || text.includes("Cancel")) return true;
     return (
       text.includes("Help") && text.includes("Exit") && text.includes("Read")
     );
