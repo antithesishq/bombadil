@@ -1348,7 +1348,9 @@ fn launch_options_to_config(
     let apply_headless =
         |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
             if launch_options.headless {
-                builder
+                // Chrome 120+ removed legacy `--headless`; use `--headless=new`
+                // so `--headless` CLI flag stays invisible on modern Chromium.
+                builder.new_headless_mode()
             } else {
                 builder.with_head()
             }
