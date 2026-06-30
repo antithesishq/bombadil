@@ -69,7 +69,6 @@
         };
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc;
-          cargoTarget = muslTarget;
         };
       in
       {
