@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Cookie domain check</title>
+    </head>
+  <body>
+    <div id="cookie-ok" hidden>ok</div>
+    <script>
+      if (document.cookie.includes("session=bombadil")) {
+        document.getElementById("cookie-ok").hidden = false;
+      }
+    </script>
+  </body>
+</html>

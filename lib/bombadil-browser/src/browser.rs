@@ -186,6 +186,29 @@ pub struct BrowserOptions {
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
     pub cookies: Vec<(String, String)>,
+    /// When set, cookies are scoped to this domain (e.g. `.example.com`) instead
+    /// of the origin host only. Useful when the test navigates across subdomains.
+    pub cookie_domain: Option<String>,
+}
+
+fn build_cookie_param(
+    name: &str,
+    value: &str,
+    origin: &Url,
+    cookie_domain: Option<&str>,
+) -> Result<network::CookieParam> {
+    let mut builder = network::CookieParam::builder().name(name).value(value);
+    if let Some(domain) = cookie_domain {
+        builder = builder
+            .domain(domain)
+            .path("/")
+            .secure(origin.scheme() == "https");
+    } else {
+        builder = builder.url(origin.as_str());
+    }
+    builder
+        .build()
+        .map_err(|s| anyhow!(s).context("build CookieParam failed"))
 }
 
 #[derive(Clone)]
@@ -275,23 +298,21 @@ impl Browser {
         }
 
         if !browser_options.cookies.is_empty() {
-            // Cookies are associated with the origin URL so that the
-            // browser derives an appropriate domain, path, and scheme.
-            // Unlike a static Cookie request header, these become real
-            // browser cookies and are sent on every navigation, which is
-            // what client-side auth flows (e.g. MSAL) rely on.
+            // Unlike a static Cookie request header, these become real browser
+            // cookies and are sent on every navigation, which is what client-side
+            // auth flows (e.g. MSAL) rely on. By default cookies are associated
+            // with the origin URL; --cookie-domain overrides the domain so cookies
+            // are shared across subdomains (e.g. apex + item-sales).
             let cookies = browser_options
                 .cookies
                 .iter()
                 .map(|(name, value)| {
-                    network::CookieParam::builder()
-                        .name(name)
-                        .value(value)
-                        .url(origin.as_str())
-                        .build()
-                        .map_err(|s| {
-                            anyhow!(s).context("build CookieParam failed")
-                        })
+                    build_cookie_param(
+                        name,
+                        value,
+                        &origin,
+                        browser_options.cookie_domain.as_deref(),
+                    )
                 })
                 .collect::<Result<Vec<_>>>()?;
             page.execute(network::SetCookiesParams::new(cookies))

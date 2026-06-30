@@ -4,7 +4,7 @@
 
 Major updates:
 
-* Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
+* Add `--cookie-domain` option to scope `--cookie` values to a parent domain (e.g. `.example.com`), so cookies are shared across subdomains
 
 ## 0.6.1
 

@@ -121,11 +121,15 @@ pub struct TestSharedOptions {
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     pub headers: Vec<(String, String)>,
     /// Cookie to set in the browser before testing, in NAME=VALUE format.
-    /// Set as a real browser cookie scoped to the origin (so client-side auth
-    /// flows that read cookies work), unlike --header which only sends a
-    /// static request header. Can be specified multiple times.
+    /// By default cookies are scoped to the origin host. Use with
+    /// `--cookie-domain` to share cookies across subdomains. Unlike `--header`,
+    /// these become real browser cookies. Can be specified multiple times.
     #[arg(long = "cookie", value_name = "NAME=VALUE", value_parser = parse_header)]
     pub cookies: Vec<(String, String)>,
+    /// Domain to scope `--cookie` values to (e.g. `.example.com`), so cookies
+    /// are sent on subdomains as well as the origin host.
+    #[arg(long)]
+    pub cookie_domain: Option<String>,
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
@@ -293,6 +297,7 @@ fn browser_options_from_shared(
             .collect(),
         extra_headers: shared.headers.iter().cloned().collect(),
         cookies: shared.cookies.clone(),
+        cookie_domain: shared.cookie_domain.clone(),
     }
 }
 
@@ -323,6 +328,9 @@ fn reproduce_command_args(
     }
     for (name, value) in &shared.cookies {
         args.push(format!("--cookie {name}={value}"));
+    }
+    if let Some(domain) = &shared.cookie_domain {
+        args.push(format!("--cookie-domain {domain}"));
     }
     args
 }
