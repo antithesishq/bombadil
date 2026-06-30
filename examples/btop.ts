@@ -1,3 +1,12 @@
+// Specification for `btop`, the system monitor.
+//
+// Run with:
+//
+//    bombadil terminal test --specification examples/btop.ts \
+//      unshare --user --pid --fork --mount-proc bash -c "rm -rf ~/.config/btop ; btop"
+//
+// This runs btop in a separate process namespace, meaning it can't kill other processes
+// running on your system.
 import { actions, extract, weighted } from "@antithesishq/bombadil/terminal";
 import {
   typeFromSet,
@@ -13,24 +22,32 @@ export const typeRandom = weighted([
   [40, typeFromSet(CharSets.UNICODE_SAFE)],
   [40, typeFromSet(CharSets.CONTROL_ALL)],
 
-  // Clicks
+  // Clicks anywhere in the grid.
   [
     1,
     actions(() => {
       if (!size.current) return [];
-
-      // const click =
-      //   `\x1b[<0;${column + 1};${line + 1}M` + // left-button press
-      //   `\x1b[<0;${column + 1};${line + 1}m`; // release
-
-      return [{ Click: { row: [0, size.current.rows], column: [0, size.current.columns] } }];
+      return [
+        {
+          Click: {
+            row: [0, size.current.rows],
+            column: [0, size.current.columns],
+          },
+        },
+      ];
     }),
   ],
 
-  [1, actions(() => [{
-    Resize: {
-      columns: [80, 120],
-      rows: [24, 48],
-    }
-  }])],
+  // Resize to reasonable dimensions that btop can likely render within.
+  [
+    1,
+    actions(() => [
+      {
+        Resize: {
+          columns: [75, 120],
+          rows: [20, 48],
+        },
+      },
+    ]),
+  ],
 ]);
