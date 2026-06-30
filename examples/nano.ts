@@ -6,22 +6,31 @@ import {
   typeFromSet,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 
-// const statusLinesText: Cell<string> = extract((state) => {
-//   const { rows } = state.grid.size;
-//   if (rows < 2) return "";
-//   return state.grid.rowText(rows - 2) + " " + state.grid.rowText(rows - 1);
-// });
+const statusLinesText: Cell<string> = extract((state) => {
+  const { rows } = state.grid.size;
+  if (rows < 2) return "";
+  return state.grid.rowText(rows - 2) + " " + state.grid.rowText(rows - 1);
+});
 
-// export const hasStandardBindings = always(
-//   next(() => {
-//     const text = statusLinesText.current ?? "";
-//     return (
-//       justExited() ||
-//       (text.includes("Help") && text.includes("Exit") && text.includes("Read"))
-//     );
-//   }),
-// );
-//
+export const hasStandardBindings = always(
+  next(() => {
+    const text = statusLinesText.current ?? "";
+    // Bail out in transient or non-main-mode states:
+    //  - just exited (Ctrl-C / Ctrl-D)
+    //  - mid-redraw blank screen (e.g. nano takes several frames to repaint
+    //    after a resize, so checking just the immediately-following state
+    //    isn't enough — detect the blank menu directly)
+    //  - prompt mode (Save / Open / Search / Replace / Y-N): the menu shows
+    //    `^C Cancel` instead of `^X Exit`, so main bindings aren't present.
+    if (justExited() || text.trim() === "" || text.includes("Cancel")) {
+      return true;
+    }
+    return (
+      text.includes("Help") && text.includes("Exit") && text.includes("Read")
+    );
+  }),
+);
+
 function justExited(): boolean {
   return (
     !!lastAction.current &&

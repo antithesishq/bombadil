@@ -240,6 +240,7 @@ impl Verifier {
         self.properties.keys().cloned().collect()
     }
 
+    #[hotpath::measure]
     pub fn step<A: FromGeneratedAction>(
         &mut self,
         snapshots: &[Snapshot],
