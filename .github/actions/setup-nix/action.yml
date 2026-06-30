@@ -12,9 +12,10 @@ inputs:
     required: true
   cachix-auth-token:
     description: >
-      Cachix auth token, only used on main pushes to enable cache writes.
-      PRs read cachix as a substituter via flake.nix's nixConfig and don't
-      need a token.
+      Cachix auth token. When present (same-repo PRs, main pushes, tags),
+      the job pushes built paths to cachix as a post-step. Fork PRs don't
+      receive secrets, so the token is empty and the push step is skipped;
+      forks still read cachix as a substituter via flake.nix's nixConfig.
     required: false
 
 runs:
@@ -37,7 +38,7 @@ runs:
         purge-created: 0
         purge-primary-key: never
 
-    - if: github.ref == 'refs/heads/main'
+    - if: inputs.cachix-auth-token != ''
       uses: cachix/cachix-action@v15
       with:
         name: bombadil
