@@ -78,6 +78,7 @@
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix { };
           release = pkgs.callPackage ./lib/release/default.nix { };
+          nix-build-push = pkgs.callPackage ./lib/nix/cachix-push.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
           docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
@@ -88,6 +89,10 @@
             type = "app";
             program = "${self.packages.${system}.default}/bin/bombadil";
             meta = self.packages.${system}.default.meta;
+          };
+          nix-build-push = {
+            type = "app";
+            program = "${self.packages.${system}.nix-build-push}/bin/nix-build-push";
           };
         };
 
@@ -110,7 +115,7 @@
               # nativeBuildInputs takes priority over inputsFrom in
               # PATH, so rustToolchainWasm shadows crane's toolchain.
               nativeBuildInputs = [ rustToolchainWasm ];
-              packages = [ (pkgs.callPackage ./nix/cargo-hotpath.nix { }) ];
+              packages = [ (pkgs.callPackage ./lib/nix/cargo-hotpath.nix { }) ];
               buildInputs =
                 with pkgs;
                 [
@@ -142,6 +147,9 @@
 
                   # Release automation
                   self.packages.${system}.release
+
+                  # Pre-warm cachix from a local build: `nix-build-push [targets...]`
+                  self.packages.${system}.nix-build-push
                 ]
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
