@@ -105,7 +105,7 @@ let
         filter = path: type: craneLib.filterCargoSources path type;
       };
     in
-    runCommand "bombadil-deps-src" { } ''
+    runCommand "source" { } ''
       cp -r ${cargoOnly} $out
       chmod -R +w $out
       sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
