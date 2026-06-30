@@ -145,29 +145,23 @@ fn render_violation_inner(violation: &Violation, current_time: Time) -> Markup {
             render_violation_inner(violation, *time),
         ]),
         Violation::And { .. } => {
-            let leaves = flatten_binary_violations(
-                violation,
-                |node| {
-                    if let Violation::And { left, right } = node {
-                        Some((left.as_ref(), right.as_ref()))
-                    } else {
-                        None
-                    }
-                },
-            );
+            let leaves = flatten_binary_violations(violation, |node| {
+                if let Violation::And { left, right } = node {
+                    Some((left.as_ref(), right.as_ref()))
+                } else {
+                    None
+                }
+            });
             render_violation_list(&leaves, current_time, "and")
         }
         Violation::Or { .. } => {
-            let leaves = flatten_binary_violations(
-                violation,
-                |node| {
-                    if let Violation::Or { left, right } = node {
-                        Some((left.as_ref(), right.as_ref()))
-                    } else {
-                        None
-                    }
-                },
-            );
+            let leaves = flatten_binary_violations(violation, |node| {
+                if let Violation::Or { left, right } = node {
+                    Some((left.as_ref(), right.as_ref()))
+                } else {
+                    None
+                }
+            });
             render_violation_list(&leaves, current_time, "and")
         }
         Violation::Implies {
@@ -205,9 +199,7 @@ fn render_violation_list(
     let mut parts = Vec::with_capacity(violations.len() * 2 - 1);
     for (index, violation) in violations.iter().enumerate() {
         if index > 0 {
-            parts.push(Markup::Span(vec![Inline::Keyword(
-                separator.into(),
-            )]));
+            parts.push(Markup::Span(vec![Inline::Keyword(separator.into())]));
         }
         parts.push(render_violation_inner(violation, current_time));
     }
@@ -372,7 +364,9 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     fn time(ms: u64) -> Time {
-        Time::from_system_time(SystemTime::UNIX_EPOCH + Duration::from_millis(ms))
+        Time::from_system_time(
+            SystemTime::UNIX_EPOCH + Duration::from_millis(ms),
+        )
     }
 
     fn eventually_violation() -> Violation {

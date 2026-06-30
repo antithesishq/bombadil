@@ -10,7 +10,6 @@ use axum::{
 use bombadil_schema::browser::BrowserTraceEntry;
 use include_dir::{Dir, include_dir};
 
-
 static INSPECT_ASSETS: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/../../target/inspect");
 
@@ -66,7 +65,8 @@ async fn trace_handler(
             })?;
 
     let mut entries = Vec::new();
-    for (index, line) in content.lines().filter(|line| !line.is_empty()).enumerate()
+    for (index, line) in
+        content.lines().filter(|line| !line.is_empty()).enumerate()
     {
         let mut entry = match parse_trace_entry(line) {
             Ok(entry) => entry,
@@ -98,7 +98,9 @@ async fn trace_handler(
     Ok(Json(entries))
 }
 
-fn parse_trace_entry(line: &str) -> Result<BrowserTraceEntry, serde_json::Error> {
+fn parse_trace_entry(
+    line: &str,
+) -> Result<BrowserTraceEntry, serde_json::Error> {
     serde_json::from_str(line)
 }
 
