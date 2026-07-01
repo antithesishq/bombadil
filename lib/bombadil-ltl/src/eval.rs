@@ -67,13 +67,12 @@ pub enum Residual<D: Domain> {
         subformula: Box<Formula<D>>,
         start: D::Time,
         end: Option<D::Time>,
-        /// When the left-side residual was first created. Used as
+        /// When the first pending residual was created. Used as
         /// the violation time in the Always wrapper so that "but
         /// at T" reflects when the subformula first started
         /// failing, not when the failure was confirmed.
         onset: D::Time,
-        left: Box<Residual<D>>,
-        right: Box<Residual<D>>,
+        pending: Vec<Residual<D>>,
     },
 }
 
@@ -338,23 +337,17 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             Leaning::AssumeTrue,
         );
 
-        let wrap_and_always =
-            |inner: Residual<D>, always: Residual<D>| -> Residual<D> {
-                Residual::AndAlways {
-                    subformula: subformula.clone(),
-                    start,
-                    end,
-                    onset: time,
-                    left: Box::new(inner),
-                    right: Box::new(always),
-                }
-            };
-
         Ok(match self.evaluate(&subformula, time)? {
             Value::True(_) => Value::Residual(residual),
             Value::False(violation, continuation) => {
                 let continuation = match continuation {
-                    Some(inner) => wrap_and_always(inner, residual),
+                    Some(inner) => Residual::AndAlways {
+                        subformula: subformula.clone(),
+                        start,
+                        end,
+                        onset: time,
+                        pending: vec![inner, residual],
+                    },
                     None => residual,
                 };
                 Value::False(
@@ -368,13 +361,16 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                     Some(continuation),
                 )
             }
-            Value::Residual(inner) => {
-                Value::Residual(wrap_and_always(inner, residual))
-            }
+            Value::Residual(inner) => Value::Residual(Residual::AndAlways {
+                subformula: subformula.clone(),
+                start,
+                end,
+                onset: time,
+                pending: vec![inner, residual],
+            }),
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn evaluate_and_always(
         &mut self,
         subformula: Box<Formula<D>>,
@@ -382,8 +378,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         end: Option<D::Time>,
         onset: D::Time,
         time: D::Time,
-        left: Value<D>,
-        right: Value<D>,
+        pending: Vec<Value<D>>, // stepped results of the old `pending: Vec<Residual<D>>`
     ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
@@ -391,116 +386,90 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             return Ok(Value::True(D::State::default()));
         }
 
-        let wrap_and_always = |onset: D::Time,
-                               inner: Residual<D>,
-                               always: Residual<D>|
-         -> Residual<D> {
-            Residual::AndAlways {
-                subformula: subformula.clone(),
-                start,
-                end,
-                onset,
-                left: Box::new(inner),
-                right: Box::new(always),
-            }
-        };
+        let mut still_pending = Vec::with_capacity(pending.len());
+        let mut first_violation: Option<(Violation<D>, D::Time)> = None;
 
-        fn pending_residual<D: Domain>(
-            value: &Value<D>,
-        ) -> Option<&Residual<D>> {
+        for value in pending {
             match value {
-                Value::Residual(residual) => Some(residual),
-                Value::False(_, Some(continuation)) => Some(continuation),
-                _ => None,
-            }
-        }
-
-        Ok(match (left, right) {
-            (Value::True(_), Value::True(_)) => {
-                Value::True(D::State::default())
-            }
-            (Value::Residual(left), Value::True(_)) => {
+                Value::True(_) => {}
+                // Special case: if one of the pending values is an residual instance of this
+                // very Always formula we're in the process of stepping through, we splice it
+                // into our pending list to keep it from growing deeper at each step.
                 Value::Residual(Residual::AndAlways {
-                    subformula,
-                    start,
-                    end,
-                    onset,
-                    left: Box::new(left),
-                    right: Box::new(Residual::True(D::State::default())),
-                })
-            }
-            (Value::True(_), Value::Residual(right)) => Value::Residual(right),
-            (Value::Residual(left), Value::Residual(right)) => {
-                Value::Residual(Residual::AndAlways {
-                    subformula,
-                    start,
-                    end,
-                    onset,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                })
-            }
-            (left, right) => {
-                let always_residual = Residual::Derived(
-                    Derived::Always {
-                        subformula: subformula.clone(),
-                        start,
-                        end,
-                    },
-                    Leaning::AssumeTrue,
-                );
-                let inner = combine_options(
-                    pending_residual(&left).cloned(),
-                    pending_residual(&right).cloned(),
-                    |left, right| Residual::And {
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                );
-                let continuation = match inner {
-                    Some(inner) => {
-                        wrap_and_always(onset, inner, always_residual)
+                    subformula: subformula_inner,
+                    start: start_inner,
+                    end: end_inner,
+                    pending: pending_inner,
+                    ..
+                }) if subformula_inner == subformula
+                    && start_inner == start
+                    && end_inner == end =>
+                {
+                    still_pending.extend(pending_inner);
+                }
+                Value::Residual(r) => still_pending.push(r),
+                Value::False(v, continuation) => {
+                    if let Some(c) = continuation {
+                        still_pending.push(c);
                     }
-                    None => always_residual,
-                };
-                let (violation, violation_time) = match (&left, &right) {
-                    (Value::False(v, _), _) => {
-                        let mut current = v;
-                        while let Violation::Always {
-                            violation: inner, ..
-                        } = current
-                        {
-                            current = inner.as_ref();
-                        }
-                        (current, onset)
-                    }
-                    (_, Value::False(v, _)) => {
-                        let mut current = v;
-                        let mut last_time = time;
+                    if first_violation.is_none() {
+                        // unwrap nested Violation::Always to find the real onset time
+                        let mut current = &v;
+                        let mut violation_time = time;
                         while let Violation::Always {
                             violation: inner,
-                            time: inner_time,
+                            time: t,
                             ..
                         } = current
                         {
-                            last_time = *inner_time;
+                            violation_time = *t;
                             current = inner.as_ref();
                         }
-                        (current, last_time)
+                        first_violation =
+                            Some((current.clone(), violation_time));
                     }
-                    _ => unreachable!(),
-                };
-                Value::False(
-                    Violation::Always {
-                        violation: Box::new(violation.clone()),
-                        subformula,
-                        start,
-                        end,
-                        time: violation_time,
-                    },
-                    Some(continuation),
-                )
+                }
             }
+        }
+        dbg!(&still_pending.len());
+
+        let residual = Residual::Derived(
+            Derived::Always {
+                subformula: subformula.clone(),
+                start,
+                end,
+            },
+            Leaning::AssumeTrue,
+        );
+        still_pending.push(residual);
+
+        Ok(match first_violation {
+            Some((violation, violation_time)) => Value::False(
+                Violation::Always {
+                    violation: Box::new(violation),
+                    subformula: subformula.clone(),
+                    start,
+                    end,
+                    time: violation_time,
+                },
+                Some(Residual::AndAlways {
+                    subformula: subformula.clone(),
+                    start,
+                    end,
+                    onset,
+                    pending: still_pending,
+                }),
+            ),
+            None if still_pending.is_empty() => {
+                Value::True(D::State::default())
+            }
+            None => Value::Residual(Residual::AndAlways {
+                subformula,
+                start,
+                end,
+                onset,
+                pending: still_pending,
+            }),
         })
     }
 
@@ -670,19 +639,19 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 start,
                 end,
                 onset,
-                left,
-                right,
+                pending,
             } => {
-                let left = self.step(left, time)?;
-                let right = self.step(right, time)?;
+                let pending: Vec<Value<D>> = pending
+                    .iter()
+                    .map(|r| self.step(r, time))
+                    .collect::<Result<_, _>>()?;
                 self.evaluate_and_always(
                     subformula.clone(),
                     *start,
                     *end,
                     *onset,
                     time,
-                    left,
-                    right,
+                    pending,
                 )?
             }
         })
@@ -753,10 +722,14 @@ fn attach_to_residual<D: Domain>(
             }
             Residual::And { left, right }
             | Residual::Or { left, right }
-            | Residual::OrEventually { left, right, .. }
-            | Residual::AndAlways { left, right, .. } => {
+            | Residual::OrEventually { left, right, .. } => {
                 queue.push(left.as_mut());
                 queue.push(right.as_mut());
+            }
+            Residual::AndAlways { pending, .. } => {
+                for residual in pending {
+                    queue.push(residual);
+                }
             }
             Residual::Implies { left, right, .. } => {
                 queue.push(left.as_mut());

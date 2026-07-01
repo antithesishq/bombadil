@@ -40,16 +40,15 @@ pub fn stop_default<D: Domain>(
             subformula,
             start,
             end,
-            left,
-            right,
+            pending,
             ..
-        } => stop_default(left, time).and_then(|s1| {
-            stop_default(right, time).map(|s2| {
-                stop_and_always_default(
-                    subformula, *start, *end, time, &s1, &s2,
-                )
-            })
-        }),
+        } => {
+            let pending = pending
+                .iter()
+                .filter_map(|residual| stop_default(residual, time))
+                .collect::<Vec<_>>();
+            stop_and_always_default(subformula, *start, *end, time, &pending)
+        }
         OrEventually { left, right, .. } => {
             stop_default(left, time).and_then(|s1| {
                 stop_default(right, time)
@@ -119,19 +118,38 @@ fn stop_and_always_default<D: Domain>(
     start: D::Time,
     end: Option<D::Time>,
     time: D::Time,
-    left: &StopDefault<D>,
-    right: &StopDefault<D>,
-) -> StopDefault<D> {
+    children: &[StopDefault<D>],
+) -> Option<StopDefault<D>> {
     use StopDefault::*;
-    match (left, right) {
-        (True(_), right) => right.clone(),
-        (False(violation), _) => StopDefault::False(Violation::Always {
-            violation: Box::new(violation.clone()),
+    let mut states_true = Vec::with_capacity(children.len());
+    let mut violation_first: Option<Violation<D>> = None;
+
+    for child in children {
+        match child {
+            True(state) => states_true.push(state),
+            False(violation) => {
+                violation_first = Some(violation.clone());
+                break;
+            }
+        }
+    }
+
+    if let Some(violation) = violation_first {
+        Some(StopDefault::False(Violation::Always {
+            violation: Box::new(violation),
             subformula: Box::new(subformula.clone()),
             start,
             end,
             time,
-        }),
+        }))
+    } else if !children.is_empty() {
+        Some(StopDefault::True(
+            states_true
+                .iter()
+                .fold(D::State::default(), |a, b| a.merge(b)),
+        ))
+    } else {
+        None
     }
 }
 

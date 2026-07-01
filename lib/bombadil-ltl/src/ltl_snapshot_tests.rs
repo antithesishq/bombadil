@@ -7,7 +7,7 @@ use std::{
 use anyhow::Error;
 use hegel::{
     Generator, TestCase,
-    generators::{booleans, deferred, just, one_of},
+    generators::{booleans, deferred, durations, just, one_of, optional},
     tuples,
 };
 
@@ -145,6 +145,7 @@ fn thunk(variable: Variable) -> Formula<SnapshotDomain> {
     }
 }
 
+#[derive(Debug)]
 struct EvalState {
     x: bool,
     y: bool,
@@ -518,6 +519,64 @@ fn nontemporal_syntax() -> impl Generator<Syntax<SnapshotDomain>> {
     result
 }
 
+fn syntax() -> impl Generator<Syntax<SnapshotDomain>> {
+    let syntax = deferred::<Syntax<SnapshotDomain>>();
+    let leaf = one_of([
+        booleans()
+            .map(|value| Syntax::Pure {
+                value,
+                pretty: format!("{}", value),
+            })
+            .boxed(),
+        prop_variable().map(Syntax::Thunk).boxed(),
+    ]);
+
+    let branch = one_of([
+        syntax.generator().map(|s| Syntax::Not(Box::new(s))).boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::And(Box::new(l), Box::new(r)))
+            .boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::Or(Box::new(l), Box::new(r)))
+            .boxed(),
+        tuples!(syntax.generator(), syntax.generator())
+            .map(|(l, r)| Syntax::Implies(Box::new(l), Box::new(r)))
+            .boxed(),
+        tuples!(
+            syntax.generator(),
+            optional(
+                durations()
+                    .min_value(Duration::from_millis(1))
+                    .max_value(Duration::from_millis(10))
+            )
+        )
+        .map(|(l, r)| Syntax::Eventually(Box::new(l), r))
+        .boxed(),
+        tuples!(
+            syntax.generator(),
+            optional(
+                durations()
+                    .min_value(Duration::from_millis(1))
+                    .max_value(Duration::from_millis(10))
+            )
+        )
+        .map(|(l, r)| Syntax::Always(Box::new(l), r))
+        .boxed(),
+    ]);
+
+    let result = syntax.generator();
+    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
+    result
+}
+
+fn eval_state() -> impl Generator<EvalState> {
+    tuples!(booleans(), booleans(), booleans()).map(|(x, y, z)| EvalState {
+        x,
+        y,
+        z,
+    })
+}
+
 /// Recursively compute which thunk indices contributed to a formula being true. Returns
 /// `Some(indices)` when the formula is true, `None` when false.
 fn truth_contributing(
@@ -710,11 +769,34 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
     }
 }
 
+fn formula_depth(root: &Formula<SnapshotDomain>) -> usize {
+    let mut stack: Vec<(&Formula<SnapshotDomain>, usize)> = vec![(root, 1)];
+    let mut depth_max = 0;
+    while let Some((residual, depth)) = stack.pop() {
+        depth_max = depth_max.max(depth);
+        match residual {
+            Formula::Pure { .. } | Formula::Thunk { .. } => {}
+            Formula::And(left, right)
+            | Formula::Or(left, right)
+            | Formula::Implies(left, right) => {
+                stack.push((left, depth + 1));
+                stack.push((right, depth + 1));
+            }
+            Formula::Next(subformula)
+            | Formula::Eventually(subformula, _)
+            | Formula::Always(subformula, _) => {
+                stack.push((subformula, depth + 1))
+            }
+        }
+    }
+    depth_max
+}
+
 fn residual_depth(root: &Residual<SnapshotDomain>) -> usize {
     let mut stack: Vec<(&Residual<SnapshotDomain>, usize)> = vec![(root, 1)];
-    let mut max_depth = 0;
+    let mut depth_max = 0;
     while let Some((residual, depth)) = stack.pop() {
-        max_depth = max_depth.max(depth);
+        depth_max = depth_max.max(depth);
         match residual {
             Residual::True(_)
             | Residual::False(_)
@@ -722,14 +804,40 @@ fn residual_depth(root: &Residual<SnapshotDomain>) -> usize {
             Residual::And { left, right }
             | Residual::Or { left, right }
             | Residual::OrEventually { left, right, .. }
-            | Residual::AndAlways { left, right, .. }
             | Residual::Implies { left, right, .. } => {
                 stack.push((left, depth + 1));
                 stack.push((right, depth + 1));
             }
+            Residual::AndAlways { pending, .. } => {
+                for residual in pending {
+                    stack.push((residual, depth + 1));
+                }
+            }
         }
     }
-    max_depth
+    depth_max
+}
+
+fn violation_depth(root: &Violation<SnapshotDomain>) -> usize {
+    let mut stack: Vec<(&Violation<SnapshotDomain>, usize)> = vec![(root, 1)];
+    let mut depth_max = 0;
+    while let Some((violation, depth)) = stack.pop() {
+        depth_max = depth_max.max(depth);
+        match violation {
+            Violation::False { .. } | Violation::Eventually { .. } => {}
+            Violation::Always { violation, .. } => {
+                stack.push((violation, depth + 1))
+            }
+            Violation::And { left, right } | Violation::Or { left, right } => {
+                stack.push((left, depth + 1));
+                stack.push((right, depth + 1));
+            }
+            Violation::Implies { right, .. } => {
+                stack.push((right, depth + 1));
+            }
+        }
+    }
+    depth_max
 }
 
 #[test]
@@ -864,5 +972,175 @@ fn test_always_with_outer_thunk_preserves_snapshots() {
         }
     } else {
         panic!("Expected Always(Implies(...)) violation, got: {:?}", value);
+    }
+}
+
+#[test]
+fn test_eventually_eventually_violation_doesnt_grow() {
+    let eval_state = EvalState {
+        x: true,
+        y: true,
+        z: true,
+    };
+    let formula: Formula<SnapshotDomain> = Formula::Eventually(
+        Box::new(Formula::Eventually(
+            Box::new(Formula::Implies(
+                Box::new(Formula::Pure {
+                    value: true,
+                    pretty: "true".to_string(),
+                }),
+                Box::new(Formula::Pure {
+                    value: false,
+                    pretty: "false".to_string(),
+                }),
+            )),
+            Some(Duration::from_millis(10)),
+        )),
+        None,
+    );
+    let mut value = evaluate_with_state(&formula, &eval_state);
+    for i in 1..=2000u64 {
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            other => {
+                panic!("expected residual at step {}, got {:?}", i, other)
+            }
+        };
+        value = step_with_state(&residual, &eval_state, time_from_millis(i));
+        if let Value::False(violation, residual) = &value {
+            let depth = violation_depth(violation);
+            assert!(
+                depth <= 3,
+                "violation depth {depth} at step {i} does not match formula depth:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
+            );
+            if let Some(residual) = residual {
+                value = Value::Residual(residual.clone())
+            }
+        }
+    }
+}
+
+#[test]
+fn test_always_eventually_violation_doesnt_grow() {
+    let eval_state = EvalState {
+        x: true,
+        y: true,
+        z: true,
+    };
+    let formula: Formula<SnapshotDomain> = Formula::Always(
+        Box::new(Formula::Eventually(
+            Box::new(Formula::Pure {
+                value: false,
+                pretty: "false".to_string(),
+            }),
+            Some(Duration::from_millis(10)),
+        )),
+        None,
+    );
+    let mut value = evaluate_with_state(&formula, &eval_state);
+    for i in 1..=1000u64 {
+        // println!("\x1B[2J\x1B[1;1H");
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            other => {
+                panic!("expected residual at step {}, got {:?}", i, other)
+            }
+        };
+        value = step_with_state(&residual, &eval_state, time_from_millis(i));
+        if let Value::False(violation, residual) = &value {
+            let depth = violation_depth(violation);
+            assert!(
+                depth <= 3,
+                "violation depth {depth} at step {i} does not match formula depth:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
+            );
+            if let Some(residual) = residual {
+                value = Value::Residual(residual.clone())
+            }
+        }
+    }
+}
+
+#[test]
+fn test_always_eventually_violation_doesnt_grow_2() {
+    let formula: Formula<SnapshotDomain> = Formula::Always(
+        Box::new(Formula::Implies(
+            Box::new(Formula::Thunk {
+                function: Variable::Y,
+                negated: false,
+            }),
+            Box::new(Formula::Eventually(
+                Box::new(Formula::Thunk {
+                    function: Variable::X,
+                    negated: false,
+                }),
+                Some(Duration::from_millis(10)),
+            )),
+        )),
+        None,
+    );
+    let mut value = evaluate_with_state(
+        &formula,
+        &EvalState {
+            x: true,
+            y: false,
+            z: true,
+        },
+    );
+    for i in 1..=1000u64 {
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            other => {
+                panic!("expected residual at step {}, got {:?}", i, other)
+            }
+        };
+        assert!(residual_depth(&residual) < 20);
+
+        value = step_with_state(
+            &residual,
+            &EvalState {
+                x: i < 10,
+                y: true,
+                z: true,
+            },
+            time_from_millis(i),
+        );
+        if let Value::False(violation, residual) = &value {
+            let depth = violation_depth(violation);
+            assert!(
+                depth <= 3,
+                "violation depth {depth} at step {i} does not match formula depth:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
+            );
+            if let Some(residual) = residual {
+                value = Value::Residual(residual.clone())
+            }
+        }
+    }
+}
+
+#[hegel::test(test_cases = 1000, seed = Some(2))]
+fn test_violation_doesnt_grow_larger_than_formula(tc: TestCase) {
+    let formula = tc.draw(syntax()).nnf();
+    let eval_state = tc.draw(eval_state());
+    dbg!((&formula, &eval_state));
+    let depth_formula = formula_depth(&formula);
+
+    let mut value = evaluate_with_state(&formula, &eval_state);
+    for i in 1..=2000u64 {
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            _ => break,
+        };
+        value = step_with_state(&residual, &eval_state, time_from_millis(i));
+        if let Value::False(violation, residual) = &value {
+            let depth_violation = violation_depth(violation);
+            assert!(
+                depth_violation <= depth_formula,
+                "violation depth {depth_violation} at step {i} does not match formula depth {depth_formula}:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
+            );
+            if let Some(residual) = residual {
+                assert!(residual_depth(residual) <= depth_formula);
+                value = Value::Residual(residual.clone())
+            }
+        }
     }
 }
