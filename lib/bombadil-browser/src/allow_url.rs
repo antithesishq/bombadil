@@ -4,6 +4,8 @@ use url::Url;
 pub enum AllowUrl {
     /// The starting origin host. Added implicitly; any path on this host is allowed.
     ExactHost { host: String, port: Option<u16> },
+    /// Origin without a network host (e.g. file://).
+    Hostless { port: Option<u16> },
     /// A registrable domain and its subdomains (e.g. `example.com`, `.example.com`).
     Domain { domain: String },
     /// A URL prefix: scheme, host, port, and path prefix must match.
@@ -43,18 +45,20 @@ impl AllowUrl {
     }
 
     pub fn from_origin(origin: &Url) -> Self {
-        AllowUrl::ExactHost {
-            host: origin
-                .host_str()
-                .expect("origin URL has no host")
-                .to_string(),
-            port: origin.port(),
+        match origin.host_str() {
+            Some(host) => AllowUrl::ExactHost {
+                host: host.to_string(),
+                port: origin.port(),
+            },
+            None => AllowUrl::Hostless {
+                port: origin.port(),
+            },
         }
     }
 
     pub fn cli_value(&self) -> String {
         match self {
-            AllowUrl::ExactHost { .. } => {
+            AllowUrl::ExactHost { .. } | AllowUrl::Hostless { .. } => {
                 panic!("origin allow-url is implicit and not reproduced")
             }
             AllowUrl::Domain { domain } => domain.clone(),
@@ -81,6 +85,10 @@ impl AllowUrl {
         match self {
             AllowUrl::ExactHost { host, port } => {
                 uri.host_str() == Some(host.as_str())
+                    && ports_match(uri.port(), *port, origin.port())
+            }
+            AllowUrl::Hostless { port } => {
+                uri.host().is_none()
                     && ports_match(uri.port(), *port, origin.port())
             }
             AllowUrl::Domain { domain } => {
@@ -180,6 +188,23 @@ mod tests {
                 .map(|raw| AllowUrl::parse(raw).unwrap())
                 .collect::<Vec<_>>(),
         )
+    }
+
+    #[test]
+    fn file_origin_allows_hostless_urls() {
+        let origin = url("file:///tmp/index.html");
+        let rules = build_allow_list(&origin, &[]);
+        assert!(matches!(rules[0], AllowUrl::Hostless { .. }));
+        assert!(is_url_allowed(
+            &url("file:///tmp/other.html"),
+            &rules,
+            &origin
+        ));
+        assert!(!is_url_allowed(
+            &url("https://example.com/"),
+            &rules,
+            &origin
+        ));
     }
 
     #[test]
