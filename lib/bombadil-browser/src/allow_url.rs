@@ -119,6 +119,11 @@ pub fn is_url_allowed(
     allow_urls: &[AllowUrl],
     origin: &Url,
 ) -> bool {
+    // Preserve the previous origin-boundary behavior for host-less URLs (e.g.
+    // about:blank while a page is loading or reloading).
+    if uri.host().is_none() {
+        return uri.port().is_none() || uri.port() == origin.port();
+    }
     allow_urls.iter().any(|rule| rule.matches(uri, origin))
 }
 
@@ -175,6 +180,13 @@ mod tests {
                 .map(|raw| AllowUrl::parse(raw).unwrap())
                 .collect::<Vec<_>>(),
         )
+    }
+
+    #[test]
+    fn hostless_urls_are_allowed() {
+        let origin = url("http://localhost:1073/");
+        let rules = allow("http://localhost:1073/", &[]);
+        assert!(is_url_allowed(&url("about:blank"), &rules, &origin));
     }
 
     #[test]
