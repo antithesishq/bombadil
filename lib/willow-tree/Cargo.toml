@@ -1,0 +1,9 @@
+[package]
+name = "willow-tree"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+hegeltest.workspace = true
