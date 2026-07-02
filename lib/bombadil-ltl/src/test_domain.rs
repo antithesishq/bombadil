@@ -160,12 +160,12 @@ pub fn residual_depth<D: Domain>(root: &Residual<D>) -> usize {
             | Residual::Derived(_, _) => {}
             Residual::And { left, right }
             | Residual::Or { left, right }
-            | Residual::OrEventually { left, right, .. }
             | Residual::Implies { left, right, .. } => {
                 stack.push((left, depth + 1));
                 stack.push((right, depth + 1));
             }
-            Residual::AndAlways { pending, .. } => {
+            Residual::AndAlways { pending, .. }
+            | Residual::OrEventually { pending, .. } => {
                 for residual in pending {
                     stack.push((residual, depth + 1));
                 }

@@ -60,8 +60,7 @@ pub enum Residual<D: Domain> {
         subformula: Box<Formula<D>>,
         start: D::Time,
         end: Option<D::Time>,
-        left: Box<Residual<D>>,
-        right: Box<Residual<D>>,
+        pending: Vec<Residual<D>>,
     },
     AndAlways {
         subformula: Box<Formula<D>>,
@@ -428,7 +427,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                         pending_updated.push(pending);
                     }
                 }
-                Value::Residual(resdiual) => pending_updated.push(resdiual),
+                Value::Residual(residual) => pending_updated.push(residual),
                 Value::False(violation, residual) => {
                     if let Some(residual) = residual {
                         pending_updated.push(residual);
@@ -534,8 +533,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 subformula,
                 end,
                 start,
-                left: Box::new(left),
-                right: Box::new(residual),
+                pending: vec![left, residual],
             }),
         })
     }
@@ -546,8 +544,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         start: D::Time,
         end: Option<D::Time>,
         time: D::Time,
-        left: Value<D>,
-        right: Value<D>,
+        pending: Vec<Value<D>>,
     ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
@@ -561,27 +558,97 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             ));
         }
 
-        Ok(match (left, right) {
-            (Value::True(state), _) => Value::True(state),
-            (_, Value::True(state)) => Value::True(state),
-            (Value::False(_, _), Value::False(right, _)) => {
-                Value::False(right.clone(), None)
-            }
-            (Value::False(_, _), Value::Residual(residual)) => {
-                Value::Residual(residual.clone())
-            }
-            (Value::Residual(residual), Value::False(_, _)) => {
-                Value::Residual(residual.clone())
-            }
-            (Value::Residual(left), Value::Residual(right)) => {
+        let mut pending_updated = Vec::with_capacity(pending.len());
+        let mut witness_found: Option<D::State> = None;
+        let mut has_own_derived_residual = false;
+
+        fn is_own_derived_residual<D: Domain>(
+            r: &Residual<D>,
+            subformula: &Formula<D>,
+            start: D::Time,
+            end: Option<D::Time>,
+        ) -> bool {
+            matches!(
+                r,
+                Residual::Derived(Derived::Eventually { subformula: subformula_other, start: start_other, end: end_other }, _)
+                    if **subformula_other == *subformula && *start_other == start && *end_other == end
+            )
+        }
+
+        for value in pending {
+            match value {
+                Value::True(state) => {
+                    witness_found = Some(match witness_found {
+                        Some(s) => s.merge(&state),
+                        None => state,
+                    });
+                }
                 Value::Residual(Residual::OrEventually {
-                    subformula,
-                    start,
-                    end,
-                    left: Box::new(left.clone()),
-                    right: Box::new(right.clone()),
-                })
+                    subformula: si,
+                    start: sti,
+                    end: ei,
+                    pending: pi,
+                    ..
+                }) if si == subformula && sti == start && ei == end => {
+                    for r in pi {
+                        if is_own_derived_residual(&r, &subformula, start, end)
+                        {
+                            has_own_derived_residual = true;
+                        }
+                        pending_updated.push(r);
+                    }
+                }
+                Value::Residual(r) => {
+                    if is_own_derived_residual(&r, &subformula, start, end) {
+                        has_own_derived_residual = true;
+                    }
+                    pending_updated.push(r);
+                }
+                // A False attempt just drops out unless it left a continuation
+                // (e.g. wrapped by something else still monitoring). It's not
+                // fatal on its own — only "nothing left pending" is fatal.
+                Value::False(_v, continuation) => {
+                    if let Some(c) = continuation {
+                        pending_updated.push(c);
+                    }
+                }
             }
+        }
+
+        if let Some(state) = witness_found {
+            return Ok(Value::True(state));
+        }
+
+        let residual = Residual::Derived(
+            Derived::Eventually {
+                subformula: subformula.clone(),
+                start,
+                end,
+            },
+            Leaning::AssumeFalse(Violation::Eventually {
+                subformula: subformula.clone(),
+                reason: EventuallyViolation::TestEnded,
+            }),
+        );
+        if !has_own_derived_residual {
+            pending_updated.push(residual);
+        }
+
+        Ok(if pending_updated.is_empty() {
+            Value::False(
+                Violation::Eventually {
+                    subformula,
+                    reason: EventuallyViolation::TestEnded,
+                },
+                None,
+            )
+        } else {
+            Value::Residual(Residual::OrEventually {
+                subformula,
+                start,
+                end,
+                pending: pending_updated,
+            })
         })
     }
 
@@ -643,18 +710,18 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 subformula,
                 start,
                 end,
-                left,
-                right,
+                pending,
             } => {
-                let left = self.step(left, time)?;
-                let right = self.step(right, time)?;
+                let pending: Vec<Value<D>> = pending
+                    .iter()
+                    .map(|r| self.step(r, time))
+                    .collect::<Result<_, _>>()?;
                 self.evaluate_or_eventually(
                     subformula.clone(),
                     *start,
                     *end,
                     time,
-                    left,
-                    right,
+                    pending,
                 )?
             }
             Residual::AndAlways {
@@ -743,13 +810,12 @@ fn attach_to_residual<D: Domain>(
             Residual::False(violation) => {
                 attach_to_violation(violation, resolved);
             }
-            Residual::And { left, right }
-            | Residual::Or { left, right }
-            | Residual::OrEventually { left, right, .. } => {
+            Residual::And { left, right } | Residual::Or { left, right } => {
                 queue.push(left.as_mut());
                 queue.push(right.as_mut());
             }
-            Residual::AndAlways { pending, .. } => {
+            Residual::AndAlways { pending, .. }
+            | Residual::OrEventually { pending, .. } => {
                 for residual in pending {
                     queue.push(residual);
                 }

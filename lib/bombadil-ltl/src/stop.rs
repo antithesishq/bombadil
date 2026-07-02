@@ -49,11 +49,12 @@ pub fn stop_default<D: Domain>(
                 .collect::<Vec<_>>();
             stop_and_always_default(subformula, *start, *end, time, &pending)
         }
-        OrEventually { left, right, .. } => {
-            stop_default(left, time).and_then(|s1| {
-                stop_default(right, time)
-                    .map(|s2| stop_or_eventually_default(&s1, &s2))
-            })
+        OrEventually { pending, .. } => {
+            let pending = pending
+                .iter()
+                .filter_map(|residual| stop_default(residual, time))
+                .collect::<Vec<_>>();
+            stop_or_eventually_default(&pending)
         }
     }
 }
@@ -154,13 +155,18 @@ fn stop_and_always_default<D: Domain>(
 }
 
 fn stop_or_eventually_default<D: Domain>(
-    left: &StopDefault<D>,
-    right: &StopDefault<D>,
-) -> StopDefault<D> {
+    children: &[StopDefault<D>],
+) -> Option<StopDefault<D>> {
     use StopDefault::*;
-    match (left, right) {
-        (True(state), _) => True(state.clone()),
-        (_, True(state)) => True(state.clone()),
-        (_, False(right)) => False(right.clone()),
+
+    let mut last_violation = None;
+    for child in children {
+        match child {
+            True(state) => return Some(True(state.clone())),
+            False(violation) => {
+                last_violation = Some(violation);
+            }
+        }
     }
+    last_violation.cloned().map(StopDefault::False)
 }
