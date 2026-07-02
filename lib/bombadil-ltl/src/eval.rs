@@ -378,7 +378,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         end: Option<D::Time>,
         onset: D::Time,
         time: D::Time,
-        pending: Vec<Value<D>>, // stepped results of the old `pending: Vec<Residual<D>>`
+        pending: Vec<Value<D>>,
     ) -> Result<Value<D>, Error> {
         if let Some(end) = end
             && end < time
@@ -386,7 +386,23 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             return Ok(Value::True(D::State::default()));
         }
 
-        let mut still_pending = Vec::with_capacity(pending.len());
+        let mut pending_updated = Vec::with_capacity(pending.len());
+        // We track if the derived residual (constructed below but only conditionally added)
+        // is already in the set of pending residuals.
+        let mut has_own_derived_residual = false;
+
+        fn is_own_derived<D: Domain>(
+            residual: &Residual<D>,
+            subformula: &Formula<D>,
+            start: D::Time,
+            end: Option<D::Time>,
+        ) -> bool {
+            matches!(
+                residual,
+                Residual::Derived(Derived::Always { subformula: subformula_other, start: start_other, end: end_other }, _)
+                    if **subformula_other == *subformula && *start_other == start && *end_other == end
+            )
+        }
         let mut first_violation: Option<(Violation<D>, D::Time)> = None;
 
         for value in pending {
@@ -405,25 +421,30 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                     && start_inner == start
                     && end_inner == end =>
                 {
-                    still_pending.extend(pending_inner);
+                    for pending in pending_inner {
+                        if is_own_derived(&pending, &subformula, start, end) {
+                            has_own_derived_residual = true;
+                        }
+                        pending_updated.push(pending);
+                    }
                 }
-                Value::Residual(r) => still_pending.push(r),
-                Value::False(v, continuation) => {
-                    if let Some(c) = continuation {
-                        still_pending.push(c);
+                Value::Residual(resdiual) => pending_updated.push(resdiual),
+                Value::False(violation, residual) => {
+                    if let Some(residual) = residual {
+                        pending_updated.push(residual);
                     }
                     if first_violation.is_none() {
-                        // unwrap nested Violation::Always to find the real onset time
-                        let mut current = &v;
+                        // Unwrap nested Violation::Always to find the real onset time.
+                        let mut current = &violation;
                         let mut violation_time = time;
                         while let Violation::Always {
-                            violation: inner,
-                            time: t,
+                            violation: violation_inner,
+                            time: time_inner,
                             ..
                         } = current
                         {
-                            violation_time = *t;
-                            current = inner.as_ref();
+                            violation_time = *time_inner;
+                            current = violation_inner.as_ref();
                         }
                         first_violation =
                             Some((current.clone(), violation_time));
@@ -431,7 +452,6 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 }
             }
         }
-        dbg!(&still_pending.len());
 
         let residual = Residual::Derived(
             Derived::Always {
@@ -441,7 +461,10 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             },
             Leaning::AssumeTrue,
         );
-        still_pending.push(residual);
+        // See note above about dedup of pending Always-derived residuals.
+        if !has_own_derived_residual {
+            pending_updated.push(residual);
+        }
 
         Ok(match first_violation {
             Some((violation, violation_time)) => Value::False(
@@ -457,10 +480,10 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                     start,
                     end,
                     onset,
-                    pending: still_pending,
+                    pending: pending_updated,
                 }),
             ),
-            None if still_pending.is_empty() => {
+            None if pending_updated.is_empty() => {
                 Value::True(D::State::default())
             }
             None => Value::Residual(Residual::AndAlways {
@@ -468,7 +491,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 start,
                 end,
                 onset,
-                pending: still_pending,
+                pending: pending_updated,
             }),
         })
     }
