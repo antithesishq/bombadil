@@ -1,13 +1,10 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    ops::Add,
-    time::Duration,
-};
+use crate::test_domain::step_with_state;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::Error;
 use hegel::{
     Generator, TestCase,
-    generators::{booleans, deferred, durations, just, one_of, optional},
+    generators::{booleans, deferred, just, one_of},
     tuples,
 };
 
@@ -16,42 +13,11 @@ use crate::{
     formula::*,
     stop::{StopDefault, stop_default},
     syntax::Syntax,
+    test_domain::{
+        TestDomain, TestState, TestTime, Variable, evaluate_with_state,
+    },
     violation::*,
 };
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct TestTime(u64);
-
-impl Ord for TestTime {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
-impl PartialOrd for TestTime {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Add<Duration> for TestTime {
-    type Output = Self;
-    fn add(self, rhs: Duration) -> Self {
-        TestTime(self.0 + rhs.as_millis() as u64)
-    }
-}
-
-fn t0() -> TestTime {
-    TestTime(0)
-}
-
-fn time_from_millis(millis: u64) -> TestTime {
-    TestTime(millis)
-}
-
-fn time_from_secs(secs: u64) -> TestTime {
-    TestTime(secs * 1000)
-}
 
 /// A named snapshot entry for testing.
 #[derive(Clone, Debug, PartialEq)]
@@ -62,13 +28,13 @@ struct TestSnapshot {
 
 /// State that tracks named snapshots, keyed by index.
 #[derive(Clone, Debug, PartialEq, Default)]
-struct TestState(BTreeMap<usize, TestSnapshot>);
+struct TestSnapshots(BTreeMap<usize, TestSnapshot>);
 
-impl State for TestState {
+impl State for TestSnapshots {
     fn merge(&self, other: &Self) -> Self {
         let mut merged = self.0.clone();
         merged.extend(other.0.iter().map(|(k, v)| (*k, v.clone())));
-        TestState(merged)
+        TestSnapshots(merged)
     }
 
     fn is_empty(&self) -> bool {
@@ -76,9 +42,9 @@ impl State for TestState {
     }
 }
 
-impl TestState {
+impl TestSnapshots {
     fn from_snapshot(snapshot: TestSnapshot) -> Self {
-        TestState(BTreeMap::from([(snapshot.index, snapshot)]))
+        TestSnapshots(BTreeMap::from([(snapshot.index, snapshot)]))
     }
 
     fn names(&self) -> Vec<String> {
@@ -86,15 +52,7 @@ impl TestState {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct SnapshotDomain;
-
-impl Domain for SnapshotDomain {
-    type Function = Variable;
-    type Time = TestTime;
-    type Duration = Duration;
-    type State = TestState;
-}
+type SnapshotDomain = TestDomain<TestSnapshots>;
 
 fn snapshot(index: usize, name: &str) -> TestSnapshot {
     TestSnapshot {
@@ -123,15 +81,8 @@ fn violation_state_names(violation: &Violation<SnapshotDomain>) -> Vec<String> {
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum Variable {
-    X,
-    Y,
-    Z,
-}
-
-fn make_snapshots() -> TestState {
-    TestState(BTreeMap::from([
+fn make_snapshots() -> TestSnapshots {
+    TestSnapshots(BTreeMap::from([
         (0, snapshot(0, "x_val")),
         (1, snapshot(1, "y_val")),
         (2, snapshot(2, "z_val")),
@@ -145,71 +96,15 @@ fn thunk(variable: Variable) -> Formula<SnapshotDomain> {
     }
 }
 
-#[derive(Debug)]
-struct EvalState {
-    x: bool,
-    y: bool,
-    z: bool,
-}
-
-fn variable_snapshot(variable: &Variable) -> TestState {
+fn variable_snapshot(variable: &Variable) -> TestSnapshots {
     let index = variable_index(variable);
     let all = make_snapshots();
-    TestState(BTreeMap::from([(index, all.0[&index].clone())]))
-}
-
-fn evaluate_with_state(
-    formula: &Formula<SnapshotDomain>,
-    eval_state: &EvalState,
-) -> Value<SnapshotDomain> {
-    let mut evaluate_thunk = |variable: &Variable, negated: bool| {
-        let value = match variable {
-            Variable::X => eval_state.x,
-            Variable::Y => eval_state.y,
-            Variable::Z => eval_state.z,
-        };
-        let value = if negated { !value } else { value };
-        Ok((
-            Formula::Pure {
-                value,
-                pretty: format!("{:?}={}", variable, value),
-            },
-            variable_snapshot(variable),
-        ))
-    };
-    let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
-        Evaluator::new(&mut evaluate_thunk);
-    evaluator.evaluate(formula, t0()).unwrap()
-}
-
-fn step_with_state(
-    residual: &Residual<SnapshotDomain>,
-    eval_state: &EvalState,
-    time: TestTime,
-) -> Value<SnapshotDomain> {
-    let mut evaluate_thunk = |variable: &Variable, negated: bool| {
-        let value = match variable {
-            Variable::X => eval_state.x,
-            Variable::Y => eval_state.y,
-            Variable::Z => eval_state.z,
-        };
-        let value = if negated { !value } else { value };
-        Ok((
-            Formula::Pure {
-                value,
-                pretty: format!("{:?}={}", variable, value),
-            },
-            variable_snapshot(variable),
-        ))
-    };
-    let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
-        Evaluator::new(&mut evaluate_thunk);
-    evaluator.step(residual, time).unwrap()
+    TestSnapshots(BTreeMap::from([(index, all.0[&index].clone())]))
 }
 
 #[test]
 fn test_and_merges_snapshots_when_both_true() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -218,7 +113,7 @@ fn test_and_merges_snapshots_when_both_true() {
         Box::new(thunk(Variable::X)),
         Box::new(thunk(Variable::Y)),
     );
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::True(_)));
     let names = state_names(&value);
     assert!(names.contains(&"x_val".to_string()));
@@ -227,7 +122,7 @@ fn test_and_merges_snapshots_when_both_true() {
 
 #[test]
 fn test_and_preserves_left_snapshots_with_residual() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -236,12 +131,13 @@ fn test_and_preserves_left_snapshots_with_residual() {
         Box::new(thunk(Variable::X)),
         Box::new(Formula::Next(Box::new(thunk(Variable::Y)))),
     );
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::Residual(_)));
 
     if let Value::Residual(residual) = &value {
-        let time = time_from_millis(1);
-        let stepped = step_with_state(residual, &eval_state, time);
+        let time = TestTime::from_millis(1);
+        let stepped =
+            step_with_state(residual, &state, time, variable_snapshot);
         assert!(matches!(stepped, Value::True(_)));
         let names = state_names(&stepped);
         assert!(
@@ -259,7 +155,7 @@ fn test_and_preserves_left_snapshots_with_residual() {
 
 #[test]
 fn test_and_preserves_right_snapshots_with_residual() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -268,12 +164,13 @@ fn test_and_preserves_right_snapshots_with_residual() {
         Box::new(Formula::Next(Box::new(thunk(Variable::X)))),
         Box::new(thunk(Variable::Y)),
     );
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::Residual(_)));
 
     if let Value::Residual(residual) = &value {
-        let time = time_from_millis(1);
-        let stepped = step_with_state(residual, &eval_state, time);
+        let time = TestTime::from_millis(1);
+        let stepped =
+            step_with_state(residual, &state, time, variable_snapshot);
         assert!(matches!(stepped, Value::True(_)));
         let names = state_names(&stepped);
         assert!(
@@ -291,7 +188,7 @@ fn test_and_preserves_right_snapshots_with_residual() {
 
 #[test]
 fn test_implies_after_and_has_all_antecedent_snapshots() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -302,7 +199,7 @@ fn test_implies_after_and_has_all_antecedent_snapshots() {
     );
     let formula =
         Formula::Implies(Box::new(antecedent), Box::new(thunk(Variable::Z)));
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::False(_, _)));
     if let Value::False(violation, _) = &value {
         let names = violation_state_names(violation);
@@ -329,22 +226,23 @@ fn test_always_implies_and_has_all_antecedent_snapshots() {
         Formula::Implies(Box::new(antecedent), Box::new(thunk(Variable::Z)));
     let formula = Formula::Always(Box::new(inner), None);
 
-    let state1 = EvalState {
+    let state1 = TestState {
         x: true,
         y: true,
         z: true,
     };
-    let value = evaluate_with_state(&formula, &state1);
+    let value = evaluate_with_state(&formula, &state1, variable_snapshot);
     assert!(matches!(value, Value::Residual(_)));
 
     if let Value::Residual(residual) = &value {
-        let state2 = EvalState {
+        let state2 = TestState {
             x: true,
             y: true,
             z: false,
         };
-        let time = time_from_millis(1);
-        let stepped = step_with_state(residual, &state2, time);
+        let time = TestTime::from_millis(1);
+        let stepped =
+            step_with_state(residual, &state2, time, variable_snapshot);
         assert!(matches!(stepped, Value::False(_, _)));
         if let Value::False(Violation::Always { violation, .. }, _) = &stepped {
             let names = violation_state_names(violation);
@@ -366,14 +264,14 @@ fn test_always_implies_and_has_all_antecedent_snapshots() {
 
 #[test]
 fn test_or_merges_snapshots_when_both_true() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
     };
     let formula =
         Formula::Or(Box::new(thunk(Variable::X)), Box::new(thunk(Variable::Y)));
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::True(_)));
     let names = state_names(&value);
     assert!(names.contains(&"x_val".to_string()));
@@ -382,7 +280,7 @@ fn test_or_merges_snapshots_when_both_true() {
 
 #[test]
 fn test_or_true_short_circuits_with_snapshots() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -391,7 +289,7 @@ fn test_or_true_short_circuits_with_snapshots() {
         Box::new(thunk(Variable::X)),
         Box::new(Formula::Next(Box::new(thunk(Variable::Y)))),
     );
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::True(_)));
     let names = state_names(&value);
     assert!(
@@ -403,7 +301,7 @@ fn test_or_true_short_circuits_with_snapshots() {
 
 #[test]
 fn test_implies_after_or_has_all_antecedent_snapshots() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: true,
         z: false,
@@ -412,7 +310,7 @@ fn test_implies_after_or_has_all_antecedent_snapshots() {
         Formula::Or(Box::new(thunk(Variable::X)), Box::new(thunk(Variable::Y)));
     let formula =
         Formula::Implies(Box::new(antecedent), Box::new(thunk(Variable::Z)));
-    let value = evaluate_with_state(&formula, &eval_state);
+    let value = evaluate_with_state(&formula, &state, variable_snapshot);
     assert!(matches!(value, Value::False(_, _)));
     if let Value::False(violation, _) = &value {
         let names = violation_state_names(violation);
@@ -431,7 +329,7 @@ fn test_implies_after_or_has_all_antecedent_snapshots() {
 
 #[test]
 fn test_stop_implies_preserves_antecedent_snapshots() {
-    let state = TestState(BTreeMap::from([
+    let state = TestSnapshots(BTreeMap::from([
         (0, snapshot(0, "a")),
         (1, snapshot(1, "b")),
     ]));
@@ -443,12 +341,12 @@ fn test_stop_implies_preserves_antecedent_snapshots() {
         left_formula: left_formula.clone(),
         left: Box::new(Residual::True(state.clone())),
         right: Box::new(Residual::False(Violation::False {
-            time: t0(),
+            time: TestTime::ZERO,
             condition: "z".to_string(),
-            state: TestState::default(),
+            state: TestSnapshots::default(),
         })),
     };
-    let time = t0();
+    let time = TestTime::ZERO;
     let result = stop_default(&residual, time);
     match result {
         Some(StopDefault::False(Violation::Implies {
@@ -517,64 +415,6 @@ fn nontemporal_syntax() -> impl Generator<Syntax<SnapshotDomain>> {
     let result = syntax.generator();
     syntax.set(one_of([leaf.boxed(), branch.boxed()]));
     result
-}
-
-fn syntax() -> impl Generator<Syntax<SnapshotDomain>> {
-    let syntax = deferred::<Syntax<SnapshotDomain>>();
-    let leaf = one_of([
-        booleans()
-            .map(|value| Syntax::Pure {
-                value,
-                pretty: format!("{}", value),
-            })
-            .boxed(),
-        prop_variable().map(Syntax::Thunk).boxed(),
-    ]);
-
-    let branch = one_of([
-        syntax.generator().map(|s| Syntax::Not(Box::new(s))).boxed(),
-        tuples!(syntax.generator(), syntax.generator())
-            .map(|(l, r)| Syntax::And(Box::new(l), Box::new(r)))
-            .boxed(),
-        tuples!(syntax.generator(), syntax.generator())
-            .map(|(l, r)| Syntax::Or(Box::new(l), Box::new(r)))
-            .boxed(),
-        tuples!(syntax.generator(), syntax.generator())
-            .map(|(l, r)| Syntax::Implies(Box::new(l), Box::new(r)))
-            .boxed(),
-        tuples!(
-            syntax.generator(),
-            optional(
-                durations()
-                    .min_value(Duration::from_millis(1))
-                    .max_value(Duration::from_millis(10))
-            )
-        )
-        .map(|(l, r)| Syntax::Eventually(Box::new(l), r))
-        .boxed(),
-        tuples!(
-            syntax.generator(),
-            optional(
-                durations()
-                    .min_value(Duration::from_millis(1))
-                    .max_value(Duration::from_millis(10))
-            )
-        )
-        .map(|(l, r)| Syntax::Always(Box::new(l), r))
-        .boxed(),
-    ]);
-
-    let result = syntax.generator();
-    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
-    result
-}
-
-fn eval_state() -> impl Generator<EvalState> {
-    tuples!(booleans(), booleans(), booleans()).map(|(x, y, z)| EvalState {
-        x,
-        y,
-        z,
-    })
 }
 
 /// Recursively compute which thunk indices contributed to a formula being true. Returns
@@ -677,12 +517,12 @@ fn test_true_snapshots_equal_truth_contributing(tc: TestCase) {
                 value,
                 pretty: format!("{:?}={}", variable, value),
             },
-            TestState::from_snapshot(snapshot(index, name)),
+            TestSnapshots::from_snapshot(snapshot(index, name)),
         ))
     };
     let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
         Evaluator::new(&mut evaluate_thunk);
-    let value = evaluator.evaluate(&formula, t0()).unwrap();
+    let value = evaluator.evaluate(&formula, TestTime::ZERO).unwrap();
 
     match (&expected, &value) {
         (Some(expected_indices), Value::True(_)) => {
@@ -714,7 +554,7 @@ fn test_true_snapshots_equal_truth_contributing(tc: TestCase) {
 
 #[test]
 fn test_thunk_returning_implies_preserves_outer_snapshots() {
-    let eval_state = EvalState {
+    let state = TestState {
         x: true,
         y: false,
         z: false,
@@ -722,9 +562,9 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
 
     let mut evaluate_thunk = |variable: &Variable, negated: bool| {
         let value = match variable {
-            Variable::X => eval_state.x,
-            Variable::Y => eval_state.y,
-            Variable::Z => eval_state.z,
+            Variable::X => state.x,
+            Variable::Y => state.y,
+            Variable::Z => state.z,
         };
         let value = if negated { !value } else { value };
 
@@ -751,7 +591,9 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
 
     let mut evaluator: Evaluator<'_, SnapshotDomain, Error> =
         Evaluator::new(&mut evaluate_thunk);
-    let value = evaluator.evaluate(&thunk(Variable::X), t0()).unwrap();
+    let value = evaluator
+        .evaluate(&thunk(Variable::X), TestTime::ZERO)
+        .unwrap();
 
     assert!(matches!(value, Value::False(_, _)));
     if let Value::False(violation, _) = &value {
@@ -769,121 +611,22 @@ fn test_thunk_returning_implies_preserves_outer_snapshots() {
     }
 }
 
-fn formula_depth(root: &Formula<SnapshotDomain>) -> usize {
-    let mut stack: Vec<(&Formula<SnapshotDomain>, usize)> = vec![(root, 1)];
-    let mut depth_max = 0;
-    while let Some((residual, depth)) = stack.pop() {
-        depth_max = depth_max.max(depth);
-        match residual {
-            Formula::Pure { .. } | Formula::Thunk { .. } => {}
-            Formula::And(left, right)
-            | Formula::Or(left, right)
-            | Formula::Implies(left, right) => {
-                stack.push((left, depth + 1));
-                stack.push((right, depth + 1));
-            }
-            Formula::Next(subformula)
-            | Formula::Eventually(subformula, _)
-            | Formula::Always(subformula, _) => {
-                stack.push((subformula, depth + 1))
-            }
-        }
-    }
-    depth_max
-}
-
-fn residual_depth(root: &Residual<SnapshotDomain>) -> usize {
-    let mut stack: Vec<(&Residual<SnapshotDomain>, usize)> = vec![(root, 1)];
-    let mut depth_max = 0;
-    while let Some((residual, depth)) = stack.pop() {
-        depth_max = depth_max.max(depth);
-        match residual {
-            Residual::True(_)
-            | Residual::False(_)
-            | Residual::Derived(_, _) => {}
-            Residual::And { left, right }
-            | Residual::Or { left, right }
-            | Residual::OrEventually { left, right, .. }
-            | Residual::Implies { left, right, .. } => {
-                stack.push((left, depth + 1));
-                stack.push((right, depth + 1));
-            }
-            Residual::AndAlways { pending, .. } => {
-                for residual in pending {
-                    stack.push((residual, depth + 1));
-                }
-            }
-        }
-    }
-    depth_max
-}
-
-fn violation_depth(root: &Violation<SnapshotDomain>) -> usize {
-    let mut stack: Vec<(&Violation<SnapshotDomain>, usize)> = vec![(root, 1)];
-    let mut depth_max = 0;
-    while let Some((violation, depth)) = stack.pop() {
-        depth_max = depth_max.max(depth);
-        match violation {
-            Violation::False { .. } | Violation::Eventually { .. } => {}
-            Violation::Always { violation, .. } => {
-                stack.push((violation, depth + 1))
-            }
-            Violation::And { left, right } | Violation::Or { left, right } => {
-                stack.push((left, depth + 1));
-                stack.push((right, depth + 1));
-            }
-            Violation::Implies { right, .. } => {
-                stack.push((right, depth + 1));
-            }
-        }
-    }
-    depth_max
-}
-
-#[test]
-fn test_always_next_residual_stays_bounded() {
-    let eval_state = EvalState {
-        x: true,
-        y: true,
-        z: true,
-    };
-    let formula: Formula<SnapshotDomain> = Formula::Always(
-        Box::new(Formula::Next(Box::new(Formula::Pure {
-            value: true,
-            pretty: "true".to_string(),
-        }))),
-        None,
-    );
-    let mut value = evaluate_with_state(&formula, &eval_state);
-    for i in 1..=2000u64 {
-        let residual = match value {
-            Value::Residual(residual) => residual,
-            other => {
-                panic!("expected residual at step {}, got {:?}", i, other)
-            }
-        };
-        let depth = residual_depth(&residual);
-        assert!(depth <= 4, "residual depth grew to {} at step {}", depth, i,);
-        value = step_with_state(&residual, &eval_state, time_from_millis(i));
-    }
-}
-
 #[test]
 fn test_always_with_outer_thunk_preserves_snapshots() {
-    let state_t0 = EvalState {
+    let state_t0 = TestState {
         x: true,
         y: true,
         z: true,
     };
-    let state_t1 = EvalState {
+    let state_t1 = TestState {
         x: true,
         y: true,
         z: false,
     };
 
     let current_state = std::cell::RefCell::new(&state_t0);
-    let time_t0 = t0();
-    let time_t1 = time_from_secs(1);
+    let time_t0 = TestTime::ZERO;
+    let time_t1 = TestTime::from_secs(1);
 
     let mut evaluate_thunk = |variable: &Variable, negated: bool| {
         let state = current_state.borrow();
@@ -914,7 +657,7 @@ fn test_always_with_outer_thunk_preserves_snapshots() {
                         value,
                         pretty: format!("{:?}={}", variable, value),
                     },
-                    TestState::from_snapshot(snapshot(index, name)),
+                    TestSnapshots::from_snapshot(snapshot(index, name)),
                 ))
             }
         }
@@ -973,161 +716,4 @@ fn test_always_with_outer_thunk_preserves_snapshots() {
     } else {
         panic!("Expected Always(Implies(...)) violation, got: {:?}", value);
     }
-}
-
-#[test]
-fn test_eventually_eventually_violation_doesnt_grow() {
-    let eval_state = EvalState {
-        x: true,
-        y: true,
-        z: true,
-    };
-    let formula: Formula<SnapshotDomain> = Formula::Eventually(
-        Box::new(Formula::Eventually(
-            Box::new(Formula::Implies(
-                Box::new(Formula::Pure {
-                    value: true,
-                    pretty: "true".to_string(),
-                }),
-                Box::new(Formula::Pure {
-                    value: false,
-                    pretty: "false".to_string(),
-                }),
-            )),
-            Some(Duration::from_millis(10)),
-        )),
-        None,
-    );
-    let mut value = evaluate_with_state(&formula, &eval_state);
-    for i in 1..=2000u64 {
-        let residual = match value {
-            Value::Residual(residual) => residual,
-            other => {
-                panic!("expected residual at step {}, got {:?}", i, other)
-            }
-        };
-        value = step_with_state(&residual, &eval_state, time_from_millis(i));
-        if let Value::False(violation, residual) = &value {
-            let depth = violation_depth(violation);
-            assert!(
-                depth <= 3,
-                "violation depth {depth} at step {i} does not match formula depth:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
-            );
-            if let Some(residual) = residual {
-                value = Value::Residual(residual.clone())
-            }
-        }
-    }
-}
-
-#[test]
-fn test_always_implies_eventually_violation_doesnt_grow() {
-    let formula: Formula<SnapshotDomain> = Formula::Always(
-        Box::new(Formula::Implies(
-            Box::new(Formula::Thunk {
-                function: Variable::Y,
-                negated: false,
-            }),
-            Box::new(Formula::Eventually(
-                Box::new(Formula::Thunk {
-                    function: Variable::X,
-                    negated: false,
-                }),
-                None,
-            )),
-        )),
-        None,
-    );
-    let mut value = evaluate_with_state(
-        &formula,
-        &EvalState {
-            x: true,
-            y: false,
-            z: true,
-        },
-    );
-    for i in 1..=1000u64 {
-        let residual = match value {
-            Value::Residual(residual) => residual,
-            other => {
-                panic!("expected residual at step {}, got {:?}", i, other)
-            }
-        };
-        assert!(residual_depth(&residual) < 20);
-
-        value = step_with_state(
-            &residual,
-            &EvalState {
-                x: i < 10,
-                y: true,
-                z: true,
-            },
-            time_from_millis(i),
-        );
-        if let Value::False(violation, residual) = &value {
-            let depth = violation_depth(violation);
-            assert!(
-                depth <= 3,
-                "violation depth {depth} at step {i} does not match formula depth:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
-            );
-            if let Some(residual) = residual {
-                value = Value::Residual(residual.clone())
-            }
-        }
-    }
-}
-
-#[hegel::test(test_cases = 1000)]
-fn test_violation_doesnt_grow_larger_than_formula(tc: TestCase) {
-    let formula = tc.draw(syntax()).nnf();
-    let eval_state = tc.draw(eval_state());
-    // We currently do not support nested unbounded always in the evaluator, even if it's
-    // allowed syntactically.
-    tc.assume(!has_nested_unbounded_always(&formula));
-    let depth_formula = formula_depth(&formula);
-
-    let mut value = evaluate_with_state(&formula, &eval_state);
-    for i in 1..=2000u64 {
-        let residual = match value {
-            Value::Residual(residual) => residual,
-            _ => break,
-        };
-        value = step_with_state(&residual, &eval_state, time_from_millis(i));
-        if let Value::False(violation, residual) = &value {
-            let depth_violation = violation_depth(violation);
-            assert!(
-                depth_violation <= depth_formula,
-                "violation depth {depth_violation} at step {i} does not match formula depth {depth_formula}:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
-            );
-            if let Some(residual) = residual {
-                assert!(residual_depth(residual) <= depth_formula);
-                value = Value::Residual(residual.clone())
-            }
-        }
-    }
-}
-
-fn has_nested_unbounded_always(root: &Formula<SnapshotDomain>) -> bool {
-    let mut stack = vec![(root, false)];
-    while let Some((formula, in_always)) = stack.pop() {
-        match formula {
-            Formula::Pure { .. } | Formula::Thunk { .. } => {}
-            Formula::And(left, right)
-            | Formula::Or(left, right)
-            | Formula::Implies(left, right) => {
-                stack.push((left, in_always));
-                stack.push((right, in_always));
-            }
-            Formula::Next(formula)
-            | Formula::Eventually(formula, _)
-            | Formula::Always(formula, _) => {
-                if in_always {
-                    return true;
-                } else {
-                    stack.push((formula, true));
-                }
-            }
-        }
-    }
-    false
 }
