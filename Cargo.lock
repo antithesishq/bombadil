@@ -565,6 +565,7 @@ dependencies = [
  "serde",
  "serde_json",
  "small-string",
+ "willow-tree",
 ]
 
 [[package]]

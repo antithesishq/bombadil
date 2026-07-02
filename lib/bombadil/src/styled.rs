@@ -75,14 +75,6 @@ fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
                 render_json_value(output, &snapshot.value, 0);
             }
         }
-        Markup::Stack(items) => {
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    output.push_str("\n\n");
-                }
-                render_markup(output, item, test_start);
-            }
-        }
         Markup::Join(items) => {
             render_join(output, items, test_start);
         }
@@ -261,7 +253,6 @@ fn is_inline(markup: &Markup) -> bool {
         Markup::Snapshots(items) => {
             items.iter().all(|item| is_json_inline(&item.value))
         }
-        Markup::Stack(_) => false,
         Markup::Join(items) => items.iter().all(is_inline),
         Markup::Comma => true,
     }

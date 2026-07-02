@@ -1,5 +1,5 @@
 use bombadil_schema::Time;
-use bombadil_schema::markup::{Inline, Markup};
+use bombadil_schema::markup::Markup;
 use yew::prelude::*;
 
 use crate::duration::{FormatDurationOptions, format_duration};
@@ -13,7 +13,6 @@ fn is_inline(markup: &Markup) -> bool {
         Markup::Snapshots(items) => {
             items.iter().all(|item| is_json_inline(&item.value))
         }
-        Markup::Stack(_) => false,
         Markup::Join(items) => items.iter().all(is_inline),
         Markup::Comma => true,
     }
@@ -74,13 +73,6 @@ pub fn markup_to_html(markup: &Markup, test_start: Time) -> Html {
                     </dl>
                 )
             }
-        }
-        Markup::Stack(items) => {
-            html!(
-                <>
-                    { for items.iter().map(|item| markup_to_html(item, test_start)) }
-                </>
-            )
         }
         Markup::Join(items) => {
             fn flatten_joins(items: &[Markup]) -> Vec<&Markup> {
