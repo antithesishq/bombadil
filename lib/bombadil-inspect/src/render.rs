@@ -1,169 +1,237 @@
+use std::collections::VecDeque;
+
 use bombadil_schema::Time;
-use bombadil_schema::markup::Markup;
+use bombadil_schema::markup::{Layout, Markup, Node};
+use serde_json::Value;
+use willow_tree::NodeId;
 use yew::prelude::*;
 
 use crate::duration::{FormatDurationOptions, format_duration};
 
 pub use bombadil_schema::markup::render_violation;
 
-fn is_inline(markup: &Markup) -> bool {
-    match markup {
-        Markup::Span(_) => true,
-        Markup::CodeBlock(_) => false,
-        Markup::Snapshots(items) => {
-            items.iter().all(|item| is_json_inline(&item.value))
+enum Frame {
+    Snapshots {
+        remaining_ids: VecDeque<NodeId>,
+        child_results: Vec<(Html, Layout)>,
+    },
+    Join {
+        remaining_ids: VecDeque<NodeId>,
+        html_result: Vec<Html>,
+        html_pending_inline: Vec<Html>,
+        comma_pending: bool,
+        layout_previous: Option<Layout>,
+        layout_all: Layout,
+    },
+}
+
+pub fn markup_to_html(tree: &Markup, test_start: Time) -> Html {
+    let mut stack: Vec<Frame> = Vec::new();
+
+    let root = tree.root();
+    match root.value() {
+        Node::Snapshots => stack.push(Frame::Snapshots {
+            remaining_ids: root.children().iter().cloned().collect(),
+            child_results: Vec::new(),
+        }),
+        Node::Join => stack.push(Frame::Join {
+            remaining_ids: root.children().iter().cloned().collect(),
+            html_result: Vec::new(),
+            html_pending_inline: Vec::new(),
+            comma_pending: false,
+            layout_previous: None,
+            layout_all: Layout::Inline,
+        }),
+        Node::Comma => panic!("root node cannot be a Comma"),
+        leaf => {
+            let (html, _) = build_leaf(leaf, test_start);
+            return html;
         }
-        Markup::Join(items) => items.iter().all(is_inline),
-        Markup::Comma => true,
+    }
+
+    loop {
+        let frame = stack.last_mut().expect("expected a frame on the stack");
+
+        let next_id = match frame {
+            Frame::Snapshots { remaining_ids, .. }
+            | Frame::Join { remaining_ids, .. } => remaining_ids.pop_front(),
+        };
+
+        match next_id {
+            Some(id) => {
+                let node = &tree[id];
+
+                match node.value() {
+                    Node::Comma => {
+                        if let Frame::Join { comma_pending, .. } = frame {
+                            *comma_pending = true;
+                        }
+                        // Comma has no meaning inside Snapshots, ignore.
+                    }
+                    Node::Join => {
+                        // Splice this Join's children in front of whatever's in the
+                        // current frame's queue.
+                        if let Frame::Join { remaining_ids, .. } = frame {
+                            let mut children: VecDeque<NodeId> =
+                                node.children().iter().cloned().collect();
+                            children.append(remaining_ids);
+                            *remaining_ids = children;
+                        } else {
+                            panic!(
+                                "unexpected Join node under Snapshots frame",
+                            );
+                        }
+                    }
+                    Node::Snapshots => {
+                        stack.push(Frame::Snapshots {
+                            remaining_ids: node
+                                .children()
+                                .iter()
+                                .cloned()
+                                .collect(),
+                            child_results: Vec::new(),
+                        });
+                    }
+                    leaf => {
+                        let (html, inline) = build_leaf(leaf, test_start);
+                        feed(frame, html, inline);
+                    }
+                }
+            }
+            None => {
+                let finished = stack.pop().unwrap();
+                let (html, inline) = finalize(finished);
+
+                match stack.last_mut() {
+                    Some(parent) => feed(parent, html, inline),
+                    None => return html,
+                }
+            }
+        }
     }
 }
 
-fn is_json_inline(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Array(items) => items.is_empty(),
-        serde_json::Value::Object(map) => map.is_empty(),
-        _ => true,
+fn build_leaf(node: &Node, test_start: Time) -> (Html, Layout) {
+    match node {
+        Node::Text(text) => (html!({ text }), Layout::Inline),
+        Node::Code(code) => (html!(<code>{code}</code>), Layout::Inline),
+        Node::Time(time) => (
+            html!(<time>{format_time(time, test_start)}</time>),
+            Layout::Inline,
+        ),
+        Node::Keyword(keyword) => (
+            html!(<span class="keyword">{keyword}</span>),
+            Layout::Inline,
+        ),
+        Node::CodeBlock(code) => {
+            (html!(<pre><code>{code}</code></pre>), Layout::Block)
+        }
+        Node::SnapshotMarkup { name, value } => {
+            let layout = Layout::for_json(value);
+            let class = match layout {
+                Layout::Inline => "json-entry inline",
+                Layout::Block => "json-entry",
+            };
+            let html = html!(
+                <div class={class}>
+                    <dt>{name}</dt>
+                    <dd>{render_json(value)}</dd>
+                </div>
+            );
+            (html, layout)
+        }
+        Node::Comma | Node::Join | Node::Snapshots => {
+            unreachable!("branch/comma nodes must be handled before build_leaf")
+        }
     }
 }
 
-pub fn markup_to_html(markup: &Markup, test_start: Time) -> Html {
-    match markup {
-        Markup::Span(inlines) => {
-            html!(
-                <span>
-                    { for inlines.iter().map(|inline| inline_to_html(inline, test_start)) }
-                </span>
-            )
+fn feed(frame: &mut Frame, html: Html, layout: Layout) {
+    match frame {
+        Frame::Snapshots { child_results, .. } => {
+            child_results.push((html, layout))
         }
-        Markup::CodeBlock(code) => html!(<pre><code>{code}</code></pre>),
-        Markup::Snapshots(items) => {
-            let all_inline =
-                items.iter().all(|item| is_json_inline(&item.value));
-            if all_inline {
-                html!(
+        Frame::Join {
+            html_result,
+            html_pending_inline,
+            comma_pending,
+            layout_previous,
+            layout_all,
+            ..
+        } => {
+            *layout_all = layout_all.join(layout);
+
+            if let Some(layout_previous) = *layout_previous {
+                match (layout_previous, layout) {
+                    (Layout::Inline, Layout::Inline) => {
+                        let separator = if *comma_pending { ", " } else { " " };
+                        html_pending_inline.push(html!({ separator }));
+                    }
+                    (Layout::Inline, Layout::Block) => {
+                        html_pending_inline.push(html!({ ":" }));
+                        flush_pending(html_pending_inline, html_result);
+                    }
+                    (Layout::Block, Layout::Block) => {
+                        if !html_result.is_empty() {
+                            html_result.push(html!({ "\n\n" }));
+                        }
+                    }
+                    (Layout::Block, Layout::Inline) => {}
+                }
+                *comma_pending = false;
+            }
+
+            *layout_previous = Some(layout);
+
+            if layout == Layout::Inline {
+                html_pending_inline.push(html);
+            } else {
+                html_result.push(html);
+            }
+        }
+    }
+}
+
+fn finalize(frame: Frame) -> (Html, Layout) {
+    match frame {
+        Frame::Snapshots { child_results, .. } => {
+            let layout_all = child_results
+                .iter()
+                .fold(Layout::Inline, |acc, (_, layout)| acc.join(*layout));
+            let html = match layout_all {
+                Layout::Inline => html!(
                     <span class="snapshot-inline">
                         <dl class="snapshot-values inline">
-                            { for items.iter().map(|item| {
-                                html!(
-                                    <div class="json-entry inline">
-                                        <dt>{&item.name}</dt>
-                                        <dd>{render_json(&item.value)}</dd>
-                                    </div>
-                                )
-                            }) }
+                            { for child_results.iter().map(|(html, _)| html.clone()) }
                         </dl>
                     </span>
-                )
-            } else {
-                html!(
+                ),
+                Layout::Block => html!(
                     <dl class="snapshot-values">
-                        { for items.iter().map(|item| {
-                            let class = if is_json_inline(&item.value) {
-                                "json-entry inline"
-                            } else {
-                                "json-entry"
-                            };
-                            html!(
-                                <div class={class}>
-                                    <dt>{&item.name}</dt>
-                                    <dd>{render_json(&item.value)}</dd>
-                                </div>
-                            )
-                        }) }
+                        { for child_results.iter().map(|(html, _)| html.clone()) }
                     </dl>
-                )
-            }
+                ),
+            };
+            (html, layout_all)
         }
-        Markup::Join(items) => {
-            fn flatten_joins(items: &[Markup]) -> Vec<&Markup> {
-                let mut result = Vec::new();
-                for item in items {
-                    if let Markup::Join(nested) = item {
-                        result.extend(flatten_joins(nested));
-                    } else {
-                        result.push(item);
-                    }
-                }
-                result
-            }
-
-            let flattened = flatten_joins(items);
-            let mut result = Vec::new();
-            let mut pending_spans = Vec::new();
-            let mut next_separator_has_comma = false;
-            let mut previous_non_comma_index = None;
-
-            let flush_pending =
-                |pending: &mut Vec<Html>, result: &mut Vec<Html>| {
-                    if !pending.is_empty() {
-                        if !result.is_empty() {
-                            result.push(html!({ "\n\n" }));
-                        }
-                        result.push(html!(<p>{ for pending.drain(..) }</p>));
-                    }
-                };
-
-            for (i, item) in flattened.iter().enumerate() {
-                if matches!(item, Markup::Comma) {
-                    next_separator_has_comma = true;
-                    continue;
-                }
-
-                let current_inline = is_inline(item);
-
-                if let Some(previous_index) = previous_non_comma_index {
-                    let previous_inline = is_inline(flattened[previous_index]);
-
-                    match (previous_inline, current_inline) {
-                        (true, true) => {
-                            let separator = if next_separator_has_comma {
-                                ", "
-                            } else {
-                                " "
-                            };
-                            pending_spans.push(html!({ separator }));
-                        }
-                        (true, false) => {
-                            pending_spans.push(html!({ ":" }));
-                            flush_pending(&mut pending_spans, &mut result);
-                        }
-                        (false, false) => {
-                            if !result.is_empty() {
-                                result.push(html!({ "\n\n" }));
-                            }
-                        }
-                        (false, true) => {}
-                    }
-                    next_separator_has_comma = false;
-                }
-
-                previous_non_comma_index = Some(i);
-
-                if current_inline {
-                    pending_spans.push(markup_to_html(item, test_start));
-                } else {
-                    result.push(markup_to_html(item, test_start));
-                }
-            }
-
-            flush_pending(&mut pending_spans, &mut result);
-
-            html!(<>{ for result }</>)
+        Frame::Join {
+            html_result: mut result,
+            html_pending_inline: mut pending,
+            layout_all,
+            ..
+        } => {
+            flush_pending(&mut pending, &mut result);
+            (html!(<>{ for result }</>), layout_all)
         }
-        Markup::Comma => html!(),
     }
 }
 
-fn inline_to_html(inline: &Inline, test_start: Time) -> Html {
-    match inline {
-        Inline::Text(text) => html!({ text }),
-        Inline::Code(code) => html!(<code>{code}</code>),
-        Inline::Time(time) => {
-            html!(<time>{format_time(time, test_start)}</time>)
+fn flush_pending(pending: &mut Vec<Html>, result: &mut Vec<Html>) {
+    if !pending.is_empty() {
+        if !result.is_empty() {
+            result.push(html!({ "\n\n" }));
         }
-        Inline::Keyword(keyword) => {
-            html!(<span class="keyword">{keyword}</span>)
-        }
+        result.push(html!(<p>{ for pending.drain(..) }</p>));
     }
 }
 
@@ -175,47 +243,46 @@ fn format_time(time: &Time, test_start: Time) -> String {
     )
 }
 
-fn render_json(value: &serde_json::Value) -> Html {
+fn render_json(value: &Value) -> Html {
     match value {
-        serde_json::Value::Array(items) if items.is_empty() => {
+        Value::Array(items) if items.is_empty() => {
             html!(<code class="json-literal">{"[]"}</code>)
         }
-        serde_json::Value::Array(items) => {
+        Value::Array(items) => {
             html!(
                 <ul class="json-array">
                     { for items.iter().map(|item| html!(<li>{render_json(item)}</li>)) }
                 </ul>
             )
         }
-        serde_json::Value::Object(map) if map.is_empty() => {
+        Value::Object(map) if map.is_empty() => {
             html!(<code class="json-literal">{"{}"}</code>)
         }
-        serde_json::Value::Object(map) => {
+        Value::Object(map) => {
             let mut entries: Vec<_> = map.iter().collect();
             entries.sort_by_key(|(key, _)| *key);
             html!(
                 <dl class="json-object">
-                    { for entries.into_iter().map(|(key, val)| {
-                        let class = if is_json_inline(val) {
-                            "json-entry inline"
-                        } else {
-                            "json-entry"
+                    { for entries.iter().map(|(key, value)| {
+                        let class = match Layout::for_json(value) {
+                            Layout::Inline => "json-entry inline",
+                            Layout::Block => "json-entry",
                         };
                         html!(
                             <div class={class}>
                                 <dt>{key}</dt>
-                                <dd>{render_json(val)}</dd>
+                                <dd>{render_json(value)}</dd>
                             </div>
                         )
                     }) }
                 </dl>
             )
         }
-        serde_json::Value::String(s) if is_printable(s) => {
+        Value::String(s) if is_printable(s) => {
             html!(<span class="json-string">{s}</span>)
         }
-        serde_json::Value::String(s) => {
-            let literal = serde_json::Value::String(s.clone()).to_string();
+        Value::String(s) => {
+            let literal = Value::String(s.clone()).to_string();
             html!(
                 <code class="json-literal" title={s.clone()}>
                     {literal}

@@ -440,6 +440,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "willow-tree",
 ]
 
 [[package]]
@@ -544,6 +545,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "willow-tree",
  "yew",
 ]
 

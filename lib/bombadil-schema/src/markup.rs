@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use willow_tree::{NodeId, Tree};
-
 use crate::schema::{
     EventuallyViolation, Formula, PropertyViolation, Snapshot, Time, Violation,
 };
+use serde_json::Value;
+use willow_tree::{NodeId, Tree};
 
 #[derive(Debug, Clone)]
 pub enum Node {
@@ -176,7 +176,7 @@ pub fn render_violation(violation: &PropertyViolation) -> Markup {
                             parent_id: join_id,
                         });
                         stack.push(Work::Node {
-                            node: Node::Keyword("or".into()),
+                            node: Node::Keyword("and".into()),
                             parent_id: join_id,
                         });
                         stack.push(Work::Violation {
@@ -496,6 +496,29 @@ fn render_formula(tree: &mut Markup, parent_id: NodeId, formula: &Formula) {
             Work::Node { node, parent_id } => {
                 tree.insert(node, parent_id);
             }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Layout {
+    Inline,
+    Block,
+}
+
+impl Layout {
+    pub fn join(self, other: Layout) -> Layout {
+        match (self, other) {
+            (Layout::Inline, Layout::Inline) => Layout::Inline,
+            _ => Layout::Block,
+        }
+    }
+
+    pub fn for_json(value: &Value) -> Self {
+        match value {
+            Value::Array(items) if !items.is_empty() => Layout::Block,
+            Value::Object(map) if !map.is_empty() => Layout::Block,
+            _ => Layout::Inline,
         }
     }
 }
