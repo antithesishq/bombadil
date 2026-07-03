@@ -244,53 +244,176 @@ fn format_time(time: &Time, test_start: Time) -> String {
 }
 
 fn render_json(value: &Value) -> Html {
-    match value {
-        Value::Array(items) if items.is_empty() => {
-            html!(<code class="json-literal">{"[]"}</code>)
+    enum Wrap<'a> {
+        None,
+        ArrayItem,
+        ObjectEntry { key: &'a str, class: &'static str },
+    }
+
+    impl<'a> Wrap<'a> {
+        fn apply(&self, html: Html) -> Html {
+            match self {
+                Wrap::None => html,
+                Wrap::ArrayItem => html!(<li>{html}</li>),
+                Wrap::ObjectEntry { key, class } => html!(
+                    <div class={*class}>
+                        <dt>{key}</dt>
+                        <dd>{html}</dd>
+                    </div>
+                ),
+            }
         }
-        Value::Array(items) => {
-            html!(
-                <ul class="json-array">
-                    { for items.iter().map(|item| html!(<li>{render_json(item)}</li>)) }
-                </ul>
-            )
+    }
+
+    enum Frame<'a> {
+        Array {
+            values_remaining: VecDeque<&'a Value>,
+            html_result: Vec<Html>,
+            wrap: Wrap<'a>,
+        },
+        Object {
+            values_remaining: VecDeque<(&'a str, &'a Value)>,
+            html_result: Vec<Html>,
+            wrap: Wrap<'a>,
+        },
+    }
+
+    enum Next<'a> {
+        ArrayItem(&'a Value),
+        ObjectEntry(&'a str, &'a Value),
+    }
+
+    fn build_scalar(value: &Value) -> Html {
+        match value {
+            Value::Array(items) if items.is_empty() => {
+                html!(<code class="json-literal">{"[]"}</code>)
+            }
+            Value::Object(map) if map.is_empty() => {
+                html!(<code class="json-literal">{"{}"}</code>)
+            }
+            Value::Array(_) | Value::Object(_) => {
+                panic!("can't build a scalar from array or object")
+            }
+            Value::String(s) if is_printable(s) => {
+                html!(<span class="json-string">{s}</span>)
+            }
+            Value::String(s) => {
+                let literal = Value::String(s.clone()).to_string();
+                html!(
+                    <code class="json-literal" title={s.clone()}>
+                        {literal}
+                    </code>
+                )
+            }
+            other => {
+                html!(<code class="json-literal">{other.to_string()}</code>)
+            }
         }
-        Value::Object(map) if map.is_empty() => {
-            html!(<code class="json-literal">{"{}"}</code>)
+    }
+
+    fn class_for(value: &Value) -> &'static str {
+        match Layout::for_json(value) {
+            Layout::Inline => "json-entry inline",
+            Layout::Block => "json-entry",
         }
-        Value::Object(map) => {
-            let mut entries: Vec<_> = map.iter().collect();
-            entries.sort_by_key(|(key, _)| *key);
-            html!(
-                <dl class="json-object">
-                    { for entries.iter().map(|(key, value)| {
-                        let class = match Layout::for_json(value) {
-                            Layout::Inline => "json-entry inline",
-                            Layout::Block => "json-entry",
-                        };
-                        html!(
-                            <div class={class}>
-                                <dt>{key}</dt>
-                                <dd>{render_json(value)}</dd>
-                            </div>
-                        )
-                    }) }
-                </dl>
-            )
+    }
+
+    /// Either pushes a new frame for arrays or objects (`None` case), or
+    /// returns HTML directly for scalars (`Some` case).
+    fn enter<'a>(
+        value: &'a Value,
+        wrap: Wrap<'a>,
+        stack: &mut Vec<Frame<'a>>,
+    ) -> Option<Html> {
+        match value {
+            Value::Array(items) => stack.push(Frame::Array {
+                values_remaining: items.iter().collect(),
+                html_result: Vec::new(),
+                wrap,
+            }),
+            Value::Object(map) => {
+                let mut entries: Vec<_> =
+                    map.iter().map(|(k, v)| (k.as_str(), v)).collect();
+                entries.sort_by_key(|(key, _)| *key);
+                stack.push(Frame::Object {
+                    values_remaining: entries.into_iter().collect(),
+                    html_result: Vec::new(),
+                    wrap,
+                });
+            }
+            _ => return Some(wrap.apply(build_scalar(value))),
         }
-        Value::String(s) if is_printable(s) => {
-            html!(<span class="json-string">{s}</span>)
-        }
-        Value::String(s) => {
-            let literal = Value::String(s.clone()).to_string();
-            html!(
-                <code class="json-literal" title={s.clone()}>
-                    {literal}
-                </code>
-            )
-        }
-        other => {
-            html!(<code class="json-literal">{other.to_string()}</code>)
+        None
+    }
+
+    let mut stack: Vec<Frame> = Vec::new();
+
+    if let Some(html) = enter(value, Wrap::None, &mut stack) {
+        return html;
+    }
+
+    loop {
+        let next = match stack.last_mut().expect("expected frame on stack") {
+            Frame::Array {
+                values_remaining, ..
+            } => values_remaining.pop_front().map(Next::ArrayItem),
+            Frame::Object {
+                values_remaining, ..
+            } => values_remaining
+                .pop_front()
+                .map(|(key, value)| Next::ObjectEntry(key, value)),
+        };
+
+        match next {
+            Some(Next::ArrayItem(item)) => {
+                if let Some(html) = enter(item, Wrap::ArrayItem, &mut stack)
+                    && let Frame::Array { html_result, .. } =
+                        stack.last_mut().expect("expected frame on stack")
+                {
+                    html_result.push(html);
+                }
+            }
+            Some(Next::ObjectEntry(key, value)) => {
+                let wrap = Wrap::ObjectEntry {
+                    key,
+                    class: class_for(value),
+                };
+                if let Some(html) = enter(value, wrap, &mut stack)
+                    && let Frame::Object { html_result, .. } =
+                        stack.last_mut().expect("expected frame on stack")
+                {
+                    html_result.push(html);
+                }
+            }
+            None => {
+                let frame_finished =
+                    stack.pop().expect("no finished frame on stack");
+                let (html, wrap) = match frame_finished {
+                    Frame::Array {
+                        html_result, wrap, ..
+                    } => (
+                        html!(<ul class="json-array">{ for html_result }</ul>),
+                        wrap,
+                    ),
+                    Frame::Object {
+                        html_result, wrap, ..
+                    } => (
+                        html!(<dl class="json-object">{ for html_result }</dl>),
+                        wrap,
+                    ),
+                };
+                let wrapped = wrap.apply(html);
+
+                match stack.last_mut() {
+                    Some(Frame::Array { html_result, .. }) => {
+                        html_result.push(wrapped)
+                    }
+                    Some(Frame::Object { html_result, .. }) => {
+                        html_result.push(wrapped)
+                    }
+                    None => return wrapped,
+                }
+            }
         }
     }
 }
