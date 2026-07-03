@@ -202,44 +202,63 @@ fn finalize(frame: Frame) -> (String, Layout) {
 }
 
 fn render_json_value(output: &mut String, value: &Value, indent: usize) {
-    match value {
-        Value::Null => output.push_str(&maybe_blue("null".to_string())),
-        Value::Bool(b) => output.push_str(&maybe_blue(b.to_string())),
-        Value::Number(n) => output.push_str(&maybe_blue(n.to_string())),
-        Value::String(s) => {
-            if is_simple_string(s) {
-                output.push_str(&maybe_blue(s.to_string()));
-            } else {
-                output.push_str(&maybe_blue(serde_json::to_string(s).unwrap()));
-            }
-        }
-        Value::Array(items) if items.is_empty() => {
-            output.push_str(&maybe_blue("[]".to_string()))
-        }
-        Value::Array(items) => {
-            let indent_str = "  ".repeat(indent + 1);
-            for item in items {
-                output.push('\n');
-                output.push_str(&indent_str);
-                output.push_str("- ");
-                render_json_value(output, item, indent + 1);
-            }
-        }
-        Value::Object(map) if map.is_empty() => {
-            output.push_str(&maybe_blue("{}".to_string()))
-        }
-        Value::Object(map) => {
-            let mut entries: Vec<_> = map.iter().collect();
-            entries.sort_by_key(|(key, _)| *key);
+    enum Work<'a> {
+        Value { value: &'a Value, indent: usize },
+        Literal(String),
+    }
 
-            let indent_str = "  ".repeat(indent + 1);
-            for (key, val) in entries {
-                output.push('\n');
-                output.push_str(&indent_str);
-                output.push_str(key);
-                output.push_str(": ");
-                render_json_value(output, val, indent + 1);
-            }
+    let mut stack = vec![Work::Value { value, indent }];
+
+    while let Some(work) = stack.pop() {
+        match work {
+            Work::Literal(s) => output.push_str(&s),
+            Work::Value { value, indent } => match value {
+                Value::Null => output.push_str(&maybe_blue("null".to_string())),
+                Value::Bool(b) => output.push_str(&maybe_blue(b.to_string())),
+                Value::Number(n) => output.push_str(&maybe_blue(n.to_string())),
+                Value::String(s) => {
+                    if is_simple_string(s) {
+                        output.push_str(&maybe_blue(s.to_string()));
+                    } else {
+                        output.push_str(&maybe_blue(
+                            serde_json::to_string(s).expect(
+                                "couldn't serialize JSON string as string",
+                            ),
+                        ));
+                    }
+                }
+                Value::Array(items) if items.is_empty() => {
+                    output.push_str(&maybe_blue("[]".to_string()))
+                }
+                Value::Array(items) => {
+                    let indent_str = "  ".repeat(indent + 1);
+                    for item in items.iter().rev() {
+                        stack.push(Work::Value {
+                            value: item,
+                            indent: indent + 1,
+                        });
+                        stack.push(Work::Literal(format!("\n{indent_str}- ")));
+                    }
+                }
+                Value::Object(map) if map.is_empty() => {
+                    output.push_str(&maybe_blue("{}".to_string()))
+                }
+                Value::Object(map) => {
+                    let mut entries: Vec<_> = map.iter().collect();
+                    entries.sort_by_key(|(key, _)| *key);
+
+                    let indent_str = "  ".repeat(indent + 1);
+                    for (key, val) in entries.into_iter().rev() {
+                        stack.push(Work::Value {
+                            value: val,
+                            indent: indent + 1,
+                        });
+                        stack.push(Work::Literal(format!(
+                            "\n{indent_str}{key}: "
+                        )));
+                    }
+                }
+            },
         }
     }
 }
@@ -257,7 +276,7 @@ fn is_simple_string(s: &str) -> bool {
         | "~" => return false,
         _ => {}
     }
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("first char on empty string");
     if matches!(
         first,
         '[' | ']'
