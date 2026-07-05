@@ -178,13 +178,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 }
                 BrowserAction::SetViewport { width, height }
             }
-            JsAction::Custom { name } => BrowserAction::Custom {
-                name,
-                // State is set to an empty object currently,
-                // this is passed as an argument to the custom action function
-                // can be used later when implemented.
-                state: serde_json::Value::Object(serde_json::Map::new()),
-            },
+            JsAction::Custom { name } => BrowserAction::Custom { name },
         })
     }
 }

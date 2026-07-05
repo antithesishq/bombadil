@@ -39,7 +39,7 @@ export type Action<Number = number, String = string> =
       };
     }
   | { SetViewport: { width: Number; height: Number } }
-  | { Custom: { name: string; state: Pick<State, "document" | "window"> } };
+  | { Custom: { name: string } };
 
 export type ActionTemplate = Action<Range, StringGenerator>;
 
@@ -216,10 +216,7 @@ function getStructuralPath(el: Element): string {
 
 export function registerCustomAction(
   name: string,
-  scriptFunction: (state: Pick<State, "document" | "window">) => Promise<void>,
+  scriptFunction: () => Promise<void>,
 ) {
-  bombadil.registerCustomAction<Pick<State, "document" | "window">>(
-    name,
-    scriptFunction,
-  );
+  bombadil.registerCustomAction(name, scriptFunction);
 }

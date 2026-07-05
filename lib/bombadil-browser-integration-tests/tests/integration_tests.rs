@@ -1172,3 +1172,45 @@ export const eventuallyDone = eventually(() => isDone.current);
         .run()
         .await;
 }
+
+#[tokio::test]
+async fn test_custom_action() {
+    BrowserIntegrationTest::new("custom-action")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract, registerCustomAction } from "@antithesishq/bombadil/browser";
+
+const counter = extract((state) => {
+  const element = state.document.getElementById("counter");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const result = extract((state) => {
+  const element = state.document.getElementById("result");
+  return element?.textContent ?? "";
+});
+
+registerCustomAction("doubleCounter", async () => {
+  const resultElement = document.getElementById("result");
+  if (resultElement) {
+    resultElement.textContent = (counter.current * 2).toString();
+  }
+});
+
+export const _actions = actions(() => {
+  if (result.current === "") {
+    return [{ Custom: { name: "doubleCounter" } }];
+  }
+  return ["Wait"];
+});
+
+export const counterDoubled = eventually(() =>
+  result.current === "10"
+).within(5, "seconds");
+"##,
+        )
+        .run()
+        .await;
+}

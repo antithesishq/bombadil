@@ -346,21 +346,8 @@ async fn run_extractors(
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
-                r#"(state) => {
-                    const runtime = __bombadilRequire('@antithesishq/bombadil').runtime;
-                    const snapshots = runtime.runExtractors({ ...state, document, window });
-
-                    // Update extractor cells in browser context
-                    snapshots.forEach((snapshot, index) => {
-                        const extractor = runtime.extractors[index];
-                        if (extractor) {
-                            extractor.update(snapshot.value);
-                        }
-                    });
-
-                    return snapshots;
-                }"#,
-                vec![state_partial.clone()],
+                "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
+                vec![state_partial.clone()]
             )
             .await?;
 

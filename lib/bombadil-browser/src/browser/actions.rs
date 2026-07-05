@@ -67,7 +67,6 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     },
     Custom {
         name: String,
-        state: json::Value,
     },
 }
 
@@ -299,17 +298,10 @@ impl BrowserAction {
                 )
                 .await?;
             }
-            BrowserAction::Custom { name, state } => {
-                let state_stringified = json::to_string(state)?;
-
+            BrowserAction::Custom { name } => {
                 page.evaluate(format!(r#"(async () => {{
-                    const state = JSON.parse('{state_stringified}');
-                    const action = __bombadilRequire('@antithesishq/bombadil').runtime.customActions["{name}"];
-                    if (!action) {{
-                        throw new Error("Custom action {name} not found");
-                    }}
                     try {{
-                        await action.run({{ ...state, document, window }});
+                        await __bombadilRequire('@antithesishq/bombadil').runtime.runCustomAction('{name}');
                     }} catch (err) {{
                         throw new Error(`Error executing custom action {name}: ${{err}}`);
                     }}
@@ -391,10 +383,9 @@ impl BrowserActionTemplate {
                     height: rng.random_range(height.clone()),
                 }
             }
-            BrowserAction::Custom { name, state } => BrowserAction::Custom {
-                name: name.clone(),
-                state: state.clone(),
-            },
+            BrowserAction::Custom { name } => {
+                BrowserAction::Custom { name: name.clone() }
+            }
         }
     }
 

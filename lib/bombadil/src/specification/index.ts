@@ -33,13 +33,11 @@ export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
   return bombadilActions.actions(generate);
 }
 
-export function registerCustomAction<S>(
+export function registerCustomAction(
   name: string,
-  scriptFunction: (state: S) => Promise<void>,
+  scriptFunction: () => Promise<void>,
 ) {
-  runtime.registerCustomAction(
-    new CustomAction(name, scriptFunction) as CustomAction<unknown>,
-  );
+  runtime.registerCustomAction(new CustomAction(name, scriptFunction));
 }
 
 export function weighted<A>(
