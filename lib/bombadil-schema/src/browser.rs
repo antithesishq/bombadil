@@ -187,6 +187,5 @@ pub enum BrowserAction {
     },
     Custom {
         name: String,
-        state: serde_json::Value,
     },
 }

@@ -52,12 +52,18 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 }
 
-export class CustomAction<S> {
+export class CustomAction {
   constructor(
     public name: string,
-    public run: (state: S) => void,
+    public run: () => Promise<void>,
   ) {}
 }
+
+type RunExtractorsResult = {
+  index: number;
+  name: string | null;
+  value: JSON;
+}[];
 
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
@@ -65,7 +71,7 @@ export class Runtime<S> {
   private tracking = false;
   private accesses = new Set<number>();
 
-  customActions: Record<string, CustomAction<S>> = {};
+  customActions: Record<string, CustomAction> = {};
 
   registerExtractor(cell: ExtractorCell<any, S>): number {
     const index = this.extractors.length;
@@ -91,21 +97,26 @@ export class Runtime<S> {
     }
   }
 
-  runExtractors(
-    state: S,
-  ): { index: number; name: string | null; value: JSON }[] {
-    return this.extractors.map((extractor, index) => {
+  runExtractors(state: S): RunExtractorsResult {
+    const snapshots: RunExtractorsResult = [];
+
+    this.extractors.forEach((extractor, index) => {
       this.extractingDepth++;
       try {
-        return {
+        const value = extractor.run(state);
+        extractor.update(value);
+
+        snapshots.push({
           index,
           name: extractor.name,
-          value: extractor.run(state),
-        };
+          value,
+        });
       } finally {
         this.extractingDepth--;
       }
     });
+
+    return snapshots;
   }
 
   checkNotExtracting(): void {
@@ -118,7 +129,15 @@ export class Runtime<S> {
     }
   }
 
-  registerCustomAction(action: CustomAction<S>) {
+  registerCustomAction(action: CustomAction) {
     this.customActions[action.name] = action;
+  }
+
+  async runCustomAction(name: string): Promise<void> {
+    const action = this.customActions[name];
+    if (!action) {
+      return Promise.reject(`Custom action '${name}' is not registered.`);
+    }
+    return action.run();
   }
 }

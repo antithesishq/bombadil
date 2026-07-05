@@ -224,11 +224,10 @@ pub fn format_action<
                 styled::maybe_blue(format!("{}", Formatted(height)))
             )
         }
-        BrowserAction::Custom { name, state } => {
+        BrowserAction::Custom { name } => {
             format!(
-                "{} <{name}> with state: {}",
-                styled::maybe_bold("Performing custom action".to_string()),
-                styled::maybe_blue(format!("{:?}", state))
+                "{} <{name}>",
+                styled::maybe_bold("Performing custom action".to_string())
             )
         }
     }
