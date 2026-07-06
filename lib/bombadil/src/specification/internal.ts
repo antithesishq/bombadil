@@ -59,11 +59,11 @@ export class CustomAction {
   ) {}
 }
 
-type RunExtractorsResult = {
+type RunExtractorResult = {
   index: number;
   name: string | null;
   value: JSON;
-}[];
+};
 
 export class Runtime<S> {
   extractors: ExtractorCell<any, S>[] = [];
@@ -97,8 +97,8 @@ export class Runtime<S> {
     }
   }
 
-  runExtractors(state: S): RunExtractorsResult {
-    const snapshots: RunExtractorsResult = [];
+  runExtractors(state: S): RunExtractorResult[] {
+    const snapshots: RunExtractorResult[] = [];
 
     this.extractors.forEach((extractor, index) => {
       this.extractingDepth++;
