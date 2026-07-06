@@ -1,5 +1,7 @@
 /target
 lib/bombadil/target
+swift/BombadilAgent/.build
+swift/BombadilAgent/.swiftpm
 .direnv
 /result
 .envrc.local
