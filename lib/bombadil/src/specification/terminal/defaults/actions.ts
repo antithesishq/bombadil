@@ -95,18 +95,16 @@ export namespace CharSets {
     "\x1b[24~", // F12
   );
 
-  export const ASCII_PRINTABLE = CharSet.fromRange(0x20, 0x7e);
+  export const ASCII_PRINTABLE = CharSet.ASCII_PRINTABLE;
 
-  export const UNICODE_LATIN_EXTENDED = CharSet.fromRange(0x00a0, 0x024f);
-  export const UNICODE_GREEK = CharSet.fromRange(0x0370, 0x03ff);
-  export const UNICODE_CYRILLIC = CharSet.fromRange(0x0400, 0x04ff);
-  export const UNICODE_CJK = CharSet.fromRange(0x4e00, 0x9fff);
-  export const UNICODE_HANGUL = CharSet.fromRange(0xac00, 0xd7a3);
-  export const UNICODE_EMOTICONS = CharSet.fromRange(0x1f600, 0x1f64f);
-  export const UNICODE_SYMBOLS_PICTOGRAPHS_SAFE = CharSet.fromRange(
-    0x1f300,
-    0x1f43f,
-  );
+  export const UNICODE_LATIN_EXTENDED = CharSet.UNICODE_LATIN_EXTENDED;
+  export const UNICODE_GREEK = CharSet.UNICODE_GREEK;
+  export const UNICODE_CYRILLIC = CharSet.UNICODE_CYRILLIC;
+  export const UNICODE_CJK = CharSet.UNICODE_CJK;
+  export const UNICODE_HANGUL = CharSet.UNICODE_HANGUL;
+  export const UNICODE_EMOTICONS = CharSet.UNICODE_EMOTICONS;
+  export const UNICODE_SYMBOLS_PICTOGRAPHS_SAFE =
+    CharSet.UNICODE_SYMBOLS_PICTOGRAPHS_SAFE;
 
   export const UNICODE_SAFE = CharSet.union(
     ASCII_PRINTABLE,

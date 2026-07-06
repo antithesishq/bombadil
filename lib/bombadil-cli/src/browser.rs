@@ -162,8 +162,10 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
         } => {
             let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
-            let output_path =
-                output_path::resolve_output_path(&shared.output_path)?;
+            let output_path = output_path::resolve_output_path(
+                &shared.output_path,
+                "bombadil_",
+            )?;
 
             let mut reproduce_args =
                 reproduce_command_args("browser test", &shared);
@@ -201,8 +203,10 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
             create_target,
         } => {
             let mode = resolve_test_mode(&shared).await?;
-            let output_path =
-                output_path::resolve_output_path(&shared.output_path)?;
+            let output_path = output_path::resolve_output_path(
+                &shared.output_path,
+                "bombadil_",
+            )?;
 
             let mut reproduce_args =
                 reproduce_command_args("browser test-external", &shared);
@@ -359,15 +363,12 @@ async fn browser_test(
 ) -> Result<()> {
     // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification = if let Some(path) = &shared_options.specification_file {
-        let path = if path.is_relative() && !path.starts_with(".") {
-            PathBuf::from(".").join(path)
-        } else {
-            path.clone()
-        };
-        log::info!("loading specification from file: {}", path.display());
-        Specification {
-            module_specifier: path.display().to_string(),
-        }
+        let specification = Specification::from_file(path);
+        log::info!(
+            "loading specification from file: {}",
+            specification.module_specifier
+        );
+        specification
     } else {
         log::info!("using default specification");
         Specification {

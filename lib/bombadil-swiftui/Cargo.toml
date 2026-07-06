@@ -1,0 +1,18 @@
+[package]
+name = "bombadil-swiftui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+boa_engine.workspace = true
+bombadil = { path = "../bombadil" }
+bombadil-schema = { path = "../bombadil-schema" }
+log.workspace = true
+rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+env_logger.workspace = true
+tempfile.workspace = true

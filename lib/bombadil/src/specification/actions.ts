@@ -76,4 +76,15 @@ export namespace CharSet {
     // TODO: compute overlaps?
     return sets.flat(1);
   }
+
+  // Common Unicode ranges for text generation, shared by the driver
+  // flavors' default specifications.
+  export const ASCII_PRINTABLE = fromRange(0x20, 0x7e);
+  export const UNICODE_LATIN_EXTENDED = fromRange(0x00a0, 0x024f);
+  export const UNICODE_GREEK = fromRange(0x0370, 0x03ff);
+  export const UNICODE_CYRILLIC = fromRange(0x0400, 0x04ff);
+  export const UNICODE_CJK = fromRange(0x4e00, 0x9fff);
+  export const UNICODE_HANGUL = fromRange(0xac00, 0xd7a3);
+  export const UNICODE_EMOTICONS = fromRange(0x1f600, 0x1f64f);
+  export const UNICODE_SYMBOLS_PICTOGRAPHS_SAFE = fromRange(0x1f300, 0x1f43f);
 }

@@ -75,6 +75,13 @@ pub struct TraceEntry<A, S> {
     pub violations: Vec<PropertyViolation>,
 }
 
+/// Exit status of a spawned system under test.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessExitStatus {
+    pub signal: Option<String>,
+    pub code: u32,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Point {
     pub x: f64,

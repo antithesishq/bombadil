@@ -2,6 +2,9 @@ mod browser;
 mod duration;
 mod inspect_server;
 mod output_path;
+mod reproduce;
+#[cfg(feature = "swiftui")]
+mod swiftui;
 #[cfg(feature = "terminal")]
 mod terminal;
 
@@ -30,6 +33,12 @@ enum Command {
         #[command(subcommand)]
         command: terminal::Command,
     },
+    /// [EXPERIMENTAL] Property-based testing for SwiftUI apps
+    #[cfg(feature = "swiftui")]
+    Swiftui {
+        #[command(subcommand)]
+        command: swiftui::Command,
+    },
 }
 
 #[hotpath::main]
@@ -50,6 +59,11 @@ fn main() -> Result<()> {
         #[cfg(feature = "terminal")]
         Command::Terminal { command } => {
             terminal::run(command);
+            Ok(())
+        }
+        #[cfg(feature = "swiftui")]
+        Command::Swiftui { command } => {
+            swiftui::run(command);
             Ok(())
         }
     }

@@ -367,6 +367,14 @@ expression: bundle
     		return sets.flat(1);
     	}
     	_CharSet.union = union;
+    	const ASCII_PRINTABLE = _CharSet.ASCII_PRINTABLE = fromRange(32, 126);
+    	const UNICODE_LATIN_EXTENDED = _CharSet.UNICODE_LATIN_EXTENDED = fromRange(160, 591);
+    	const UNICODE_GREEK = _CharSet.UNICODE_GREEK = fromRange(880, 1023);
+    	const UNICODE_CYRILLIC = _CharSet.UNICODE_CYRILLIC = fromRange(1024, 1279);
+    	const UNICODE_CJK = _CharSet.UNICODE_CJK = fromRange(19968, 40959);
+    	const UNICODE_HANGUL = _CharSet.UNICODE_HANGUL = fromRange(44032, 55203);
+    	const UNICODE_EMOTICONS = _CharSet.UNICODE_EMOTICONS = fromRange(128512, 128591);
+    	const UNICODE_SYMBOLS_PICTOGRAPHS_SAFE = _CharSet.UNICODE_SYMBOLS_PICTOGRAPHS_SAFE = fromRange(127744, 128063);
     })(CharSet || (CharSet = {}));
     module.exports.leaf = leaf;
     module.exports.branch = branch;

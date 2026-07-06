@@ -513,6 +513,7 @@ dependencies = [
  "bombadil-browser-keys",
  "bombadil-ltl",
  "bombadil-schema",
+ "bombadil-swiftui",
  "bombadil-terminal",
  "clap",
  "env_logger",
@@ -568,6 +569,22 @@ dependencies = [
  "serde_json",
  "small-string",
  "willow-tree",
+]
+
+[[package]]
+name = "bombadil-swiftui"
+version = "0.6.1"
+dependencies = [
+ "anyhow",
+ "boa_engine",
+ "bombadil",
+ "bombadil-schema",
+ "env_logger",
+ "log",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

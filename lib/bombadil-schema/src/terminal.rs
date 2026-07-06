@@ -24,11 +24,7 @@ pub struct TerminalStateSummary {
     pub exit_status: Option<ProcessExitStatus>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ProcessExitStatus {
-    pub signal: Option<String>,
-    pub code: u32,
-}
+pub use crate::schema::ProcessExitStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TerminalCursor {

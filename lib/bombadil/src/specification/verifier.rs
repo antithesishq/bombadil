@@ -39,6 +39,22 @@ pub struct Specification {
     pub module_specifier: String,
 }
 
+impl Specification {
+    /// Specification loaded from a file path. Relative paths get a
+    /// "./" prefix so the bundler treats them as paths rather than
+    /// bare module specifiers.
+    pub fn from_file(path: &std::path::Path) -> Self {
+        let path = if path.is_relative() && !path.starts_with(".") {
+            std::path::PathBuf::from(".").join(path)
+        } else {
+            path.to_path_buf()
+        };
+        Specification {
+            module_specifier: path.display().to_string(),
+        }
+    }
+}
+
 fn format_console_args(args: &[JsValue]) -> String {
     args.iter()
         .map(|v| match v.as_string() {

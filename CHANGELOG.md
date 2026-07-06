@@ -4,6 +4,7 @@
 
 Major updates:
 
+* [EXPERIMENTAL] SwiftUI driver: `bombadil swiftui test` fuzz-tests SwiftUI apps (macOS-first) through an in-app agent (`swift/BombadilAgent`) that exposes the accessibility tree as state and applies generated taps, typed text, key presses and scrolling; specifications use the new `@antithesishq/bombadil/swiftui` API
 * Add `--cookie NAME=VALUE` option to set real browser cookies before testing, scoped to the origin (useful for client-side auth flows that read cookies, unlike `--header`)
 
 ## 0.6.1

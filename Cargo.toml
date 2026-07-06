@@ -8,6 +8,7 @@ members = [
     "lib/bombadil-ltl",
     "lib/bombadil-inspect",
     "lib/bombadil-schema",
+    "lib/bombadil-swiftui",
     "lib/bombadil-terminal",
     "lib/small-string",
     "lib/willow-tree",
