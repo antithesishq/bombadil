@@ -145,6 +145,64 @@ terminal can't handle properly. You likely want to extend the defaults with a
 custom specification.
 :::
 
+:::: browser
+## Detecting memory leaks
+
+Bombadil ships an opt-in, parameterized property for catching memory leaks in
+the system under test. It is **not** part of the defaults, so you import it and
+export a configured instance:
+
+```typescript
+import { memoryDoesNotLeak } from "@antithesishq/bombadil/browser/defaults/memory";
+
+// Guard the JS heap: no more than 5 MB of growth within any 10-second window.
+export const noHeapLeak = memoryDoesNotLeak({
+  thresholdBytes: 5_000_000,
+  windowMs: 10_000,
+});
+
+// Guard the DOM: no more than 500 net new nodes within any 10-second window.
+export const noDomLeak = memoryDoesNotLeak({
+  signal: "dom_nodes",
+  thresholdBytes: 500,
+  windowMs: 10_000,
+});
+```
+
+Each exported constant becomes a property, labelled in reports by the name you
+give it (`noHeapLeak`, `noDomLeak`, ...).
+
+The check is a *windowed-growth* invariant: within any sliding window of
+`windowMs`, the chosen metric must not grow by more than `thresholdBytes`. This
+flags a sustained climb (or a leak) while tolerating transient spikes that
+recede and, for the heap signals, healthy garbage-collection sawtooth.
+
+`memoryDoesNotLeak` reads the runtime resource metrics that Bombadil already
+records for every state (visible as the heap and DOM series in
+[Bombadil Inspect](./04-reference.md)). The available `signal` values are:
+
+| `signal`               | Meaning                                   |
+| ---------------------- | ----------------------------------------- |
+| `"js_heap_used"`       | Used JS heap, in bytes (default)          |
+| `"js_heap_total"`      | Total JS heap, in bytes                   |
+| `"dom_nodes"`          | Live DOM node count                       |
+| `"js_event_listeners"` | Registered event-listener count           |
+| `"layout_objects"`     | Layout object count                       |
+
+For byte signals `thresholdBytes` is a byte count; for `dom_nodes`,
+`js_event_listeners`, and `layout_objects` it is a raw count.
+
+::: {.callout .callout-tip}
+The JS heap is noisy because of garbage collection. For the most deterministic
+detection, watch `dom_nodes` or `js_event_listeners` — a monotonic climb there
+is a strong leak signal that GC can't hide. If you do watch the heap, keep
+`thresholdBytes` above the GC sawtooth amplitude and use a generous `windowMs`.
+
+`windowMs` must be smaller than the test's `--time-limit`, or the window never
+fills and the property never engages.
+:::
+::::
+
 ## Language features
 
 The specification language of Bombadil, embedded in TypeScript or JavaScript,

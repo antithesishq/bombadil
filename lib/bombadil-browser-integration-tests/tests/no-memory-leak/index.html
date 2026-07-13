@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>No Memory Leak</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        button { font-size: 24px; padding: 10px 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>No Memory Leak</h1>
+    <button id="stable">click</button>
+    <div id="count">0</div>
+    <script>
+        // Reacts to interaction without retaining anything or growing the DOM:
+        // node count and retained memory stay flat.
+        let clicks = 0;
+        const countElement = document.getElementById('count');
+        const stableButton = document.getElementById('stable');
+
+        stableButton.addEventListener('click', () => {
+            clicks++;
+            countElement.textContent = clicks;
+        });
+    </script>
+</body>
+</html>

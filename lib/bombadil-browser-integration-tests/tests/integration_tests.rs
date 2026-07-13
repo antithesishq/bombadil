@@ -638,6 +638,47 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 }
 
 #[tokio::test]
+async fn test_memory_leak_detected() {
+    BrowserIntegrationTest::new("memory-leak")
+        .time_limit(Duration::from_secs(8))
+        .expect_error("noDomLeak")
+        .specification(
+            r#"
+import { memoryDoesNotLeak } from "@antithesishq/bombadil/browser/defaults/memory";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const noDomLeak = memoryDoesNotLeak({
+  signal: "dom_nodes",
+  thresholdBytes: 150,
+  windowMs: 1000,
+});
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_no_memory_leak() {
+    BrowserIntegrationTest::new("no-memory-leak")
+        .time_limit(Duration::from_secs(8))
+        .specification(
+            r#"
+import { memoryDoesNotLeak } from "@antithesishq/bombadil/browser/defaults/memory";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const noDomLeak = memoryDoesNotLeak({
+  signal: "dom_nodes",
+  thresholdBytes: 150,
+  windowMs: 1000,
+});
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
 async fn test_extractor_exception_stack_trace() {
     BrowserIntegrationTest::new("extractor-exception")
         .expect_error("\n    at throwingFunction")
