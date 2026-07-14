@@ -73,12 +73,7 @@ export interface State {
   resources: Resources;
 }
 
-/**
- * Runtime resource metrics for the page, sourced from the Chrome DevTools
- * `Performance.getMetrics` call and captured on every state. Field names mirror
- * the Rust `Resources` struct (snake_case). Byte counts are in bytes; `timestamp`
- * and the `*_time`/`*_duration` fields are CDP monotonic times in seconds.
- */
+// Per-state page metrics from Chrome DevTools `Performance.getMetrics`; times are in seconds. 
 export interface Resources {
   js_heap_used: number;
   js_heap_total: number;

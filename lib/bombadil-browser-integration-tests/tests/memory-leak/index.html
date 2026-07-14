@@ -13,8 +13,7 @@
     <button id="leak">leak</button>
     <div id="sink"></div>
     <script>
-        // Retained forever so the heap and DOM node count grow monotonically
-        // with every interaction — a classic leak.
+        // Never released, so heap and DOM node count grow with every click.
         const retained = [];
         const sink = document.getElementById('sink');
         const leakButton = document.getElementById('leak');
