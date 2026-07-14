@@ -18,8 +18,8 @@ export interface MemoryLeakOptions {
   windowMs: number;
 }
 
-//  * Opt-in property that fails when `signal` grows by more than `thresholdBytes`
-//  * across any sliding window of `windowMs`. See the manual for tuning guidance.
+// Opt-in property that fails when `signal` grows by more than `thresholdBytes`
+// across any sliding window of `windowMs`. See the manual for tuning guidance.
 export function memoryDoesNotLeak({
   signal = "js_heap_used",
   thresholdBytes,
