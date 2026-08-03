@@ -8,8 +8,12 @@
   chromium,
   bombadil,
 }:
+let
+  version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
+in
 dockerTools.buildImage {
-  name = "bombadil_docker";
+  name = "bombadil";
+  tag = version;
   copyToRoot = buildEnv {
     name = "image_root";
     paths = [
@@ -28,7 +32,6 @@ dockerTools.buildImage {
     mkdir -p tmp
     chmod 1777 tmp
 
-
     mkdir -p /home/browser/.cache /home/browser/.config /home/browser/.local /home/browser/.pki
     chown -R browser /home/browser
 
@@ -41,8 +44,13 @@ dockerTools.buildImage {
     Cmd = [ ];
     Entrypoint = [
       "${bombadil}/bin/bombadil"
+      "browser"
       "test"
       "--headless"
+      "--no-sandbox"
+    ];
+    Env = [
+      "RUST_LOG=chromiumoxide=error"
     ];
   };
 }

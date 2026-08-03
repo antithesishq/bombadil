@@ -178,38 +178,43 @@ let
     export INSTA_WORKSPACE_ROOT=$(pwd)
     export INSTA_UPDATE=no
   '';
-in
-{
-  bin = (if stdenv.isLinux then craneLibStatic else craneLib).buildPackage (
-    commonArgs
-    // {
-      inherit cargoArtifacts;
-      doCheck = false;
-      pname = "bombadil";
-      cargoExtraArgs = "-p bombadil-cli";
-      meta = {
-        mainProgram = "bombadil";
-        description = ''
-          Property-based testing for web UIs, autonomously exploring and validating
-          correctness properties, finding harder bugs earlier.
+
+  buildBinary =
+    { linkStatically }:
+    ((if linkStatically then craneLibStatic else craneLib).buildPackage (
+      commonArgs
+      // {
+        inherit cargoArtifacts;
+        doCheck = false;
+        pname = "bombadil";
+        cargoExtraArgs = "-p bombadil-cli";
+        meta = {
+          mainProgram = "bombadil";
+          description = ''
+            Property-based testing for web UIs, autonomously exploring and validating
+            correctness properties, finding harder bugs earlier.
+          '';
+        };
+      }
+      // lib.optionalAttrs linkStatically {
+        cargoArtifacts = cargoArtifactsStatic;
+      }
+      // lib.optionalAttrs stdenv.isDarwin {
+        # Rewrite Nix store dylib references to system paths so the buildBinary
+        # is distributable outside of Nix.
+        postFixup = ''
+          for nixlib in $(otool -L $out/bin/bombadil | grep /nix/store | awk '{print $1}'); do
+            base=$(basename "$nixlib")
+            install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil
+          done
         '';
-      };
-    }
-    // lib.optionalAttrs stdenv.isLinux {
-      cargoArtifacts = cargoArtifactsStatic;
-    }
-    // lib.optionalAttrs stdenv.isDarwin {
-      # Rewrite Nix store dylib references to system paths so the binary
-      # is distributable outside of Nix.
-      postFixup = ''
-        for nixlib in $(otool -L $out/bin/bombadil | grep /nix/store | awk '{print $1}'); do
-          base=$(basename "$nixlib")
-          install_name_tool -change "$nixlib" "/usr/lib/$base" $out/bin/bombadil
-        done
-      '';
-      nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
-    }
-  );
+        nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ darwin.autoSignDarwinBinariesHook ];
+      }
+    ));
+in
+
+{
+  bin = buildBinary { linkStatically = stdenv.isLinux; };
 
   npm-package = callPackage ./npm-package.nix { inherit src; };
 
@@ -247,4 +252,7 @@ in
     inherit (commonArgs) src;
     pname = "bombadil";
   };
+}
+// lib.optionalAttrs stdenv.isLinux {
+  bin-dynamic = buildBinary { linkStatically = false; };
 }
