@@ -78,6 +78,7 @@ let
         || (lib.hasSuffix ".html" path)
         || (lib.hasSuffix ".xml" path)
         || (lib.hasSuffix ".js" path)
+        || (lib.hasSuffix ".c" path)
         || (lib.hasSuffix ".css" path)
         || (lib.hasSuffix ".txt" path)
         || (lib.hasSuffix ".dat" path)

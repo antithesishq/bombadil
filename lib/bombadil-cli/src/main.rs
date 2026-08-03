@@ -5,6 +5,7 @@ mod output_path;
 #[cfg(feature = "terminal")]
 mod terminal;
 
+use antithesis_sdk::antithesis_init;
 use anyhow::Result;
 use clap::Parser;
 
@@ -42,6 +43,7 @@ fn main() -> Result<()> {
         .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
         .filter_module("html5ever", log::LevelFilter::Info)
         .init();
+    antithesis_init();
     let cli = Cli::parse();
     match cli.command {
         Command::Browser { command } => {

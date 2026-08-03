@@ -8,6 +8,7 @@ name = "bombadil_browser"
 path = "src/lib.rs"
 
 [dependencies]
+antithesis-coverage = { path = "../antithesis-coverage" }
 anyhow = { workspace = true, features = ["backtrace"] }
 base64.workspace = true
 bombadil = { path = "../bombadil" }

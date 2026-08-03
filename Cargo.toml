@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "lib/antithesis-coverage",
     "lib/bombadil",
     "lib/bombadil-browser",
     "lib/bombadil-browser-integration-tests",

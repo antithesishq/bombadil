@@ -83,6 +83,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "antithesis-coverage"
+version = "0.6.1"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "antithesis_sdk"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -447,6 +454,7 @@ dependencies = [
 name = "bombadil-browser"
 version = "0.6.1"
 dependencies = [
+ "antithesis-coverage",
  "anyhow",
  "base64",
  "bombadil",
@@ -672,6 +680,16 @@ dependencies = [
  "syn 2.0.117",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "cc"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
 ]
 
 [[package]]
@@ -1341,6 +1359,12 @@ dependencies = [
  "thiserror 1.0.69",
  "winapi",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fixedbitset"
@@ -4058,6 +4082,12 @@ name = "shell-words"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
+
+[[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-hook-registry"
