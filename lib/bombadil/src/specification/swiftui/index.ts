@@ -66,10 +66,16 @@ export function nodes(node: Node | null | undefined): Node[] {
   const result: Node[] = [];
   const stack: Node[] = [node];
   while (stack.length > 0) {
-    const current = stack.pop()!;
+    const current = stack.pop();
+    if (current === undefined) {
+      continue;
+    }
     result.push(current);
     for (let i = current.children.length - 1; i >= 0; i--) {
-      stack.push(current.children[i]);
+      const child = current.children[i];
+      if (child !== undefined) {
+        stack.push(child);
+      }
     }
   }
   return result;
