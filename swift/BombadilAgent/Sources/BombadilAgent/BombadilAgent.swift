@@ -21,8 +21,8 @@ import AppKit
 ///
 /// The call is a no-op unless the app was launched by
 /// `bombadil swiftui test` (detected via the `BOMBADIL_SWIFTUI_CONNECT`
-/// environment variable), so it is safe to keep in release builds or
-/// behind your own `#if DEBUG` guard.
+/// environment variable). Prefer linking and starting the agent only in
+/// development builds.
 public enum BombadilAgent {
 
     static let connectVariable = "BOMBADIL_SWIFTUI_CONNECT"
@@ -30,6 +30,12 @@ public enum BombadilAgent {
     /// Upper bound on how long a `getState` request waits for the UI
     /// to settle before answering with the latest tree anyway.
     static let quiescenceCap: TimeInterval = 1.0
+
+    /// How long a single main-thread hop (a tree sample or an action)
+    /// may take before the agent reports an error instead. Keep below
+    /// the driver's state timeout so the driver sees a structured
+    /// error, not a dead socket.
+    static let mainThreadTimeout: TimeInterval = 5.0
 
     public static func startIfRequested() {
         guard
@@ -39,6 +45,19 @@ public enum BombadilAgent {
             return
         }
         #if os(macOS)
+        // Mark the app as having an assistive client attached, the
+        // way VoiceOver does. Without this SwiftUI serves a stale
+        // accessibility tree: the initial snapshot is readable, but
+        // values stop updating. Deferred to the main queue so NSApp
+        // exists even when called from the App initializer.
+        DispatchQueue.main.async {
+            let selector = NSSelectorFromString(
+                "setAccessibilityEnhancedUserInterface:")
+            if NSApp.responds(to: selector) {
+                NSApp.setValue(
+                    true, forKey: "accessibilityEnhancedUserInterface")
+            }
+        }
         let thread = Thread {
             do {
                 try run(address: address)
@@ -61,9 +80,11 @@ public enum BombadilAgent {
 
     private static func run(address: String) throws {
         let parts = address.split(separator: ":")
-        guard parts.count == 2, let port = UInt16(parts[1]) else {
+        guard parts.count == 2, parts[0] == "127.0.0.1",
+            let port = UInt16(parts[1])
+        else {
             throw AgentError.connectionError(
-                "malformed \(connectVariable): \(address)")
+                "\(connectVariable) must contain a 127.0.0.1 address")
         }
         let connection = try LineConnection(
             host: String(parts[0]), port: port)
@@ -71,18 +92,37 @@ public enum BombadilAgent {
             Wire.Hello(protocolVersion: Wire.protocolVersion))
 
         while let line = try connection.receiveLine() {
-            switch try Wire.DriverMessage.decode(line) {
+            let message: Wire.DriverMessage
+            do {
+                message = try Wire.DriverMessage.decode(line)
+            } catch {
+                try connection.send(Wire.ErrorReply(message: "\(error)"))
+                continue
+            }
+
+            switch message {
             case .getState(let quiescenceMillis):
-                let root = settledTree(
-                    quiescence: TimeInterval(quiescenceMillis) / 1000.0)
+                let root: Wire.Node
+                do {
+                    root = try settledTree(
+                        quiescence: TimeInterval(quiescenceMillis)
+                            / 1000.0)
+                } catch {
+                    try connection.send(
+                        Wire.ErrorReply(message: "\(error)"))
+                    continue
+                }
                 try connection.send(Wire.State(root: root))
             case .apply(let action):
                 do {
-                    try onMain { try ActionPerformer.perform(action) }
-                    try connection.send(Wire.Applied())
+                    try MainThread.run(timeout: mainThreadTimeout) {
+                        try ActionPerformer.perform(action)
+                    }
                 } catch {
                     try connection.send(Wire.ErrorReply(message: "\(error)"))
+                    continue
                 }
+                try connection.send(Wire.Applied())
             }
         }
     }
@@ -90,28 +130,33 @@ public enum BombadilAgent {
     /// Samples the accessibility tree until two samples taken
     /// `quiescence` apart are identical (the UI has settled), bounded
     /// by `quiescenceCap`.
-    private static func settledTree(quiescence: TimeInterval) -> Wire.Node {
-        var previous = onMain { AccessibilityTree.snapshot() }
+    private static func settledTree(
+        quiescence: TimeInterval
+    ) throws -> Wire.Node {
+        var previous = try MainThread.run(timeout: mainThreadTimeout) {
+            AccessibilityTree.snapshot()
+        }
         guard quiescence > 0 else {
             return previous
         }
-        let deadline = Date().addingTimeInterval(quiescenceCap)
-        while Date() < deadline {
-            Thread.sleep(forTimeInterval: quiescence)
-            let current = onMain { AccessibilityTree.snapshot() }
+        let interval = min(quiescence, quiescenceCap)
+        let deadline =
+            ProcessInfo.processInfo.systemUptime + quiescenceCap
+        while true {
+            let remaining =
+                deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else {
+                return previous
+            }
+            Thread.sleep(forTimeInterval: min(interval, remaining))
+            let current = try MainThread.run(timeout: mainThreadTimeout) {
+                AccessibilityTree.snapshot()
+            }
             if current == previous {
                 return current
             }
             previous = current
         }
-        return previous
-    }
-
-    private static func onMain<T>(_ body: () throws -> T) rethrows -> T {
-        if Thread.isMainThread {
-            return try body()
-        }
-        return try DispatchQueue.main.sync(execute: body)
     }
 
     #endif

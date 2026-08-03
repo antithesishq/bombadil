@@ -16,5 +16,9 @@ let package = Package(
             name: "CounterExample",
             dependencies: ["BombadilAgent"]
         ),
+        .testTarget(
+            name: "BombadilAgentTests",
+            dependencies: ["BombadilAgent"]
+        ),
     ]
 )

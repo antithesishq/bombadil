@@ -4,6 +4,8 @@ import Foundation
 /// agent protocol is strictly request/reply, so synchronous reads on a
 /// dedicated background thread keep things simple.
 final class LineConnection {
+    private static let maximumLineBytes = 16 * 1024 * 1024
+
     private let descriptor: Int32
     private var buffer = Data()
 
@@ -33,9 +35,24 @@ final class LineConnection {
         }
 
         var flag: Int32 = 1
-        setsockopt(
-            descriptor, Int32(IPPROTO_TCP), TCP_NODELAY, &flag,
-            socklen_t(MemoryLayout<Int32>.size))
+        guard
+            setsockopt(
+                descriptor, SOL_SOCKET, SO_NOSIGPIPE, &flag,
+                socklen_t(MemoryLayout<Int32>.size)) == 0
+        else {
+            close(descriptor)
+            throw AgentError.connectionError(
+                "could not disable SIGPIPE: \(errno)")
+        }
+        guard
+            setsockopt(
+                descriptor, Int32(IPPROTO_TCP), TCP_NODELAY, &flag,
+                socklen_t(MemoryLayout<Int32>.size)) == 0
+        else {
+            close(descriptor)
+            throw AgentError.connectionError(
+                "could not enable TCP_NODELAY: \(errno)")
+        }
     }
 
     deinit {
@@ -44,12 +61,19 @@ final class LineConnection {
 
     func send<Message: Encodable>(_ message: Message) throws {
         var data = try JSONEncoder().encode(message)
+        guard data.count <= Self.maximumLineBytes else {
+            throw AgentError.protocolError(
+                "message exceeds \(Self.maximumLineBytes) bytes")
+        }
         data.append(0x0A)
         try data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
             var remaining = bytes
             while !remaining.isEmpty {
                 let written = write(
                     descriptor, remaining.baseAddress, remaining.count)
+                if written < 0, errno == EINTR {
+                    continue
+                }
                 guard written > 0 else {
                     throw AgentError.connectionError("write failed: \(errno)")
                 }
@@ -65,15 +89,30 @@ final class LineConnection {
         while true {
             if let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer.prefix(upTo: newline)
+                guard line.count <= Self.maximumLineBytes else {
+                    throw AgentError.protocolError(
+                        "message exceeds \(Self.maximumLineBytes) bytes")
+                }
                 buffer.removeSubrange(...newline)
                 return Data(line)
             }
+            guard buffer.count <= Self.maximumLineBytes else {
+                throw AgentError.protocolError(
+                    "message exceeds \(Self.maximumLineBytes) bytes")
+            }
             var chunk = [UInt8](repeating: 0, count: 4096)
             let count = read(descriptor, &chunk, chunk.count)
+            if count < 0, errno == EINTR {
+                continue
+            }
             if count < 0 {
                 throw AgentError.connectionError("read failed: \(errno)")
             }
             if count == 0 {
+                guard buffer.isEmpty else {
+                    throw AgentError.protocolError(
+                        "connection closed during a message")
+                }
                 return nil
             }
             buffer.append(contentsOf: chunk.prefix(count))

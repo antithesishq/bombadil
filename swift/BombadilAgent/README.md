@@ -22,7 +22,9 @@ import BombadilAgent
 @main
 struct MyApp: App {
     init() {
+        #if DEBUG
         BombadilAgent.startIfRequested()
+        #endif
     }
     ...
 }
@@ -30,7 +32,8 @@ struct MyApp: App {
 
 `startIfRequested()` is a no-op unless the app was launched by
 `bombadil swiftui test` (detected via the `BOMBADIL_SWIFTUI_CONNECT`
-environment variable), so it is safe to keep in release builds.
+environment variable). Linking it only into development builds keeps
+the test-control surface out of production binaries.
 
 Since the state is the accessibility tree, the more accessible your
 app is, the better Bombadil can test it: `accessibilityIdentifier`
@@ -72,7 +75,7 @@ One JSON document per line over TCP; the driver listens, the agent
 connects. Kept in sync with `lib/bombadil-swiftui/src/agent.rs`:
 
 * agent → driver: `{"type": "hello", "protocolVersion": 1}` once, then
-  replies: `{"type": "state", "root": <node tree|null>}`,
+  replies: `{"type": "state", "root": <node tree>}`,
   `{"type": "applied"}`, `{"type": "error", "message": "..."}`.
 * driver → agent: `{"type": "getState", "quiescenceMillis": 100}`,
   `{"type": "apply", "action": {"Tap": {"x": 10, "y": 20}}}`.

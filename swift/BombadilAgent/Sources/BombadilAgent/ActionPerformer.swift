@@ -3,13 +3,13 @@
 import AppKit
 
 /// Applies driver actions by synthesizing in-process events. Since the
-/// events are delivered directly to this app's windows, no system
+/// events stay inside the target app, no system
 /// accessibility permissions are required. Must be called on the main
 /// thread.
+@MainActor
 enum ActionPerformer {
 
     static func perform(_ action: Wire.Action) throws {
-        precondition(Thread.isMainThread)
         switch action {
         case .tap(let x, let y):
             try tap(x: x, y: y)
@@ -31,10 +31,39 @@ enum ActionPerformer {
         // way a real click would.
         for window in NSApp.orderedWindows where window.isVisible {
             if window.frame.contains(point) {
-                return window
+                return topDescendant(of: window, at: point)
             }
         }
         return nil
+    }
+
+    /// Attached sheets, alerts, and popovers are child windows stacked
+    /// above their parent, but `orderedWindows` can list the parent
+    /// first; a real click at this point would land on the deepest
+    /// child window.
+    private static func topDescendant(
+        of window: NSWindow, at point: NSPoint
+    ) -> NSWindow {
+        for child in window.childWindows ?? []
+        where child.isVisible && child.frame.contains(point) {
+            return topDescendant(of: child, at: point)
+        }
+        return window
+    }
+
+    /// The window keyboard input should go to. Key window when the
+    /// app is active; otherwise fall back to the frontmost visible
+    /// window — synthetic events are delivered directly, so they do
+    /// not need real key status. An attached sheet outranks its
+    /// parent, like it does for real typing.
+    private static func keyboardWindow() -> NSWindow? {
+        var window =
+            NSApp.keyWindow ?? NSApp.mainWindow
+            ?? NSApp.orderedWindows.first { $0.isVisible }
+        while let sheet = window?.attachedSheet, sheet.isVisible {
+            window = sheet
+        }
+        return window
     }
 
     private static func tap(x: Double, y: Double) throws {
@@ -64,13 +93,16 @@ enum ActionPerformer {
             else {
                 throw AgentError.actionFailed("could not create mouse event")
             }
-            window.sendEvent(event)
+            // Queue mouse events instead of calling `sendEvent` directly.
+            // Controls such as menus run a nested tracking loop from
+            // mouse-down; the queued mouse-up can then end that loop.
+            NSApp.postEvent(event, atStart: false)
         }
     }
 
     private static func type(text: String) throws {
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-            throw AgentError.actionFailed("no key window to type into")
+        guard let window = keyboardWindow() else {
+            throw AgentError.actionFailed("no window to type into")
         }
         guard let responder = window.firstResponder else {
             throw AgentError.actionFailed("no first responder to type into")
@@ -106,10 +138,10 @@ enum ActionPerformer {
         guard let keyCode = keyCodes[key],
             let characters = keyCharacters[key]
         else {
-            throw AgentError.actionFailed("unknown key: \(key)")
+            throw AgentError.actionFailed("unknown key")
         }
-        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-            throw AgentError.actionFailed("no key window to send keys to")
+        guard let window = keyboardWindow() else {
+            throw AgentError.actionFailed("no window to send keys to")
         }
         for kind in [NSEvent.EventType.keyDown, NSEvent.EventType.keyUp] {
             guard
@@ -128,13 +160,18 @@ enum ActionPerformer {
             else {
                 throw AgentError.actionFailed("could not create key event")
             }
-            window.sendEvent(event)
+            NSApp.postEvent(event, atStart: false)
         }
     }
 
     private static func scroll(
         x: Double, y: Double, deltaY: Double
     ) throws {
+        guard deltaY >= Double(Int32.min),
+            deltaY <= Double(Int32.max)
+        else {
+            throw AgentError.actionFailed("scroll distance is out of range")
+        }
         let screenPoint = AccessibilityTree.toCocoaPoint(x: x, y: y)
         guard let window = window(atScreenPoint: screenPoint) else {
             throw AgentError.actionFailed("no window at (\(x), \(y))")
@@ -144,7 +181,7 @@ enum ActionPerformer {
                 scrollWheelEvent2Source: nil,
                 units: .pixel,
                 wheelCount: 1,
-                wheel1: Int32(deltaY),
+                wheel1: Int32(deltaY.rounded(.towardZero)),
                 wheel2: 0,
                 wheel3: 0
             )
