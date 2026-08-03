@@ -36,6 +36,18 @@ let
         "./terminal" = {
           types = "./dist/terminal/index.d.ts";
         };
+        "./swiftui" = {
+          types = "./dist/swiftui/index.d.ts";
+        };
+        "./swiftui/defaults" = {
+          types = "./dist/swiftui/defaults.d.ts";
+        };
+        "./swiftui/defaults/actions" = {
+          types = "./dist/swiftui/defaults/actions.d.ts";
+        };
+        "./swiftui/defaults/properties" = {
+          types = "./dist/swiftui/defaults/properties.d.ts";
+        };
         "./random" = {
           types = "./dist/random.d.ts";
         };

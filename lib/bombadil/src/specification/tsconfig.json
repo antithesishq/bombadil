@@ -34,6 +34,18 @@
       "@antithesishq/bombadil/terminal/defaults/actions": [
         "./terminal/defaults/actions.ts"
       ],
+      "@antithesishq/bombadil/swiftui": [
+        "./swiftui/index.ts"
+      ],
+      "@antithesishq/bombadil/swiftui/defaults": [
+        "./swiftui/defaults.ts"
+      ],
+      "@antithesishq/bombadil/swiftui/defaults/actions": [
+        "./swiftui/defaults/actions.ts"
+      ],
+      "@antithesishq/bombadil/swiftui/defaults/properties": [
+        "./swiftui/defaults/properties.ts"
+      ],
       "@antithesishq/bombadil/internal": [
         "./internal.ts"
       ],
