@@ -4,7 +4,7 @@
   buildEnv,
   coreutils,
   runtimeShell,
-  bash,
+  bashInteractive,
   chromium,
   bombadil,
 }:
@@ -19,7 +19,7 @@ dockerTools.buildImage {
     paths = [
       bombadil
       coreutils
-      bash
+      bashInteractive
       chromium
     ];
     pathsToLink = [ "/bin" ];
@@ -27,6 +27,10 @@ dockerTools.buildImage {
   runAsRoot = ''
     #!${runtimeShell}
     ${dockerTools.shadowSetup}
+
+    mkdir -p /usr/bin
+    ln -s /bin/env /usr/bin/env
+
     useradd -r browser
 
     mkdir -p tmp
@@ -41,9 +45,10 @@ dockerTools.buildImage {
   '';
   config = {
     User = "browser";
-    Cmd = [ ];
     Entrypoint = [
       "${bombadil}/bin/bombadil"
+    ];
+    Cmd = [
       "browser"
       "test"
       "--headless"
