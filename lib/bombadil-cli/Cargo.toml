@@ -16,7 +16,6 @@ bombadil-browser = { path = "../bombadil-browser" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
-bombadil-swiftui = { path = "../bombadil-swiftui", optional = true }
 bombadil-terminal = { path = "../bombadil-terminal", optional = true }
 clap = { workspace = true, features = ["derive"] }
 env_logger.workspace = true
@@ -32,11 +31,14 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true, features = ["serde"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+bombadil-swiftui = { path = "../bombadil-swiftui", optional = true }
+
 [dev-dependencies]
 hegeltest.workspace = true
 
 [features]
-default = ["terminal", "swiftui"]
+default = ["terminal"]
 terminal = ["dep:bombadil-terminal"]
 swiftui = ["dep:bombadil-swiftui"]
 hotpath = ["hotpath/hotpath"]

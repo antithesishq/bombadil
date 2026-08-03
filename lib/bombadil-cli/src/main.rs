@@ -3,7 +3,7 @@ mod duration;
 mod inspect_server;
 mod output_path;
 mod reproduce;
-#[cfg(feature = "swiftui")]
+#[cfg(all(feature = "swiftui", target_os = "macos"))]
 mod swiftui;
 #[cfg(feature = "terminal")]
 mod terminal;
@@ -34,7 +34,7 @@ enum Command {
         command: terminal::Command,
     },
     /// [EXPERIMENTAL] Property-based testing for SwiftUI apps
-    #[cfg(feature = "swiftui")]
+    #[cfg(all(feature = "swiftui", target_os = "macos"))]
     Swiftui {
         #[command(subcommand)]
         command: swiftui::Command,
@@ -61,7 +61,7 @@ fn main() -> Result<()> {
             terminal::run(command);
             Ok(())
         }
-        #[cfg(feature = "swiftui")]
+        #[cfg(all(feature = "swiftui", target_os = "macos"))]
         Command::Swiftui { command } => {
             swiftui::run(command);
             Ok(())

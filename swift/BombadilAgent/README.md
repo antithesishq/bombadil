@@ -42,6 +42,9 @@ gives your specification stable handles on elements, and
 
 ## Running a test
 
+The macOS-only CLI command is opt-in. Build Bombadil from source with
+`cargo build -p bombadil-cli --features swiftui` to enable it.
+
 ```sh
 # Launch the app yourself (e.g. from Xcode) and attach:
 bombadil swiftui test --attach
