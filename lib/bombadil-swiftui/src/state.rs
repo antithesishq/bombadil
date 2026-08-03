@@ -1,18 +1,14 @@
 use std::time::SystemTime;
 
 use bombadil_schema::swiftui::{ProcessExitStatus, SwiftUINode};
-use serde::Serialize;
 
-use crate::driver::SwiftUIAction;
-
-#[derive(Clone, Debug, Serialize)]
+#[derive(Debug)]
 pub struct SwiftUIState {
     pub timestamp: SystemTime,
     /// Accessibility tree reported by the agent; `None` once the app
-    /// has exited (or before the first state arrives).
+    /// has exited.
     pub root: Option<SwiftUINode>,
     pub exit_status: Option<ProcessExitStatus>,
-    pub last_action: Option<SwiftUIAction>,
 }
 
 impl SwiftUIState {

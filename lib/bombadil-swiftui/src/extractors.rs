@@ -7,6 +7,7 @@ use bombadil::specification::extractor_harness::ExtractorHarness;
 use bombadil_schema::Time;
 use serde_json as json;
 
+use crate::driver::SwiftUIAction;
 use crate::state::SwiftUIState;
 
 pub struct Extractors {
@@ -23,12 +24,13 @@ impl Extractors {
     pub fn run_extractors(
         &mut self,
         state: Arc<SwiftUIState>,
+        last_action: Option<&SwiftUIAction>,
     ) -> Result<Vec<Snapshot>> {
         let time = Time::from_system_time(state.timestamp);
         let state_json = json::json!({
             "root": state.root,
             "exitStatus": state.exit_status,
-            "lastAction": state.last_action.as_ref().map(action_to_json),
+            "lastAction": last_action.map(action_to_json),
         });
         let state_value =
             JsValue::from_json(&state_json, self.harness.context_mut())

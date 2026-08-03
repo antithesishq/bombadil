@@ -1,8 +1,8 @@
 use std::ops::RangeInclusive;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
@@ -17,6 +17,8 @@ use crate::agent::{
 };
 use crate::extractors::Extractors;
 use crate::state::SwiftUIState;
+
+const EXIT_STATUS_GRACE: Duration = Duration::from_millis(500);
 
 /// An action against the app, generic over the number and text types so
 /// the same shape serves both concrete actions and templates.
@@ -171,7 +173,6 @@ pub struct SwiftUIDriver {
     connection: AgentConnection,
     quiescence_timeout: Duration,
     state_timeout: Duration,
-    last_action: Option<SwiftUIAction>,
 }
 
 impl SwiftUIDriver {
@@ -182,6 +183,13 @@ impl SwiftUIDriver {
         quiescence_timeout: Duration,
         state_timeout: Duration,
     ) -> Result<(Self, Verifier)> {
+        if connect_timeout.is_zero() {
+            bail!("connect timeout must be greater than zero");
+        }
+        if state_timeout.is_zero() {
+            bail!("state timeout must be greater than zero");
+        }
+
         let bundle_code = bundle(".", &specification.module_specifier)
             .map_err(|e| anyhow!("bundle failed: {e}"))?;
 
@@ -190,45 +198,90 @@ impl SwiftUIDriver {
 
         let connection = AgentConnection::establish(&target, connect_timeout)?;
 
-        Ok((
-            Self {
-                extractor,
-                connection,
-                quiescence_timeout,
-                state_timeout,
-                last_action: None,
-            },
-            verifier,
-        ))
+        let mut driver = Self {
+            extractor,
+            connection,
+            quiescence_timeout,
+            state_timeout,
+        };
+
+        // The agent connects as soon as the app starts, usually
+        // before the first window is on screen, and an empty tree
+        // gives the specification nothing to act on.
+        driver.await_first_window(connect_timeout)?;
+
+        Ok((driver, verifier))
     }
 
-    fn exited_state(
-        &self,
-        exit_status: swiftui::ProcessExitStatus,
-    ) -> SwiftUIState {
+    /// Poll the agent until the accessibility tree contains at least
+    /// one window (the root's children are windows).
+    fn await_first_window(&mut self, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| anyhow!("connect timeout is too large"))?;
+        loop {
+            let state = self.request_state()?;
+            if let Some(status) = &state.exit_status {
+                bail!(
+                    "app exited with code {} before opening a window",
+                    status.code
+                );
+            }
+            if state
+                .root
+                .as_ref()
+                .is_some_and(|root| !root.children.is_empty())
+            {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                bail!(
+                    "app did not open a window within {}s",
+                    timeout.as_secs()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn exited_state(exit_status: swiftui::ProcessExitStatus) -> SwiftUIState {
         SwiftUIState {
             timestamp: SystemTime::now(),
             root: None,
             exit_status: Some(exit_status),
-            last_action: self.last_action.clone(),
         }
+    }
+
+    fn reconcile_transport_error(
+        &mut self,
+        error: anyhow::Error,
+    ) -> Result<swiftui::ProcessExitStatus> {
+        self.connection
+            .exit_status_within(EXIT_STATUS_GRACE)?
+            .ok_or(error)
     }
 
     fn request_state(&mut self) -> Result<SwiftUIState> {
         if let Some(exit_status) = self.connection.exit_status()? {
-            return Ok(self.exited_state(exit_status));
+            return Ok(Self::exited_state(exit_status));
         }
 
-        self.connection.send(&DriverMessage::GetState {
-            quiescence_millis: self.quiescence_timeout.as_millis() as u64,
-        })?;
+        let quiescence_millis =
+            u64::try_from(self.quiescence_timeout.as_millis())
+                .unwrap_or(u64::MAX);
+        if let Err(error) = self
+            .connection
+            .send(&DriverMessage::GetState { quiescence_millis })
+        {
+            let exit_status = self.reconcile_transport_error(error)?;
+            return Ok(Self::exited_state(exit_status));
+        }
 
         match self.connection.receive(self.state_timeout) {
             Ok(AgentMessage::State { root }) => Ok(SwiftUIState {
                 timestamp: SystemTime::now(),
-                root,
+                root: Some(root),
                 exit_status: None,
-                last_action: self.last_action.clone(),
             }),
             Ok(AgentMessage::Error { message }) => {
                 Err(anyhow!("agent failed to produce a state: {message}"))
@@ -239,10 +292,10 @@ impl SwiftUIDriver {
             // The app may have exited between the check above and the
             // read — e.g. the last action crashed it. That's a regular
             // terminal state, not a driver error.
-            Err(error) => match self.connection.exit_status()? {
-                Some(exit_status) => Ok(self.exited_state(exit_status)),
-                None => Err(error),
-            },
+            Err(error) => {
+                let exit_status = self.reconcile_transport_error(error)?;
+                Ok(Self::exited_state(exit_status))
+            }
         }
     }
 }
@@ -257,8 +310,7 @@ impl InterfaceDriver for SwiftUIDriver {
     }
 
     fn terminate(mut self) -> Result<()> {
-        self.connection.kill();
-        Ok(())
+        self.connection.terminate()
     }
 
     fn next_event(&mut self) -> Option<DriverEvent<SwiftUIState>> {
@@ -269,9 +321,12 @@ impl InterfaceDriver for SwiftUIDriver {
     }
 
     fn apply(&mut self, action: SwiftUIAction) -> Result<()> {
-        self.connection.send(&DriverMessage::Apply {
+        if let Err(error) = self.connection.send(&DriverMessage::Apply {
             action: action.to_schema(),
-        })?;
+        }) {
+            self.reconcile_transport_error(error)?;
+            return Ok(());
+        }
         match self.connection.receive(self.state_timeout) {
             Ok(AgentMessage::Applied {}) => {}
             Ok(AgentMessage::Error { message }) => {
@@ -285,21 +340,18 @@ impl InterfaceDriver for SwiftUIDriver {
             Err(error) => {
                 // The action may have terminated the app; `next_event`
                 // then reports the exit as the final state.
-                if self.connection.exit_status()?.is_none() {
-                    return Err(error);
-                }
+                self.reconcile_transport_error(error)?;
             }
         }
-        self.last_action = Some(action);
         Ok(())
     }
 
     fn extract_snapshots(
         &mut self,
         state: Arc<SwiftUIState>,
-        _last_action: Option<&SwiftUIAction>,
+        last_action: Option<&SwiftUIAction>,
     ) -> Result<Vec<Snapshot>> {
-        self.extractor.run_extractors(state)
+        self.extractor.run_extractors(state, last_action)
     }
 
     fn state_timestamp(state: &SwiftUIState) -> SystemTime {

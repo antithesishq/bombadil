@@ -8,6 +8,7 @@
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write as _};
 use std::net::TcpStream;
+use std::process::{Command, Stdio};
 use std::sync::Once;
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
@@ -18,7 +19,9 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
 use bombadil_schema::swiftui::SwiftUITraceEntry;
-use bombadil_swiftui::agent::{CONNECT_ENV_VAR, SwiftUITarget};
+use bombadil_swiftui::agent::{
+    AgentConnection, AgentMessage, CONNECT_ENV_VAR, SwiftUITarget,
+};
 use bombadil_swiftui::driver::{
     SwiftUIAction, SwiftUIActionTemplate, SwiftUIDriver,
 };
@@ -63,6 +66,49 @@ fn mock_agent() {
         return;
     };
     run_mock_agent(&address).expect("mock agent failed");
+}
+
+#[test]
+fn state_messages_require_an_accessibility_root() {
+    let result =
+        serde_json::from_str::<AgentMessage>(r#"{"type":"state","root":null}"#);
+    assert!(result.is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_establishment_terminates_the_spawned_app() {
+    let directory = tempfile::tempdir().unwrap();
+    let pid_path = directory.path().join("spawned.pid");
+    let target = SwiftUITarget::Spawn {
+        program: "/bin/sh".to_string(),
+        arguments: vec![
+            "-c".to_string(),
+            "echo $$ > \"$1\"; exec /bin/sleep 60".to_string(),
+            "bombadil-cleanup-test".to_string(),
+            pid_path.display().to_string(),
+        ],
+    };
+
+    let result =
+        AgentConnection::establish(&target, Duration::from_millis(500));
+    assert!(result.is_err(), "target unexpectedly connected");
+
+    let pid = std::fs::read_to_string(&pid_path)
+        .expect("spawned target should write its pid");
+    let pid = pid.trim();
+    let still_running = Command::new("/bin/kill")
+        .args(["-0", pid])
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    if still_running {
+        let _ = Command::new("/bin/kill").args(["-9", pid]).status();
+    }
+    assert!(
+        !still_running,
+        "spawned target {pid} survived launch failure"
+    );
 }
 
 mod counter {

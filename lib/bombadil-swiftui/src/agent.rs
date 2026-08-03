@@ -5,10 +5,10 @@
 //! environment variable. The agent embedded in the app connects back and
 //! the two sides exchange newline-delimited JSON messages.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read as _, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use bombadil_schema::swiftui::{ProcessExitStatus, SwiftUIAction, SwiftUINode};
@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 
 /// Environment variable the agent reads to find the driver.
 pub const CONNECT_ENV_VAR: &str = "BOMBADIL_SWIFTUI_CONNECT";
+
+const MAXIMUM_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// Messages sent from the driver to the agent.
 #[derive(Debug, Clone, Serialize)]
@@ -44,7 +46,7 @@ pub enum AgentMessage {
         protocol_version: u32,
     },
     State {
-        root: Option<SwiftUINode>,
+        root: SwiftUINode,
     },
     Applied {},
     Error {
@@ -67,11 +69,48 @@ pub enum SwiftUITarget {
     Attach,
 }
 
+/// Owns a spawned app process and guarantees that it does not outlive
+/// a failed launch or a dropped driver.
+struct SpawnedApp {
+    child: Option<Child>,
+}
+
+impl SpawnedApp {
+    fn new(child: Child) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn exit_status(&mut self) -> Result<Option<ProcessExitStatus>> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(None);
+        };
+        Ok(child.try_wait()?.map(to_process_exit_status))
+    }
+
+    fn terminate(&mut self) -> Result<()> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(());
+        };
+        if child.try_wait()?.is_none() {
+            child.kill().context("failed to terminate spawned app")?;
+            child.wait().context("failed to reap spawned app")?;
+        }
+        self.child = None;
+        Ok(())
+    }
+}
+
+impl Drop for SpawnedApp {
+    fn drop(&mut self) {
+        let _ = self.terminate();
+    }
+}
+
 pub struct AgentConnection {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
-    child: Option<Child>,
-    line: String,
+    child: Option<SpawnedApp>,
+    line: Vec<u8>,
 }
 
 impl AgentConnection {
@@ -95,7 +134,7 @@ impl AgentConnection {
                     .with_context(|| {
                         format!("failed to launch app: {program}")
                     })?;
-                Some(child)
+                Some(SpawnedApp::new(child))
             }
             SwiftUITarget::Attach => {
                 println!(
@@ -117,7 +156,7 @@ impl AgentConnection {
             reader: BufReader::new(stream.try_clone()?),
             writer: stream,
             child,
-            line: String::new(),
+            line: Vec::new(),
         };
 
         match connection.receive(connect_timeout)? {
@@ -135,6 +174,9 @@ impl AgentConnection {
 
     pub fn send(&mut self, message: &DriverMessage) -> Result<()> {
         let mut bytes = serde_json::to_vec(message)?;
+        if bytes.len() > MAXIMUM_MESSAGE_BYTES {
+            bail!("message exceeds {MAXIMUM_MESSAGE_BYTES} bytes");
+        }
         bytes.push(b'\n');
         self.writer
             .write_all(&bytes)
@@ -145,17 +187,13 @@ impl AgentConnection {
     /// Read the next message, waiting up to `timeout`.
     pub fn receive(&mut self, timeout: Duration) -> Result<AgentMessage> {
         self.reader.get_ref().set_read_timeout(Some(timeout))?;
-        self.line.clear();
-        let read = self
-            .reader
-            .read_line(&mut self.line)
-            .context("failed to read from agent (timeout or disconnect)")?;
-        if read == 0 {
-            bail!("agent closed the connection");
-        }
-        serde_json::from_str(&self.line).with_context(|| {
-            format!("malformed agent message: {}", self.line.trim_end())
-        })
+        read_line_bounded(
+            &mut self.reader,
+            &mut self.line,
+            MAXIMUM_MESSAGE_BYTES,
+        )
+        .context("failed to read from agent (timeout or disconnect)")?;
+        serde_json::from_slice(&self.line).context("malformed agent message")
     }
 
     /// Exit status of the spawned app, if it was spawned and has exited.
@@ -163,17 +201,70 @@ impl AgentConnection {
         let Some(child) = self.child.as_mut() else {
             return Ok(None);
         };
-        match child.try_wait()? {
-            None => Ok(None),
-            Some(status) => Ok(Some(to_process_exit_status(status))),
+        child.exit_status()
+    }
+
+    /// Like `exit_status`, but keeps polling for up to `grace`. When
+    /// the app quits, the socket reports EOF a beat before the process
+    /// is reapable; without the grace period a clean exit surfaces as
+    /// a misleading "agent closed the connection" error.
+    pub fn exit_status_within(
+        &mut self,
+        grace: Duration,
+    ) -> Result<Option<ProcessExitStatus>> {
+        if self.child.is_none() {
+            return Ok(None);
+        }
+        let deadline = Instant::now() + grace;
+        loop {
+            if let Some(status) = self.exit_status()? {
+                return Ok(Some(status));
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Ok(None);
+            }
+            std::thread::sleep(remaining.min(Duration::from_millis(20)));
         }
     }
 
-    pub fn kill(&mut self) {
+    pub fn terminate(&mut self) -> Result<()> {
         if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate()?;
         }
+        Ok(())
+    }
+}
+
+fn read_line_bounded(
+    reader: &mut impl BufRead,
+    line: &mut Vec<u8>,
+    maximum_bytes: usize,
+) -> Result<()> {
+    line.clear();
+    let read_limit = maximum_bytes
+        .checked_add(2)
+        .context("maximum message size is too large")?;
+    let read = reader.take(read_limit as u64).read_until(b'\n', line)?;
+    if read == 0 {
+        bail!("agent closed the connection");
+    }
+    if line.last() != Some(&b'\n') {
+        if line.len() > maximum_bytes {
+            bail!("message exceeds {maximum_bytes} bytes");
+        }
+        bail!("agent closed the connection during a message");
+    }
+    line.pop();
+    if line.len() > maximum_bytes {
+        bail!("message exceeds {maximum_bytes} bytes");
+    }
+    Ok(())
+}
+
+impl Drop for AgentConnection {
+    fn drop(&mut self) {
+        let _ = self.terminate();
     }
 }
 
@@ -200,7 +291,9 @@ fn accept_with_timeout(
     // `TcpListener` has no accept timeout; poll a non-blocking listener
     // instead so a missing agent fails with a clear error.
     listener.set_nonblocking(true)?;
-    let deadline = std::time::Instant::now() + timeout;
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| anyhow!("connect timeout is too large"))?;
     loop {
         match listener.accept() {
             Ok((stream, _)) => {
@@ -208,7 +301,7 @@ fn accept_with_timeout(
                 return Ok(stream);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if std::time::Instant::now() >= deadline {
+                if Instant::now() >= deadline {
                     return Err(anyhow!(
                         "no agent connection within {timeout:?}"
                     ));
@@ -217,5 +310,43 @@ fn accept_with_timeout(
             }
             Err(error) => return Err(error.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::read_line_bounded;
+
+    #[test]
+    fn reads_a_bounded_protocol_line() {
+        let mut reader = Cursor::new(b"12345678\nnext\n");
+        let mut line = Vec::new();
+
+        read_line_bounded(&mut reader, &mut line, 8).unwrap();
+
+        assert_eq!(line, b"12345678");
+    }
+
+    #[test]
+    fn rejects_an_oversized_protocol_line_without_reading_it_all() {
+        let mut reader = Cursor::new(vec![b'x'; 1_024]);
+        let mut line = Vec::new();
+
+        let error = read_line_bounded(&mut reader, &mut line, 8).unwrap_err();
+
+        assert!(error.to_string().contains("exceeds 8 bytes"));
+        assert_eq!(line.len(), 10);
+    }
+
+    #[test]
+    fn rejects_a_truncated_protocol_line() {
+        let mut reader = Cursor::new(b"partial");
+        let mut line = Vec::new();
+
+        let error = read_line_bounded(&mut reader, &mut line, 8).unwrap_err();
+
+        assert!(error.to_string().contains("during a message"));
     }
 }
