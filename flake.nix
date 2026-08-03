@@ -80,7 +80,7 @@
           nix-build-push = pkgs.callPackage ./lib/nix/cachix-push.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = self.packages.${system}.default; };
+          docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = bombadil.bin-dynamic; };
         };
 
         apps = {

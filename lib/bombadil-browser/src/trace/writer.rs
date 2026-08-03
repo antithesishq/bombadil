@@ -91,3 +91,17 @@ impl TraceWriter for FileTraceWriter {
         Ok(())
     }
 }
+
+pub struct NoopTraceWriter;
+
+impl TraceWriter for NoopTraceWriter {
+    fn write(
+        &mut self,
+        _state: &BrowserState,
+        _last_action: Option<&BrowserAction>,
+        _snapshots: &[Snapshot],
+        _violations: &[PropertyViolation],
+    ) -> Result<()> {
+        Ok(())
+    }
+}

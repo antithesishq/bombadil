@@ -48,6 +48,7 @@ pub struct BrowserDriver {
     worker: Option<std::thread::JoinHandle<()>>,
     // Heap-allocated so the 64 KB edge map doesn't blow the stack.
     edges: Vec<u8>,
+    coverage_map_offset: usize,
 }
 
 impl BrowserDriver {
@@ -59,6 +60,11 @@ impl BrowserDriver {
     ) -> Result<Self> {
         let (command_send, command_receive) = unbounded_channel();
         let (ready_send, ready_receive) = std_mpsc::channel();
+
+        let coverage_map_offset = antithesis_coverage::init_coverage_module(
+            EDGE_MAP_SIZE,
+            "bombadil.tsv",
+        );
 
         let worker = std::thread::Builder::new()
             .name("bombadil-browser-worker".to_string())
@@ -81,6 +87,7 @@ impl BrowserDriver {
             command_send,
             worker: Some(worker),
             edges: vec![0u8; EDGE_MAP_SIZE],
+            coverage_map_offset,
         })
     }
 }
@@ -125,10 +132,21 @@ impl InterfaceDriver for BrowserDriver {
         }
         match reply_receive.recv().ok().flatten() {
             Some(DriverEvent::StateChanged(state)) => {
-                // Main edge coverage map.
                 for (index, bucket) in &state.coverage.edges_new {
-                    self.edges[*index as usize] =
-                        max(self.edges[*index as usize], *bucket);
+                    let index = *index as usize;
+                    // Report coverage changes to Antithesis.
+                    if self.edges[index] == 0 {
+                        assert!(
+                            self.coverage_map_offset
+                                < (usize::MAX - EDGE_MAP_SIZE),
+                            "offset + index overflows usize"
+                        );
+                        antithesis_coverage::notify_coverage(
+                            self.coverage_map_offset + index,
+                        );
+                    }
+                    // Update main edge coverage map.
+                    self.edges[index] = max(self.edges[index], *bucket);
                 }
                 log_coverage_stats_increment(&state.coverage);
                 log_coverage_stats_total(&self.edges);
