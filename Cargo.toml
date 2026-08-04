@@ -20,7 +20,7 @@ version = "0.6.1"
 edition = "2024"
 
 [workspace.dependencies]
-antithesis_sdk = { version = "0.2.9", default-features = false, features = ["rand_v0_10"] }
+antithesis_sdk = { version = "0.2.9", default-features = false, features = ["rand_v0_10", "full"] }
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
