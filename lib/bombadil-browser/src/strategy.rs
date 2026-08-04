@@ -102,6 +102,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
                             )),
                             tree.values()
                                 .iter()
+                                .copied()
                                 .map(format_action)
                                 .collect::<Vec<String>>()
                                 .join("\n")

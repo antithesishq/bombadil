@@ -1,3 +1,4 @@
+pub mod antithesis;
 pub mod driver;
 pub mod render;
 pub mod runner;

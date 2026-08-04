@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
-use anyhow::{Result, bail};
-use rand::{RngExt, TryRng};
+use anyhow::{Result, anyhow, bail};
+use rand::{RngExt, TryRng, seq::IndexedRandom};
 use serde::{Deserialize, Serialize};
+
+use crate::antithesis;
 
 pub type Weight = u16;
 
@@ -73,6 +75,14 @@ impl<T> Tree<T> {
     }
 
     pub fn pick<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
+        if antithesis::is_in_guest() {
+            self.pick_unweighted(rng)
+        } else {
+            self.pick_weighted(rng)
+        }
+    }
+
+    fn pick_weighted<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
         match self {
             Tree::Leaf { value } => Ok(value),
             Tree::Branch { branches } => {
@@ -93,16 +103,20 @@ impl<T> Tree<T> {
         }
     }
 
-    pub fn values(&self) -> Vec<T>
-    where
-        T: Clone,
-    {
-        let mut result: Vec<T> = vec![];
+    fn pick_unweighted<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
+        self.values()
+            .choose(rng)
+            .copied()
+            .ok_or(anyhow!("no values to pick in tree"))
+    }
+
+    pub fn values(&self) -> Vec<&T> {
+        let mut result: Vec<&T> = vec![];
         let mut queue = VecDeque::new();
         queue.push_front(self);
         while let Some(next) = queue.pop_front() {
             match next {
-                Self::Leaf { value } => result.push(value.clone()),
+                Self::Leaf { value } => result.push(value),
                 Self::Branch { branches } => {
                     queue.extend(branches.iter().map(|(_, tree)| tree))
                 }
@@ -269,6 +283,9 @@ mod tests {
                 ),
             ],
         };
-        assert_eq!(tree.values(), vec![1, 2, 3]);
+        assert_eq!(
+            tree.values().iter().copied().copied().collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 }

@@ -18,7 +18,7 @@ use tempfile::TempDir;
 use tokio::io::AsyncBufReadExt;
 use tokio::{fs::File, io::BufReader};
 
-use bombadil::{specification::verifier::Specification, styled};
+use bombadil::{antithesis, specification::verifier::Specification, styled};
 use bombadil_browser::{
     browser::{
         BrowserOptions, DebuggerOptions, Emulation, actions::BrowserAction,
@@ -408,7 +408,7 @@ async fn browser_test(
     // worker thread/runtime), so run them on a blocking thread to avoid
     // blocking the async runtime.
     let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
-        if crate::antithesis::is_in_guest() {
+        if antithesis::is_in_guest() {
             run_with_writer(NoopTraceWriter, run_options)
         } else {
             run_with_writer(
