@@ -1,15 +1,27 @@
 {
   dockerTools,
-  callPackage,
   buildEnv,
   coreutils,
   runtimeShell,
   bashInteractive,
   chromium,
   bombadil,
+  # Fonts
+  fontconfig,
+  makeFontsConf,
+  liberation_ttf,
+  noto-fonts,
+  noto-fonts-color-emoji,
 }:
 let
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
+  fontConfig = makeFontsConf {
+    fontDirectories = [
+      liberation_ttf
+      noto-fonts
+      noto-fonts-color-emoji
+    ];
+  };
 in
 dockerTools.buildImage {
   name = "bombadil";
@@ -20,6 +32,10 @@ dockerTools.buildImage {
       bombadil
       coreutils
       bashInteractive
+      fontconfig
+      liberation_ttf
+      noto-fonts
+      noto-fonts-color-emoji
       chromium
     ];
     pathsToLink = [ "/bin" ];
@@ -55,6 +71,7 @@ dockerTools.buildImage {
       "--no-sandbox"
     ];
     Env = [
+      "FONTCONFIG_FILE=${fontConfig}"
       "RUST_LOG=chromiumoxide=error"
     ];
   };

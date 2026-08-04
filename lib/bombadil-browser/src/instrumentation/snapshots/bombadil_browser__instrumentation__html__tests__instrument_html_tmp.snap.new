@@ -1,0 +1,126 @@
+---
+source: lib/bombadil-browser/src/instrumentation/html.rs
+assertion_line: 296
+expression: output
+---
+<!DOCTYPE html><html lang="en"><head>
+    <meta charset="UTF-8">
+    <title>Roll the dice</title>
+</head>
+<body>
+    <h1>Roll the dice</h1>
+    <button>1</button>
+    <button>2</button>
+    <button>3</button>
+    <button>4</button>
+    <button>5</button>
+    <button>6</button>
+    <div id="message"></div>
+
+    <script>window.__bombadil__ = window.__bombadil__ || {
+    edges_previous: new Uint8Array(65536),
+    edges_current: new Uint8Array(65536),
+    previous: 0,
+};
+const buttons = [...document.querySelectorAll("button")];
+const message = document.querySelector("#message");
+async function next() {
+	const abort = new AbortController();
+	return await Promise.race(buttons.map((button) => new Promise((resolve) => {
+		button.addEventListener("click", function(event) {
+			resolve(parseInt(button.textContent));
+			abort.abort();
+		}, { signal: abort.signal });
+	})));
+}
+function render(msg) {
+	message.textContent = msg;
+}
+async function test() {
+	render("start");
+	if (await next() === 1) {
+		__bombadil__.edges_current[(0x93273cca03bde000 ^ __bombadil__.previous) % 65536] += 1;
+		__bombadil__.previous = 0x93273cca03bde000 >> 1;
+		render("1");
+		if (await next() === 2) {
+			__bombadil__.edges_current[(0x360cc1236c34ce00 ^ __bombadil__.previous) % 65536] += 1;
+			__bombadil__.previous = 0x360cc1236c34ce00 >> 1;
+			render("2");
+			if (await next() === 3) {
+				__bombadil__.edges_current[(0x6d6497a63c47d800 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x6d6497a63c47d800 >> 1;
+				render("3");
+				if (await next() === 4) {
+					__bombadil__.edges_current[(0x421f3b1b191e2800 ^ __bombadil__.previous) % 65536] += 1;
+					__bombadil__.previous = 0x421f3b1b191e2800 >> 1;
+					render("4");
+					if (await next() === 5) {
+						__bombadil__.edges_current[(0xa46e8841c32c2800 ^ __bombadil__.previous) % 65536] += 1;
+						__bombadil__.previous = 0xa46e8841c32c2800 >> 1;
+						render("5");
+						if (await next() === 6) {
+							__bombadil__.edges_current[(0x3f3f111ecc384800 ^ __bombadil__.previous) % 65536] += 1;
+							__bombadil__.previous = 0x3f3f111ecc384800 >> 1;
+							render("6");
+							if (await next() === 1) {
+								__bombadil__.edges_current[(0x2879e479baf03000 ^ __bombadil__.previous) % 65536] += 1;
+								__bombadil__.previous = 0x2879e479baf03000 >> 1;
+								render("1");
+								if (await next() === 2) {
+									__bombadil__.edges_current[(0xe05973b75d8ae000 ^ __bombadil__.previous) % 65536] += 1;
+									__bombadil__.previous = 0xe05973b75d8ae000 >> 1;
+									render("2");
+									if (await next() === 3) {
+										__bombadil__.edges_current[(0xe952099a801f3000 ^ __bombadil__.previous) % 65536] += 1;
+										__bombadil__.previous = 0xe952099a801f3000 >> 1;
+										render("3");
+										if (await next() === 4) {
+											__bombadil__.edges_current[(0x22c1feea839d4200 ^ __bombadil__.previous) % 65536] += 1;
+											__bombadil__.previous = 0x22c1feea839d4200 >> 1;
+											throw new Error("oh no you hit the bug");
+										} else {
+											__bombadil__.edges_current[(0x11b1b3220bdaeb00 ^ __bombadil__.previous) % 65536] += 1;
+											__bombadil__.previous = 0x11b1b3220bdaeb00 >> 1;
+										}
+									} else {
+										__bombadil__.edges_current[(0x1fb0246f4b83a600 ^ __bombadil__.previous) % 65536] += 1;
+										__bombadil__.previous = 0x1fb0246f4b83a600 >> 1;
+									}
+								} else {
+									__bombadil__.edges_current[(0x826501fbfc4fe800 ^ __bombadil__.previous) % 65536] += 1;
+									__bombadil__.previous = 0x826501fbfc4fe800 >> 1;
+								}
+							} else {
+								__bombadil__.edges_current[(0x2783b71dc0f41200 ^ __bombadil__.previous) % 65536] += 1;
+								__bombadil__.previous = 0x2783b71dc0f41200 >> 1;
+							}
+						} else {
+							__bombadil__.edges_current[(0x44085f064bad5400 ^ __bombadil__.previous) % 65536] += 1;
+							__bombadil__.previous = 0x44085f064bad5400 >> 1;
+						}
+					} else {
+						__bombadil__.edges_current[(0x42e345b7b75bac00 ^ __bombadil__.previous) % 65536] += 1;
+						__bombadil__.previous = 0x42e345b7b75bac00 >> 1;
+					}
+				} else {
+					__bombadil__.edges_current[(0x9997e6638e5b2000 ^ __bombadil__.previous) % 65536] += 1;
+					__bombadil__.previous = 0x9997e6638e5b2000 >> 1;
+				}
+			} else {
+				__bombadil__.edges_current[(0x4d3cdc8572966000 ^ __bombadil__.previous) % 65536] += 1;
+				__bombadil__.previous = 0x4d3cdc8572966000 >> 1;
+			}
+		} else {
+			__bombadil__.edges_current[(0xd2a77c6fbea01800 ^ __bombadil__.previous) % 65536] += 1;
+			__bombadil__.previous = 0xd2a77c6fbea01800 >> 1;
+		}
+	} else {
+		__bombadil__.edges_current[(0x2e33a1c74cb7e200 ^ __bombadil__.previous) % 65536] += 1;
+		__bombadil__.previous = 0x2e33a1c74cb7e200 >> 1;
+	}
+}
+test();
+</script>
+
+
+</body></html>

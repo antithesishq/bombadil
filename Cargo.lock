@@ -87,6 +87,7 @@ name = "antithesis-coverage"
 version = "0.6.1"
 dependencies = [
  "cc",
+ "log",
 ]
 
 [[package]]

@@ -20,9 +20,15 @@ pub fn init_coverage_module(
 ) -> usize {
     let c_str = CString::new(symbol_file_name)
         .expect("NUL terminator in symbol_file_name");
-    unsafe { antithesis_init_coverage_module(edge_count, c_str.as_ptr()) }
+    let offset =
+        unsafe { antithesis_init_coverage_module(edge_count, c_str.as_ptr()) };
+    log::debug!(
+        "init_coverage_module({edge_count:?}, {symbol_file_name:?}) -> {offset:?}"
+    );
+    offset
 }
 
 pub fn notify_coverage(edge_index: usize) {
+    log::debug!("notify_coverage({edge_index:?})");
     unsafe { antithesis_notify_coverage(edge_index) }
 }

@@ -1,3 +1,4 @@
+mod antithesis;
 mod browser;
 mod duration;
 mod inspect_server;

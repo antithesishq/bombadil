@@ -63,7 +63,7 @@ impl BrowserDriver {
 
         let coverage_map_offset = antithesis_coverage::init_coverage_module(
             EDGE_MAP_SIZE,
-            "bombadil-browser",
+            "bombadil.tsv",
         );
 
         let worker = std::thread::Builder::new()
@@ -132,9 +132,9 @@ impl InterfaceDriver for BrowserDriver {
         }
         match reply_receive.recv().ok().flatten() {
             Some(DriverEvent::StateChanged(state)) => {
-                // Main edge coverage map.
                 for (index, bucket) in &state.coverage.edges_new {
                     let index = *index as usize;
+                    // Report coverage changes to Antithesis.
                     if self.edges[index] == 0 {
                         assert!(
                             self.coverage_map_offset
@@ -145,6 +145,7 @@ impl InterfaceDriver for BrowserDriver {
                             self.coverage_map_offset + index,
                         );
                     }
+                    // Update main edge coverage map.
                     self.edges[index] = max(self.edges[index], *bucket);
                 }
                 log_coverage_stats_increment(&state.coverage);
