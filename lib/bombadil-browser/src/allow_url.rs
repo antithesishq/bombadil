@@ -331,27 +331,20 @@ mod tests {
         assert_eq!(parsed, allow);
     }
 
-    /// An allow-url built from a URL's fields allows that URL.
-    /// Origin is the same URL so Domain's port check against origin does not fail.
+    /// Given Url `u` that parses as AllowUrl `a`, `is_url_allowed(u, &[a], origin)`.
+    /// Origin is `u` so Domain's port check against origin does not fail.
     #[hegel::test]
-    fn allow_url_allows_matching_url(tc: TestCase) {
-        let seed = draw_network_url(&tc);
-        let host = seed.host_str().unwrap().to_string();
-        let allow = if tc.draw(booleans()) {
-            AllowUrl::Domain {
-                domain: host.clone(),
-            }
+    fn is_url_allowed_when_parsed_from_url(tc: TestCase) {
+        let u = draw_network_url(&tc);
+        // Domain form (host only) or full URL form — both are valid --allow-url inputs.
+        let a = if tc.draw(booleans()) {
+            AllowUrl::parse(u.host_str().unwrap()).unwrap()
         } else {
-            AllowUrl::UrlPrefix {
-                scheme: seed.scheme().to_string(),
-                host,
-                port: seed.port(),
-                path_prefix: normalize_path_prefix(seed.path()),
-            }
+            AllowUrl::parse(u.as_str()).unwrap_or_else(|_| tc.reject())
         };
         assert!(
-            is_url_allowed(&seed, std::slice::from_ref(&allow), &seed),
-            "url {seed} should be allowed by {allow}"
+            is_url_allowed(&u, std::slice::from_ref(&a), &u),
+            "url {u} should be allowed by {a}"
         );
     }
 }
