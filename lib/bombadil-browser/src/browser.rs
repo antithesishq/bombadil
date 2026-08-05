@@ -1325,13 +1325,14 @@ fn launch_options_to_config(
     emulation: &Emulation,
 ) -> Result<BrowserConfig> {
     let crash_dumps_dir = TempDir::new()?;
+
     let apply_sandbox =
         |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
             if launch_options.no_sandbox {
-                builder.no_sandbox().args([
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                ])
+                builder
+                    .no_sandbox()
+                    .arg("disable-setuid-sandbox")
+                    .arg("disable-dev-shm-usage")
             } else {
                 builder
             }
@@ -1347,22 +1348,22 @@ fn launch_options_to_config(
     apply_headless(apply_sandbox(BrowserConfig::builder()))
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
-        .args([
-            &format!(
-                "--crash-dumps-dir={}",
-                crash_dumps_dir
-                    .path()
-                    .to_path_buf()
-                    .to_str()
-                    .expect("invalid tmp dir path")
-            ),
-            "--no-crashpad",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-domain-reliability",
-            "--no-pings",
-            "--disable-crash-reporter",
-        ])
+        .arg((
+            "crash-dumps-dir",
+            crash_dumps_dir
+                .path()
+                .to_path_buf()
+                .to_str()
+                .expect("invalid tmp dir path"),
+        ))
+        .arg("enable-logging")
+        .arg(("v", "1"))
+        .arg("no-crashpad")
+        .arg("disable-background-networking")
+        .arg("disable-component-update")
+        .arg("disable-domain-reliability")
+        .arg("no-pings")
+        .arg("disable-crash-reporter")
         .build()
         .map_err(|s| anyhow!(s))
 }

@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
+use antithesis_sdk::assert::{AssertType, assert_raw};
 use anyhow::Result;
 use bombadil_ltl::eval;
 use bombadil_schema::Time;
 use serde::Serialize;
+use serde_json::json;
 
 use crate::driver::{DriverEvent, InterfaceDriver};
 use crate::specification::convert::{
@@ -112,19 +114,38 @@ impl<D: InterfaceDriver> Runner<D> {
                     let mut violations =
                         Vec::with_capacity(step_result.properties.len());
                     for (name, value) in step_result.properties {
-                        match value {
+                        let (condition, hit, details) = match value {
                             eval::Value::False(violation, _) => {
+                                let violation =
+                                    violation_with_pretty_functions(&violation)
+                                        .to_schema();
                                 violations.push(PropertyViolation {
-                                    name,
-                                    violation: violation_with_pretty_functions(
-                                        &violation,
-                                    )
-                                    .to_schema(),
+                                    name: name.clone(),
+                                    violation: violation.clone(),
                                 });
+                                (false, true, json!({ "violation": violation }))
                             }
                             eval::Value::Residual(_) | eval::Value::True(_) => {
+                                (true, true, json!({}))
                             }
-                        }
+                        };
+
+                        // Catalog properties, or report their violations, to Antithesis.
+                        assert_raw(
+                            condition,
+                            name.clone(),
+                            &details,
+                            "".into(),
+                            "".into(),
+                            "".into(),
+                            0,
+                            0,
+                            hit,  // hit
+                            true, // must_hit
+                            AssertType::Always,
+                            "Bombadil property".into(),
+                            name.clone(),
+                        );
                     }
 
                     let control = strategy.on_new_state(

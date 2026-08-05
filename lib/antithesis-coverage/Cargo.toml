@@ -1,0 +1,10 @@
+[package]
+name = "antithesis-coverage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+log.workspace = true
+
+[build-dependencies]
+cc = "1"
