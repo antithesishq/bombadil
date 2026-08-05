@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod convert;
+pub mod cookie;
 pub mod driver;
 pub mod geometry;
 pub mod instrumentation;

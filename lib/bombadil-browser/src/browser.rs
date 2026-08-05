@@ -32,6 +32,7 @@ use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
+use crate::cookie::{BrowserCookie, build_cookie_param};
 
 pub mod actions;
 pub mod activity;
@@ -185,7 +186,7 @@ pub struct BrowserOptions {
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
-    pub cookies: Vec<(String, String)>,
+    pub cookies: Vec<BrowserCookie>,
 }
 
 #[derive(Clone)]
@@ -275,24 +276,14 @@ impl Browser {
         }
 
         if !browser_options.cookies.is_empty() {
-            // Cookies are associated with the origin URL so that the
-            // browser derives an appropriate domain, path, and scheme.
-            // Unlike a static Cookie request header, these become real
-            // browser cookies and are sent on every navigation, which is
-            // what client-side auth flows (e.g. MSAL) rely on.
+            // Unlike a static Cookie request header, these become real browser
+            // cookies and are sent on every navigation, which is what client-side
+            // auth flows (e.g. MSAL) rely on. Plain NAME=VALUE scopes to the
+            // origin URL; Set-Cookie attributes (Domain, Path, etc.) override that.
             let cookies = browser_options
                 .cookies
                 .iter()
-                .map(|(name, value)| {
-                    network::CookieParam::builder()
-                        .name(name)
-                        .value(value)
-                        .url(origin.as_str())
-                        .build()
-                        .map_err(|s| {
-                            anyhow!(s).context("build CookieParam failed")
-                        })
-                })
+                .map(|cookie| build_cookie_param(cookie, &origin))
                 .collect::<Result<Vec<_>>>()?;
             page.execute(network::SetCookiesParams::new(cookies))
                 .await?;
