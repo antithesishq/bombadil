@@ -27,6 +27,7 @@ use bombadil_browser::{
         actions::BrowserAction,
     },
     convert::ToSchema,
+    cookie::BrowserCookie,
     runner,
     strategy::{TestStrategy, TraceWriter},
 };
@@ -76,7 +77,7 @@ struct BrowserIntegrationTest<'a> {
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
-    cookies: Vec<(String, String)>,
+    cookies: Vec<BrowserCookie>,
     allow_urls: Vec<bombadil_browser::allow_url::AllowUrl>,
 }
 
@@ -126,7 +127,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
-    fn cookies(mut self, cookies: Vec<(String, String)>) -> Self {
+    fn cookies(mut self, cookies: Vec<BrowserCookie>) -> Self {
         self.cookies = cookies;
         self
     }
@@ -1048,7 +1049,7 @@ async fn test_allow_url_required_for_subdomain_wait() {
 #[tokio::test]
 async fn test_cookies() {
     BrowserIntegrationTest::new("fetch-headers")
-        .cookies(vec![("session".to_string(), "bombadil".to_string())])
+        .cookies(vec![BrowserCookie::parse("session=bombadil").unwrap()])
         .time_limit(Duration::from_secs(15))
         .specification(
             r#"
@@ -1064,6 +1065,33 @@ export const sessionCookiePresent = eventually(
   () => cookieSet.current === true
 ).within(10, "seconds");
 "#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_cookie_domain() {
+    BrowserIntegrationTest::new("cookie-domain")
+        .cookies(vec![
+            BrowserCookie::parse("session=bombadil; Domain=localhost").unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const cookieOk = extract((state) => {
+  const el = state.document.querySelector("#cookie-ok");
+  return el != null && (el as HTMLElement).offsetParent !== null;
+});
+
+export const sessionCookieOnOtherPort = eventually(
+  () => cookieOk.current === true
+).within(10, "seconds");
+"##,
         )
         .run()
         .await;

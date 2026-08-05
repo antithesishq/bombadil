@@ -1,201 +1,264 @@
+use std::collections::VecDeque;
+
 use bombadil_schema::Time;
-use bombadil_schema::markup::{Inline, Markup};
+use bombadil_schema::markup::{Layout, Markup, Node};
 use owo_colors::OwoColorize;
+use serde_json::Value;
+use willow_tree::NodeId;
 
-pub fn supports_color() -> bool {
-    supports_color::on(supports_color::Stream::Stdout).is_some()
+enum Frame {
+    Snapshots {
+        remaining_ids: VecDeque<NodeId>,
+        child_results: Vec<(String, Layout)>,
+    },
+    Join {
+        remaining_ids: VecDeque<NodeId>,
+        output: String,
+        layout_previous: Option<Layout>,
+        comma_pending: bool,
+        layout_all: Layout,
+    },
 }
 
-pub fn maybe_blue(s: String) -> String {
-    if supports_color() {
-        s.blue().to_string()
-    } else {
-        s
+pub fn markup_to_styled(tree: &Markup, test_start: Time) -> String {
+    let mut stack: Vec<Frame> = Vec::new();
+
+    let root = tree.root();
+    match root.value() {
+        Node::Snapshots => stack.push(Frame::Snapshots {
+            remaining_ids: root.children().iter().cloned().collect(),
+            child_results: Vec::new(),
+        }),
+        Node::Join => stack.push(Frame::Join {
+            remaining_ids: root.children().iter().cloned().collect(),
+            output: String::new(),
+            layout_previous: None,
+            comma_pending: false,
+            layout_all: Layout::Inline,
+        }),
+        Node::Comma => panic!("root node cannot be a Comma"),
+        leaf => {
+            let (result, _) = build_leaf(leaf, test_start);
+            return result;
+        }
     }
-}
 
-pub fn maybe_bold(s: String) -> String {
-    if supports_color() {
-        s.bold().to_string()
-    } else {
-        s
-    }
-}
+    loop {
+        let frame = stack.last_mut().expect("expected a frame on the stack");
 
-pub fn maybe_italic(s: String) -> String {
-    if supports_color() {
-        s.italic().to_string()
-    } else {
-        s
-    }
-}
-
-pub fn maybe_dimmed(s: String) -> String {
-    if supports_color() {
-        s.dimmed().to_string()
-    } else {
-        s
-    }
-}
-
-pub fn maybe_red(s: String) -> String {
-    if supports_color() {
-        s.red().to_string()
-    } else {
-        s
-    }
-}
-
-pub fn markup_to_styled(markup: &Markup, test_start: Time) -> String {
-    let mut output = String::new();
-    render_markup(&mut output, markup, test_start);
-    output
-}
-
-fn render_markup(output: &mut String, markup: &Markup, test_start: Time) {
-    match markup {
-        Markup::Span(inlines) => {
-            for inline in inlines {
-                render_inline(output, inline, test_start);
+        let next_id = match frame {
+            Frame::Snapshots {
+                remaining_ids: remaining,
+                ..
             }
-        }
-        Markup::CodeBlock(code) => {
-            output.push_str(&maybe_italic(code.to_string()));
-        }
-        Markup::Snapshots(snapshots) => {
-            let all_inline =
-                snapshots.iter().all(|item| is_json_inline(&item.value));
-            for (index, snapshot) in snapshots.iter().enumerate() {
-                if index > 0 {
-                    let separator = if all_inline { ", " } else { "\n" };
-                    output.push_str(separator);
-                }
-                output.push_str(&snapshot.name);
-                output.push_str(" = ");
-                render_json_value(output, &snapshot.value, 0);
-            }
-        }
-        Markup::Stack(items) => {
-            for (index, item) in items.iter().enumerate() {
-                if index > 0 {
-                    output.push_str("\n\n");
-                }
-                render_markup(output, item, test_start);
-            }
-        }
-        Markup::Join(items) => {
-            render_join(output, items, test_start);
-        }
-        Markup::Comma => {}
-    }
-}
+            | Frame::Join {
+                remaining_ids: remaining,
+                ..
+            } => remaining.pop_front(),
+        };
 
-fn render_join(output: &mut String, items: &[Markup], test_start: Time) {
-    let items = flatten_joins(items);
-
-    let mut previous_non_comma_index: Option<usize> = None;
-    let mut next_separator_has_comma = false;
-
-    for (index, item) in items.iter().enumerate() {
-        if matches!(item, Markup::Comma) {
-            next_separator_has_comma = true;
-            continue;
-        }
-
-        if let Some(previous_index) = previous_non_comma_index {
-            let previous_inline = is_inline(&items[previous_index]);
-            let current_inline = is_inline(item);
-
-            let separator = match (previous_inline, current_inline) {
-                (true, true) => {
-                    if next_separator_has_comma {
-                        ", "
-                    } else {
-                        " "
+        match next_id {
+            Some(id) => {
+                let node = &tree[id];
+                match node.value() {
+                    Node::Comma => {
+                        if let Frame::Join { comma_pending, .. } = frame {
+                            *comma_pending = true;
+                        }
+                    }
+                    Node::Join => {
+                        if let Frame::Join {
+                            remaining_ids: remaining,
+                            ..
+                        } = frame
+                        {
+                            let mut children: VecDeque<NodeId> =
+                                node.children().iter().cloned().collect();
+                            children.append(remaining);
+                            *remaining = children;
+                        }
+                    }
+                    Node::Snapshots => {
+                        let children =
+                            node.children().iter().cloned().collect();
+                        stack.push(Frame::Snapshots {
+                            remaining_ids: children,
+                            child_results: Vec::new(),
+                        });
+                    }
+                    leaf => {
+                        let (result, inline) = build_leaf(leaf, test_start);
+                        feed(frame, result, inline);
                     }
                 }
-                (true, false) => ":\n\n",
-                (false, _) => "\n\n",
-            };
+            }
+            None => {
+                let frame_finished =
+                    stack.pop().expect("no finished frame on stack");
+                let (result, layout) = finalize(frame_finished);
 
-            output.push_str(separator);
-            next_separator_has_comma = false;
+                match stack.last_mut() {
+                    Some(parent) => feed(parent, result, layout),
+                    None => return result,
+                }
+            }
         }
-
-        render_markup(output, item, test_start);
-        previous_non_comma_index = Some(index);
     }
 }
 
-fn flatten_joins(items: &[Markup]) -> Vec<Markup> {
-    let mut result = Vec::new();
-    for item in items {
-        if let Markup::Join(nested_items) = item {
-            result.extend(flatten_joins(nested_items));
-        } else {
-            result.push(item.clone());
+fn build_leaf(node: &Node, test_start: Time) -> (String, Layout) {
+    match node {
+        Node::Text(text) => (text.clone(), Layout::Inline),
+        Node::Code(code) => (maybe_italic(code.to_string()), Layout::Inline),
+        Node::Time(time) => {
+            let elapsed = std::time::Duration::from_micros(
+                time.as_micros().saturating_sub(test_start.as_micros()),
+            );
+            let formatted = bombadil_schema::duration::format_duration(
+                elapsed,
+                bombadil_schema::duration::FormatDurationOptions {
+                    include_millis: true,
+                },
+            );
+            (maybe_bold(formatted), Layout::Inline)
+        }
+        Node::Keyword(keyword) => (keyword.clone(), Layout::Inline),
+        Node::CodeBlock(code) => {
+            (maybe_italic(code.to_string()), Layout::Block)
+        }
+        Node::SnapshotMarkup { name, value } => {
+            let mut s = String::new();
+            s.push_str(name);
+            s.push_str(" = ");
+            render_json_value(&mut s, value, 0);
+            (s, Layout::for_json(value))
+        }
+        Node::Comma | Node::Join | Node::Snapshots => {
+            unreachable!("branch/comma nodes must be handled before build_leaf")
         }
     }
-    result
 }
 
-fn is_json_inline(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Array(items) => items.is_empty(),
-        serde_json::Value::Object(map) => map.is_empty(),
-        _ => true,
+fn feed(frame: &mut Frame, result_new: String, layout: Layout) {
+    match frame {
+        Frame::Snapshots {
+            child_results: built,
+            ..
+        } => built.push((result_new, layout)),
+        Frame::Join {
+            output,
+            layout_previous,
+            comma_pending,
+            layout_all,
+            ..
+        } => {
+            *layout_all = layout_all.join(layout);
+
+            if let Some(layout_previous) = *layout_previous {
+                let separator = match (layout_previous, layout) {
+                    (Layout::Inline, Layout::Inline) => {
+                        if *comma_pending {
+                            ", "
+                        } else {
+                            " "
+                        }
+                    }
+                    (Layout::Inline, Layout::Block) => ":\n\n",
+                    (Layout::Block, _) => "\n\n",
+                };
+                output.push_str(separator);
+                *comma_pending = false;
+            }
+
+            output.push_str(&result_new);
+            *layout_previous = Some(layout);
+        }
     }
 }
 
-fn render_json_value(
-    output: &mut String,
-    value: &serde_json::Value,
-    indent: usize,
-) {
-    match value {
-        serde_json::Value::Null => {
-            output.push_str(&maybe_blue("null".to_string()))
-        }
-        serde_json::Value::Bool(b) => {
-            output.push_str(&maybe_blue(b.to_string()))
-        }
-        serde_json::Value::Number(n) => {
-            output.push_str(&maybe_blue(n.to_string()))
-        }
-        serde_json::Value::String(s) => {
-            if is_simple_string(s) {
-                output.push_str(&maybe_blue(s.to_string()));
-            } else {
-                output.push_str(&maybe_blue(serde_json::to_string(s).unwrap()));
+fn finalize(frame: Frame) -> (String, Layout) {
+    match frame {
+        Frame::Snapshots { child_results, .. } => {
+            let layout_all = child_results
+                .iter()
+                .fold(Layout::Inline, |acc, (_, layout)| acc.join(*layout));
+            let mut result = String::new();
+            for (index, (item, _)) in child_results.iter().enumerate() {
+                if index > 0 {
+                    result.push_str(if layout_all == Layout::Inline {
+                        ", "
+                    } else {
+                        "\n"
+                    });
+                }
+                result.push_str(item);
             }
+            (result, layout_all)
         }
-        serde_json::Value::Array(items) if items.is_empty() => {
-            output.push_str(&maybe_blue("[]".to_string()))
-        }
-        serde_json::Value::Array(items) => {
-            let indent_str = "  ".repeat(indent + 1);
-            for item in items {
-                output.push('\n');
-                output.push_str(&indent_str);
-                output.push_str("- ");
-                render_json_value(output, item, indent + 1);
-            }
-        }
-        serde_json::Value::Object(map) if map.is_empty() => {
-            output.push_str(&maybe_blue("{}".to_string()))
-        }
-        serde_json::Value::Object(map) => {
-            let mut entries: Vec<_> = map.iter().collect();
-            entries.sort_by_key(|(key, _)| *key);
+        Frame::Join {
+            output, layout_all, ..
+        } => (output, layout_all),
+    }
+}
 
-            let indent_str = "  ".repeat(indent + 1);
-            for (key, val) in entries {
-                output.push('\n');
-                output.push_str(&indent_str);
-                output.push_str(key);
-                output.push_str(": ");
-                render_json_value(output, val, indent + 1);
-            }
+fn render_json_value(output: &mut String, value: &Value, indent: usize) {
+    enum Work<'a> {
+        Value { value: &'a Value, indent: usize },
+        Literal(String),
+    }
+
+    let mut stack = vec![Work::Value { value, indent }];
+
+    while let Some(work) = stack.pop() {
+        match work {
+            Work::Literal(s) => output.push_str(&s),
+            Work::Value { value, indent } => match value {
+                Value::Null => output.push_str(&maybe_blue("null".to_string())),
+                Value::Bool(b) => output.push_str(&maybe_blue(b.to_string())),
+                Value::Number(n) => output.push_str(&maybe_blue(n.to_string())),
+                Value::String(s) => {
+                    if is_simple_string(s) {
+                        output.push_str(&maybe_blue(s.to_string()));
+                    } else {
+                        output.push_str(&maybe_blue(
+                            serde_json::to_string(s).expect(
+                                "couldn't serialize JSON string as string",
+                            ),
+                        ));
+                    }
+                }
+                Value::Array(items) if items.is_empty() => {
+                    output.push_str(&maybe_blue("[]".to_string()))
+                }
+                Value::Array(items) => {
+                    let indent_str = "  ".repeat(indent + 1);
+                    for item in items.iter().rev() {
+                        stack.push(Work::Value {
+                            value: item,
+                            indent: indent + 1,
+                        });
+                        stack.push(Work::Literal(format!("\n{indent_str}- ")));
+                    }
+                }
+                Value::Object(map) if map.is_empty() => {
+                    output.push_str(&maybe_blue("{}".to_string()))
+                }
+                Value::Object(map) => {
+                    let mut entries: Vec<_> = map.iter().collect();
+                    entries.sort_by_key(|(key, _)| *key);
+
+                    let indent_str = "  ".repeat(indent + 1);
+                    for (key, val) in entries.into_iter().rev() {
+                        stack.push(Work::Value {
+                            value: val,
+                            indent: indent + 1,
+                        });
+                        stack.push(Work::Literal(format!(
+                            "\n{indent_str}{key}: "
+                        )));
+                    }
+                }
+            },
         }
     }
 }
@@ -204,19 +267,16 @@ fn is_simple_string(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-
     if s.chars().any(|c| c.is_control()) {
         return false;
     }
-
     match s {
         "true" | "false" | "True" | "False" | "TRUE" | "FALSE" | "yes"
         | "no" | "Yes" | "No" | "YES" | "NO" | "null" | "Null" | "NULL"
         | "~" => return false,
         _ => {}
     }
-
-    let first = s.chars().next().unwrap();
+    let first = s.chars().next().expect("first char on empty string");
     if matches!(
         first,
         '[' | ']'
@@ -242,48 +302,52 @@ fn is_simple_string(s: &str) -> bool {
     ) {
         return false;
     }
-
     if s.contains(": ") {
         return false;
     }
-
     if s.contains(" #") {
         return false;
     }
-
     true
 }
 
-fn is_inline(markup: &Markup) -> bool {
-    match markup {
-        Markup::Span(_) => true,
-        Markup::CodeBlock(_) => false,
-        Markup::Snapshots(items) => {
-            items.iter().all(|item| is_json_inline(&item.value))
-        }
-        Markup::Stack(_) => false,
-        Markup::Join(items) => items.iter().all(is_inline),
-        Markup::Comma => true,
-    }
+pub fn supports_color() -> bool {
+    supports_color::on(supports_color::Stream::Stdout).is_some()
 }
 
-fn render_inline(output: &mut String, inline: &Inline, test_start: Time) {
-    match inline {
-        Inline::Text(text) => output.push_str(text),
-        Inline::Code(code) => output.push_str(&maybe_italic(code.to_string())),
-        Inline::Time(time) => {
-            let elapsed = std::time::Duration::from_micros(
-                time.as_micros().saturating_sub(test_start.as_micros()),
-            );
-            let formatted = bombadil_schema::duration::format_duration(
-                elapsed,
-                bombadil_schema::duration::FormatDurationOptions {
-                    include_millis: true,
-                },
-            );
-            output.push_str(&maybe_bold(formatted));
-        }
-        Inline::Keyword(keyword) => output.push_str(keyword),
+pub fn maybe_blue(s: String) -> String {
+    if supports_color() {
+        s.blue().to_string()
+    } else {
+        s
+    }
+}
+pub fn maybe_bold(s: String) -> String {
+    if supports_color() {
+        s.bold().to_string()
+    } else {
+        s
+    }
+}
+pub fn maybe_italic(s: String) -> String {
+    if supports_color() {
+        s.italic().to_string()
+    } else {
+        s
+    }
+}
+pub fn maybe_dimmed(s: String) -> String {
+    if supports_color() {
+        s.dimmed().to_string()
+    } else {
+        s
+    }
+}
+pub fn maybe_red(s: String) -> String {
+    if supports_color() {
+        s.red().to_string()
+    } else {
+        s
     }
 }
 

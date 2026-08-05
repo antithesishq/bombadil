@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Cookie domain</title>
+    <style>
+      button {
+        display: block;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <button>Visit other port</button>
+    <script>
+      document.querySelector("button").addEventListener("click", () => {
+        const port = parseInt(window.location.port, 10);
+        window.location = `http://localhost:${port + 1}/cookie-domain/check.html`;
+      });
+    </script>
+  </body>
+</html>
