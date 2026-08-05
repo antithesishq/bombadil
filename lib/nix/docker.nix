@@ -5,6 +5,7 @@
   runtimeShell,
   bashInteractive,
   chromium,
+  curl,
   bombadil,
   # Fonts
   fontconfig,
@@ -37,6 +38,7 @@ dockerTools.buildImage {
       noto-fonts
       noto-fonts-color-emoji
       chromium
+      curl
     ];
     pathsToLink = [ "/bin" ];
   };
