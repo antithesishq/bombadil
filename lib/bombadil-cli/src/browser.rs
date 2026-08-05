@@ -342,7 +342,7 @@ fn reproduce_command_args(
         args.push(format!("--cookie {cookie}"));
     }
     for allow_url in &shared.allow_urls {
-        args.push(format!("--allow-url {}", allow_url.cli_value()));
+        args.push(format!("--allow-url {allow_url}"));
     }
     args
 }

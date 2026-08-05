@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter, Result as FmtResult};
+
 use url::Url;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,31 +59,6 @@ impl AllowUrl {
         })
     }
 
-    pub fn cli_value(&self) -> String {
-        match self {
-            AllowUrl::ExactHost { .. } => {
-                panic!("origin allow-url is implicit and not reproduced")
-            }
-            AllowUrl::Domain { domain } => domain.clone(),
-            AllowUrl::UrlPrefix {
-                scheme,
-                host,
-                port,
-                path_prefix,
-            } => {
-                let mut url = format!("{scheme}://{host}");
-                if let Some(port) = port {
-                    url.push(':');
-                    url.push_str(&port.to_string());
-                }
-                if path_prefix != "/" {
-                    url.push_str(path_prefix);
-                }
-                url
-            }
-        }
-    }
-
     fn matches(&self, uri: &Url, origin: &Url) -> bool {
         match self {
             AllowUrl::ExactHost { host, port } => {
@@ -107,6 +84,34 @@ impl AllowUrl {
                     && uri.host_str() == Some(host.as_str())
                     && ports_match(uri.port(), *port, *port)
                     && path_matches_prefix(uri.path(), path_prefix)
+            }
+        }
+    }
+}
+
+/// CLI / reproduce form. Only [`AllowUrl::Domain`] and [`AllowUrl::UrlPrefix`]
+/// are user-supplied; [`AllowUrl::ExactHost`] is implicit and not displayed.
+impl Display for AllowUrl {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            AllowUrl::ExactHost { .. } => {
+                panic!("origin allow-url is implicit and not reproduced")
+            }
+            AllowUrl::Domain { domain } => write!(f, "{domain}"),
+            AllowUrl::UrlPrefix {
+                scheme,
+                host,
+                port,
+                path_prefix,
+            } => {
+                write!(f, "{scheme}://{host}")?;
+                if let Some(port) = port {
+                    write!(f, ":{port}")?;
+                }
+                if path_prefix != "/" {
+                    write!(f, "{path_prefix}")?;
+                }
+                Ok(())
             }
         }
     }
@@ -174,6 +179,10 @@ fn path_matches_prefix(path: &str, prefix: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hegel::{
+        TestCase,
+        generators::{booleans, urls},
+    };
 
     fn url(s: &str) -> Url {
         Url::parse(s).unwrap()
@@ -188,6 +197,32 @@ mod tests {
                 .map(|raw| AllowUrl::parse(raw).unwrap())
                 .collect::<Vec<_>>(),
         )
+    }
+
+    /// Draw a network URL with a host (skip host-less / unparseable draws).
+    fn draw_network_url(tc: &TestCase) -> Url {
+        let u = Url::parse(&tc.draw(urls())).unwrap_or_else(|_| tc.reject());
+        if u.host_str().is_none() {
+            tc.reject();
+        }
+        u
+    }
+
+    /// Build a user-facing [`AllowUrl`] (Domain or UrlPrefix) field-by-field from
+    /// a network URL.
+    fn draw_allow_url(tc: &TestCase) -> AllowUrl {
+        let seed = draw_network_url(tc);
+        let host = seed.host_str().unwrap().to_string();
+        if tc.draw(booleans()) {
+            AllowUrl::Domain { domain: host }
+        } else {
+            AllowUrl::UrlPrefix {
+                scheme: seed.scheme().to_string(),
+                host,
+                port: seed.port(),
+                path_prefix: normalize_path_prefix(seed.path()),
+            }
+        }
     }
 
     #[test]
@@ -285,6 +320,38 @@ mod tests {
                 port: None,
                 path_prefix: "/my/cool/feature".into(),
             }
+        );
+    }
+
+    #[hegel::test]
+    fn roundtrip_display_parse(tc: TestCase) {
+        let allow = draw_allow_url(&tc);
+        let formatted = format!("{allow}");
+        let parsed = AllowUrl::parse(&formatted).unwrap();
+        assert_eq!(parsed, allow);
+    }
+
+    /// An allow-url built from a URL's fields allows that URL.
+    /// Origin is the same URL so Domain's port check against origin does not fail.
+    #[hegel::test]
+    fn allow_url_allows_matching_url(tc: TestCase) {
+        let seed = draw_network_url(&tc);
+        let host = seed.host_str().unwrap().to_string();
+        let allow = if tc.draw(booleans()) {
+            AllowUrl::Domain {
+                domain: host.clone(),
+            }
+        } else {
+            AllowUrl::UrlPrefix {
+                scheme: seed.scheme().to_string(),
+                host,
+                port: seed.port(),
+                path_prefix: normalize_path_prefix(seed.path()),
+            }
+        };
+        assert!(
+            is_url_allowed(&seed, std::slice::from_ref(&allow), &seed),
+            "url {seed} should be allowed by {allow}"
         );
     }
 }
