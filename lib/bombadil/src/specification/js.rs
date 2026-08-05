@@ -28,6 +28,7 @@ pub struct RuntimeFunction {
     pub pretty: String,
 }
 
+#[hotpath::measure]
 pub fn syntax_from_value(
     value: &JsValue,
     bombadil: &BombadilExports,
@@ -277,6 +278,7 @@ impl Extractors {
         self.instances.get(index)
     }
 
+    #[hotpath::measure]
     pub fn update_from_snapshots(
         &self,
         snapshots: &[Snapshot],

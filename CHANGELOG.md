@@ -1,14 +1,8 @@
 # The Bombadil Changelog
 
-## Unreleased
-
-Major updates:
-
-* Extend `--cookie` to accept Set-Cookie syntax (`NAME=VALUE; Domain=...; Path=...; Secure; HttpOnly`). Plain `NAME=VALUE` still scopes to the origin
-
 ## 0.6.1
 
-# Major updates:
+Major updates:
 
 * Adapt the README and manual for multiple drivers (#215, #216)
 * Refuse to silently append to an existing trace in `--output-path` (#204)

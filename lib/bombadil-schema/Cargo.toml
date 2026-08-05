@@ -8,6 +8,7 @@ bitflags.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 small-string = { path = "../small-string" }
+willow-tree = { path = "../willow-tree" }
 
 [dev-dependencies]
 insta.workspace = true

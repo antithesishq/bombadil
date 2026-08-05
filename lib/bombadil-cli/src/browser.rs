@@ -327,7 +327,7 @@ fn reproduce_command_args(
         args.push(format!("--header {key}={value}"));
     }
     for cookie in &shared.cookies {
-        args.push(format!("--cookie {}", cookie.cli_value()));
+        args.push(format!("--cookie {cookie}"));
     }
     args
 }

@@ -25,6 +25,7 @@ web-sys = { workspace = true, features = [
     "ResizeObserverEntry",
     "Window",
 ] }
+willow-tree = { path = "../willow-tree" }
 yew = { workspace = true, features = ["csr"] }
 
 [lib]

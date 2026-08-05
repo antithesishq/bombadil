@@ -23,6 +23,7 @@ mod defaults {
     pub const COLUMNS: u16 = 100;
     pub const ROWS: u16 = 40;
     pub const SCROLLBACK_LINES_MAX: u16 = 100;
+    pub const QUIESCENCE_TIMEOUT_MS: u64 = 5;
 }
 
 #[derive(clap::Subcommand)]
@@ -50,6 +51,12 @@ pub enum Command {
         /// Maximum line count to keep in scrollback buffer
         #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
         scrollback_lines_max: u16,
+        /// How long to wait (in milliseconds) for the program to stop emitting
+        /// output before extracting the next state. Lower values increase
+        /// throughput but risk sampling mid-render; higher values give the
+        /// program more time to finish drawing.
+        #[arg(long, default_value_t = defaults::QUIESCENCE_TIMEOUT_MS)]
+        quiescence_timeout_ms: u64,
         /// Where to store output data (trace.jsonl). Defaults to a
         /// fresh temporary directory.
         #[arg(long)]
@@ -79,6 +86,7 @@ pub fn run(command: Command) {
             columns,
             rows,
             scrollback_lines_max,
+            quiescence_timeout_ms,
             output_path,
             output_path_overwrite,
             reproduce,
@@ -128,7 +136,7 @@ pub fn run(command: Command) {
                     specification,
                     TerminalSize { columns, rows },
                     scrollback_lines_max as usize,
-                    Duration::from_millis(100),
+                    Duration::from_millis(quiescence_timeout_ms),
                     program,
                     args,
                 )?;

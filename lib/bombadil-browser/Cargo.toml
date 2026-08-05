@@ -35,3 +35,4 @@ url = { workspace = true, features = ["serde"] }
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
+hegeltest.workspace = true

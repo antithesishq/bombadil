@@ -115,6 +115,7 @@
 | `--columns <COLUMNS>` | Terminal columns at startup | 100 |
 | `--rows <ROWS>` | Terminal rows at startup | 40 |
 | `--scrollback-lines-max <SCROLLBACK_LINES_MAX>` | Maximum line count to keep in scrollback buffer  | 100 |
+| `--quiescence-timeout-ms <QUIESCENCE_TIMEOUT_MS>` | How long to wait (in milliseconds) for the program to stop emitting output before extracting the next state. Lower values increase throughput but risk sampling mid-render; higher values give the program more time to finish drawing. | 5 |
 | `--seed <SEED>` | Random generator seed | |
 | `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
 | `--output-path <OUTPUT_PATH>` | Where to store output data (trace.jsonl). Defaults to a fresh temporary directory. | |

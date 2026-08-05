@@ -1,15 +1,9 @@
 [package]
-name = "bombadil-ltl"
+name = "willow-tree"
 version.workspace = true
 edition.workspace = true
 
-[lib]
-name = "bombadil_ltl"
-path = "src/lib.rs"
-
 [dependencies]
-hotpath.workspace = true
 
 [dev-dependencies]
-anyhow.workspace = true
 hegeltest.workspace = true

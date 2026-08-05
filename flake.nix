@@ -69,7 +69,6 @@
         };
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc;
-          cargoTarget = muslTarget;
         };
       in
       {
@@ -123,6 +122,7 @@
                   rust-analyzer
                   crate2nix
                   cargo-insta
+                  lldb
 
                   # Nix
                   nil

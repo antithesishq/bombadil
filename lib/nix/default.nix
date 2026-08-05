@@ -15,7 +15,6 @@
   libiconv ? null,
   craneLib,
   craneLibStatic,
-  cargoTarget ? "x86_64-unknown-linux-musl",
   darwin ? null,
   xcbuild ? null,
   # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
@@ -106,7 +105,7 @@ let
         filter = path: type: craneLib.filterCargoSources path type;
       };
     in
-    runCommand "bombadil-deps-src" { } ''
+    runCommand "source" { } ''
       cp -r ${cargoOnly} $out
       chmod -R +w $out
       sed -i '0,/^version = /{s/^version = .*/version = "0.0.0"/}' $out/Cargo.toml
@@ -197,8 +196,6 @@ in
     }
     // lib.optionalAttrs stdenv.isLinux {
       cargoArtifacts = cargoArtifactsStatic;
-      CARGO_BUILD_TARGET = cargoTarget;
-      CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
     }
     // lib.optionalAttrs stdenv.isDarwin {
       # Rewrite Nix store dylib references to system paths so the binary
