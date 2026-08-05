@@ -2,10 +2,9 @@ use url::Url;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AllowUrl {
-    /// The starting origin host. Added implicitly; any path on this host is allowed.
+    /// The starting origin host. Added implicitly when the origin has a host;
+    /// any path on this host is allowed.
     ExactHost { host: String, port: Option<u16> },
-    /// Origin without a network host (e.g. file://).
-    Hostless { port: Option<u16> },
     /// A registrable domain and its subdomains (e.g. `example.com`, `.example.com`).
     Domain { domain: String },
     /// A URL prefix: scheme, host, port, and path prefix must match.
@@ -44,21 +43,23 @@ impl AllowUrl {
         })
     }
 
-    pub fn from_origin(origin: &Url) -> Self {
-        match origin.host_str() {
-            Some(host) => AllowUrl::ExactHost {
-                host: host.to_string(),
-                port: origin.port(),
-            },
-            None => AllowUrl::Hostless {
-                port: origin.port(),
-            },
-        }
+    /// Implicit allow rule for the test origin, if it has a network host.
+    ///
+    /// Origins without a host (e.g. `file://`) produce no rule. Host-less
+    /// *targets* such as `about:blank` and other `file://` pages are handled
+    /// separately in [`is_url_allowed`], so exploration still works for
+    /// inspect reports and mid-navigation blanks without a dedicated allow-url
+    /// variant.
+    pub fn from_origin(origin: &Url) -> Option<Self> {
+        origin.host_str().map(|host| AllowUrl::ExactHost {
+            host: host.to_string(),
+            port: origin.port(),
+        })
     }
 
     pub fn cli_value(&self) -> String {
         match self {
-            AllowUrl::ExactHost { .. } | AllowUrl::Hostless { .. } => {
+            AllowUrl::ExactHost { .. } => {
                 panic!("origin allow-url is implicit and not reproduced")
             }
             AllowUrl::Domain { domain } => domain.clone(),
@@ -87,17 +88,12 @@ impl AllowUrl {
                 uri.host_str() == Some(host.as_str())
                     && ports_match(uri.port(), *port, origin.port())
             }
-            AllowUrl::Hostless { port } => {
-                uri.host().is_none()
-                    && ports_match(uri.port(), *port, origin.port())
-            }
             AllowUrl::Domain { domain } => {
                 if uri.port().is_some() && uri.port() != origin.port() {
                     return false;
                 }
-                let uri_host = match uri.host_str() {
-                    Some(host) => host,
-                    None => return uri.host().is_none(),
+                let Some(uri_host) = uri.host_str() else {
+                    return false;
                 };
                 host_matches_domain(uri_host, domain)
             }
@@ -117,7 +113,10 @@ impl AllowUrl {
 }
 
 pub fn build_allow_list(origin: &Url, extra: &[AllowUrl]) -> Vec<AllowUrl> {
-    let mut allow_urls = vec![AllowUrl::from_origin(origin)];
+    let mut allow_urls = Vec::new();
+    if let Some(origin_rule) = AllowUrl::from_origin(origin) {
+        allow_urls.push(origin_rule);
+    }
     allow_urls.extend(extra.iter().cloned());
     allow_urls
 }
@@ -127,8 +126,9 @@ pub fn is_url_allowed(
     allow_urls: &[AllowUrl],
     origin: &Url,
 ) -> bool {
-    // Preserve the previous origin-boundary behavior for host-less URLs (e.g.
-    // about:blank while a page is loading or reloading).
+    // Host-less targets (about:blank mid-navigation, file:// pages, etc.) are
+    // always treated as in-bounds so the action set does not go empty. This is
+    // separate from the allow-list rules, which only apply to networked hosts.
     if uri.host().is_none() {
         return uri.port().is_none() || uri.port() == origin.port();
     }
@@ -191,15 +191,19 @@ mod tests {
     }
 
     #[test]
-    fn file_origin_allows_hostless_urls() {
+    fn file_origin_has_no_implicit_rule_but_allows_hostless_targets() {
         let origin = url("file:///tmp/index.html");
         let rules = build_allow_list(&origin, &[]);
-        assert!(matches!(rules[0], AllowUrl::Hostless { .. }));
+        assert!(rules.is_empty());
+        assert!(AllowUrl::from_origin(&origin).is_none());
+        // Other file:// pages and about:blank stay in-bounds via the host-less
+        // target special case, not via an allow-list rule.
         assert!(is_url_allowed(
             &url("file:///tmp/other.html"),
             &rules,
             &origin
         ));
+        assert!(is_url_allowed(&url("about:blank"), &rules, &origin));
         assert!(!is_url_allowed(
             &url("https://example.com/"),
             &rules,
