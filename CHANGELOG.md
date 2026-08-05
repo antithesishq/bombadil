@@ -1,11 +1,5 @@
 # The Bombadil Changelog
 
-## Unreleased
-
-Major updates:
-
-* Add `--allow-url` to widen the exploration boundary beyond the origin host, accepting domains (with subdomains) or URL path prefixes
-
 ## 0.6.1
 
 Major updates:
