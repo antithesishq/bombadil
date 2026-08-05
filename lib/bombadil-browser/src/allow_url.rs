@@ -132,10 +132,10 @@ pub fn is_url_allowed(
     origin: &Url,
 ) -> bool {
     // Host-less targets (about:blank mid-navigation, file:// pages, etc.) are
-    // always treated as in-bounds so the action set does not go empty. This is
-    // separate from the allow-list rules, which only apply to networked hosts.
+    // always in-bounds so we do not hit "no actions available" between
+    // navigations. Separate from the allow-list rules (network hosts only).
     if uri.host().is_none() {
-        return uri.port().is_none() || uri.port() == origin.port();
+        return true;
     }
     allow_urls.iter().any(|rule| rule.matches(uri, origin))
 }
