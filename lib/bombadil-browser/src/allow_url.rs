@@ -48,10 +48,9 @@ impl AllowUrl {
     /// Implicit allow rule for the test origin, if it has a network host.
     ///
     /// Origins without a host (e.g. `file://`) produce no rule. Host-less
-    /// *targets* such as `about:blank` and other `file://` pages are handled
-    /// separately in [`is_url_allowed`], so exploration still works for
-    /// inspect reports and mid-navigation blanks without a dedicated allow-url
-    /// variant.
+    /// *targets* (other than `about:` URLs) are handled in [`is_url_allowed`]:
+    /// allowed only when the origin is also host-less (inspect/`file://`).
+    /// Any `about:` URL is always out of bounds.
     pub fn from_origin(origin: &Url) -> Option<Self> {
         origin.host_str().map(|host| AllowUrl::ExactHost {
             host: host.to_string(),
@@ -131,11 +130,16 @@ pub fn is_url_allowed(
     allow_urls: &[AllowUrl],
     origin: &Url,
 ) -> bool {
-    // Host-less targets (about:blank mid-navigation, file:// pages, etc.) are
-    // always in-bounds so we do not hit "no actions available" between
-    // navigations. Separate from the allow-list rules (network hosts only).
+    // about: URLs (blank, srcdoc, …) are tab setup or non-app chrome, never
+    // exploration targets; out of bounds → Back only.
+    if uri.scheme() == "about" {
+        return false;
+    }
+    // Other host-less URLs (typical file:// pages) have no network host to
+    // match against the allow-list. Allow them only when the test origin is
+    // also host-less (e.g. file:// inspect reports).
     if uri.host().is_none() {
-        return true;
+        return origin.host().is_none();
     }
     allow_urls.iter().any(|rule| rule.matches(uri, origin))
 }
@@ -226,19 +230,18 @@ mod tests {
     }
 
     #[test]
-    fn file_origin_has_no_implicit_rule_but_allows_hostless_targets() {
+    fn file_origin_allows_other_file_urls_but_not_about_blank() {
         let origin = url("file:///tmp/index.html");
         let rules = build_allow_list(&origin, &[]);
         assert!(rules.is_empty());
         assert!(AllowUrl::from_origin(&origin).is_none());
-        // Other file:// pages and about:blank stay in-bounds via the host-less
-        // target special case, not via an allow-list rule.
         assert!(is_url_allowed(
             &url("file:///tmp/other.html"),
             &rules,
             &origin
         ));
-        assert!(is_url_allowed(&url("about:blank"), &rules, &origin));
+        // about: URLs are never exploration targets.
+        assert!(!is_url_allowed(&url("about:blank"), &rules, &origin));
         assert!(!is_url_allowed(
             &url("https://example.com/"),
             &rules,
@@ -247,10 +250,35 @@ mod tests {
     }
 
     #[test]
-    fn hostless_urls_are_allowed() {
+    fn about_scheme_is_always_out_of_bounds() {
+        let network = url("http://localhost:1073/");
+        let network_rules = allow("http://localhost:1073/", &[]);
+        assert!(!is_url_allowed(
+            &url("about:blank"),
+            &network_rules,
+            &network
+        ));
+        assert!(!is_url_allowed(
+            &url("about:srcdoc"),
+            &network_rules,
+            &network
+        ));
+
+        let file = url("file:///tmp/index.html");
+        let file_rules = build_allow_list(&file, &[]);
+        assert!(!is_url_allowed(&url("about:blank"), &file_rules, &file));
+        assert!(!is_url_allowed(&url("about:srcdoc"), &file_rules, &file));
+    }
+
+    #[test]
+    fn network_origin_rejects_file_urls() {
         let origin = url("http://localhost:1073/");
         let rules = allow("http://localhost:1073/", &[]);
-        assert!(is_url_allowed(&url("about:blank"), &rules, &origin));
+        assert!(!is_url_allowed(
+            &url("file:///tmp/other.html"),
+            &rules,
+            &origin
+        ));
     }
 
     #[test]
