@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser;
@@ -28,6 +29,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
@@ -113,7 +115,7 @@ enum InnerEvent {
     },
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
-    ActionAccepted(BrowserAction),
+    ActionAccepted(BrowserAction, Generation),
     ActionApplied(Generation),
     ExceptionThrown(Exception),
     Quiesced(Generation),
@@ -126,21 +128,6 @@ enum StateRequestReason {
     Quiesced,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-struct Generation(u64);
-
-impl Generation {
-    fn next(self) -> Self {
-        Generation(self.0 + 1)
-    }
-}
-
-impl std::fmt::Display for Generation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// Initial idle timeout before the first activity signal arrives.
 /// Deliberately long so we don't fire before the browser has produced
 /// any frames; the first activity event will replace this with a much shorter
@@ -151,7 +138,7 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
-    actions_sender: Sender<BrowserAction>,
+    actions_sender: Sender<(BrowserAction, Generation)>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
@@ -198,7 +185,7 @@ pub enum DebuggerOptions {
 pub struct Browser {
     receiver: Receiver<BrowserEvent>,
     inner_events_sender: Sender<InnerEvent>,
-    actions_sender: Sender<BrowserAction>,
+    actions_sender: Sender<(BrowserAction, Generation)>,
     shutdown_sender: Option<oneshot::Sender<()>>,
     done_receiver: Option<oneshot::Receiver<()>>,
     browser: Option<chromiumoxide::Browser>,
@@ -250,7 +237,7 @@ impl Browser {
 
         let (sender, receiver) = channel::<BrowserEvent>(1);
 
-        let (actions_sender, _) = channel::<BrowserAction>(1);
+        let (actions_sender, _) = channel::<(BrowserAction, Generation)>(1);
 
         let page = if browser_options.create_target {
             Arc::new(browser.new_page("about:blank").await.context(
@@ -493,8 +480,12 @@ impl Browser {
         }
     }
 
-    pub fn apply(&mut self, action: BrowserAction) -> Result<()> {
-        self.actions_sender.send(action)?;
+    pub fn apply(
+        &mut self,
+        action: BrowserAction,
+        state: Arc<BrowserState>,
+    ) -> Result<()> {
+        self.actions_sender.send((action, state.generation))?;
         Ok(())
     }
 
@@ -734,10 +725,12 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let events_action_accepted = Box::pin(
-        receiver_to_stream(context.actions_sender.subscribe())
-            .map(InnerEvent::ActionAccepted),
-    );
+    let events_action_accepted =
+        Box::pin(receiver_to_stream(context.actions_sender.subscribe()).map(
+            |(action, generation)| {
+                InnerEvent::ActionAccepted(action, generation)
+            },
+        ));
 
     Ok(Box::pin(stream::select_all(vec![
         events_loaded,
@@ -887,6 +880,7 @@ async fn process_event(
                 screenshot,
                 ..
             } = state.shared;
+            let generation = generation.next();
 
             let screenshot = screenshot
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
@@ -897,14 +891,13 @@ async fn process_event(
                 console_entries,
                 exceptions,
                 screenshot,
+                generation,
             )
             .await?;
 
             context
                 .sender
                 .send(BrowserEvent::StateChanged(browser_state))?;
-
-            let generation = generation.next();
 
             InnerState {
                 kind: Paused,
@@ -921,8 +914,12 @@ async fn process_event(
                 kind: Paused,
                 shared,
             },
-            InnerEvent::ActionAccepted(browser_action),
+            InnerEvent::ActionAccepted(browser_action, generation),
         ) => {
+            ensure!(
+                shared.generation == generation,
+                "cannot accept action from stale generation {generation}"
+            );
             context
                 .page
                 .execute(debugger::ResumeParams::builder().build())
@@ -933,18 +930,17 @@ async fn process_event(
             }
         }
         (
-            state @ InnerState {
-                kind: Loading | Navigating { .. } | Pausing,
-                ..
-            },
-            InnerEvent::ActionAccepted(action),
-        ) => {
-            log::debug!(
-                "ignoring action {:?} received during {:?}",
+            InnerState { kind, shared },
+            InnerEvent::ActionAccepted(action, generation),
+        ) if shared.generation >= generation => {
+            log::warn!(
+                "ignoring stale action {:?}({}) received during {:?}({})",
                 action,
-                state.kind
+                generation,
+                kind,
+                shared.generation
             );
-            state
+            InnerState { kind, shared }
         }
         (
             InnerState {
@@ -1135,21 +1131,22 @@ async fn process_event(
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             if frame_id == context.frame_id {
+                let shared = InnerStateShared {
+                    generation: state.shared.generation.next(),
+                    ..state.shared
+                };
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
                     NavigationType::BackForwardCacheRestore => {
                         let timer = start_quiescence_timer(
-                            &state.shared,
+                            &shared,
                             context,
                             &context.inner_events_sender,
                         );
                         Running(timer)
                     }
                 };
-                InnerState {
-                    kind,
-                    shared: state.shared,
-                }
+                InnerState { kind, shared }
             } else {
                 state
             }
