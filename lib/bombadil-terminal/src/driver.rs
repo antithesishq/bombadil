@@ -340,13 +340,17 @@ impl InterfaceDriver for TerminalDriver {
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
         self.drain_output(self.quiescence_timeout);
         match self.extract_state() {
-            Ok(state) => Some(DriverEvent::StateChanged(state)),
+            Ok(state) => Some(DriverEvent::StateChanged(Arc::new(state))),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
         }
     }
 
     #[hotpath::measure]
-    fn apply(&mut self, action: TerminalAction) -> Result<()> {
+    fn apply(
+        &mut self,
+        action: TerminalAction,
+        _: Arc<TerminalState>,
+    ) -> Result<()> {
         match &action {
             TerminalAction::TypeText { text } => {
                 self.process.borrow_mut().write(text.as_bytes());

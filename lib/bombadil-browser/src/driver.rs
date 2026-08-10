@@ -31,6 +31,7 @@ enum BrowserCommand {
     },
     Apply {
         action: BrowserAction,
+        state: Arc<BrowserState>,
         reply: std_mpsc::Sender<Result<()>>,
     },
     ExtractSnapshots {
@@ -157,11 +158,16 @@ impl InterfaceDriver for BrowserDriver {
         }
     }
 
-    fn apply(&mut self, action: BrowserAction) -> Result<()> {
+    fn apply(
+        &mut self,
+        action: BrowserAction,
+        state: Arc<BrowserState>,
+    ) -> Result<()> {
         let (reply_send, reply_receive) = std_mpsc::channel();
         self.command_send
             .send(BrowserCommand::Apply {
                 action,
+                state,
                 reply: reply_send,
             })
             .map_err(|_| anyhow!("browser worker gone"))?;
@@ -246,7 +252,7 @@ fn run_browser_worker(
                 BrowserCommand::NextEvent { reply } => {
                     let event = match browser.next_event().await {
                         Some(BrowserEvent::StateChanged(state)) => {
-                            Some(DriverEvent::StateChanged(state))
+                            Some(DriverEvent::StateChanged(Arc::new(state)))
                         }
                         Some(BrowserEvent::Error(error)) => {
                             Some(DriverEvent::Error(error))
@@ -255,8 +261,12 @@ fn run_browser_worker(
                     };
                     let _ = reply.send(event);
                 }
-                BrowserCommand::Apply { action, reply } => {
-                    let _ = reply.send(browser.apply(action));
+                BrowserCommand::Apply {
+                    action,
+                    state,
+                    reply,
+                } => {
+                    let _ = reply.send(browser.apply(action, state));
                 }
                 BrowserCommand::ExtractSnapshots {
                     state,
