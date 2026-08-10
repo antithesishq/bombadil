@@ -1,5 +1,40 @@
 # The Bombadil Changelog
 
+## 0.7.0
+
+Major updates:
+
+* Publish docker image to docker hub on release (#262)
+* Improve integration with Antithesis environment and fuzzer (#257)
+* Add --cookie option for browser testing (#232, #256)
+
+Minor updates:
+
+* Add `curl` to docker image (#258)
+* Add configurable quiescence for terminal drain (#240)
+
+Bug fixes:
+
+* Drop dangling ./random export from npm package (#259)
+* Pass generation through with action to discard stale ones (#260)
+* Fix stack overflow/growing violations (#247)
+* Fix npm package build in CI (#237)
+* Fix README broken links (#229)
+* Fix terminal --reproduce bug (#226)
+
+Breaking changes:
+
+* Introduce action templates system and remove randomness from JS runtime (#233, #234, #235)
+
+Internal:
+
+* Use flat-vec tree for markup (#248)
+* Stop manually passing target/rustflags in Nix (#245)
+* Separate example specs and improve caching (#239)
+* Add nix-build-push helper for prewarming cachix (#238)
+* Port property tests to Hegel (#227)
+* Split up schema modules (#225)
+
 ## 0.6.1
 
 Major updates:
