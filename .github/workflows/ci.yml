@@ -104,7 +104,12 @@ jobs:
         with:
           scope: docker
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#docker
+      - run: nix build .#docker -o bombadil-docker-image.tar.gz
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bombadil-docker-image
+          path: bombadil-docker-image.tar.gz
 
   check-fmt:
     name: Check (fmt)
@@ -322,6 +327,7 @@ jobs:
         build-aarch64-linux,
         build-aarch64-darwin,
         build-npm-package,
+        build-docker,
         build-manual,
         smoke-test,
         test-npm-package,
@@ -347,6 +353,8 @@ jobs:
             artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
             artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz
+            artifacts/bombadil-docker-image/bombadil-docker-image.tar.gz
+            artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
             artifacts/bombadil-manual/bombadil-manual.tar.gz
 
   publish-npm:
@@ -383,6 +391,34 @@ jobs:
         run: |
           cd pkg
           npm publish --provenance --access public
+
+  publish-docker:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: OIDC token
+        id: docker_oidc
+        uses: docker/oidc-action@v1
+        with:
+          connection-id: "149b2b02-59d1-42e7-98f3-2cc6961226bb"
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: antithesishq
+          password: ${{ steps.docker_oidc.outputs.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-docker-image
+          path: bombadil-docker-image
+      - name: Load Docker image and extract tag
+        run: |
+          LOAD_OUTPUT=$(docker load -i bombadil-docker-image/bombadil-docker-image.tar.gz)
+          echo "$LOAD_OUTPUT"
+          IMAGE_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+      - name: Push image
+        run: docker push "$IMAGE_TAG"
 
   publish-manual:
     if: startsWith(github.ref, 'refs/tags/v')

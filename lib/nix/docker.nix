@@ -25,7 +25,7 @@ let
   };
 in
 dockerTools.buildImage {
-  name = "bombadil";
+  name = "antithesishq/bombadil";
   tag = version;
   copyToRoot = buildEnv {
     name = "image_root";
