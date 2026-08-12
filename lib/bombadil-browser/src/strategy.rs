@@ -67,14 +67,13 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
         state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
-        let tree =
-            if is_url_allowed(&state.url, &self.allow_urls) {
-                tree
-            } else {
-                tree.filter(&|a| matches!(a, BrowserAction::Back))
-            }
-            .prune()
-            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
+        let tree = if is_url_allowed(&state.url, &self.allow_urls) {
+            tree
+        } else {
+            tree.filter(&|a| matches!(a, BrowserAction::Back))
+        }
+        .prune()
+        .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
 
         match &mut self.mode {
             TestMode::RandomWalk => {

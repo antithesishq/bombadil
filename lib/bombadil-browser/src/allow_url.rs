@@ -83,9 +83,7 @@ impl AllowUrl {
                 if uri.scheme() != "file" {
                     return false;
                 }
-                absolute_file_path(uri)
-                    .map(|p| p == *path)
-                    .unwrap_or(false)
+                absolute_file_path(uri).map(|p| p == *path).unwrap_or(false)
             }
             AllowUrl::Domain { domain } => {
                 let Some(uri_host) = uri.host_str() else {
@@ -116,7 +114,8 @@ impl Display for AllowUrl {
                 panic!("origin allow-url is implicit and not reproduced")
             }
             AllowUrl::ExactFile { path } => {
-                let url = Url::from_file_path(path).map_err(|_| std::fmt::Error)?;
+                let url =
+                    Url::from_file_path(path).map_err(|_| std::fmt::Error)?;
                 write!(f, "{url}")
             }
             AllowUrl::Domain { domain } => write!(f, "{domain}"),
@@ -169,8 +168,9 @@ fn absolute_file_path(url: &Url) -> Result<PathBuf, String> {
     let path = url
         .to_file_path()
         .map_err(|()| format!("invalid file URL {url}"))?;
-    std::path::absolute(path)
-        .map_err(|err| format!("could not resolve absolute path for {url}: {err}"))
+    std::path::absolute(path).map_err(|err| {
+        format!("could not resolve absolute path for {url}: {err}")
+    })
 }
 
 fn normalize_domain(domain: &str) -> String {
@@ -277,8 +277,8 @@ mod tests {
     fn file_allow_url_is_exact_match() {
         let origin = url("https://example.com/");
         let allowed = url("file:///tmp/allowed.html");
-        let allowed_abs = Url::from_file_path(absolute_file_path(&allowed).unwrap())
-            .unwrap();
+        let allowed_abs =
+            Url::from_file_path(absolute_file_path(&allowed).unwrap()).unwrap();
         let rules = build_allow_list(
             &origin,
             &[AllowUrl::parse(allowed_abs.as_str()).unwrap()],
@@ -335,14 +335,8 @@ mod tests {
     #[test]
     fn domain_entry_allows_subdomains() {
         let rules = allow("https://example.com/", &[".example.com"]);
-        assert!(is_url_allowed(
-            &url("https://app.example.com/path"),
-            &rules
-        ));
-        assert!(!is_url_allowed(
-            &url("https://notexample.com/path"),
-            &rules
-        ));
+        assert!(is_url_allowed(&url("https://app.example.com/path"), &rules));
+        assert!(!is_url_allowed(&url("https://notexample.com/path"), &rules));
     }
 
     #[test]
@@ -352,14 +346,8 @@ mod tests {
             &url("http://origin.example:8080/"),
             &[AllowUrl::parse("other.example").unwrap()],
         );
-        assert!(is_url_allowed(
-            &url("http://other.example:9090/"),
-            &rules
-        ));
-        assert!(is_url_allowed(
-            &url("http://other.example:8080/"),
-            &rules
-        ));
+        assert!(is_url_allowed(&url("http://other.example:9090/"), &rules));
+        assert!(is_url_allowed(&url("http://other.example:8080/"), &rules));
     }
 
     #[test]
