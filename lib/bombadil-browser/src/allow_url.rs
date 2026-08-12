@@ -5,8 +5,8 @@ use url::Url;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AllowUrl {
-    /// The starting origin host. Added implicitly when the origin has a host;
-    /// any path on this host is allowed.
+    /// The starting origin host (any path). Used as the default boundary when
+    /// no explicit `--allow-url` entries are given.
     ExactHost { host: String, port: Option<u16> },
     /// Exact `file://` path (absolute). Used for inspect / local HTML origins
     /// and explicit `--allow-url file:///…` entries.
@@ -139,13 +139,17 @@ impl Display for AllowUrl {
     }
 }
 
+/// Build the exploration allow-list.
+///
+/// * No explicit entries → default to the origin only ([`AllowUrl::from_origin`]).
+/// * One or more `--allow-url` entries → those alone (replace, do not widen).
+///   Include the origin in `--allow-url` if it should remain in bounds.
 pub fn build_allow_list(origin: &Url, extra: &[AllowUrl]) -> Vec<AllowUrl> {
-    let mut allow_urls = Vec::new();
-    if let Some(origin_rule) = AllowUrl::from_origin(origin) {
-        allow_urls.push(origin_rule);
+    if extra.is_empty() {
+        AllowUrl::from_origin(origin).into_iter().collect()
+    } else {
+        extra.to_vec()
     }
-    allow_urls.extend(extra.iter().cloned());
-    allow_urls
 }
 
 pub fn is_url_allowed(uri: &Url, allow_urls: &[AllowUrl]) -> bool {
@@ -303,6 +307,29 @@ mod tests {
             &url("https://app.example.com/other"),
             &rules
         ));
+    }
+
+    #[test]
+    fn explicit_allow_url_replaces_origin_default() {
+        // With --allow-url, origin is not implicitly kept.
+        let rules = build_allow_list(
+            &url("https://origin.example/"),
+            &[AllowUrl::parse("https://allowed.example/app").unwrap()],
+        );
+        assert_eq!(rules.len(), 1);
+        assert!(!is_url_allowed(&url("https://origin.example/"), &rules));
+        assert!(is_url_allowed(
+            &url("https://allowed.example/app/page"),
+            &rules
+        ));
+    }
+
+    #[test]
+    fn empty_allow_url_keeps_origin_default() {
+        let rules = build_allow_list(&url("https://origin.example/"), &[]);
+        assert_eq!(rules.len(), 1);
+        assert!(matches!(&rules[0], AllowUrl::ExactHost { .. }));
+        assert!(is_url_allowed(&url("https://origin.example/x"), &rules));
     }
 
     #[test]

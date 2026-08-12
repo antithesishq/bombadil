@@ -80,9 +80,9 @@ pub enum BrowserCommand {
 
 #[derive(Args)]
 pub struct TestSharedOptions {
-    /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
-    /// other websites). The origin host is always allowed; use `--allow-url` to widen the
-    /// boundary to other domains or path prefixes.
+    /// Starting URL of the test. Without `--allow-url`, exploration stays on this origin host.
+    /// With one or more `--allow-url` entries, those define the boundary instead (include the
+    /// origin there if it should remain allowed).
     pub origin: Origin,
     /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
     /// package on NPM
@@ -132,10 +132,10 @@ pub struct TestSharedOptions {
     /// browser cookies. Can be specified multiple times.
     #[arg(long = "cookie", value_name = "SET-COOKIE", value_parser = parse_cookie)]
     pub cookies: Vec<BrowserCookie>,
-    /// Additional URL or domain where exploration is allowed. The origin is always included.
+    /// Exploration boundary (replaces the default origin-only rule when set).
     /// Domains (e.g. `example.com`, `.example.com`) allow that host and its subdomains.
     /// URLs (e.g. `https://example.com/my/feature`) allow prefix-matched paths on that host.
-    /// Can be specified multiple times.
+    /// `file://` paths match exactly (absolute). Can be specified multiple times.
     #[arg(long = "allow-url", value_name = "URL_OR_DOMAIN", value_parser = parse_allow_url)]
     pub allow_urls: Vec<AllowUrl>,
     /// Reproduce a previous test run from a trace file, instead of random exploration.
