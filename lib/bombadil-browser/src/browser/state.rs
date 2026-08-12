@@ -21,11 +21,27 @@ use crate::browser::evaluation::{
     evaluate_expression_in_debugger, evaluate_function_call_in_debugger,
 };
 
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Generation(u64);
+
+impl Generation {
+    pub fn next(self) -> Self {
+        Generation(self.0 + 1)
+    }
+}
+
+impl std::fmt::Display for Generation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BrowserState {
     page: Arc<Page>,
     call_frame_id: CallFrameId,
 
+    pub generation: Generation,
     pub timestamp: SystemTime,
     pub url: Url,
     pub title: String,
@@ -197,6 +213,7 @@ impl BrowserState {
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
         screenshot: Screenshot,
+        generation: Generation,
     ) -> Result<Self> {
         log::trace!("BrowserState::current: evaluating url");
         let url = Url::parse(
@@ -366,6 +383,7 @@ impl BrowserState {
 
         log::trace!("BrowserState::current: done");
         Ok(BrowserState {
+            generation,
             timestamp: SystemTime::now(),
             page: page.clone(),
             call_frame_id: call_frame_id.clone(),

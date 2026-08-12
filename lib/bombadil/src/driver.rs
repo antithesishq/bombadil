@@ -37,7 +37,11 @@ pub trait InterfaceDriver {
 
     fn next_event(&mut self) -> Option<DriverEvent<Self::State>>;
 
-    fn apply(&mut self, action: Self::Action) -> Result<()>;
+    fn apply(
+        &mut self,
+        action: Self::Action,
+        state: Arc<Self::State>,
+    ) -> Result<()>;
 
     fn extract_snapshots(
         &mut self,
@@ -50,6 +54,6 @@ pub trait InterfaceDriver {
 
 #[derive(Debug, Clone)]
 pub enum DriverEvent<S> {
-    StateChanged(S),
+    StateChanged(Arc<S>),
     Error(Arc<anyhow::Error>),
 }

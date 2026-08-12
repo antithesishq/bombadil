@@ -8,8 +8,8 @@ use axum::{
 };
 use bombadil_schema::{Time, markup};
 use rand::SeedableRng;
-use std::collections::HashMap;
 use std::io::Write;
+use std::{collections::HashMap, sync::Arc};
 use std::{
     fmt::Display,
     sync::Once,
@@ -546,16 +546,19 @@ async fn test_browser_lifecycle() {
 
     browser.initiate().await.unwrap();
 
-    match browser.next_event().await.unwrap() {
+    let state = match browser.next_event().await.unwrap() {
         bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
+            state
         }
         bombadil_browser::browser::BrowserEvent::Error(error) => {
             panic!("unexpected browser error: {}", error)
         }
-    }
+    };
 
-    browser.apply(BrowserAction::Reload).unwrap();
+    browser
+        .apply(BrowserAction::Reload, Arc::new(state))
+        .unwrap();
 
     match browser.next_event().await.unwrap() {
         bombadil_browser::browser::BrowserEvent::StateChanged(state) => {

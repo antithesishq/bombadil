@@ -1,5 +1,69 @@
 # The Bombadil Changelog
 
+## 0.7.0
+
+Major updates:
+
+* Publish docker image to docker hub on release (#262)
+* Improve integration with Antithesis environment and fuzzer (#257)
+* Add --cookie option for browser testing (#232, #256)
+
+Minor updates:
+
+* Add `curl` to docker image (#258)
+* Add configurable quiescence for terminal drain (#240)
+
+Bug fixes:
+
+* Drop dangling ./random export from npm package (#259)
+* Pass generation through with action to discard stale ones (#260)
+* Fix stack overflow/growing violations (#247)
+* Fix npm package build in CI (#237)
+* Fix README broken links (#229)
+* Fix terminal --reproduce bug (#226)
+
+Breaking changes:
+
+* Introduce action templates system and remove randomness from JS runtime (#233, #234, #235)
+
+Internal:
+
+* Use flat-vec tree for markup (#248)
+* Stop manually passing target/rustflags in Nix (#245)
+* Separate example specs and improve caching (#239)
+* Add nix-build-push helper for prewarming cachix (#238)
+* Port property tests to Hegel (#227)
+* Split up schema modules (#225)
+
+Migration notes:
+
+* Action generators no longer directly use randomness in JS/TS to produce
+  concrete `Action` values --- instead they declaratively describe the ranges of
+  random values in actions, producing `ActionTemplate` values.
+
+  Templates are generally parameterized with `[number, number]` or
+  `StringGenerator` (see types
+  [here](https://github.com/antithesishq/bombadil/blob/v0.7.0/lib/bombadil/src/specification/actions.ts)),
+  e.g.:
+
+  ```typescript
+  { Click: { point: { x: [0, 100], y: [200, 300] }, ... } }
+  ```
+
+  You may still use constants if you don't want Bombadil to generate
+  random values, e.g.:
+
+  ```typescript
+  { Click: { point: { x: 100, y: 200 }, ... } }
+  ```
+
+*  Some browser actions need a `Fingerprint` now, e.g. `Click` needs one if you
+   write a custom generator that produces clicks. Fingerprints are structures
+   that identify elements, starting at strong identifiers like `id` or
+   `data-testid` attributes, to weaker ones like element types and text
+   contents. To get the fingerprint of an element, use `getFingerprint` that is
+   exported by `@antithesishq/bombadil/browser`.
+
 ## 0.6.1
 
 Major updates:

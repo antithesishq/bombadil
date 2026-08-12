@@ -105,13 +105,15 @@ replace the `*` with the relevant names:
 
 ::: browser
 ```typescript
-export { 
-    // Properties
+
+export {
     noUncaughtExceptions,
+} from "@antithesishq/bombadil/browser/defaults/properties";
+export { 
     // Actions
     clicks, 
     reload,
-} from "@antithesishq/bombadil/browser/defaults";
+} from "@antithesishq/bombadil/browser/defaults/actions";
 ```
 :::
 
@@ -319,15 +321,16 @@ inspiration.
 ### Action generators
 
 In addition to exporting properties in a specification, you export action
-generators. A generator is an object with a `generate()` method. An action
-generator generates values of type `Tree<Action>`.
+generators. A generator is an object of the `ActionGenerator` class. An action
+generator generates values of type `Tree<ActionTemplate>`.
 
 Like with [default properties](#default-properties-and-action-generators),
-there are default actions provided by Bombadil. These will get you a long way,
-but there are times where you'll need to define your own action generators.
+there are default action generators provided by Bombadil. These will get you a
+long way, but there are times where you'll need to define your own action
+generators.
 
 For every state that Bombadil captures, all action generators are run,
-contributing to a tree structure of *possible* actions. These are called
+contributing to a tree structure of *possible* action templates. These are called
 *action templates* and are parameterized by ranges of values. Bombadil then
 randomly picks one in that tree, and picks random values within the ranges for
 the parameters. Why a tree, though? It's because the branches are *weighted*
@@ -335,7 +338,7 @@ the parameters. Why a tree, though? It's because the branches are *weighted*
 of an action being picked.
 
 To define a custom action generator, you use the `actions` function, which
-takes a thunk that returns an array of actions:
+takes a thunk that returns an array of action templates:
 
 ```typescript
 export const myAction = actions(() => {
@@ -345,7 +348,7 @@ export const myAction = actions(() => {
 });
 ```
 
-In the returned array, each element is a value of the following `Action` type,
+In the returned array, each element is a value of the `ActionTemplate` type,
 provided by [the NPM package](#typescript-support).
 [See the [TypeScript source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/browser/index.ts) for reference.]{.browser}
 [See the [TypeScript source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/index.ts) for reference.]{.terminal}
@@ -409,7 +412,8 @@ export const doubleClickCanvas = actions(() => {
 
 :::
 
-::: terminal Here's a generator that sends either a `help` command or an `incr`
+::: terminal
+Here's a generator that sends either a `help` command or an `incr`
 command with an numeric argument:
 
 ```typescript

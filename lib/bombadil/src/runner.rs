@@ -94,7 +94,6 @@ impl<D: InterfaceDriver> Runner<D> {
             let event = driver.next_event();
             match event {
                 Some(DriverEvent::StateChanged(state)) => {
-                    let state = Arc::new(state);
                     let snapshots: Arc<[Snapshot]> = driver
                         .extract_snapshots(state.clone(), last_action.as_ref())?
                         .into();
@@ -163,7 +162,7 @@ impl<D: InterfaceDriver> Runner<D> {
                         ControlFlow::Stop(value) => return Ok(value),
                         ControlFlow::Continue(action) => {
                             log::info!("picked action: {:?}", action);
-                            driver.apply(action.clone())?;
+                            driver.apply(action.clone(), state.clone())?;
                             last_action = Some(action);
                         }
                     }

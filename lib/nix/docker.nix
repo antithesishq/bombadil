@@ -5,6 +5,7 @@
   runtimeShell,
   bashInteractive,
   chromium,
+  curl,
   bombadil,
   # Fonts
   fontconfig,
@@ -24,7 +25,7 @@ let
   };
 in
 dockerTools.buildImage {
-  name = "bombadil";
+  name = "antithesishq/bombadil";
   tag = version;
   copyToRoot = buildEnv {
     name = "image_root";
@@ -37,6 +38,7 @@ dockerTools.buildImage {
       noto-fonts
       noto-fonts-color-emoji
       chromium
+      curl
     ];
     pathsToLink = [ "/bin" ];
   };
