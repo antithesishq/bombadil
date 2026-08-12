@@ -4809,6 +4809,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "typescript-reference"
+version = "0.7.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "oxc",
+ "oxc_str",
+ "oxc_traverse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "unicase"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

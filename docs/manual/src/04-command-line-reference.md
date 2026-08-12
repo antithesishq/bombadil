@@ -1,10 +1,8 @@
-# Reference
-
-## Command-line interface
+# Command-line reference
 
 <!-- **TODO:** generate this automatically but in structured HTML -->
 
-### Exit codes
+## Exit codes
 
 | Code | Meaning |
 |-----:|---------|
@@ -13,7 +11,7 @@
 | 2 | Property violation(s) detected |
 
 ::: browser
-### bombadil browser test
+## bombadil browser test
 
 `bombadil` `test` [`[OPTIONS]`](#options-test) [`<ORIGIN>`](#arguments-test) [`[SPECIFICATION_FILE]`](#arguments-test)
 
@@ -45,7 +43,7 @@
 | `-h, --help` | Print help | |
 :::
 
-### bombadil browser test-external
+## bombadil browser test-external
 
 `bombadil` `test-external` [`[OPTIONS]`](#options-test-external) [`<ORIGIN>`](#arguments-test-external) [`[SPECIFICATION_FILE]`](#arguments-test-external)
 
@@ -76,7 +74,7 @@
 | `-h, --help` | Print help | |
 :::
 
-### bombadil browser inspect
+## bombadil browser inspect
 
 `bombadil` `inspect` [`[OPTIONS]`](#options-inspect) [`<TRACE_PATH>`](#arguments-inspect)
 
@@ -96,7 +94,7 @@
 :::
 
 ::: terminal
-### bombadil terminal test (EXPERIMENTAL!)
+## bombadil terminal test (EXPERIMENTAL!)
 
 `bombadil` `terminal` `test` [`[OPTIONS]`](#options-terminal-test) [`[COMMAND]*`](#arguments-terminal-test)
 

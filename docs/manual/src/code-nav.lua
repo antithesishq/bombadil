@@ -12,6 +12,10 @@ function CodeBlock(el)
     return el
   end
 
+  if el.classes:includes('no-copy') then
+    return el
+  end
+
   local nav = '<nav class="code-navigation">'
       .. '<button class="copy"><span class="icon">⧉</span>Copy</button>'
       .. '<span class="name">' .. lang .. '</span>'

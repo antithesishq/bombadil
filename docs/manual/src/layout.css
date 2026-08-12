@@ -74,6 +74,7 @@ nav#TOC a {
   display: flex;
   text-decoration: none;
   display: block;
+  word-break: break-all;
 }
 
 nav#TOC a:hover {
