@@ -68,7 +68,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
         tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
         let tree =
-            if is_url_allowed(&state.url, &self.allow_urls, &self.origin) {
+            if is_url_allowed(&state.url, &self.allow_urls) {
                 tree
             } else {
                 tree.filter(&|a| matches!(a, BrowserAction::Back))

@@ -1,4 +1,5 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::path::PathBuf;
 
 use url::Url;
 
@@ -7,6 +8,9 @@ pub enum AllowUrl {
     /// The starting origin host. Added implicitly when the origin has a host;
     /// any path on this host is allowed.
     ExactHost { host: String, port: Option<u16> },
+    /// Exact `file://` path (absolute). Used for inspect / local HTML origins
+    /// and explicit `--allow-url file:///…` entries.
+    ExactFile { path: PathBuf },
     /// A registrable domain and its subdomains (e.g. `example.com`, `.example.com`).
     Domain { domain: String },
     /// A URL prefix: scheme, host, port, and path prefix must match.
@@ -28,6 +32,11 @@ impl AllowUrl {
         if raw.contains("://") {
             let url = Url::parse(raw)
                 .map_err(|err| format!("invalid allow-url {raw:?}: {err}"))?;
+            if url.scheme() == "file" {
+                return Ok(AllowUrl::ExactFile {
+                    path: absolute_file_path(&url)?,
+                });
+            }
             let host = url
                 .host_str()
                 .ok_or_else(|| format!("allow-url {raw:?} has no host"))?
@@ -45,29 +54,40 @@ impl AllowUrl {
         })
     }
 
-    /// Implicit allow rule for the test origin, if it has a network host.
+    /// Implicit allow rule for the test origin.
     ///
-    /// Origins without a host (e.g. `file://`) produce no rule. Host-less
-    /// *targets* (other than `about:` URLs) are handled in [`is_url_allowed`]:
-    /// allowed only when the origin is also host-less (inspect/`file://`).
-    /// Any `about:` URL is always out of bounds.
+    /// * Network origins → [`AllowUrl::ExactHost`] for that host (and port).
+    /// * `file://` origins → [`AllowUrl::ExactFile`] for that absolute path only.
+    /// * Other host-less origins → no implicit rule.
     pub fn from_origin(origin: &Url) -> Option<Self> {
+        if origin.scheme() == "file" {
+            return absolute_file_path(origin)
+                .ok()
+                .map(|path| AllowUrl::ExactFile { path });
+        }
         origin.host_str().map(|host| AllowUrl::ExactHost {
             host: host.to_string(),
             port: origin.port(),
         })
     }
 
-    fn matches(&self, uri: &Url, origin: &Url) -> bool {
+    /// Whether `uri` matches this rule. Rules are self-contained; they do not
+    /// consult a separate origin for ports or other fields.
+    fn matches(&self, uri: &Url) -> bool {
         match self {
             AllowUrl::ExactHost { host, port } => {
                 uri.host_str() == Some(host.as_str())
-                    && ports_match(uri.port(), *port, origin.port())
+                    && ports_match(uri.port(), *port)
             }
-            AllowUrl::Domain { domain } => {
-                if uri.port().is_some() && uri.port() != origin.port() {
+            AllowUrl::ExactFile { path } => {
+                if uri.scheme() != "file" {
                     return false;
                 }
+                absolute_file_path(uri)
+                    .map(|p| p == *path)
+                    .unwrap_or(false)
+            }
+            AllowUrl::Domain { domain } => {
                 let Some(uri_host) = uri.host_str() else {
                     return false;
                 };
@@ -81,20 +101,23 @@ impl AllowUrl {
             } => {
                 uri.scheme() == scheme
                     && uri.host_str() == Some(host.as_str())
-                    && ports_match(uri.port(), *port, *port)
+                    && ports_match(uri.port(), *port)
                     && path_matches_prefix(uri.path(), path_prefix)
             }
         }
     }
 }
 
-/// CLI / reproduce form. Only [`AllowUrl::Domain`] and [`AllowUrl::UrlPrefix`]
-/// are user-supplied; [`AllowUrl::ExactHost`] is implicit and not displayed.
+/// CLI / reproduce form. [`AllowUrl::ExactHost`] is origin-only and not displayed.
 impl Display for AllowUrl {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             AllowUrl::ExactHost { .. } => {
                 panic!("origin allow-url is implicit and not reproduced")
+            }
+            AllowUrl::ExactFile { path } => {
+                let url = Url::from_file_path(path).map_err(|_| std::fmt::Error)?;
+                write!(f, "{url}")
             }
             AllowUrl::Domain { domain } => write!(f, "{domain}"),
             AllowUrl::UrlPrefix {
@@ -125,23 +148,25 @@ pub fn build_allow_list(origin: &Url, extra: &[AllowUrl]) -> Vec<AllowUrl> {
     allow_urls
 }
 
-pub fn is_url_allowed(
-    uri: &Url,
-    allow_urls: &[AllowUrl],
-    origin: &Url,
-) -> bool {
+pub fn is_url_allowed(uri: &Url, allow_urls: &[AllowUrl]) -> bool {
     // about: URLs (blank, srcdoc, …) are tab setup or non-app chrome, never
     // exploration targets; out of bounds → Back only.
     if uri.scheme() == "about" {
         return false;
     }
-    // Other host-less URLs (typical file:// pages) have no network host to
-    // match against the allow-list. Allow them only when the test origin is
-    // also host-less (e.g. file:// inspect reports).
-    if uri.host().is_none() {
-        return origin.host().is_none();
+    allow_urls.iter().any(|rule| rule.matches(uri))
+}
+
+/// Absolute filesystem path for a `file://` URL.
+fn absolute_file_path(url: &Url) -> Result<PathBuf, String> {
+    if url.scheme() != "file" {
+        return Err(format!("expected file URL, got {}", url.scheme()));
     }
-    allow_urls.iter().any(|rule| rule.matches(uri, origin))
+    let path = url
+        .to_file_path()
+        .map_err(|()| format!("invalid file URL {url}"))?;
+    std::path::absolute(path)
+        .map_err(|err| format!("could not resolve absolute path for {url}: {err}"))
 }
 
 fn normalize_domain(domain: &str) -> String {
@@ -160,13 +185,9 @@ fn host_matches_domain(host: &str, domain: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
 
-fn ports_match(
-    uri_port: Option<u16>,
-    rule_port: Option<u16>,
-    origin_port: Option<u16>,
-) -> bool {
-    let expected = rule_port.or(origin_port);
-    match (uri_port, expected) {
+/// Port constraint from the allow rule alone (no separate origin port).
+fn ports_match(uri_port: Option<u16>, rule_port: Option<u16>) -> bool {
+    match (uri_port, rule_port) {
         (Some(uri), Some(expected)) => uri == expected,
         (Some(_), None) => true,
         (None, _) => true,
@@ -203,8 +224,8 @@ mod tests {
         )
     }
 
-    /// Draw a network URL with a host (skip host-less / unparseable draws).
-    fn draw_network_url(tc: &TestCase) -> Url {
+    #[hegel::composite]
+    fn draw_network_url(tc: TestCase) -> Url {
         let u = Url::parse(&tc.draw(urls())).unwrap_or_else(|_| tc.reject());
         if u.host_str().is_none() {
             tc.reject();
@@ -212,10 +233,9 @@ mod tests {
         u
     }
 
-    /// Build a user-facing [`AllowUrl`] (Domain or UrlPrefix) field-by-field from
-    /// a network URL.
-    fn draw_allow_url(tc: &TestCase) -> AllowUrl {
-        let seed = draw_network_url(tc);
+    #[hegel::composite]
+    fn draw_allow_url(tc: TestCase) -> AllowUrl {
+        let seed = tc.draw(draw_network_url());
         let host = seed.host_str().unwrap().to_string();
         if tc.draw(booleans()) {
             AllowUrl::Domain { domain: host }
@@ -230,105 +250,121 @@ mod tests {
     }
 
     #[test]
-    fn file_origin_allows_other_file_urls_but_not_about_blank() {
+    fn file_origin_allows_exact_path_only() {
         let origin = url("file:///tmp/index.html");
         let rules = build_allow_list(&origin, &[]);
-        assert!(rules.is_empty());
-        assert!(AllowUrl::from_origin(&origin).is_none());
-        assert!(is_url_allowed(
-            &url("file:///tmp/other.html"),
-            &rules,
-            &origin
-        ));
-        // about: URLs are never exploration targets.
-        assert!(!is_url_allowed(&url("about:blank"), &rules, &origin));
-        assert!(!is_url_allowed(
-            &url("https://example.com/"),
-            &rules,
-            &origin
-        ));
+        assert_eq!(rules.len(), 1);
+        assert!(matches!(&rules[0], AllowUrl::ExactFile { .. }));
+
+        let origin_path = absolute_file_path(&origin).unwrap();
+        let origin_url =
+            Url::from_file_path(&origin_path).expect("file path to url");
+        assert!(is_url_allowed(&origin_url, &rules));
+
+        // Sibling file path is not implied; allow only exact origin path.
+        let other = url("file:///tmp/other.html");
+        assert!(!is_url_allowed(&other, &rules));
+
+        assert!(!is_url_allowed(&url("about:blank"), &rules));
+        assert!(!is_url_allowed(&url("https://example.com/"), &rules));
+    }
+
+    #[test]
+    fn file_allow_url_is_exact_match() {
+        let origin = url("https://example.com/");
+        let allowed = url("file:///tmp/allowed.html");
+        let allowed_abs = Url::from_file_path(absolute_file_path(&allowed).unwrap())
+            .unwrap();
+        let rules = build_allow_list(
+            &origin,
+            &[AllowUrl::parse(allowed_abs.as_str()).unwrap()],
+        );
+        assert!(is_url_allowed(&allowed_abs, &rules));
+        assert!(!is_url_allowed(&url("file:///tmp/other.html"), &rules));
     }
 
     #[test]
     fn about_scheme_is_always_out_of_bounds() {
-        let network = url("http://localhost:1073/");
         let network_rules = allow("http://localhost:1073/", &[]);
-        assert!(!is_url_allowed(
-            &url("about:blank"),
-            &network_rules,
-            &network
-        ));
-        assert!(!is_url_allowed(
-            &url("about:srcdoc"),
-            &network_rules,
-            &network
-        ));
+        assert!(!is_url_allowed(&url("about:blank"), &network_rules));
+        assert!(!is_url_allowed(&url("about:srcdoc"), &network_rules));
 
         let file = url("file:///tmp/index.html");
         let file_rules = build_allow_list(&file, &[]);
-        assert!(!is_url_allowed(&url("about:blank"), &file_rules, &file));
-        assert!(!is_url_allowed(&url("about:srcdoc"), &file_rules, &file));
-    }
-
-    #[test]
-    fn network_origin_rejects_file_urls() {
-        let origin = url("http://localhost:1073/");
-        let rules = allow("http://localhost:1073/", &[]);
-        assert!(!is_url_allowed(
-            &url("file:///tmp/other.html"),
-            &rules,
-            &origin
-        ));
+        assert!(!is_url_allowed(&url("about:blank"), &file_rules));
+        assert!(!is_url_allowed(&url("about:srcdoc"), &file_rules));
     }
 
     #[test]
     fn origin_only_allows_same_host() {
-        let origin = url("https://example.com/app");
         let rules = allow("https://example.com/app", &[]);
-        assert!(is_url_allowed(
-            &url("https://example.com/other"),
-            &rules,
-            &origin
-        ));
+        assert!(is_url_allowed(&url("https://example.com/other"), &rules));
         assert!(!is_url_allowed(
             &url("https://app.example.com/other"),
-            &rules,
-            &origin
+            &rules
         ));
     }
 
     #[test]
     fn domain_entry_allows_subdomains() {
-        let origin = url("https://example.com/");
         let rules = allow("https://example.com/", &[".example.com"]);
         assert!(is_url_allowed(
             &url("https://app.example.com/path"),
-            &rules,
-            &origin
+            &rules
         ));
         assert!(!is_url_allowed(
             &url("https://notexample.com/path"),
-            &rules,
-            &origin
+            &rules
+        ));
+    }
+
+    #[test]
+    fn domain_entry_does_not_reuse_origin_port() {
+        // Origin port must not constrain a Domain rule (Oskar's example).
+        let rules = build_allow_list(
+            &url("http://origin.example:8080/"),
+            &[AllowUrl::parse("other.example").unwrap()],
+        );
+        assert!(is_url_allowed(
+            &url("http://other.example:9090/"),
+            &rules
+        ));
+        assert!(is_url_allowed(
+            &url("http://other.example:8080/"),
+            &rules
+        ));
+    }
+
+    #[test]
+    fn url_prefix_port_is_self_contained() {
+        // allow-url http://other:9090 must not accept other:8080 via origin port.
+        let rules = build_allow_list(
+            &url("http://origin.example:8080/"),
+            &[AllowUrl::parse("http://other.example:9090/").unwrap()],
+        );
+        assert!(is_url_allowed(
+            &url("http://other.example:9090/path"),
+            &rules
+        ));
+        assert!(!is_url_allowed(
+            &url("http://other.example:8080/path"),
+            &rules
         ));
     }
 
     #[test]
     fn url_prefix_entry_allows_scoped_paths() {
-        let origin = url("https://other.example.com/");
         let rules = allow(
             "https://other.example.com/",
             &["https://example.com/my/cool/feature"],
         );
         assert!(is_url_allowed(
             &url("https://example.com/my/cool/feature/extra"),
-            &rules,
-            &origin
+            &rules
         ));
         assert!(!is_url_allowed(
             &url("https://example.com/my/cool/features"),
-            &rules,
-            &origin
+            &rules
         ));
     }
 
@@ -353,25 +389,23 @@ mod tests {
 
     #[hegel::test]
     fn roundtrip_display_parse(tc: TestCase) {
-        let allow = draw_allow_url(&tc);
+        let allow = tc.draw(draw_allow_url());
         let formatted = format!("{allow}");
         let parsed = AllowUrl::parse(&formatted).unwrap();
         assert_eq!(parsed, allow);
     }
 
-    /// Given Url `u` that parses as AllowUrl `a`, `is_url_allowed(u, &[a], origin)`.
-    /// Origin is `u` so Domain's port check against origin does not fail.
+    /// Given Url `u` that parses as AllowUrl `a`, `is_url_allowed(u, &[a])`.
     #[hegel::test]
     fn is_url_allowed_when_parsed_from_url(tc: TestCase) {
-        let u = draw_network_url(&tc);
-        // Domain form (host only) or full URL form — both are valid --allow-url inputs.
+        let u = tc.draw(draw_network_url());
         let a = if tc.draw(booleans()) {
             AllowUrl::parse(u.host_str().unwrap()).unwrap()
         } else {
             AllowUrl::parse(u.as_str()).unwrap_or_else(|_| tc.reject())
         };
         assert!(
-            is_url_allowed(&u, std::slice::from_ref(&a), &u),
+            is_url_allowed(&u, std::slice::from_ref(&a)),
             "url {u} should be allowed by {a}"
         );
     }
