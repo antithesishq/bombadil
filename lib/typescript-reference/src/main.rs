@@ -98,14 +98,14 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
     let allocator = Allocator::default();
 
-    println!("# TypeScript Reference\n");
+    println!("## TypeScript modules\n");
 
     for (specifier, module) in exported_modules.by_specifier {
         let source_text = fs::read_to_string(&module.path)?;
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;
         let declarations = module_declarations(&allocator, &mut program)?;
 
-        println!("## {specifier}\n");
+        println!("### {specifier}\n");
 
         for declaration in declarations {
             let (name, code) = match declaration {
@@ -165,7 +165,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                 }
             };
             println!(
-                "### {name} {{.unlisted}} \n\n```{{.typescript .no-copy}}\n{code}\n```\n"
+                "#### {name}\n\n```{{.typescript .no-copy}}\n{code}\n```\n"
             );
         }
     }

@@ -6,6 +6,8 @@
   ibm-plex,
   gnumake,
   esbuild,
+  npm-package,
+  typescript-reference,
 }:
 let
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
@@ -63,9 +65,11 @@ stdenvNoCC.mkDerivation {
     texliveBundle
     gnumake
     esbuild
+    typescript-reference
   ];
 
   OSFONTDIR = "${ibm-plex}/share/fonts/opentype";
+  NPM_PACKAGE = "${npm-package}";
 
   buildPhase = ''
     runHook preBuild

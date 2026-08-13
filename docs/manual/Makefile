@@ -3,7 +3,7 @@
 SRC_DIR := src
 TARGET_DIR := target
 # Sort sources to ensure consistent ordering (01-, 02-, etc.)
-SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md))
+SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md) $(TARGET_DIR)/generated/04-reference.md)
 # Extract version from parent Cargo.toml
 VERSION := $(shell grep '^version' ../../Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 
@@ -75,6 +75,13 @@ man: $(MAN_FILES)
 
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
+
+$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/cli-reference.md
+	mkdir -p $(dir $@)
+	# This executable and the env var is provided by the Nix environment.
+	echo -e "# Reference\n" > $@
+	cat $(SRC_DIR)/partials/cli-reference.md >> $@
+	typescript-reference --package-root $(NPM_PACKAGE) >> $@
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it

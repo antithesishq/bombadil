@@ -75,7 +75,9 @@
         packages = {
           default = bombadil.bin;
           npm-package = bombadil.npm-package;
-          manual = pkgs.callPackage ./docs/manual/default.nix { };
+          manual = pkgs.callPackage ./docs/manual/default.nix {
+            inherit (bombadil) npm-package typescript-reference;
+          };
           release = pkgs.callPackage ./lib/release/default.nix { };
           nix-build-push = pkgs.callPackage ./lib/nix/cachix-push.nix { };
         }
@@ -170,6 +172,7 @@
               concurrently
             ];
             OSFONTDIR = "${pkgs.ibm-plex}/share/fonts/opentype";
+            NPM_PACKAGE = "${bombadil.npm-package}";
           };
 
           release = pkgs.mkShell {
