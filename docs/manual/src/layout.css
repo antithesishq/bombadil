@@ -54,6 +54,11 @@ nav#TOC ul {
   align-items: center;
 }
 
+nav#TOC #toc-title {
+  font-size: 1.25rem;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+}
 nav#TOC ul ul {
   list-style: square;
   padding-left: 1rem;
@@ -74,7 +79,7 @@ nav#TOC a {
   display: flex;
   text-decoration: none;
   display: block;
-  word-break: break-all;
+  word-break: break-word;
 }
 
 nav#TOC a:hover {

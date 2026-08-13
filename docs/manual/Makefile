@@ -34,7 +34,7 @@ COMMON_FILTERS := \
 	--lua-filter=$(SRC_DIR)/table-nowrap.lua
 
 PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=3 -Vtoc-title="The Bombadil Manual" \
-	--split-level=1 --resource-path=$(SRC_DIR) --css=../reset.css --css=../style.css \
+	--split-level=2 --resource-path=$(SRC_DIR) --css=../reset.css --css=../style.css \
 	--highlight-style=monochrome \
 	$(COMMON_FILTERS) \
 	--lua-filter=$(SRC_DIR)/code-nav.lua \
@@ -89,6 +89,7 @@ $(TARGET_DIR)/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lu
 	rm -rf $(TARGET_DIR)/$*
 	mkdir -p $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
+	src/fix_headings.py $(TARGET_DIR)
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
 	# on the single top-level manual landing.
