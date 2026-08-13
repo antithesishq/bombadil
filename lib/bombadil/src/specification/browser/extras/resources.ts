@@ -1,30 +1,35 @@
 import { always, type Formula } from "@antithesishq/bombadil";
 import { extract } from "@antithesishq/bombadil/browser";
 
-// Resource metric to watch. Heap signals are GC-noisy; DOM/listener counts are cleaner.
-export type MemoryMetric =
-  | "js_heap_used"
-  | "js_heap_total"
-  | "dom_nodes"
-  | "js_event_listeners"
-  | "layout_objects";
+const resourceMetrics = [
+  "js_heap_used",
+  "js_heap_total",
+  "dom_nodes",
+  "js_event_listeners",
+  "layout_objects",
+] as const;
 
-export interface MemoryLeakOptions {
-  // Metric to watch. Defaults to `"js_heap_used"`.
-  signal?: MemoryMetric;
-  // Max growth allowed across any window. Size in bytes for heap metrics, raw count otherwise.
+// Resource metric to watch.
+export type ResourceMetric = (typeof resourceMetrics)[number];
+
+export interface ResourceLeakOptions {
+  // Metric to watch.
+  metric: ResourceMetric;
+  // Max growth allowed across any window. Size in bytes for heap metrics,
+  // raw count otherwise.
   growthLimit: number;
   // Length of the sliding window, in milliseconds.
   windowMillis: number;
 }
 
-// Opt-in property that fails when `signal` grows by more than `thresholdBytes`
-// across any sliding window of `windowMs`. See the manual for tuning guidance.
-export function memoryDoesNotLeak({
-  signal = "js_heap_used",
+// Property that fails when the resource identified by `metric` grows by more
+// than `growthLimit` across any sliding window of `windowMillis`. See the manual
+// for tuning guidance.
+export function noResourceLeak({
+  metric,
   growthLimit,
   windowMillis,
-}: MemoryLeakOptions): Formula {
+}: ResourceLeakOptions): Formula {
   if (
     typeof growthLimit !== "number" ||
     isNaN(growthLimit) ||
@@ -39,13 +44,16 @@ export function memoryDoesNotLeak({
   ) {
     throw new Error(`invalid windowMillis: ${windowMillis}`);
   }
+  if (!resourceMetrics.includes(metric)) {
+    throw new Error(`invalid metric: ${metric}`);
+  }
 
   const samples: { timestamp: number; value: number }[] = [];
 
   const window = extract((state) => {
     // CDP reports timestamp in seconds; convert to ms.
     const timestamp = state.resources.timestamp * 1000;
-    const value = state.resources[signal];
+    const value = state.resources[metric];
     samples.push({ timestamp: timestamp, value: value });
 
     // Drop samples older than the window, keeping the one just before it as

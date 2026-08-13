@@ -73,7 +73,8 @@ export interface State {
   resources: Resources;
 }
 
-// Per-state page metrics from Chrome DevTools `Performance.getMetrics`; times are in seconds. 
+// Per-state page metrics from Chrome DevTools `Performance.getMetrics`.
+// Times are floating-point seconds.
 export interface Resources {
   js_heap_used: number;
   js_heap_total: number;
