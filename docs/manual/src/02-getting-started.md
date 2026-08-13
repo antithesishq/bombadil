@@ -105,7 +105,7 @@ bombadil --version
 <summary>Nix (flake)</summary>
 
 ```bash
-nix run github:antithesishq/bombadil
+nix run github:antithesishq/bombadil/v%version% -- --version
 ```
 
 </details>
@@ -142,11 +142,17 @@ See [its README](https://github.com/antithesishq/bombadil-action) for detailed i
 :::
 
 </details>
-</div>
+<details name="install">
+<summary>Docker</summary>
 
-::: {.callout .callout-note}
-Docker images are not yet available, but coming soon.
-:::
+Releases are published as tags [on Docker Hub](https://hub.docker.com/repository/docker/antithesishq/bombadil/general):
+
+```bash
+docker run antithesishq/bombadil:%version% --version
+```
+
+</details>
+</div>
 
 If you want to compile from source, see [Contributing](https://github.com/antithesishq/bombadil/tree/main/docs/development/contributing.md).
 

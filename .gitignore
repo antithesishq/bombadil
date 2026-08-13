@@ -8,3 +8,5 @@ lib/bombadil/target
 AGENTS.md
 CLAUDE.md
 /chrome 
+.hegel
+.cache

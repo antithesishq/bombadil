@@ -1,3 +1,4 @@
+use anyhow::ensure;
 use anyhow::{Context, Result, anyhow, bail};
 use chromiumoxide::browser::BrowserConfigBuilder;
 use chromiumoxide::cdp::browser_protocol::browser;
@@ -28,10 +29,12 @@ use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
+use crate::cookie::{BrowserCookie, build_cookie_param};
 
 pub mod actions;
 pub mod activity;
@@ -112,7 +115,7 @@ enum InnerEvent {
     },
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
-    ActionAccepted(BrowserAction),
+    ActionAccepted(BrowserAction, Generation),
     ActionApplied(Generation),
     ExceptionThrown(Exception),
     Quiesced(Generation),
@@ -125,21 +128,6 @@ enum StateRequestReason {
     Quiesced,
 }
 
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-struct Generation(u64);
-
-impl Generation {
-    fn next(self) -> Self {
-        Generation(self.0 + 1)
-    }
-}
-
-impl std::fmt::Display for Generation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// Initial idle timeout before the first activity signal arrives.
 /// Deliberately long so we don't fire before the browser has produced
 /// any frames; the first activity event will replace this with a much shorter
@@ -150,7 +138,7 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
     sender: Sender<BrowserEvent>,
-    actions_sender: Sender<BrowserAction>,
+    actions_sender: Sender<(BrowserAction, Generation)>,
     inner_events_sender: Sender<InnerEvent>,
     shutdown_receiver: oneshot::Receiver<()>,
     page: Arc<Page>,
@@ -185,7 +173,7 @@ pub struct BrowserOptions {
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
-    pub cookies: Vec<(String, String)>,
+    pub cookies: Vec<BrowserCookie>,
 }
 
 #[derive(Clone)]
@@ -197,7 +185,7 @@ pub enum DebuggerOptions {
 pub struct Browser {
     receiver: Receiver<BrowserEvent>,
     inner_events_sender: Sender<InnerEvent>,
-    actions_sender: Sender<BrowserAction>,
+    actions_sender: Sender<(BrowserAction, Generation)>,
     shutdown_sender: Option<oneshot::Sender<()>>,
     done_receiver: Option<oneshot::Receiver<()>>,
     browser: Option<chromiumoxide::Browser>,
@@ -249,7 +237,7 @@ impl Browser {
 
         let (sender, receiver) = channel::<BrowserEvent>(1);
 
-        let (actions_sender, _) = channel::<BrowserAction>(1);
+        let (actions_sender, _) = channel::<(BrowserAction, Generation)>(1);
 
         let page = if browser_options.create_target {
             Arc::new(browser.new_page("about:blank").await.context(
@@ -275,24 +263,14 @@ impl Browser {
         }
 
         if !browser_options.cookies.is_empty() {
-            // Cookies are associated with the origin URL so that the
-            // browser derives an appropriate domain, path, and scheme.
-            // Unlike a static Cookie request header, these become real
-            // browser cookies and are sent on every navigation, which is
-            // what client-side auth flows (e.g. MSAL) rely on.
+            // Unlike a static Cookie request header, these become real browser
+            // cookies and are sent on every navigation, which is what client-side
+            // auth flows (e.g. MSAL) rely on. Plain NAME=VALUE scopes to the
+            // origin URL; Set-Cookie attributes (Domain, Path, etc.) override that.
             let cookies = browser_options
                 .cookies
                 .iter()
-                .map(|(name, value)| {
-                    network::CookieParam::builder()
-                        .name(name)
-                        .value(value)
-                        .url(origin.as_str())
-                        .build()
-                        .map_err(|s| {
-                            anyhow!(s).context("build CookieParam failed")
-                        })
-                })
+                .map(|cookie| build_cookie_param(cookie, &origin))
                 .collect::<Result<Vec<_>>>()?;
             page.execute(network::SetCookiesParams::new(cookies))
                 .await?;
@@ -502,8 +480,12 @@ impl Browser {
         }
     }
 
-    pub fn apply(&mut self, action: BrowserAction) -> Result<()> {
-        self.actions_sender.send(action)?;
+    pub fn apply(
+        &mut self,
+        action: BrowserAction,
+        state: Arc<BrowserState>,
+    ) -> Result<()> {
+        self.actions_sender.send((action, state.generation))?;
         Ok(())
     }
 
@@ -743,10 +725,12 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let events_action_accepted = Box::pin(
-        receiver_to_stream(context.actions_sender.subscribe())
-            .map(InnerEvent::ActionAccepted),
-    );
+    let events_action_accepted =
+        Box::pin(receiver_to_stream(context.actions_sender.subscribe()).map(
+            |(action, generation)| {
+                InnerEvent::ActionAccepted(action, generation)
+            },
+        ));
 
     Ok(Box::pin(stream::select_all(vec![
         events_loaded,
@@ -896,6 +880,7 @@ async fn process_event(
                 screenshot,
                 ..
             } = state.shared;
+            let generation = generation.next();
 
             let screenshot = screenshot
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
@@ -906,14 +891,13 @@ async fn process_event(
                 console_entries,
                 exceptions,
                 screenshot,
+                generation,
             )
             .await?;
 
             context
                 .sender
                 .send(BrowserEvent::StateChanged(browser_state))?;
-
-            let generation = generation.next();
 
             InnerState {
                 kind: Paused,
@@ -930,8 +914,12 @@ async fn process_event(
                 kind: Paused,
                 shared,
             },
-            InnerEvent::ActionAccepted(browser_action),
+            InnerEvent::ActionAccepted(browser_action, generation),
         ) => {
+            ensure!(
+                shared.generation == generation,
+                "cannot accept action from stale generation {generation}"
+            );
             context
                 .page
                 .execute(debugger::ResumeParams::builder().build())
@@ -942,18 +930,17 @@ async fn process_event(
             }
         }
         (
-            state @ InnerState {
-                kind: Loading | Navigating { .. } | Pausing,
-                ..
-            },
-            InnerEvent::ActionAccepted(action),
-        ) => {
-            log::debug!(
-                "ignoring action {:?} received during {:?}",
+            InnerState { kind, shared },
+            InnerEvent::ActionAccepted(action, generation),
+        ) if shared.generation >= generation => {
+            log::warn!(
+                "ignoring stale action {:?}({}) received during {:?}({})",
                 action,
-                state.kind
+                generation,
+                kind,
+                shared.generation
             );
-            state
+            InnerState { kind, shared }
         }
         (
             InnerState {
@@ -1144,21 +1131,22 @@ async fn process_event(
         }
         (state, InnerEvent::FrameNavigated(frame_id, navigation_type)) => {
             if frame_id == context.frame_id {
+                let shared = InnerStateShared {
+                    generation: state.shared.generation.next(),
+                    ..state.shared
+                };
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
                     NavigationType::BackForwardCacheRestore => {
                         let timer = start_quiescence_timer(
-                            &state.shared,
+                            &shared,
                             context,
                             &context.inner_events_sender,
                         );
                         Running(timer)
                     }
                 };
-                InnerState {
-                    kind,
-                    shared: state.shared,
-                }
+                InnerState { kind, shared }
             } else {
                 state
             }
@@ -1334,13 +1322,14 @@ fn launch_options_to_config(
     emulation: &Emulation,
 ) -> Result<BrowserConfig> {
     let crash_dumps_dir = TempDir::new()?;
+
     let apply_sandbox =
         |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
             if launch_options.no_sandbox {
-                builder.no_sandbox().args([
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                ])
+                builder
+                    .no_sandbox()
+                    .arg("disable-setuid-sandbox")
+                    .arg("disable-dev-shm-usage")
             } else {
                 builder
             }
@@ -1356,22 +1345,22 @@ fn launch_options_to_config(
     apply_headless(apply_sandbox(BrowserConfig::builder()))
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
-        .args([
-            &format!(
-                "--crash-dumps-dir={}",
-                crash_dumps_dir
-                    .path()
-                    .to_path_buf()
-                    .to_str()
-                    .expect("invalid tmp dir path")
-            ),
-            "--no-crashpad",
-            "--disable-background-networking",
-            "--disable-component-update",
-            "--disable-domain-reliability",
-            "--no-pings",
-            "--disable-crash-reporter",
-        ])
+        .arg((
+            "crash-dumps-dir",
+            crash_dumps_dir
+                .path()
+                .to_path_buf()
+                .to_str()
+                .expect("invalid tmp dir path"),
+        ))
+        .arg("enable-logging")
+        .arg(("v", "1"))
+        .arg("no-crashpad")
+        .arg("disable-background-networking")
+        .arg("disable-component-update")
+        .arg("disable-domain-reliability")
+        .arg("no-pings")
+        .arg("disable-crash-reporter")
         .build()
         .map_err(|s| anyhow!(s))
 }

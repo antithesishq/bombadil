@@ -2,7 +2,11 @@ use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::Result;
 use bombadil_browser::{
-    browser::LaunchOptions, convert::ToInternal, trace::writer::FileTraceWriter,
+    browser::LaunchOptions,
+    convert::ToInternal,
+    cookie::BrowserCookie,
+    strategy::TraceWriter,
+    trace::writer::{FileTraceWriter, NoopTraceWriter},
 };
 use clap::Args;
 use serde_json as json;
@@ -15,7 +19,7 @@ use tempfile::TempDir;
 use tokio::io::AsyncBufReadExt;
 use tokio::{fs::File, io::BufReader};
 
-use bombadil::{specification::verifier::Specification, styled};
+use bombadil::{antithesis, specification::verifier::Specification, styled};
 use bombadil_browser::{
     browser::{
         BrowserOptions, DebuggerOptions, Emulation, actions::BrowserAction,
@@ -120,12 +124,12 @@ pub struct TestSharedOptions {
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     pub headers: Vec<(String, String)>,
-    /// Cookie to set in the browser before testing, in NAME=VALUE format.
-    /// Set as a real browser cookie scoped to the origin (so client-side auth
-    /// flows that read cookies work), unlike --header which only sends a
-    /// static request header. Can be specified multiple times.
-    #[arg(long = "cookie", value_name = "NAME=VALUE", value_parser = parse_header)]
-    pub cookies: Vec<(String, String)>,
+    /// Cookie to set in the browser before testing. Accepts plain NAME=VALUE
+    /// (scoped to the origin) or Set-Cookie syntax with attributes such as
+    /// Domain, Path, Secure, and HttpOnly. Unlike `--header`, these become real
+    /// browser cookies. Can be specified multiple times.
+    #[arg(long = "cookie", value_name = "SET-COOKIE", value_parser = parse_cookie)]
+    pub cookies: Vec<BrowserCookie>,
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
@@ -162,6 +166,11 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
         } => {
             let mode = resolve_test_mode(&shared).await?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
+            log::info!(
+                "storing chromium/chrome user data in {}",
+                user_data_directory.path().display()
+            );
+
             let output_path =
                 output_path::resolve_output_path(&shared.output_path)?;
 
@@ -239,6 +248,10 @@ fn parse_header(s: &str) -> std::result::Result<(String, String), String> {
     s.split_once('=')
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .ok_or_else(|| format!("invalid header {:?}, expected KEY=VALUE", s))
+}
+
+fn parse_cookie(s: &str) -> std::result::Result<BrowserCookie, String> {
+    BrowserCookie::parse(s)
 }
 
 fn parse_instrumentation_config(
@@ -321,8 +334,8 @@ fn reproduce_command_args(
     for (key, value) in &shared.headers {
         args.push(format!("--header {key}={value}"));
     }
-    for (name, value) in &shared.cookies {
-        args.push(format!("--cookie {name}={value}"));
+    for cookie in &shared.cookies {
+        args.push(format!("--cookie {cookie}"));
     }
     args
 }
@@ -385,39 +398,32 @@ async fn browser_test(
         );
     }
 
-    let deadline = shared_options.time_limit.map(|d| SystemTime::now() + d);
-    let origin = shared_options.origin.url;
-    let exit_on_violation = shared_options.exit_on_violation;
-    let output_path_overwrite = shared_options.output_path_overwrite;
-    let strategy_output_path = output_path.clone();
+    let run_options = RunOptions {
+        specification,
+        browser_options,
+        debugger_options,
+        mode,
+        deadline: shared_options.time_limit.map(|d| SystemTime::now() + d),
+        origin: shared_options.origin.url,
+        exit_on_violation: shared_options.exit_on_violation,
+        output_path: output_path.clone(),
+    };
 
     // The driver and runner are synchronous (the browser runs on its own
     // worker thread/runtime), so run them on a blocking thread to avoid
     // blocking the async runtime.
     let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
-        let runner = bombadil_browser::runner::launch(
-            origin.clone(),
-            specification,
-            browser_options,
-            debugger_options,
-        )?;
-
-        let mut strategy = TestStrategy {
-            rng: AntithesisRng,
-            mode,
-            writer: FileTraceWriter::initialize(
-                strategy_output_path.clone(),
-                output_path_overwrite,
-            )?,
-            exit_on_violation,
-            test_start: None,
-            deadline,
-            output_path: strategy_output_path,
-            violations_count: 0,
-            origin,
-        };
-
-        runner.run(&mut strategy)
+        if antithesis::is_in_guest() {
+            run_with_writer(NoopTraceWriter, run_options)
+        } else {
+            run_with_writer(
+                FileTraceWriter::initialize(
+                    run_options.output_path.clone(),
+                    shared_options.output_path_overwrite,
+                )?,
+                run_options,
+            )
+        }
     })
     .await??;
 
@@ -482,4 +488,50 @@ async fn browser_test(
     }
 
     Ok(())
+}
+
+struct RunOptions {
+    origin: Url,
+    specification: Specification,
+    browser_options: BrowserOptions,
+    debugger_options: DebuggerOptions,
+    mode: TestMode,
+    exit_on_violation: bool,
+    deadline: Option<SystemTime>,
+    output_path: PathBuf,
+}
+
+fn run_with_writer(
+    writer: impl TraceWriter,
+    RunOptions {
+        origin,
+        specification,
+        browser_options,
+        debugger_options,
+        mode,
+        exit_on_violation,
+        deadline,
+        output_path: strategy_output_path,
+    }: RunOptions,
+) -> Result<TestResult> {
+    let runner = bombadil_browser::runner::launch(
+        origin.clone(),
+        specification,
+        browser_options,
+        debugger_options,
+    )?;
+
+    let mut strategy = TestStrategy {
+        rng: AntithesisRng,
+        mode,
+        writer,
+        exit_on_violation,
+        test_start: None,
+        deadline,
+        output_path: strategy_output_path,
+        violations_count: 0,
+        origin,
+    };
+
+    runner.run(&mut strategy)
 }

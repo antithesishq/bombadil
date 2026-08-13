@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "lib/antithesis-coverage",
     "lib/bombadil",
     "lib/bombadil-browser",
     "lib/bombadil-browser-integration-tests",
@@ -15,11 +16,11 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 
 [workspace.dependencies]
-antithesis_sdk = { version = "0.2.9", default-features = false, features = ["rand_v0_10"] }
+antithesis_sdk = { version = "0.2.9", default-features = false, features = ["rand_v0_10", "full"] }
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"

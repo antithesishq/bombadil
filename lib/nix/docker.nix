@@ -1,33 +1,58 @@
 {
   dockerTools,
-  callPackage,
   buildEnv,
   coreutils,
   runtimeShell,
-  bash,
+  bashInteractive,
   chromium,
+  curl,
   bombadil,
+  # Fonts
+  fontconfig,
+  makeFontsConf,
+  liberation_ttf,
+  noto-fonts,
+  noto-fonts-color-emoji,
 }:
+let
+  version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
+  fontConfig = makeFontsConf {
+    fontDirectories = [
+      liberation_ttf
+      noto-fonts
+      noto-fonts-color-emoji
+    ];
+  };
+in
 dockerTools.buildImage {
-  name = "bombadil_docker";
+  name = "antithesishq/bombadil";
+  tag = version;
   copyToRoot = buildEnv {
     name = "image_root";
     paths = [
       bombadil
       coreutils
-      bash
+      bashInteractive
+      fontconfig
+      liberation_ttf
+      noto-fonts
+      noto-fonts-color-emoji
       chromium
+      curl
     ];
     pathsToLink = [ "/bin" ];
   };
   runAsRoot = ''
     #!${runtimeShell}
     ${dockerTools.shadowSetup}
+
+    mkdir -p /usr/bin
+    ln -s /bin/env /usr/bin/env
+
     useradd -r browser
 
     mkdir -p tmp
     chmod 1777 tmp
-
 
     mkdir -p /home/browser/.cache /home/browser/.config /home/browser/.local /home/browser/.pki
     chown -R browser /home/browser
@@ -38,11 +63,18 @@ dockerTools.buildImage {
   '';
   config = {
     User = "browser";
-    Cmd = [ ];
     Entrypoint = [
       "${bombadil}/bin/bombadil"
+    ];
+    Cmd = [
+      "browser"
       "test"
       "--headless"
+      "--no-sandbox"
+    ];
+    Env = [
+      "FONTCONFIG_FILE=${fontConfig}"
+      "RUST_LOG=chromiumoxide=error"
     ];
   };
 }

@@ -12,39 +12,54 @@ export type MemoryMetric =
 export interface MemoryLeakOptions {
   // Metric to watch. Defaults to `"js_heap_used"`.
   signal?: MemoryMetric;
-  // Max growth allowed across any window: bytes for heap signals, raw count otherwise.
-  thresholdBytes: number;
+  // Max growth allowed across any window. Size in bytes for heap metrics, raw count otherwise.
+  growthLimit: number;
   // Length of the sliding window, in milliseconds.
-  windowMs: number;
+  windowMillis: number;
 }
 
 // Opt-in property that fails when `signal` grows by more than `thresholdBytes`
 // across any sliding window of `windowMs`. See the manual for tuning guidance.
 export function memoryDoesNotLeak({
   signal = "js_heap_used",
-  thresholdBytes,
-  windowMs,
+  growthLimit,
+  windowMillis,
 }: MemoryLeakOptions): Formula {
-  const samples: { t: number; v: number }[] = [];
+  if (
+    typeof growthLimit !== "number" ||
+    isNaN(growthLimit) ||
+    growthLimit <= 0
+  ) {
+    throw new Error(`invalid growthLimit: ${growthLimit}`);
+  }
+  if (
+    typeof windowMillis !== "number" ||
+    isNaN(windowMillis) ||
+    windowMillis <= 0
+  ) {
+    throw new Error(`invalid windowMillis: ${windowMillis}`);
+  }
 
-  // Extract runs once per state in time order, so window state lives here
-  // rather than in the (re-evaluated) formula thunk below.
-  const leaking = extract((state) => {
+  const samples: { timestamp: number; value: number }[] = [];
+
+  const window = extract((state) => {
     // CDP reports timestamp in seconds; convert to ms.
-    const t = state.resources.timestamp * 1000;
-    const v = state.resources[signal];
-    samples.push({ t, v });
+    const timestamp = state.resources.timestamp * 1000;
+    const value = state.resources[signal];
+    samples.push({ timestamp: timestamp, value: value });
 
     // Drop samples older than the window, keeping the one just before it as
     // the baseline to measure growth against.
-    const cutoff = t - windowMs;
-    while (samples.length > 2 && samples[1]!.t <= cutoff) {
+    const cutoff = timestamp - windowMillis;
+    while (samples.length > 2 && samples[1]!.timestamp <= cutoff) {
       samples.shift();
     }
 
-    const baseline = samples[0]!.v;
-    return v - baseline > thresholdBytes;
+    const baseline = samples[0]!.value;
+    return { value, baseline };
   });
 
-  return always(() => !leaking.current);
+  return always(
+    () => window.current.value - window.current.baseline <= growthLimit,
+  );
 }

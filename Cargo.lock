@@ -83,13 +83,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "antithesis-coverage"
+version = "0.7.0"
+dependencies = [
+ "cc",
+ "log",
+]
+
+[[package]]
 name = "antithesis_sdk"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "08410fcac93669a476c006cd6c4512ac1e2b30fd117231a5d55d8a2c76599b82"
 dependencies = [
+ "libc",
+ "libloading",
+ "linkme",
+ "once_cell",
  "rand 0.8.6",
  "rand_core 0.10.1",
+ "rustc_version_runtime",
  "serde",
  "serde_json",
 ]
@@ -411,8 +424,9 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
+ "antithesis_sdk",
  "anyhow",
  "boa_engine",
  "bombadil-ltl",
@@ -445,8 +459,9 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
+ "antithesis-coverage",
  "anyhow",
  "base64",
  "bombadil",
@@ -456,6 +471,7 @@ dependencies = [
  "chromiumoxide",
  "const_format",
  "futures",
+ "hegeltest",
  "html5ever",
  "indoc",
  "insta",
@@ -476,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -499,11 +515,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.6.1"
+version = "0.7.0"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -551,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "hegeltest",
@@ -560,7 +576,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "bitflags 2.12.1",
  "insta",
@@ -572,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -672,6 +688,16 @@ dependencies = [
  "syn 2.0.117",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "cc"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
 ]
 
 [[package]]
@@ -1341,6 +1367,12 @@ dependencies = [
  "thiserror 1.0.69",
  "winapi",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fixedbitset"
@@ -2501,6 +2533,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "404671567c0ac43389a69ae424eefc89390a25d3a5386a54249cdaf13e01b411"
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2513,6 +2555,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f02ab6bace2054fb888a3c16f990117b579d14a3088e472d63c6011fa185c9d3"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "linkme"
+version = "0.3.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e83272d46373fb8decca684579ac3e7c8f3d71d4cc3aa693df8759e260ae41cf"
+dependencies = [
+ "linkme-impl",
+]
+
+[[package]]
+name = "linkme-impl"
+version = "0.3.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32d59e20403c7d08fe62b4376edfe5c7fb2ef1e6b1465379686d0f21c8df444b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -3801,6 +3863,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc_version_runtime"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2dd18cd2bae1820af0b6ad5e54f4a51d0f3fcc53b05f845675074efcc7af071d"
+dependencies = [
+ "rustc_version 0.4.1",
+ "semver 1.0.28",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4060,6 +4132,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 
 [[package]]
+name = "shlex"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4113,7 +4191,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "hegeltest",
  "serde",
@@ -4997,7 +5075,7 @@ dependencies = [
 
 [[package]]
 name = "willow-tree"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "hegeltest",
 ]
