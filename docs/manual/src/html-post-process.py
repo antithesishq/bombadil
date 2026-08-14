@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Post-processing of HTML output files, adjusting heading levels
-so that all files start at h1. Also adds heading anchor links.
+so that all files start at h1. Also adds heading anchor links
+and word break hints.
 
 Usage: html-post-process.py TARGET_DIR
 """
@@ -9,7 +10,7 @@ import sys
 import pathlib
 import re
 from typing import Literal, Union, cast
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, ResultSet, Tag
 
 
 type Level = Union[
@@ -64,17 +65,17 @@ def add_anchor_links(soup: BeautifulSoup, headings: list) -> None:
         heading.append(anchor)
 
 
-def word_break_toc_items(soup: BeautifulSoup) -> None:
-    for link in soup.select("#TOC a"):
-        text = link.string
+def word_break_on_slash(soup: BeautifulSoup, tags: ResultSet[Tag]) -> None:
+    for tag in tags:
+        text = tag.string
         if not text:
             continue
-        link.clear()
+        tag.clear()
         for i, segment in enumerate(text.split("/")):
             if i > 0:
-                link.append("/")
-                link.append(soup.new_tag("wbr"))
-            link.append(segment)
+                tag.append("/")
+                tag.append(soup.new_tag("wbr"))
+            tag.append(segment)
 
 
 def fix_file(path: pathlib.Path) -> None:
@@ -86,7 +87,8 @@ def fix_file(path: pathlib.Path) -> None:
         shift_headings(headings)
         add_anchor_links(soup, headings)
 
-    word_break_toc_items(soup)
+    word_break_on_slash(soup, soup.select("#TOC a"))
+    word_break_on_slash(soup, soup.select("h1 .citation, h2 .citation, h3 .citation"))
 
     path.write_text(str(soup), encoding="utf-8")
 
