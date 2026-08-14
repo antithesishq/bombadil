@@ -454,13 +454,13 @@ export const inputs = weighted([
 ```
 :::
 
-:::: browser
 ## Extras
 
 In addition to the default properties, there's a set of extras modules with
 properties that you can use. These are not included in the defaults and need
 to be specifically used and exported in your top-level specification module.
 
+:::: browser
 ### Detecting resource leaks
 
 Bombadil provides a parameterized property for catching resource leaks in the
@@ -506,6 +506,11 @@ as it visualizes some of these metrics over time.
 :::
 ::::
 
+:::: terminal
+::: {.callout .callout-note}
+There are currently only extras modules for the browser driver, and none for the terminal driver.
+:::
+::::
 
 ## Examples
 
