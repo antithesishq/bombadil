@@ -6,6 +6,7 @@
   ibm-plex,
   gnumake,
   esbuild,
+  python3,
   npm-package,
   typescript-reference,
 }:
@@ -56,6 +57,7 @@ stdenvNoCC.mkDerivation {
       || (lib.hasSuffix ".css" path)
       || (lib.hasSuffix ".js" path)
       || (lib.hasSuffix ".lua" path)
+      || (lib.hasSuffix ".py" path)
       || (baseNameOf path == "Makefile")
       || (type == "directory");
   };
@@ -65,6 +67,7 @@ stdenvNoCC.mkDerivation {
     texliveBundle
     gnumake
     esbuild
+    python3
     typescript-reference
   ];
 
