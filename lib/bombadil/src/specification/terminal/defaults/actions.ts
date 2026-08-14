@@ -130,12 +130,8 @@ export function typeFromSet(
   ]);
 }
 
-export function pasteText(text: string) {
-  return {
-    TypeText: {
-      text: "\x1b[200~" + text + "\x1b[201~",
-    },
-  };
+export function pasteText(text: string): ActionGenerator<ActionTemplate> {
+  return typeFromSet(CharSet.fromLiterals("\x1b[200~" + text + "\x1b[201~"));
 }
 
 export const lastAction = extract<State, Action | null>(

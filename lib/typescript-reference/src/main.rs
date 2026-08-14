@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{self, Parser as _};
 use oxc::{
-    allocator::{self, Allocator, CloneIn, TakeIn},
+    allocator::{self, Allocator, CloneIn},
     ast::{AstBuilder, ast},
     codegen::{self, Codegen},
     parser::Parser,
@@ -107,15 +107,22 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
 
         for declaration in declarations {
             let (name, code) = match declaration {
+                ModuleDeclaration::Module(name, module_declaration) => (
+                    name,
+                    render_statement(
+                        &allocator,
+                        &source_text,
+                        &program.comments,
+                        ast::Statement::TSModuleDeclaration(module_declaration),
+                    ),
+                ),
                 ModuleDeclaration::Type(name, type_declaration) => {
                     let code = match type_declaration {
                         TypeDeclaration::Class(class) => render_statement(
                             &allocator,
                             &source_text,
                             &program.comments,
-                            ast::Statement::ClassDeclaration(
-                                allocator::Box::new_in(class, &allocator),
-                            ),
+                            ast::Statement::ClassDeclaration(class),
                         ),
                         TypeDeclaration::Interface(interface) => {
                             render_statement(
@@ -123,30 +130,17 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                                 &source_text,
                                 &program.comments,
                                 ast::Statement::TSInterfaceDeclaration(
-                                    allocator::Box::new_in(
-                                        interface, &allocator,
-                                    ),
+                                    interface,
                                 ),
                             )
                         }
-                        TypeDeclaration::Module(module) => render_statement(
-                            &allocator,
-                            &source_text,
-                            &program.comments,
-                            ast::Statement::TSModuleDeclaration(
-                                allocator::Box::new_in(module, &allocator),
-                            ),
-                        ),
                         TypeDeclaration::Enum(enum_declaration) => {
                             render_statement(
                                 &allocator,
                                 &source_text,
                                 &program.comments,
                                 ast::Statement::TSEnumDeclaration(
-                                    allocator::Box::new_in(
-                                        enum_declaration,
-                                        &allocator,
-                                    ),
+                                    enum_declaration,
                                 ),
                             )
                         }
@@ -154,9 +148,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                             &allocator,
                             &source_text,
                             &program.comments,
-                            ast::Statement::TSTypeAliasDeclaration(
-                                allocator::Box::new_in(alias, &allocator),
-                            ),
+                            ast::Statement::TSTypeAliasDeclaration(alias),
                         ),
                     };
                     (name, code)
@@ -168,11 +160,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                                 &allocator,
                                 &source_text,
                                 &program.comments,
-                                ast::Statement::FunctionDeclaration(
-                                    allocator::Box::new_in(
-                                        function, &allocator,
-                                    ),
-                                ),
+                                ast::Statement::FunctionDeclaration(function),
                             )
                         }
                         ValueDeclaration::Variable(variable) => {
@@ -180,11 +168,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                                 &allocator,
                                 &source_text,
                                 &program.comments,
-                                ast::Statement::VariableDeclaration(
-                                    allocator::Box::new_in(
-                                        variable, &allocator,
-                                    ),
-                                ),
+                                ast::Statement::VariableDeclaration(variable),
                             )
                         }
                     };
@@ -222,8 +206,8 @@ fn parse<'a>(
 
 #[derive(Debug)]
 enum ValueDeclaration<'a> {
-    Function(ast::Function<'a>),
-    Variable(ast::VariableDeclaration<'a>),
+    Function(allocator::Box<'a, ast::Function<'a>>),
+    Variable(allocator::Box<'a, ast::VariableDeclaration<'a>>),
 }
 
 impl<'a> CloneIn<'a> for ValueDeclaration<'a> {
@@ -243,11 +227,10 @@ impl<'a> CloneIn<'a> for ValueDeclaration<'a> {
 
 #[derive(Debug)]
 enum TypeDeclaration<'a> {
-    Class(ast::Class<'a>),
-    Interface(ast::TSInterfaceDeclaration<'a>),
-    Module(ast::TSModuleDeclaration<'a>),
-    Enum(ast::TSEnumDeclaration<'a>),
-    Alias(ast::TSTypeAliasDeclaration<'a>),
+    Class(allocator::Box<'a, ast::Class<'a>>),
+    Interface(allocator::Box<'a, ast::TSInterfaceDeclaration<'a>>),
+    Enum(allocator::Box<'a, ast::TSEnumDeclaration<'a>>),
+    Alias(allocator::Box<'a, ast::TSTypeAliasDeclaration<'a>>),
 }
 
 impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
@@ -259,7 +242,6 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
             Self::Interface(interface) => {
                 Self::Interface(interface.clone_in(allocator))
             }
-            Self::Module(module) => Self::Module(module.clone_in(allocator)),
             Self::Enum(enum_declaration) => {
                 Self::Enum(enum_declaration.clone_in(allocator))
             }
@@ -270,6 +252,7 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
 
 #[derive(Debug)]
 enum ModuleDeclaration<'a> {
+    Module(String, allocator::Box<'a, ast::TSModuleDeclaration<'a>>),
     Type(String, TypeDeclaration<'a>),
     Value(String, ValueDeclaration<'a>),
 }
@@ -277,6 +260,9 @@ enum ModuleDeclaration<'a> {
 #[derive(Default)]
 struct Traverser<'a> {
     in_exported: bool,
+    in_nested_module: bool,
+    declared_modules:
+        BTreeMap<String, allocator::Box<'a, ast::TSModuleDeclaration<'a>>>,
     declared_types: BTreeMap<String, TypeDeclaration<'a>>,
     declared_values: BTreeMap<String, ValueDeclaration<'a>>,
     referenced_types: HashSet<String>,
@@ -339,7 +325,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         }
     }
 
-    fn exit_declaration(
+    fn enter_declaration(
         &mut self,
         node: &mut ast::Declaration<'a>,
         ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
@@ -351,6 +337,10 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
             return;
         };
 
+        if self.in_nested_module {
+            return;
+        }
+
         match node {
             FunctionDeclaration(function) => {
                 if self.in_exported {
@@ -359,7 +349,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 self.declared_values.insert(
                     name,
                     ValueDeclaration::Function(
-                        function.take_in(ctx.ast.allocator),
+                        function.clone_in(ctx.ast.allocator),
                     ),
                 );
             }
@@ -370,7 +360,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 self.declared_values.insert(
                     name,
                     ValueDeclaration::Variable(
-                        variable.take_in(ctx.ast.allocator),
+                        variable.clone_in(ctx.ast.allocator),
                     ),
                 );
             }
@@ -381,7 +371,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 self.declared_types.insert(
                     name,
                     TypeDeclaration::Interface(
-                        interface.take_in(ctx.ast.allocator),
+                        interface.clone_in(ctx.ast.allocator),
                     ),
                 );
             }
@@ -391,27 +381,25 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 }
                 self.declared_types.insert(
                     name,
-                    TypeDeclaration::Class(class.take_in(ctx.ast.allocator)),
+                    TypeDeclaration::Class(class.clone_in(ctx.ast.allocator)),
                 );
             }
             TSModuleDeclaration(module) => {
-                self.declared_types.insert(
-                    name,
-                    TypeDeclaration::Module(module.take_in(ctx.ast.allocator)),
-                );
+                self.declared_modules
+                    .insert(name, module.clone_in(ctx.ast.allocator));
             }
             TSEnumDeclaration(enum_declaration) => {
                 self.declared_types.insert(
                     name,
                     TypeDeclaration::Enum(
-                        enum_declaration.take_in(ctx.ast.allocator),
+                        enum_declaration.clone_in(ctx.ast.allocator),
                     ),
                 );
             }
             TSTypeAliasDeclaration(alias) => {
                 self.declared_types.insert(
                     name,
-                    TypeDeclaration::Alias(alias.take_in(ctx.ast.allocator)),
+                    TypeDeclaration::Alias(alias.clone_in(ctx.ast.allocator)),
                 );
             }
             // TSGlobalDeclaration(tsglobal_declaration)
@@ -421,6 +409,55 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
             }
         }
     }
+
+    fn enter_ts_module_declaration(
+        &mut self,
+        _: &mut ast::TSModuleDeclaration<'a>,
+        _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        self.in_nested_module = true;
+    }
+
+    fn exit_ts_module_declaration(
+        &mut self,
+        _: &mut ast::TSModuleDeclaration<'a>,
+        _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        self.in_nested_module = false;
+    }
+
+    fn enter_export_specifier(
+        &mut self,
+        node: &mut ast::ExportSpecifier<'a>,
+        _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        if node.local.name() != node.exported.name() {
+            eprintln!(
+                "ignoring renamed export: {:?} -> {:?}",
+                node.local.name(),
+                node.exported.name()
+            );
+        } else {
+            self.referenced_values
+                .insert(node.exported.name().to_string());
+        }
+    }
+
+    fn enter_export_all_declaration(
+        &mut self,
+        node: &mut ast::ExportAllDeclaration<'a>,
+        _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        eprintln!("export all: {:?}", node);
+    }
+    //
+    // fn enter_module_export_name(
+    //     &mut self,
+    //     node: &mut ast::ModuleExportName<'a>,
+    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    // ) {
+    //     eprintln!("export name: {:?}", node);
+    // }
 }
 
 fn render_statement<'a>(
@@ -482,6 +519,13 @@ fn module_declarations<'a>(
     traverse_mut(&mut traverser, allocator, program, scoping, ());
 
     let mut results = vec![];
+
+    for (name, declared_module) in traverser.declared_modules {
+        results.push(ModuleDeclaration::Module(
+            name,
+            declared_module.clone_in(allocator),
+        ));
+    }
 
     for (name, declared_type) in traverser.declared_types {
         if traverser.referenced_types.contains(&name) {

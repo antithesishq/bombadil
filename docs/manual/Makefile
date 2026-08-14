@@ -94,7 +94,6 @@ $(TARGET_DIR)/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lu
 	rm -rf $(TARGET_DIR)/$*
 	mkdir -p $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
-	ls -la $(SRC_DIR)
 	python3 $(SRC_DIR)/html-post-process.py $(TARGET_DIR)
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
