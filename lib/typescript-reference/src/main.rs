@@ -101,60 +101,65 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
     for (specifier, module) in exported_modules.by_specifier {
         let source_text = fs::read_to_string(&module.path)?;
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;
-        let declarations = module_declarations(&allocator, &mut program)?;
+        let module = module_extract(&allocator, &mut program)?;
 
         println!("### {specifier}\n");
 
-        for declaration in declarations {
-            let (name, code) = match declaration {
-                ModuleDeclaration::Module(name, module_declaration) => (
-                    name,
-                    render_statement(
-                        &allocator,
-                        &source_text,
-                        &program.comments,
-                        ast::Statement::TSModuleDeclaration(module_declaration),
-                    ),
-                ),
-                ModuleDeclaration::Type(name, type_declaration) => {
-                    let code = match type_declaration {
-                        TypeDeclaration::Class(class) => render_statement(
+        if !module.by_name.is_empty() {
+            println!("#### Declarations\n");
+        }
+
+        for (name, declarations) in module.by_name {
+            println!("##### `{name}`\n");
+            for declaration in declarations {
+                let code = match declaration {
+                    ModuleDeclaration::Module(module_declaration) => {
+                        render_statement(
                             &allocator,
                             &source_text,
                             &program.comments,
-                            ast::Statement::ClassDeclaration(class),
-                        ),
-                        TypeDeclaration::Interface(interface) => {
-                            render_statement(
+                            ast::Statement::TSModuleDeclaration(
+                                module_declaration,
+                            ),
+                        )
+                    }
+                    ModuleDeclaration::Type(type_declaration) => {
+                        match type_declaration {
+                            TypeDeclaration::Class(class) => render_statement(
                                 &allocator,
                                 &source_text,
                                 &program.comments,
-                                ast::Statement::TSInterfaceDeclaration(
-                                    interface,
-                                ),
-                            )
-                        }
-                        TypeDeclaration::Enum(enum_declaration) => {
-                            render_statement(
+                                ast::Statement::ClassDeclaration(class),
+                            ),
+                            TypeDeclaration::Interface(interface) => {
+                                render_statement(
+                                    &allocator,
+                                    &source_text,
+                                    &program.comments,
+                                    ast::Statement::TSInterfaceDeclaration(
+                                        interface,
+                                    ),
+                                )
+                            }
+                            TypeDeclaration::Enum(enum_declaration) => {
+                                render_statement(
+                                    &allocator,
+                                    &source_text,
+                                    &program.comments,
+                                    ast::Statement::TSEnumDeclaration(
+                                        enum_declaration,
+                                    ),
+                                )
+                            }
+                            TypeDeclaration::Alias(alias) => render_statement(
                                 &allocator,
                                 &source_text,
                                 &program.comments,
-                                ast::Statement::TSEnumDeclaration(
-                                    enum_declaration,
-                                ),
-                            )
+                                ast::Statement::TSTypeAliasDeclaration(alias),
+                            ),
                         }
-                        TypeDeclaration::Alias(alias) => render_statement(
-                            &allocator,
-                            &source_text,
-                            &program.comments,
-                            ast::Statement::TSTypeAliasDeclaration(alias),
-                        ),
-                    };
-                    (name, code)
-                }
-                ModuleDeclaration::Value(name, value) => {
-                    let code = match value {
+                    }
+                    ModuleDeclaration::Value(value) => match value {
                         ValueDeclaration::Function(function) => {
                             render_statement(
                                 &allocator,
@@ -171,13 +176,21 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                                 ast::Statement::VariableDeclaration(variable),
                             )
                         }
-                    };
-                    (name, code)
-                }
-            };
-            println!(
-                "#### {name}\n\n```{{.typescript .no-copy}}\n{code}\n```\n"
-            );
+                    },
+                };
+                println!("```{{.typescript .no-copy}}\n{code}\n```\n");
+            }
+        }
+
+        if !module.reexports.is_empty() {
+            println!("#### Reexports\n");
+            for (specifier, identifiers) in module.reexports {
+                println!(
+                    "```{{.typescript .no-copy}}\nexport {{ {} }} from {:?};\n```",
+                    identifiers.to_vec().join(", "),
+                    specifier
+                );
+            }
         }
     }
     Ok(())
@@ -250,11 +263,29 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
     }
 }
 
+#[derive(Debug, Default)]
+struct Module<'a> {
+    by_name: BTreeMap<String, Vec<ModuleDeclaration<'a>>>,
+    reexports: BTreeMap<String, Vec<String>>,
+}
+
+impl<'a> Module<'a> {
+    fn get_name_mut<'b>(
+        &'b mut self,
+        name: &str,
+    ) -> &'b mut Vec<ModuleDeclaration<'a>> {
+        if !self.by_name.contains_key(name) {
+            self.by_name.insert(name.into(), Vec::new());
+        }
+        self.by_name.get_mut(name).expect("value should exist")
+    }
+}
+
 #[derive(Debug)]
 enum ModuleDeclaration<'a> {
-    Module(String, allocator::Box<'a, ast::TSModuleDeclaration<'a>>),
-    Type(String, TypeDeclaration<'a>),
-    Value(String, ValueDeclaration<'a>),
+    Module(allocator::Box<'a, ast::TSModuleDeclaration<'a>>),
+    Type(TypeDeclaration<'a>),
+    Value(ValueDeclaration<'a>),
 }
 
 #[derive(Default)]
@@ -265,6 +296,7 @@ struct Traverser<'a> {
         BTreeMap<String, allocator::Box<'a, ast::TSModuleDeclaration<'a>>>,
     declared_types: BTreeMap<String, TypeDeclaration<'a>>,
     declared_values: BTreeMap<String, ValueDeclaration<'a>>,
+    reexports: BTreeMap<String, Vec<String>>,
     referenced_types: HashSet<String>,
     referenced_values: HashSet<String>,
 }
@@ -272,10 +304,29 @@ struct Traverser<'a> {
 impl<'a> Traverse<'a, ()> for Traverser<'a> {
     fn enter_export_named_declaration(
         &mut self,
-        _node: &mut ast::ExportNamedDeclaration<'a>,
+        node: &mut ast::ExportNamedDeclaration<'a>,
         _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
-        self.in_exported = true;
+        if let Some(source) = &node.source {
+            let mut identifiers = vec![];
+            for specifier in &node.specifiers {
+                if specifier.local.name() != specifier.exported.name() {
+                    eprintln!(
+                        "ignoring renamed reexport: {:?} -> {:?}",
+                        specifier.local.name(),
+                        specifier.exported.name()
+                    );
+                }
+                identifiers.push(specifier.local.name().to_string());
+            }
+            self.reexports.insert(source.value.to_string(), identifiers);
+        } else {
+            assert!(
+                node.specifiers.is_empty(),
+                "bare exports not supported yet"
+            );
+            self.in_exported = true;
+        }
     }
     fn exit_export_named_declaration(
         &mut self,
@@ -439,19 +490,27 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 node.exported.name()
             );
         } else {
+            // eprintln!("export specifier: {}", node.exported.name());
             self.referenced_values
                 .insert(node.exported.name().to_string());
         }
     }
 
-    fn enter_export_all_declaration(
-        &mut self,
-        node: &mut ast::ExportAllDeclaration<'a>,
-        _: &mut oxc_traverse::TraverseCtx<'a, ()>,
-    ) {
-        eprintln!("export all: {:?}", node);
-    }
-
+    // fn enter_export_all_declaration(
+    //     &mut self,
+    //     node: &mut ast::ExportAllDeclaration<'a>,
+    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    // ) {
+    //     eprintln!("export all: {:?}", node);
+    // }
+    //
+    // fn enter_ts_export_assignment(
+    //     &mut self,
+    //     node: &mut ast::TSExportAssignment<'a>,
+    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    // ) {
+    //     eprintln!("export assignment: {:?}", node);
+    // }
     //
     // fn enter_module_export_name(
     //     &mut self,
@@ -497,10 +556,10 @@ fn render_statement<'a>(
     codegen.build(&program_temporary).code
 }
 
-fn module_declarations<'a>(
+fn module_extract<'a>(
     allocator: &'a Allocator,
     program: &mut ast::Program<'a>,
-) -> Result<Vec<ModuleDeclaration<'a>>> {
+) -> Result<Module<'a>> {
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
         .build(program);
@@ -520,19 +579,17 @@ fn module_declarations<'a>(
     let mut traverser = Traverser::default();
     traverse_mut(&mut traverser, allocator, program, scoping, ());
 
-    let mut results = vec![];
+    let mut module: Module<'a> = Default::default();
 
     for (name, declared_module) in traverser.declared_modules {
-        results.push(ModuleDeclaration::Module(
-            name,
+        module.get_name_mut(&name).push(ModuleDeclaration::Module(
             declared_module.clone_in(allocator),
         ));
     }
 
     for (name, declared_type) in traverser.declared_types {
         if traverser.referenced_types.contains(&name) {
-            results.push(ModuleDeclaration::Type(
-                name,
+            module.get_name_mut(&name).push(ModuleDeclaration::Type(
                 declared_type.clone_in(allocator),
             ))
         } else {
@@ -542,8 +599,7 @@ fn module_declarations<'a>(
 
     for (name, declared_value) in traverser.declared_values {
         if traverser.referenced_values.contains(&name) {
-            results.push(ModuleDeclaration::Value(
-                name,
+            module.get_name_mut(&name).push(ModuleDeclaration::Value(
                 declared_value.clone_in(allocator),
             ))
         } else {
@@ -551,5 +607,7 @@ fn module_declarations<'a>(
         }
     }
 
-    Ok(results)
+    module.reexports = traverser.reexports;
+
+    Ok(module)
 }
