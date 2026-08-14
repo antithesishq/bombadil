@@ -1,5 +1,5 @@
 use std::{
-    io::{BufWriter, Write},
+    io::{self, BufWriter, Write},
     path::PathBuf,
     sync::mpsc,
     thread::JoinHandle,
@@ -214,17 +214,29 @@ fn worker_loop(
                     &entry.violations,
                 )?;
                 buffer.push(b'\n');
-                trace_file.write_all(&buffer)?;
+                trace_file.write_all(&buffer).map_err(trace_write_error)?;
             }
             Message::Flush(ack) => {
-                let result = trace_file.flush().map_err(Into::into);
+                let result = trace_file.flush().map_err(trace_write_error);
                 // The flusher may have given up waiting; ignore that.
                 let _ = ack.send(result);
             }
         }
     }
-    trace_file.flush()?;
+    trace_file.flush().map_err(trace_write_error)?;
     Ok(())
+}
+
+fn trace_write_error(error: io::Error) -> anyhow::Error {
+    let message = match error.kind() {
+        io::ErrorKind::QuotaExceeded => {
+            "try using `--output-path` to write traces outside \
+            of the temporary directory"
+        }
+        _ => "failed to write to trace file",
+    };
+
+    anyhow!(error).context(message)
 }
 
 #[cfg(test)]

@@ -209,6 +209,15 @@ pub fn run(command: Command) {
 
             if let Err(error) = run_test() {
                 eprintln!("\n\nterminal test failed: {error}");
+
+                if let Some(source) = error.source() {
+                    eprintln!("\nCauses:");
+
+                    for cause in anyhow::Chain::new(source) {
+                        eprintln!("  - {cause}");
+                    }
+                }
+
                 exit(1);
             }
         }
