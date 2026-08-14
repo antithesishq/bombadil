@@ -98,8 +98,6 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
     let allocator = Allocator::default();
 
-    println!("## TypeScript modules\n");
-
     for (specifier, module) in exported_modules.by_specifier {
         let source_text = fs::read_to_string(&module.path)?;
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;

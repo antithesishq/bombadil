@@ -76,13 +76,15 @@ man: $(MAN_FILES)
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
 
-$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md
+$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md $(SRC_DIR)/partials/typescript-reference.md
 	mkdir -p $(dir $@)
 	# This executable and the env var is provided by the Nix environment.
 	cat $(SRC_DIR)/partials/reference.md > $@
 	echo "" >> $@
 	## TODO: generate this
 	cat $(SRC_DIR)/partials/cli-reference.md >> $@
+	echo "" >> $@
+	cat $(SRC_DIR)/partials/typescript-reference.md >> $@
 	echo "" >> $@
 	typescript-reference --package-root $(NPM_PACKAGE) >> $@
 

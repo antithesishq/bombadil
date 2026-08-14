@@ -147,10 +147,11 @@ h6:hover .header-anchor {
 }
 
 .navlink {
-  flex: 0 1 50%;
+  flex: 0 0 50%;
   display: flex;
   flex-direction: column;
   text-decoration: none;
+  overflow: hidden;
 }
 .navlink.next {
   text-align: right;
@@ -159,6 +160,12 @@ h6:hover .header-anchor {
 .navlink-label {
   font-family: var(--font-family-headings);
   font-weight: 600;
+}
+.navlink-title {
+  display: block;
+  width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .index {
