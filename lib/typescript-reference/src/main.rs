@@ -397,6 +397,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 );
             }
             TSTypeAliasDeclaration(alias) => {
+                self.referenced_types.insert(alias.id.name.to_string());
                 self.declared_types.insert(
                     name,
                     TypeDeclaration::Alias(alias.clone_in(ctx.ast.allocator)),
@@ -450,6 +451,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
     ) {
         eprintln!("export all: {:?}", node);
     }
+
     //
     // fn enter_module_export_name(
     //     &mut self,
