@@ -85,10 +85,10 @@ fn normalize_lexically(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
     for component in path.components() {
         match component {
-            Component::CurDir => {} // drop "."
+            Component::CurDir => {}
             Component::ParentDir => {
                 out.pop();
-            } // ".." pops previous, if any
+            }
             other => out.push(other),
         }
     }
