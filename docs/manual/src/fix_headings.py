@@ -1,42 +1,85 @@
 #!/usr/bin/env python3
 """
-Post-process pandoc --to=chunkedhtml output so that within each chunk file,
-the top-level heading is always <h1> (with descendants shifted to match),
-regardless of that heading's level in the source document.
+Post-processing of HTML output files, adjusting heading levels
+so that all files start at h1. Also adds heading anchor links.
 
-Usage: fix_headings.py OUTPUT_DIR
+Usage: fix_headings.py TARGET_DIR
 """
-import re
 import sys
 import pathlib
+import re
+from typing import Literal, Union, cast
+from bs4 import BeautifulSoup
 
-HEADING_OPEN_RE = re.compile(r"<h([1-6])(?=[ >])")
-HEADING_CLOSE_RE = re.compile(r"</h([1-6])>")
-LEVEL_CLASS_RE = re.compile(r'(?<=["\s])level([1-6])(?=["\s])')
+
+type Level = Union[
+    Literal[1], Literal[2], Literal[3], Literal[4], Literal[5], Literal[6]
+]
+
+
+def heading_level(name: str) -> Level | None:
+    """Return the heading level (1-6) if `name` is h1..h6, else None."""
+    if len(name) == 2 and name[0] == "h" and name[1] in "123456":
+        return cast(Level, int(name[1]))
+    return None
+
+
+def level_class(cls: str):
+    """Return the level (1-6) if `cls` is level1..level6, else None."""
+    if cls.startswith("level") and cls[5:] in ("1", "2", "3", "4", "5", "6"):
+        return int(cls[5:])
+    return None
+
+
+def shift_headings(headings: list) -> None:
+    levels: set[int] = {
+        level
+        for heading in headings
+        for level in [heading_level(heading.name)]
+        if level is not None
+    }
+    shift = min(levels) - 1
+    if shift <= 0:
+        # Document already starts at h1.
+        return
+
+    for heading in headings:
+        level = heading_level(heading.name)
+        if level is not None:
+            heading.name = f"h{level - shift}"
+
+
+def add_anchor_links(soup: BeautifulSoup, headings: list) -> None:
+    for h in headings:
+        if not h.get("id"):
+            continue
+        if h.find("a", class_="header-anchor") is not None:
+            # Heading already has an anchor link.
+            continue
+        anchor = soup.new_tag("a", href=f"#{h['id']}", attrs={"class": "header-anchor"})
+        anchor.string = "#"
+        h.append(" ")
+        h.append(anchor)
 
 
 def fix_file(path: pathlib.Path) -> None:
     text = path.read_text(encoding="utf-8")
+    soup = BeautifulSoup(text, "html.parser")
 
-    levels = {int(n) for n in HEADING_OPEN_RE.findall(text)}
-    if not levels:
-        return  # no headings in this file (e.g. index.html) - nothing to do
+    headings = soup.find_all(re.compile("^h[1-6]$"))
+    if not headings:
+        # No headings in this file.
+        return
 
-    shift = min(levels) - 1
-    if shift <= 0:
-        return  # already starts at h1 - nothing to do
+    shift_headings(headings)
+    add_anchor_links(soup, headings)
 
-    text = HEADING_OPEN_RE.sub(lambda m: f"<h{int(m.group(1)) - shift}", text)
-    text = HEADING_CLOSE_RE.sub(lambda m: f"</h{int(m.group(1)) - shift}>", text)
-    text = LEVEL_CLASS_RE.sub(lambda m: f"level{int(m.group(1)) - shift}", text)
-
-    path.write_text(text, encoding="utf-8")
+    path.write_text(str(soup), encoding="utf-8")
 
 
 def main() -> None:
     if len(sys.argv) != 2:
         sys.exit(f"usage: {sys.argv[0]} OUTPUT_DIR")
-
     out_dir = pathlib.Path(sys.argv[1])
     for html_file in out_dir.glob("**/*.html"):
         fix_file(html_file)

@@ -123,6 +123,20 @@ main {
   padding-top: 2rem;
 }
 
+.header-anchor {
+  opacity: 0;
+  text-decoration: none;
+  color: var(--color-primary);
+}
+h1:hover .header-anchor,
+h2:hover .header-anchor,
+h3:hover .header-anchor,
+h4:hover .header-anchor,
+h5:hover .header-anchor,
+h6:hover .header-anchor {
+  opacity: 1;
+}
+
 .page-nav {
   display: flex;
   align-items: stretch;

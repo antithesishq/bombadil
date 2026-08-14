@@ -67,7 +67,7 @@ stdenvNoCC.mkDerivation {
     texliveBundle
     gnumake
     esbuild
-    python3
+    (python3.withPackages (p: [ p.beautifulsoup4 ]))
     typescript-reference
   ];
 
