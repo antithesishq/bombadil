@@ -115,6 +115,13 @@ main {
 .content > :first-child {
   margin-top: 0;
 }
+.content > h1:first-child {
+  /* Hacky way to get anchored links (2-foo.html#foo) in TOC to 
+   * position the vertical scroll the same way as non-anchored
+   * links (1-foo.html) do. */
+  margin-top: -2rem;
+  padding-top: 2rem;
+}
 
 .page-nav {
   display: flex;

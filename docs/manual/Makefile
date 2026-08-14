@@ -33,7 +33,7 @@ COMMON_FILTERS := \
 	--lua-filter=$(SRC_DIR)/admonitions.lua \
 	--lua-filter=$(SRC_DIR)/table-nowrap.lua
 
-PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=3 -Vtoc-title="The Bombadil Manual" \
+PANDOC_HTML_OPTS := --to=chunkedhtml --toc --toc-depth=2 -Vtoc-title="The Bombadil Manual" \
 	--split-level=2 --resource-path=$(SRC_DIR) --css=../reset.css --css=../style.css \
 	--highlight-style=monochrome \
 	$(COMMON_FILTERS) \
