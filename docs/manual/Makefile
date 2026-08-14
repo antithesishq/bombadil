@@ -76,11 +76,14 @@ man: $(MAN_FILES)
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
 
-$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/cli-reference.md
+$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md
 	mkdir -p $(dir $@)
 	# This executable and the env var is provided by the Nix environment.
-	echo -e "# Reference\n" > $@
+	cat $(SRC_DIR)/partials/reference.md > $@
+	echo "" >> $@
+	## TODO: generate this
 	cat $(SRC_DIR)/partials/cli-reference.md >> $@
+	echo "" >> $@
 	typescript-reference --package-root $(NPM_PACKAGE) >> $@
 
 # For chunked HTML, pandoc creates the directory itself
@@ -90,7 +93,7 @@ $(TARGET_DIR)/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lu
 	mkdir -p $(TARGET_DIR)
 	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
 	ls -la $(SRC_DIR)
-	python3 $(SRC_DIR)/fix_headings.py $(TARGET_DIR)
+	python3 $(SRC_DIR)/html-post-process.py $(TARGET_DIR)
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
 	# on the single top-level manual landing.
@@ -149,4 +152,4 @@ watch:
 dev: clean all
 	@concurrently -n serve,watch \
 		"browser-sync start --server $(TARGET_DIR) --port 8000 --no-open --files '$(TARGET_DIR)/**/*'" \
-		"watchexec -w $(SRC_DIR) -e css,html,js,md,yaml,lua make html"
+		"watchexec -w $(SRC_DIR) -w $(SRC_DIR)/partials -e css,html,js,md,yaml,lua make html"

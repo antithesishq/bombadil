@@ -3,7 +3,7 @@
 Post-processing of HTML output files, adjusting heading levels
 so that all files start at h1. Also adds heading anchor links.
 
-Usage: fix_headings.py TARGET_DIR
+Usage: html-post-process.py TARGET_DIR
 """
 import sys
 import pathlib
@@ -50,16 +50,31 @@ def shift_headings(headings: list) -> None:
 
 
 def add_anchor_links(soup: BeautifulSoup, headings: list) -> None:
-    for h in headings:
-        if not h.get("id"):
+    for heading in headings:
+        if not heading.get("id"):
             continue
-        if h.find("a", class_="header-anchor") is not None:
+        if heading.find("a", class_="header-anchor") is not None:
             # Heading already has an anchor link.
             continue
-        anchor = soup.new_tag("a", href=f"#{h['id']}", attrs={"class": "header-anchor"})
+        anchor = soup.new_tag(
+            "a", href=f"#{heading['id']}", attrs={"class": "header-anchor"}
+        )
         anchor.string = "#"
-        h.append(" ")
-        h.append(anchor)
+        heading.append(" ")
+        heading.append(anchor)
+
+
+def word_break_toc_items(soup: BeautifulSoup) -> None:
+    for link in soup.select("#TOC a"):
+        text = link.string
+        if not text:
+            continue
+        link.clear()
+        for i, segment in enumerate(text.split("/")):
+            if i > 0:
+                link.append("/")
+                link.append(soup.new_tag("wbr"))
+            link.append(segment)
 
 
 def fix_file(path: pathlib.Path) -> None:
@@ -67,12 +82,11 @@ def fix_file(path: pathlib.Path) -> None:
     soup = BeautifulSoup(text, "html.parser")
 
     headings = soup.find_all(re.compile("^h[1-6]$"))
-    if not headings:
-        # No headings in this file.
-        return
+    if headings:
+        shift_headings(headings)
+        add_anchor_links(soup, headings)
 
-    shift_headings(headings)
-    add_anchor_links(soup, headings)
+    word_break_toc_items(soup)
 
     path.write_text(str(soup), encoding="utf-8")
 

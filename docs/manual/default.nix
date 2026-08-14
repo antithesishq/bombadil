@@ -40,6 +40,7 @@ let
       etoolbox
       mdwtools
       fontawesome5
+      selnolig
       ;
   };
 in

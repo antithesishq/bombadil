@@ -81,7 +81,6 @@ nav#TOC a {
   display: block;
   word-wrap: break-word;
   word-break: break-word;
-  hyphens: auto;
 }
 
 nav#TOC a:hover {

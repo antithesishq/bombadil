@@ -1,8 +1,12 @@
 ## Command-line interface
 
+The primary way of using Bombadil, at least locally, is through the
+command-line interface (CLI). This section describes in detail what commands
+are available, and what options, flags, and arguments you can give them.
+
 <!-- **TODO:** generate this automatically but in structured HTML -->
 
-### Exit codes
+The general exit code semantics of the CLI is:
 
 | Code | Meaning |
 |-----:|---------|
