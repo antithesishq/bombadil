@@ -129,6 +129,35 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                                 ),
                             )
                         }
+                        TypeDeclaration::Module(module) => render_statement(
+                            &allocator,
+                            &source_text,
+                            &program.comments,
+                            ast::Statement::TSModuleDeclaration(
+                                allocator::Box::new_in(module, &allocator),
+                            ),
+                        ),
+                        TypeDeclaration::Enum(enum_declaration) => {
+                            render_statement(
+                                &allocator,
+                                &source_text,
+                                &program.comments,
+                                ast::Statement::TSEnumDeclaration(
+                                    allocator::Box::new_in(
+                                        enum_declaration,
+                                        &allocator,
+                                    ),
+                                ),
+                            )
+                        }
+                        TypeDeclaration::Alias(alias) => render_statement(
+                            &allocator,
+                            &source_text,
+                            &program.comments,
+                            ast::Statement::TSTypeAliasDeclaration(
+                                allocator::Box::new_in(alias, &allocator),
+                            ),
+                        ),
                     };
                     (name, code)
                 }
@@ -216,6 +245,9 @@ impl<'a> CloneIn<'a> for ValueDeclaration<'a> {
 enum TypeDeclaration<'a> {
     Class(ast::Class<'a>),
     Interface(ast::TSInterfaceDeclaration<'a>),
+    Module(ast::TSModuleDeclaration<'a>),
+    Enum(ast::TSEnumDeclaration<'a>),
+    Alias(ast::TSTypeAliasDeclaration<'a>),
 }
 
 impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
@@ -227,6 +259,11 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
             Self::Interface(interface) => {
                 Self::Interface(interface.clone_in(allocator))
             }
+            Self::Module(module) => Self::Module(module.clone_in(allocator)),
+            Self::Enum(enum_declaration) => {
+                Self::Enum(enum_declaration.clone_in(allocator))
+            }
+            Self::Alias(alias) => Self::Alias(alias.clone_in(allocator)),
         }
     }
 }
@@ -281,16 +318,22 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         if self.in_exported {
-            match &node.type_name {
-                ast::TSTypeName::IdentifierReference(identifier_reference) => {
-                    self.referenced_types
-                        .insert(identifier_reference.name.to_string());
-                }
-                ast::TSTypeName::QualifiedName(name) => {
-                    eprintln!("ignoring qualified type reference: {name:?}");
-                }
-                ast::TSTypeName::ThisExpression(this) => {
-                    eprintln!("ignoring This type reference: {this:?}");
+            let mut current = Some(&node.type_name);
+            while let Some(node) = current.take() {
+                match node {
+                    ast::TSTypeName::IdentifierReference(
+                        identifier_reference,
+                    ) => {
+                        self.referenced_types
+                            .insert(identifier_reference.name.to_string());
+                    }
+                    ast::TSTypeName::QualifiedName(name) => {
+                        current = Some(&name.left);
+                        self.referenced_types.insert(name.right.to_string());
+                    }
+                    ast::TSTypeName::ThisExpression(this) => {
+                        eprintln!("ignoring This type reference: {this:?}");
+                    }
                 }
             }
         }
@@ -351,9 +394,26 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                     TypeDeclaration::Class(class.take_in(ctx.ast.allocator)),
                 );
             }
-            // TSTypeAliasDeclaration(tstype_alias_declaration)
-            // TSEnumDeclaration(tsenum_declaration)
-            // TSModuleDeclaration(tsmodule_declaration)
+            TSModuleDeclaration(module) => {
+                self.declared_types.insert(
+                    name,
+                    TypeDeclaration::Module(module.take_in(ctx.ast.allocator)),
+                );
+            }
+            TSEnumDeclaration(enum_declaration) => {
+                self.declared_types.insert(
+                    name,
+                    TypeDeclaration::Enum(
+                        enum_declaration.take_in(ctx.ast.allocator),
+                    ),
+                );
+            }
+            TSTypeAliasDeclaration(alias) => {
+                self.declared_types.insert(
+                    name,
+                    TypeDeclaration::Alias(alias.take_in(ctx.ast.allocator)),
+                );
+            }
             // TSGlobalDeclaration(tsglobal_declaration)
             // TSImportEqualsDeclaration(tsimport_equals_declaration)
             node => {
@@ -429,6 +489,8 @@ fn module_declarations<'a>(
                 name,
                 declared_type.clone_in(allocator),
             ))
+        } else {
+            eprintln!("non-exported type ignored: {name}");
         }
     }
 
@@ -438,6 +500,8 @@ fn module_declarations<'a>(
                 name,
                 declared_value.clone_in(allocator),
             ))
+        } else {
+            eprintln!("non-exported value ignored: {name}");
         }
     }
 
