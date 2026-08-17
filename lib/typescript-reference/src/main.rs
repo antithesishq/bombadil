@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::{
     collections::{BTreeMap, HashSet},
     fs,
@@ -95,22 +96,23 @@ fn normalize_lexically(path: &Path) -> PathBuf {
     out
 }
 
-fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
+fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
     let allocator = Allocator::default();
+    let mut output = String::new();
 
     for (specifier, module) in exported_modules.by_specifier {
         let source_text = fs::read_to_string(&module.path)?;
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;
         let module = module_extract(&allocator, &mut program)?;
 
-        println!("### {specifier}\n");
+        writeln!(output, "### {specifier}\n")?;
 
         if !module.by_name.is_empty() {
-            println!("#### Declarations\n");
+            writeln!(output, "#### Declarations\n")?;
         }
 
         for (name, declarations) in module.by_name {
-            println!("##### `{name}`\n");
+            writeln!(output, "##### `{name}`\n")?;
             for declaration in declarations {
                 let code = match declaration {
                     ModuleDeclaration::Module(module_declaration) => {
@@ -178,22 +180,23 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<()> {
                         }
                     },
                 };
-                println!("```{{.typescript .no-copy}}\n{code}\n```\n");
+                writeln!(output, "```{{.typescript .no-copy}}\n{code}\n```\n")?;
             }
         }
 
         if !module.reexports.is_empty() {
-            println!("#### Reexports\n");
+            writeln!(output, "#### Reexports\n")?;
             for (specifier, identifiers) in module.reexports {
-                println!(
+                writeln!(
+                    output,
                     "```{{.typescript .no-copy}}\nexport {{ {} }} from {:?};\n```",
                     identifiers.to_vec().join(", "),
                     specifier
-                );
+                )?;
             }
         }
     }
-    Ok(())
+    Ok(output)
 }
 
 fn parse<'a>(
@@ -610,4 +613,18 @@ fn module_extract<'a>(
     module.reexports = traverser.reexports;
 
     Ok(module)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use insta::assert_snapshot;
+
+    #[test]
+    fn test_() {
+        let exported_modules =
+            ExportedModules::build(Path::new("test/modules")).unwrap();
+        let output = generate_reference(exported_modules).unwrap();
+        assert_snapshot!(output);
+    }
 }

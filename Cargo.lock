@@ -4814,6 +4814,7 @@ version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
+ "insta",
  "oxc",
  "oxc_str",
  "oxc_traverse",

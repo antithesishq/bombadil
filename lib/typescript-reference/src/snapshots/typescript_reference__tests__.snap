@@ -1,0 +1,39 @@
+---
+source: lib/typescript-reference/src/main.rs
+expression: output
+---
+### @example/test
+
+#### Declarations
+
+##### `getPi`
+
+```{.typescript .no-copy}
+function getPi(): number;
+
+```
+
+##### `multiply`
+
+```{.typescript .no-copy}
+function multiply(a: number, b: number): number;
+
+```
+
+#### Reexports
+
+```{.typescript .no-copy}
+export { other } from "@example/test/foo";
+```
+### @example/test/foo
+
+#### Declarations
+
+##### `Other`
+
+```{.typescript .no-copy}
+declare namespace Other {
+  export function inner(): number;
+}
+
+```
