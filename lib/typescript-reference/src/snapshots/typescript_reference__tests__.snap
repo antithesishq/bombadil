@@ -4,26 +4,26 @@ expression: output
 ---
 ### @example/test
 
-#### Declarations
+#### Exports
 
 ##### `MAGIC_NUMBER`
 
 ```{.typescript .no-copy}
-declare const MAGIC_NUMBER: number;
+const MAGIC_NUMBER: number;
 
 ```
 
 ##### `getPi`
 
 ```{.typescript .no-copy}
-declare function getPi(): number;
+function getPi(): number;
 
 ```
 
 ##### `multiply`
 
 ```{.typescript .no-copy}
-declare function multiply(a: number, b: number): number;
+function multiply(a: number, b: number): number;
 
 ```
 
@@ -34,12 +34,12 @@ export { other } from "@example/test/foo";
 ```
 ### @example/test/foo
 
-#### Declarations
+#### Exports
 
 ##### `Other`
 
 ```{.typescript .no-copy}
-declare namespace Other {
+namespace Other {
   export function inner(): number;
 }
 
@@ -48,6 +48,6 @@ declare namespace Other {
 ##### `other`
 
 ```{.typescript .no-copy}
-declare const other: number;
+const other: number;
 
 ```

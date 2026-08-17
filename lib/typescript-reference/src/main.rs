@@ -115,7 +115,8 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
             writeln!(output, "##### `{name}`\n")?;
             for declaration in declarations {
                 let code = match declaration {
-                    ModuleDeclaration::Module(module_declaration) => {
+                    ModuleDeclaration::Module(mut module_declaration) => {
+                        module_declaration.declare = false;
                         render_statement(
                             &allocator,
                             &source_text,
@@ -127,13 +128,17 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                     }
                     ModuleDeclaration::Type(type_declaration) => {
                         match type_declaration {
-                            TypeDeclaration::Class(class) => render_statement(
-                                &allocator,
-                                &source_text,
-                                &program.comments,
-                                ast::Statement::ClassDeclaration(class),
-                            ),
-                            TypeDeclaration::Interface(interface) => {
+                            TypeDeclaration::Class(mut class) => {
+                                class.declare = false;
+                                render_statement(
+                                    &allocator,
+                                    &source_text,
+                                    &program.comments,
+                                    ast::Statement::ClassDeclaration(class),
+                                )
+                            }
+                            TypeDeclaration::Interface(mut interface) => {
+                                interface.declare = false;
                                 render_statement(
                                     &allocator,
                                     &source_text,
@@ -143,7 +148,8 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                                     ),
                                 )
                             }
-                            TypeDeclaration::Enum(enum_declaration) => {
+                            TypeDeclaration::Enum(mut enum_declaration) => {
+                                enum_declaration.declare = false;
                                 render_statement(
                                     &allocator,
                                     &source_text,
@@ -162,7 +168,8 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                         }
                     }
                     ModuleDeclaration::Value(value) => match value {
-                        ValueDeclaration::Function(function) => {
+                        ValueDeclaration::Function(mut function) => {
+                            function.declare = false;
                             render_statement(
                                 &allocator,
                                 &source_text,
@@ -170,7 +177,8 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                                 ast::Statement::FunctionDeclaration(function),
                             )
                         }
-                        ValueDeclaration::Variable(variable) => {
+                        ValueDeclaration::Variable(mut variable) => {
+                            variable.declare = false;
                             render_statement(
                                 &allocator,
                                 &source_text,
