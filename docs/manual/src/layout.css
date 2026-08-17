@@ -147,7 +147,8 @@ h6:hover .header-anchor {
 }
 
 .navlink {
-  flex: 0 0 50%;
+  flex: 1 1 50%;
+  max-width: calc(50% - 1rem);
   display: flex;
   flex-direction: column;
   text-decoration: none;

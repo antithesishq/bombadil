@@ -3,7 +3,7 @@ import {
   typeFromSet,
 } from "@antithesishq/bombadil/terminal/defaults/actions";
 import { ActionTemplate, weighted } from "@antithesishq/bombadil/terminal";
-import { ActionGenerator } from "../actions";
+import { ActionGenerator } from "@antithesishq/bombadil";
 export {
   exitSuccess,
   noReplacementChars,

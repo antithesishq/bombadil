@@ -1,9 +1,9 @@
-import { not, always } from "@antithesishq/bombadil";
+import { not, always, Formula } from "@antithesishq/bombadil";
 import { extract } from "@antithesishq/bombadil/terminal";
 
 const exitStatus = extract((state) => state.exitStatus);
 
-export const exitSuccess = always(
+export const exitSuccess: Formula = always(
   not(
     () =>
       !!exitStatus.current &&
@@ -35,6 +35,6 @@ const replacementChars = extract((state) => {
   return result;
 });
 
-export const noReplacementChars = always(
+export const noReplacementChars: Formula = always(
   () => (replacementChars.current ?? []).length === 0,
 );
