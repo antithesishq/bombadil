@@ -6,17 +6,24 @@ expression: output
 
 #### Declarations
 
+##### `MAGIC_NUMBER`
+
+```{.typescript .no-copy}
+declare const MAGIC_NUMBER: number;
+
+```
+
 ##### `getPi`
 
 ```{.typescript .no-copy}
-function getPi(): number;
+declare function getPi(): number;
 
 ```
 
 ##### `multiply`
 
 ```{.typescript .no-copy}
-function multiply(a: number, b: number): number;
+declare function multiply(a: number, b: number): number;
 
 ```
 
@@ -35,5 +42,12 @@ export { other } from "@example/test/foo";
 declare namespace Other {
   export function inner(): number;
 }
+
+```
+
+##### `other`
+
+```{.typescript .no-copy}
+declare const other: number;
 
 ```

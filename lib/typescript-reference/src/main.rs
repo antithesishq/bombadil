@@ -29,7 +29,7 @@ struct Cli {
 fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
     let exported_modules = ExportedModules::build(&cli.package_root)?;
-    generate_reference(exported_modules)?;
+    print!("{}", generate_reference(exported_modules)?);
     Ok(())
 }
 
@@ -108,7 +108,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
         writeln!(output, "### {specifier}\n")?;
 
         if !module.by_name.is_empty() {
-            writeln!(output, "#### Declarations\n")?;
+            writeln!(output, "#### Exports\n")?;
         }
 
         for (name, declarations) in module.by_name {
@@ -385,18 +385,16 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         use ast::Declaration::*;
-        let name = if let Some(id) = node.id() {
-            id.name.to_string()
-        } else {
-            return;
-        };
 
         if self.in_nested_module {
             return;
         }
 
+        let name: Option<String> = node.id().map(|id| id.name.to_string());
+
         match node {
             FunctionDeclaration(function) => {
+                let name = name.expect("function has no name");
                 if self.in_exported {
                     self.referenced_values.insert(name.clone());
                 }
@@ -408,17 +406,25 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 );
             }
             VariableDeclaration(variable) => {
-                if self.in_exported {
-                    self.referenced_values.insert(name.clone());
+                for declaration in &variable.declarations {
+                    let name = declaration
+                        .id
+                        .get_identifier_name()
+                        .expect("variable declaration is missing name")
+                        .to_string();
+                    if self.in_exported {
+                        self.referenced_values.insert(name.clone());
+                    }
+                    self.declared_values.insert(
+                        name,
+                        ValueDeclaration::Variable(
+                            variable.clone_in(ctx.ast.allocator),
+                        ),
+                    );
                 }
-                self.declared_values.insert(
-                    name,
-                    ValueDeclaration::Variable(
-                        variable.clone_in(ctx.ast.allocator),
-                    ),
-                );
             }
             TSInterfaceDeclaration(interface) => {
+                let name = name.expect("interface has no name");
                 if self.in_exported {
                     self.referenced_types.insert(name.clone());
                 }
@@ -430,6 +436,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 );
             }
             ClassDeclaration(class) => {
+                let name = name.expect("class has no name");
                 if self.in_exported {
                     self.referenced_types.insert(name.clone());
                 }
@@ -439,10 +446,12 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 );
             }
             TSModuleDeclaration(module) => {
+                let name = name.expect("module has no name");
                 self.declared_modules
                     .insert(name, module.clone_in(ctx.ast.allocator));
             }
             TSEnumDeclaration(enum_declaration) => {
+                let name = name.expect("enum has no name");
                 self.declared_types.insert(
                     name,
                     TypeDeclaration::Enum(
@@ -451,6 +460,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 );
             }
             TSTypeAliasDeclaration(alias) => {
+                let name = name.expect("alias has no name");
                 self.referenced_types.insert(alias.id.name.to_string());
                 self.declared_types.insert(
                     name,
