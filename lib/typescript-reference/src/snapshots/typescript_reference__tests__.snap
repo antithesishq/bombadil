@@ -8,23 +8,36 @@ expression: output
 
 ##### `MAGIC_NUMBER`
 
-```{.typescript .no-copy}
-const MAGIC_NUMBER: number;
+I'm a magic number.
 
+```{.typescript .no-copy}
+const MAGIC_NUMBER: number
+```
+
+##### `PiResult`
+
+The interface.
+
+```{.typescript .no-copy}
+interface PiResult {
+  pi: number;
+}
 ```
 
 ##### `getPi`
 
-```{.typescript .no-copy}
-function getPi(): number;
+Gets the number.
 
+```{.typescript .no-copy}
+function getPi(): PiResult;
 ```
 
 ##### `multiply`
 
+It's good.
+
 ```{.typescript .no-copy}
 function multiply(a: number, b: number): number;
-
 ```
 
 #### Reexports
@@ -38,16 +51,18 @@ export { other } from "@example/test/foo";
 
 ##### `Other`
 
+I'm a doc comment.
+
 ```{.typescript .no-copy}
 namespace Other {
   export function inner(): number;
 }
-
 ```
 
 ##### `other`
 
-```{.typescript .no-copy}
-const other: number;
+Very cool.
 
+```{.typescript .no-copy}
+const other: number
 ```

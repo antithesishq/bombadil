@@ -11,6 +11,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 oxc.workspace = true
+oxc_codegen.workspace = true
 oxc_str.workspace = true
 oxc_traverse.workspace = true
 serde.workspace = true

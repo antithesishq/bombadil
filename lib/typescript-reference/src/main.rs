@@ -1,3 +1,12 @@
+/// This program renders our TypeScript package's modules
+/// as Markdown, which is used in the manual. It supports
+/// a subset of TypeScript that we use. We might need to
+/// support more TypeScript constructs in this program
+/// if required by the package.
+///
+/// We also impose certain rules, and make assumptions,
+/// like how declarations should be commented.
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -7,13 +16,15 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{self, Parser as _};
+use oxc::codegen::Gen;
+use oxc::span::GetSpan;
 use oxc::{
     allocator::{self, Allocator, CloneIn},
-    ast::{AstBuilder, ast},
+    ast::ast,
     codegen::{self, Codegen},
     parser::Parser,
     semantic::SemanticBuilder,
-    span::{SPAN, SourceType},
+    span::SourceType,
 };
 use oxc_traverse::{Traverse, traverse_mut};
 use serde::Deserialize;
@@ -114,27 +125,23 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
         for (name, declarations) in module.by_name {
             writeln!(output, "##### `{name}`\n")?;
             for declaration in declarations {
-                let code = match declaration {
-                    ModuleDeclaration::Module(mut module_declaration) => {
+                let code = match declaration.kind {
+                    ModuleDeclarationKind::Module(mut module_declaration) => {
                         module_declaration.declare = false;
                         render_statement(
                             &allocator,
                             &source_text,
-                            &program.comments,
-                            ast::Statement::TSModuleDeclaration(
-                                module_declaration,
-                            ),
+                            module_declaration,
                         )
                     }
-                    ModuleDeclaration::Type(type_declaration) => {
+                    ModuleDeclarationKind::Type(type_declaration) => {
                         match type_declaration {
                             TypeDeclaration::Class(mut class) => {
                                 class.declare = false;
                                 render_statement(
                                     &allocator,
                                     &source_text,
-                                    &program.comments,
-                                    ast::Statement::ClassDeclaration(class),
+                                    class,
                                 )
                             }
                             TypeDeclaration::Interface(mut interface) => {
@@ -142,10 +149,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                                 render_statement(
                                     &allocator,
                                     &source_text,
-                                    &program.comments,
-                                    ast::Statement::TSInterfaceDeclaration(
-                                        interface,
-                                    ),
+                                    interface,
                                 )
                             }
                             TypeDeclaration::Enum(mut enum_declaration) => {
@@ -153,41 +157,51 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                                 render_statement(
                                     &allocator,
                                     &source_text,
-                                    &program.comments,
-                                    ast::Statement::TSEnumDeclaration(
-                                        enum_declaration,
-                                    ),
+                                    enum_declaration,
                                 )
                             }
                             TypeDeclaration::Alias(alias) => render_statement(
                                 &allocator,
                                 &source_text,
-                                &program.comments,
-                                ast::Statement::TSTypeAliasDeclaration(alias),
+                                alias,
                             ),
                         }
                     }
-                    ModuleDeclaration::Value(value) => match value {
+                    ModuleDeclarationKind::Value(value) => match value {
                         ValueDeclaration::Function(mut function) => {
                             function.declare = false;
-                            render_statement(
-                                &allocator,
-                                &source_text,
-                                &program.comments,
-                                ast::Statement::FunctionDeclaration(function),
-                            )
+                            render_statement(&allocator, &source_text, function)
                         }
                         ValueDeclaration::Variable(mut variable) => {
                             variable.declare = false;
-                            render_statement(
-                                &allocator,
-                                &source_text,
-                                &program.comments,
-                                ast::Statement::VariableDeclaration(variable),
-                            )
+                            render_statement(&allocator, &source_text, variable)
                         }
                     },
                 };
+
+                if let Some(comment) = declaration.comment {
+                    let text = comment
+                        .content_span()
+                        .source_text(&source_text)
+                        .lines()
+                        .map(|line| {
+                            let trimmed = line.trim_start();
+                            trimmed
+                                .strip_prefix('*')
+                                .unwrap_or(trimmed)
+                                .trim_start()
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                        .trim()
+                        .to_string();
+                    writeln!(output, "{text}\n")?;
+                } else {
+                    eprintln!(
+                        "{} in {} is not documented",
+                        declaration.name, specifier
+                    );
+                }
                 writeln!(output, "```{{.typescript .no-copy}}\n{code}\n```\n")?;
             }
         }
@@ -281,19 +295,23 @@ struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
-    fn get_name_mut<'b>(
+    fn get_by_name_mut<'b>(
         &'b mut self,
         name: &str,
     ) -> &'b mut Vec<ModuleDeclaration<'a>> {
-        if !self.by_name.contains_key(name) {
-            self.by_name.insert(name.into(), Vec::new());
-        }
-        self.by_name.get_mut(name).expect("value should exist")
+        self.by_name.entry(name.into()).or_default()
     }
 }
 
 #[derive(Debug)]
-enum ModuleDeclaration<'a> {
+struct ModuleDeclaration<'a> {
+    name: String,
+    comment: Option<ast::Comment>,
+    kind: ModuleDeclarationKind<'a>,
+}
+
+#[derive(Debug)]
+enum ModuleDeclarationKind<'a> {
     Module(allocator::Box<'a, ast::TSModuleDeclaration<'a>>),
     Type(TypeDeclaration<'a>),
     Value(ValueDeclaration<'a>),
@@ -303,20 +321,18 @@ enum ModuleDeclaration<'a> {
 struct Traverser<'a> {
     in_exported: bool,
     in_nested_module: bool,
-    declared_modules:
-        BTreeMap<String, allocator::Box<'a, ast::TSModuleDeclaration<'a>>>,
-    declared_types: BTreeMap<String, TypeDeclaration<'a>>,
-    declared_values: BTreeMap<String, ValueDeclaration<'a>>,
+    declarations: Vec<ModuleDeclaration<'a>>,
     reexports: BTreeMap<String, Vec<String>>,
     referenced_types: HashSet<String>,
     referenced_values: HashSet<String>,
+    comments: HashMap<u32, ast::Comment>,
 }
 
 impl<'a> Traverse<'a, ()> for Traverser<'a> {
     fn enter_export_named_declaration(
         &mut self,
         node: &mut ast::ExportNamedDeclaration<'a>,
-        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         if let Some(source) = &node.source {
             let mut identifiers = vec![];
@@ -331,12 +347,132 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 identifiers.push(specifier.local.name().to_string());
             }
             self.reexports.insert(source.value.to_string(), identifiers);
+        } else if let Some(declaration) = &node.declaration {
+            // TODO: remove?
+            self.in_exported = true;
+
+            use ast::Declaration::*;
+
+            if self.in_nested_module {
+                return;
+            }
+
+            let name: Option<String> =
+                declaration.id().map(|id| id.name.to_string());
+
+            let comment = self.comments.get(&node.span.start).cloned();
+
+            match declaration {
+                FunctionDeclaration(function) => {
+                    let name = name.expect("function has no name");
+                    if self.in_exported {
+                        self.referenced_values.insert(name.clone());
+                    }
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Value(
+                            ValueDeclaration::Function(
+                                function.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+                VariableDeclaration(variable) => {
+                    for declaration in &variable.declarations {
+                        let name = declaration
+                            .id
+                            .get_identifier_name()
+                            .expect("variable declaration is missing name")
+                            .to_string();
+                        if self.in_exported {
+                            self.referenced_values.insert(name.clone());
+                        }
+                        self.declarations.push(ModuleDeclaration {
+                            name,
+                            comment,
+                            kind: ModuleDeclarationKind::Value(
+                                ValueDeclaration::Variable(
+                                    variable.clone_in(ctx.ast.allocator),
+                                ),
+                            ),
+                        });
+                    }
+                }
+                TSInterfaceDeclaration(interface) => {
+                    let name = name.expect("interface has no name");
+                    if self.in_exported {
+                        self.referenced_types.insert(name.clone());
+                    }
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Type(
+                            TypeDeclaration::Interface(
+                                interface.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+                ClassDeclaration(class) => {
+                    let name = name.expect("class has no name");
+                    if self.in_exported {
+                        self.referenced_types.insert(name.clone());
+                    }
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Type(
+                            TypeDeclaration::Class(
+                                class.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+                TSModuleDeclaration(module) => {
+                    let name = name.expect("module has no name");
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Module(
+                            module.clone_in(ctx.ast.allocator),
+                        ),
+                    });
+                }
+                TSEnumDeclaration(enum_declaration) => {
+                    let name = name.expect("enum has no name");
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Type(
+                            TypeDeclaration::Enum(
+                                enum_declaration.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+                TSTypeAliasDeclaration(alias) => {
+                    let name = name.expect("alias has no name");
+                    self.referenced_types.insert(alias.id.name.to_string());
+                    self.declarations.push(ModuleDeclaration {
+                        name,
+                        comment,
+                        kind: ModuleDeclarationKind::Type(
+                            TypeDeclaration::Alias(
+                                alias.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+                node => {
+                    panic!("unsupported node: {node:?}");
+                }
+            }
         } else {
             assert!(
                 node.specifiers.is_empty(),
                 "bare exports not supported yet"
             );
-            self.in_exported = true;
         }
     }
     fn exit_export_named_declaration(
@@ -387,102 +523,6 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         }
     }
 
-    fn enter_declaration(
-        &mut self,
-        node: &mut ast::Declaration<'a>,
-        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
-    ) {
-        use ast::Declaration::*;
-
-        if self.in_nested_module {
-            return;
-        }
-
-        let name: Option<String> = node.id().map(|id| id.name.to_string());
-
-        match node {
-            FunctionDeclaration(function) => {
-                let name = name.expect("function has no name");
-                if self.in_exported {
-                    self.referenced_values.insert(name.clone());
-                }
-                self.declared_values.insert(
-                    name,
-                    ValueDeclaration::Function(
-                        function.clone_in(ctx.ast.allocator),
-                    ),
-                );
-            }
-            VariableDeclaration(variable) => {
-                for declaration in &variable.declarations {
-                    let name = declaration
-                        .id
-                        .get_identifier_name()
-                        .expect("variable declaration is missing name")
-                        .to_string();
-                    if self.in_exported {
-                        self.referenced_values.insert(name.clone());
-                    }
-                    self.declared_values.insert(
-                        name,
-                        ValueDeclaration::Variable(
-                            variable.clone_in(ctx.ast.allocator),
-                        ),
-                    );
-                }
-            }
-            TSInterfaceDeclaration(interface) => {
-                let name = name.expect("interface has no name");
-                if self.in_exported {
-                    self.referenced_types.insert(name.clone());
-                }
-                self.declared_types.insert(
-                    name,
-                    TypeDeclaration::Interface(
-                        interface.clone_in(ctx.ast.allocator),
-                    ),
-                );
-            }
-            ClassDeclaration(class) => {
-                let name = name.expect("class has no name");
-                if self.in_exported {
-                    self.referenced_types.insert(name.clone());
-                }
-                self.declared_types.insert(
-                    name,
-                    TypeDeclaration::Class(class.clone_in(ctx.ast.allocator)),
-                );
-            }
-            TSModuleDeclaration(module) => {
-                let name = name.expect("module has no name");
-                self.declared_modules
-                    .insert(name, module.clone_in(ctx.ast.allocator));
-            }
-            TSEnumDeclaration(enum_declaration) => {
-                let name = name.expect("enum has no name");
-                self.declared_types.insert(
-                    name,
-                    TypeDeclaration::Enum(
-                        enum_declaration.clone_in(ctx.ast.allocator),
-                    ),
-                );
-            }
-            TSTypeAliasDeclaration(alias) => {
-                let name = name.expect("alias has no name");
-                self.referenced_types.insert(alias.id.name.to_string());
-                self.declared_types.insert(
-                    name,
-                    TypeDeclaration::Alias(alias.clone_in(ctx.ast.allocator)),
-                );
-            }
-            // TSGlobalDeclaration(tsglobal_declaration)
-            // TSImportEqualsDeclaration(tsimport_equals_declaration)
-            node => {
-                eprintln!("ignored: {node:?}");
-            }
-        }
-    }
-
     fn enter_ts_module_declaration(
         &mut self,
         _: &mut ast::TSModuleDeclaration<'a>,
@@ -511,70 +551,31 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 node.exported.name()
             );
         } else {
-            // eprintln!("export specifier: {}", node.exported.name());
             self.referenced_values
                 .insert(node.exported.name().to_string());
         }
     }
-
-    // fn enter_export_all_declaration(
-    //     &mut self,
-    //     node: &mut ast::ExportAllDeclaration<'a>,
-    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
-    // ) {
-    //     eprintln!("export all: {:?}", node);
-    // }
-    //
-    // fn enter_ts_export_assignment(
-    //     &mut self,
-    //     node: &mut ast::TSExportAssignment<'a>,
-    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
-    // ) {
-    //     eprintln!("export assignment: {:?}", node);
-    // }
-    //
-    // fn enter_module_export_name(
-    //     &mut self,
-    //     node: &mut ast::ModuleExportName<'a>,
-    //     _: &mut oxc_traverse::TraverseCtx<'a, ()>,
-    // ) {
-    //     eprintln!("export name: {:?}", node);
-    // }
 }
 
-fn render_statement<'a>(
-    allocator: &'a Allocator,
+fn render_statement<'a, A: GetSpan + Gen + std::fmt::Debug>(
+    _allocator: &'a Allocator,
     source_text: &'a str,
-    comments: &allocator::Vec<'a, ast::Comment>, // whatever type program.comments uses
-    statement: ast::Statement<'a>,
+    statement: allocator::Box<'a, A>,
 ) -> String {
-    let builder = AstBuilder::new(allocator);
-    let program_temporary = builder.program(
-        SPAN,
-        SourceType::d_ts(),
-        source_text,
-        comments.clone_in(allocator),
-        None,          // hashbang
-        builder.vec(), // directives
-        builder.vec1(statement),
-    );
-    let codegen = Codegen::new().with_source_text(source_text).with_options(
-        codegen::CodegenOptions {
-            comments: codegen::CommentOptions {
-                normal: true,
-                jsdoc: true,
-                annotation: false,
-                legal: codegen::LegalComment::None,
-            },
+    let mut codegen = Codegen::new()
+        .with_source_text(source_text)
+        .with_options(codegen::CodegenOptions {
+            comments: codegen::CommentOptions::default(),
             single_quote: false,
             minify: false,
             source_map_path: None,
             indent_char: codegen::IndentChar::Space,
             indent_width: 2,
             initial_indent: 0,
-        },
-    );
-    codegen.build(&program_temporary).code
+        });
+    let ctx = oxc_codegen::Context::empty().with_typescript();
+    statement.r#gen(&mut codegen, ctx);
+    codegen.into_source_text()
 }
 
 fn module_extract<'a>(
@@ -597,37 +598,27 @@ fn module_extract<'a>(
         )
     }
     let scoping = semantic.semantic.into_scoping();
-    let mut traverser = Traverser::default();
+
+    let comments = program
+        .comments
+        .iter()
+        .filter(|comment| comment.is_leading())
+        .map(|comment| (comment.attached_to, *comment))
+        .collect::<HashMap<u32, oxc::ast::Comment>>();
+
+    let mut traverser = Traverser {
+        comments,
+        ..Default::default()
+    };
     traverse_mut(&mut traverser, allocator, program, scoping, ());
 
     let mut module: Module<'a> = Default::default();
-
-    for (name, declared_module) in traverser.declared_modules {
-        module.get_name_mut(&name).push(ModuleDeclaration::Module(
-            declared_module.clone_in(allocator),
-        ));
+    traverser
+        .declarations
+        .sort_by_key(|module| module.name.clone());
+    for declaration in traverser.declarations {
+        module.get_by_name_mut(&declaration.name).push(declaration);
     }
-
-    for (name, declared_type) in traverser.declared_types {
-        if traverser.referenced_types.contains(&name) {
-            module.get_name_mut(&name).push(ModuleDeclaration::Type(
-                declared_type.clone_in(allocator),
-            ))
-        } else {
-            eprintln!("non-exported type ignored: {name}");
-        }
-    }
-
-    for (name, declared_value) in traverser.declared_values {
-        if traverser.referenced_values.contains(&name) {
-            module.get_name_mut(&name).push(ModuleDeclaration::Value(
-                declared_value.clone_in(allocator),
-            ))
-        } else {
-            eprintln!("non-exported value ignored: {name}");
-        }
-    }
-
     module.reexports = traverser.reexports;
 
     Ok(module)

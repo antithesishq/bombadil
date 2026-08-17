@@ -4816,6 +4816,7 @@ dependencies = [
  "clap",
  "insta",
  "oxc",
+ "oxc_codegen",
  "oxc_str",
  "oxc_traverse",
  "serde",

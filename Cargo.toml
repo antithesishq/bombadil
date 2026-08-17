@@ -53,6 +53,7 @@ num-traits = "0.2"
 open = "5.0"
 oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
 oxc_resolver = "11.19.1"
+oxc_codegen = "0.125.0"
 oxc_str = "0.125.0"
 oxc_traverse = "0.125.0"
 owo-colors = "4.3.0"
