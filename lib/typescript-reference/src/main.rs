@@ -147,7 +147,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
         }
 
         for (name, declarations) in module.by_name {
-            writeln!(output, "##### `{name}`\n")?;
+            writeln!(output, "##### {name}\n")?;
             for declaration in declarations {
                 declaration.render(&allocator, &source_text, &mut output)?;
             }
@@ -620,6 +620,10 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         use ast::Declaration::*;
+
+        if self.in_nested_module {
+            return;
+        }
 
         let export = if let Some(export) = &self.exported_current {
             export.clone()

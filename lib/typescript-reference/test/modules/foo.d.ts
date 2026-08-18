@@ -5,6 +5,8 @@ export declare const other: number;
  */
 export declare namespace Other {
   export function inner(): Internal;
+  function unexported(): Internal;
+  const INNER: number;
 }
 
 type Internal = number;

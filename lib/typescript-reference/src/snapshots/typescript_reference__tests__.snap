@@ -80,13 +80,9 @@ I'm a doc comment.
 ```{.typescript .no-copy}
 namespace Other {
   export function inner(): Internal;
+  function unexported(): Internal;
+  const INNER: number;
 }
-```
-
-I'm a doc comment.
-
-```{.typescript .no-copy}
-function inner(): Internal;
 ```
 
 ##### `other`
