@@ -197,7 +197,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                         .to_string();
                     writeln!(output, "{text}\n")?;
                 } else {
-                    eprintln!(
+                    panic!(
                         "{} in {} is not documented",
                         declaration.name, specifier
                     );
