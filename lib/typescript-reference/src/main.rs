@@ -118,6 +118,14 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
 
         writeln!(output, "### {specifier}\n")?;
 
+        if !module.defaults.is_empty() {
+            writeln!(output, "### Default export\n")?;
+        }
+
+        for declaration in module.defaults {
+            declaration.render(&allocator, &source_text, &mut output)?;
+        }
+
         if !module.by_name.is_empty() {
             writeln!(output, "#### Exports\n")?;
         }
@@ -125,84 +133,7 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
         for (name, declarations) in module.by_name {
             writeln!(output, "##### `{name}`\n")?;
             for declaration in declarations {
-                let code = match declaration.kind {
-                    ModuleDeclarationKind::Module(mut module_declaration) => {
-                        module_declaration.declare = false;
-                        render_statement(
-                            &allocator,
-                            &source_text,
-                            module_declaration,
-                        )
-                    }
-                    ModuleDeclarationKind::Type(type_declaration) => {
-                        match type_declaration {
-                            TypeDeclaration::Class(mut class) => {
-                                class.declare = false;
-                                render_statement(
-                                    &allocator,
-                                    &source_text,
-                                    class,
-                                )
-                            }
-                            TypeDeclaration::Interface(mut interface) => {
-                                interface.declare = false;
-                                render_statement(
-                                    &allocator,
-                                    &source_text,
-                                    interface,
-                                )
-                            }
-                            TypeDeclaration::Enum(mut enum_declaration) => {
-                                enum_declaration.declare = false;
-                                render_statement(
-                                    &allocator,
-                                    &source_text,
-                                    enum_declaration,
-                                )
-                            }
-                            TypeDeclaration::Alias(alias) => render_statement(
-                                &allocator,
-                                &source_text,
-                                alias,
-                            ),
-                        }
-                    }
-                    ModuleDeclarationKind::Value(value) => match value {
-                        ValueDeclaration::Function(mut function) => {
-                            function.declare = false;
-                            render_statement(&allocator, &source_text, function)
-                        }
-                        ValueDeclaration::Variable(mut variable) => {
-                            variable.declare = false;
-                            render_statement(&allocator, &source_text, variable)
-                        }
-                    },
-                };
-
-                if let Some(comment) = declaration.comment {
-                    let text = comment
-                        .content_span()
-                        .source_text(&source_text)
-                        .lines()
-                        .map(|line| {
-                            let trimmed = line.trim_start();
-                            trimmed
-                                .strip_prefix('*')
-                                .unwrap_or(trimmed)
-                                .trim_start()
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                        .trim()
-                        .to_string();
-                    writeln!(output, "{text}\n")?;
-                } else {
-                    panic!(
-                        "{} in {} is not documented",
-                        declaration.name, specifier
-                    );
-                }
-                writeln!(output, "```{{.typescript .no-copy}}\n{code}\n```\n")?;
+                declaration.render(&allocator, &source_text, &mut output)?;
             }
         }
 
@@ -291,6 +222,7 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
 #[derive(Debug, Default)]
 struct Module<'a> {
     by_name: BTreeMap<String, Vec<ModuleDeclaration<'a>>>,
+    defaults: Vec<ModuleDeclaration<'a>>,
     reexports: BTreeMap<String, Vec<String>>,
 }
 
@@ -305,9 +237,76 @@ impl<'a> Module<'a> {
 
 #[derive(Debug)]
 struct ModuleDeclaration<'a> {
-    name: String,
-    comment: Option<ast::Comment>,
+    export: Export<String>,
     kind: ModuleDeclarationKind<'a>,
+}
+
+impl<'a> ModuleDeclaration<'a> {
+    fn render<Output: Write>(
+        self,
+        allocator: &'a Allocator,
+        source_text: &str,
+        output: &mut Output,
+    ) -> anyhow::Result<()> {
+        let code = match self.kind {
+            ModuleDeclarationKind::Module(mut module_declaration) => {
+                module_declaration.declare = false;
+                render_node(allocator, source_text, module_declaration)
+            }
+            ModuleDeclarationKind::Type(type_declaration) => {
+                match type_declaration {
+                    TypeDeclaration::Class(mut class) => {
+                        class.declare = false;
+                        render_node(allocator, source_text, class)
+                    }
+                    TypeDeclaration::Interface(mut interface) => {
+                        interface.declare = false;
+                        render_node(allocator, source_text, interface)
+                    }
+                    TypeDeclaration::Enum(mut enum_declaration) => {
+                        enum_declaration.declare = false;
+                        render_node(allocator, source_text, enum_declaration)
+                    }
+                    TypeDeclaration::Alias(alias) => {
+                        render_node(allocator, source_text, alias)
+                    }
+                }
+            }
+            ModuleDeclarationKind::Value(value) => match value {
+                ValueDeclaration::Function(mut function) => {
+                    function.declare = false;
+                    render_node(allocator, source_text, function)
+                }
+                ValueDeclaration::Variable(mut variable) => {
+                    variable.declare = false;
+                    render_node(allocator, source_text, variable)
+                }
+            },
+        };
+
+        if let Some(comment) = self.export.comment() {
+            let text = comment
+                .content_span()
+                .source_text(source_text)
+                .lines()
+                .map(|line| {
+                    let trimmed = line.trim_start();
+                    trimmed.strip_prefix('*').unwrap_or(trimmed).trim_start()
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+            writeln!(output, "{text}\n")?;
+        } else {
+            bail!(
+                "{} is not documented",
+                self.export.name().unwrap_or("default export"),
+            );
+        }
+        writeln!(output, "```{{.typescript .no-copy}}\n{code}\n```\n")?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -317,9 +316,50 @@ enum ModuleDeclarationKind<'a> {
     Value(ValueDeclaration<'a>),
 }
 
+#[derive(Debug, Clone)]
+enum Export<Name> {
+    Named {
+        name: Name,
+        comment: Option<ast::Comment>,
+    },
+    Default {
+        comment: Option<ast::Comment>,
+    },
+}
+
+impl Export<Option<String>> {
+    fn require_named(self) -> Export<String> {
+        match self {
+            Export::Named { name, comment } => Export::Named {
+                name: name.expect("export has no name"),
+                comment,
+            },
+            Export::Default { comment } => Export::Default { comment },
+        }
+    }
+}
+
+impl Export<String> {
+    fn name(&self) -> Option<&str> {
+        match self {
+            Export::Named { name, .. } => Some(name),
+            Export::Default { .. } => None,
+        }
+    }
+}
+
+impl<Name> Export<Name> {
+    fn comment(&self) -> Option<ast::Comment> {
+        match self {
+            Export::Named { comment, .. } => *comment,
+            Export::Default { comment } => *comment,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Traverser<'a> {
-    in_exported: bool,
+    exported_current: Option<Export<Option<String>>>,
     in_nested_module: bool,
     declarations: Vec<ModuleDeclaration<'a>>,
     reexports: BTreeMap<String, Vec<String>>,
@@ -332,7 +372,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
     fn enter_export_named_declaration(
         &mut self,
         node: &mut ast::ExportNamedDeclaration<'a>,
-        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         if let Some(source) = &node.source {
             let mut identifiers = vec![];
@@ -348,126 +388,13 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
             }
             self.reexports.insert(source.value.to_string(), identifiers);
         } else if let Some(declaration) = &node.declaration {
-            // TODO: remove?
-            self.in_exported = true;
-
-            use ast::Declaration::*;
-
             if self.in_nested_module {
                 return;
             }
 
-            let name: Option<String> =
-                declaration.id().map(|id| id.name.to_string());
-
+            let name = declaration.id().map(|id| id.name.to_string());
             let comment = self.comments.get(&node.span.start).cloned();
-
-            match declaration {
-                FunctionDeclaration(function) => {
-                    let name = name.expect("function has no name");
-                    if self.in_exported {
-                        self.referenced_values.insert(name.clone());
-                    }
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Value(
-                            ValueDeclaration::Function(
-                                function.clone_in(ctx.ast.allocator),
-                            ),
-                        ),
-                    });
-                }
-                VariableDeclaration(variable) => {
-                    for declaration in &variable.declarations {
-                        let name = declaration
-                            .id
-                            .get_identifier_name()
-                            .expect("variable declaration is missing name")
-                            .to_string();
-                        if self.in_exported {
-                            self.referenced_values.insert(name.clone());
-                        }
-                        self.declarations.push(ModuleDeclaration {
-                            name,
-                            comment,
-                            kind: ModuleDeclarationKind::Value(
-                                ValueDeclaration::Variable(
-                                    variable.clone_in(ctx.ast.allocator),
-                                ),
-                            ),
-                        });
-                    }
-                }
-                TSInterfaceDeclaration(interface) => {
-                    let name = name.expect("interface has no name");
-                    if self.in_exported {
-                        self.referenced_types.insert(name.clone());
-                    }
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Type(
-                            TypeDeclaration::Interface(
-                                interface.clone_in(ctx.ast.allocator),
-                            ),
-                        ),
-                    });
-                }
-                ClassDeclaration(class) => {
-                    let name = name.expect("class has no name");
-                    if self.in_exported {
-                        self.referenced_types.insert(name.clone());
-                    }
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Type(
-                            TypeDeclaration::Class(
-                                class.clone_in(ctx.ast.allocator),
-                            ),
-                        ),
-                    });
-                }
-                TSModuleDeclaration(module) => {
-                    let name = name.expect("module has no name");
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Module(
-                            module.clone_in(ctx.ast.allocator),
-                        ),
-                    });
-                }
-                TSEnumDeclaration(enum_declaration) => {
-                    let name = name.expect("enum has no name");
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Type(
-                            TypeDeclaration::Enum(
-                                enum_declaration.clone_in(ctx.ast.allocator),
-                            ),
-                        ),
-                    });
-                }
-                TSTypeAliasDeclaration(alias) => {
-                    let name = name.expect("alias has no name");
-                    self.referenced_types.insert(alias.id.name.to_string());
-                    self.declarations.push(ModuleDeclaration {
-                        name,
-                        comment,
-                        kind: ModuleDeclarationKind::Type(
-                            TypeDeclaration::Alias(
-                                alias.clone_in(ctx.ast.allocator),
-                            ),
-                        ),
-                    });
-                }
-                node => {
-                    panic!("unsupported node: {node:?}");
-                }
-            }
+            self.exported_current = Some(Export::Named { name, comment });
         } else {
             assert!(
                 node.specifiers.is_empty(),
@@ -480,28 +407,72 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
         _node: &mut ast::ExportNamedDeclaration<'a>,
         _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
-        self.in_exported = false;
+        self.exported_current = None;
     }
+
     fn enter_export_default_declaration(
         &mut self,
-        _node: &mut ast::ExportDefaultDeclaration<'a>,
-        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        node: &mut ast::ExportDefaultDeclaration<'a>,
+        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
-        self.in_exported = true;
+        let comment = self.comments.get(&node.span.start).cloned();
+
+        let export = Export::Default { comment };
+        match &node.declaration {
+            ast::ExportDefaultDeclarationKind::FunctionDeclaration(
+                function,
+            ) => {
+                self.declarations.push(ModuleDeclaration {
+                    export,
+                    kind: ModuleDeclarationKind::Value(
+                        ValueDeclaration::Function(
+                            function.clone_in(ctx.ast.allocator),
+                        ),
+                    ),
+                });
+            }
+            ast::ExportDefaultDeclarationKind::ClassDeclaration(class) => {
+                self.declarations.push(ModuleDeclaration {
+                    export,
+                    kind: ModuleDeclarationKind::Type(TypeDeclaration::Class(
+                        class.clone_in(ctx.ast.allocator),
+                    )),
+                });
+            }
+            ast::ExportDefaultDeclarationKind::TSInterfaceDeclaration(
+                interface,
+            ) => {
+                self.declarations.push(ModuleDeclaration {
+                    export,
+                    kind: ModuleDeclarationKind::Type(
+                        TypeDeclaration::Interface(
+                            interface.clone_in(ctx.ast.allocator),
+                        ),
+                    ),
+                });
+            }
+            declaration => {
+                panic!(
+                    "no support for default-exported expressions: {:?}",
+                    declaration.clone_in(ctx.ast.allocator).into_expression()
+                );
+            }
+        }
+        self.exported_current = Some(Export::Default { comment });
     }
     fn exit_export_default_declaration(
         &mut self,
         _node: &mut ast::ExportDefaultDeclaration<'a>,
         _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
-        self.in_exported = false;
+        self.exported_current = None;
     }
     fn enter_ts_type_reference(
         &mut self,
         node: &mut ast::TSTypeReference<'a>,
         _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
-        if self.in_exported {
+        if self.exported_current.is_some() {
             let mut current = Some(&node.type_name);
             while let Some(node) = current.take() {
                 match node {
@@ -555,9 +526,104 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 .insert(node.exported.name().to_string());
         }
     }
+
+    fn enter_declaration(
+        &mut self,
+        node: &mut ast::Declaration<'a>,
+        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        use ast::Declaration::*;
+
+        let export = if let Some(export) = &self.exported_current {
+            export.clone()
+        } else {
+            return;
+        };
+
+        match node {
+            FunctionDeclaration(function) => {
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Value(
+                        ValueDeclaration::Function(
+                            function.clone_in(ctx.ast.allocator),
+                        ),
+                    ),
+                });
+            }
+            VariableDeclaration(variable) => {
+                for declaration in &variable.declarations {
+                    let name = declaration
+                        .id
+                        .get_identifier_name()
+                        .expect("variable declaration is missing name")
+                        .to_string();
+                    let comment = self
+                        .comments
+                        .get(&declaration.span.start)
+                        .cloned()
+                        .or(export.comment());
+                    self.declarations.push(ModuleDeclaration {
+                        export: Export::Named { name, comment },
+                        kind: ModuleDeclarationKind::Value(
+                            ValueDeclaration::Variable(
+                                variable.clone_in(ctx.ast.allocator),
+                            ),
+                        ),
+                    });
+                }
+            }
+            TSInterfaceDeclaration(interface) => {
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Type(
+                        TypeDeclaration::Interface(
+                            interface.clone_in(ctx.ast.allocator),
+                        ),
+                    ),
+                });
+            }
+            ClassDeclaration(class) => {
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Type(TypeDeclaration::Class(
+                        class.clone_in(ctx.ast.allocator),
+                    )),
+                });
+            }
+            TSModuleDeclaration(module) => {
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Module(
+                        module.clone_in(ctx.ast.allocator),
+                    ),
+                });
+            }
+            TSEnumDeclaration(enum_declaration) => {
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Type(TypeDeclaration::Enum(
+                        enum_declaration.clone_in(ctx.ast.allocator),
+                    )),
+                });
+            }
+            TSTypeAliasDeclaration(alias) => {
+                self.referenced_types.insert(alias.id.name.to_string());
+                self.declarations.push(ModuleDeclaration {
+                    export: export.require_named(),
+                    kind: ModuleDeclarationKind::Type(TypeDeclaration::Alias(
+                        alias.clone_in(ctx.ast.allocator),
+                    )),
+                });
+            }
+            node => {
+                panic!("unsupported node: {node:?}");
+            }
+        }
+    }
 }
 
-fn render_statement<'a, A: GetSpan + Gen + std::fmt::Debug>(
+fn render_node<'a, A: GetSpan + Gen + std::fmt::Debug>(
     _allocator: &'a Allocator,
     source_text: &'a str,
     statement: allocator::Box<'a, A>,
@@ -615,9 +681,16 @@ fn module_extract<'a>(
     let mut module: Module<'a> = Default::default();
     traverser
         .declarations
-        .sort_by_key(|module| module.name.clone());
+        .sort_by_key(|module| module.export.name().map(|s| s.to_string()));
     for declaration in traverser.declarations {
-        module.get_by_name_mut(&declaration.name).push(declaration);
+        match &declaration.export {
+            Export::Named { name, .. } => {
+                module.get_by_name_mut(name).push(declaration);
+            }
+            Export::Default { .. } => {
+                module.defaults.push(declaration);
+            }
+        }
     }
     module.reexports = traverser.reexports;
 

@@ -12,5 +12,7 @@ export interface PiResult {
 }
 // Gets the number.
 export declare function getPi(): PiResult;
+// Two things documented separately.
+export declare const /* hello */ foo: number, /* there */ bar: number;
 // I'm a magic number.
 export declare const MAGIC_NUMBER: number;
