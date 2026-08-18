@@ -4,6 +4,14 @@ expression: output
 ---
 ### @example/test
 
+### Default export
+
+This is the docs.
+
+```{.typescript .no-copy}
+function add(a: number, b: number): number;
+```
+
 #### Exports
 
 ##### `MAGIC_NUMBER`
@@ -22,6 +30,22 @@ The interface.
 interface PiResult {
   pi: number;
 }
+```
+
+##### `bar`
+
+there
+
+```{.typescript .no-copy}
+const foo: number, bar: number
+```
+
+##### `foo`
+
+hello
+
+```{.typescript .no-copy}
+const foo: number, bar: number
 ```
 
 ##### `getPi`
@@ -55,8 +79,14 @@ I'm a doc comment.
 
 ```{.typescript .no-copy}
 namespace Other {
-  export function inner(): number;
+  export function inner(): Internal;
 }
+```
+
+I'm a doc comment.
+
+```{.typescript .no-copy}
+function inner(): Internal;
 ```
 
 ##### `other`

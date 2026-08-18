@@ -114,7 +114,23 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
     for (specifier, module) in exported_modules.by_specifier {
         let source_text = fs::read_to_string(&module.path)?;
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;
-        let module = module_extract(&allocator, &mut program)?;
+        let module = Module::extract(&allocator, &mut program)?;
+
+        let undocumented = module.undocumented_declarations();
+        if !undocumented.is_empty() {
+            eprintln!(
+                "some exported declarations in {} are not documented:\n\n{}\n",
+                specifier,
+                undocumented
+                    .iter()
+                    .map(|export| format!(
+                        "- {}",
+                        export.name().unwrap_or("default export")
+                    ))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
 
         writeln!(output, "### {specifier}\n")?;
 
@@ -227,6 +243,81 @@ struct Module<'a> {
 }
 
 impl<'a> Module<'a> {
+    fn extract(
+        allocator: &'a Allocator,
+        program: &mut ast::Program<'a>,
+    ) -> Result<Self> {
+        let semantic = SemanticBuilder::new()
+            .with_check_syntax_error(true)
+            .build(program);
+
+        if !semantic.errors.is_empty() {
+            bail!(
+                "semantic error(s):\n\n{}",
+                semantic
+                    .errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        }
+        let scoping = semantic.semantic.into_scoping();
+
+        let comments = program
+            .comments
+            .iter()
+            .filter(|comment| comment.is_leading())
+            .map(|comment| (comment.attached_to, *comment))
+            .collect::<HashMap<u32, oxc::ast::Comment>>();
+
+        let mut traverser = Traverser {
+            comments,
+            ..Default::default()
+        };
+        traverse_mut(&mut traverser, allocator, program, scoping, ());
+
+        let mut module: Module<'a> = Default::default();
+        traverser
+            .declarations
+            .sort_by_key(|module| module.export.name().map(|s| s.to_string()));
+        for declaration in traverser.declarations {
+            match &declaration.export {
+                Export::Named { name, .. } => {
+                    module.get_by_name_mut(name).push(declaration);
+                }
+                Export::Default { .. } => {
+                    module.defaults.push(declaration);
+                }
+            }
+        }
+        module.reexports = traverser.reexports;
+
+        Ok(module)
+    }
+
+    fn undocumented_declarations(&self) -> Vec<Export<String>> {
+        let mut undocumented = vec![];
+        for export in self
+            .defaults
+            .iter()
+            .map(|declaration| declaration.export.clone())
+            .filter(|export| export.comment().is_none())
+        {
+            undocumented.push(export);
+        }
+        for export in self
+            .by_name
+            .values()
+            .flatten()
+            .map(|declaration| declaration.export.clone())
+            .filter(|export| export.comment().is_none())
+        {
+            undocumented.push(export);
+        }
+        undocumented
+    }
+
     fn get_by_name_mut<'b>(
         &'b mut self,
         name: &str,
@@ -298,12 +389,8 @@ impl<'a> ModuleDeclaration<'a> {
                 .trim()
                 .to_string();
             writeln!(output, "{text}\n")?;
-        } else {
-            bail!(
-                "{} is not documented",
-                self.export.name().unwrap_or("default export"),
-            );
         }
+
         writeln!(output, "```{{.typescript .no-copy}}\n{code}\n```\n")?;
         Ok(())
     }
@@ -642,59 +729,6 @@ fn render_node<'a, A: GetSpan + Gen + std::fmt::Debug>(
     let ctx = oxc_codegen::Context::empty().with_typescript();
     statement.r#gen(&mut codegen, ctx);
     codegen.into_source_text()
-}
-
-fn module_extract<'a>(
-    allocator: &'a Allocator,
-    program: &mut ast::Program<'a>,
-) -> Result<Module<'a>> {
-    let semantic = SemanticBuilder::new()
-        .with_check_syntax_error(true)
-        .build(program);
-
-    if !semantic.errors.is_empty() {
-        bail!(
-            "semantic error(s):\n\n{}",
-            semantic
-                .errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    }
-    let scoping = semantic.semantic.into_scoping();
-
-    let comments = program
-        .comments
-        .iter()
-        .filter(|comment| comment.is_leading())
-        .map(|comment| (comment.attached_to, *comment))
-        .collect::<HashMap<u32, oxc::ast::Comment>>();
-
-    let mut traverser = Traverser {
-        comments,
-        ..Default::default()
-    };
-    traverse_mut(&mut traverser, allocator, program, scoping, ());
-
-    let mut module: Module<'a> = Default::default();
-    traverser
-        .declarations
-        .sort_by_key(|module| module.export.name().map(|s| s.to_string()));
-    for declaration in traverser.declarations {
-        match &declaration.export {
-            Export::Named { name, .. } => {
-                module.get_by_name_mut(name).push(declaration);
-            }
-            Export::Default { .. } => {
-                module.defaults.push(declaration);
-            }
-        }
-    }
-    module.reexports = traverser.reexports;
-
-    Ok(module)
 }
 
 #[cfg(test)]
