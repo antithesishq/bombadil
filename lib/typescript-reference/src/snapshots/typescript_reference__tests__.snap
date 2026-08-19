@@ -14,7 +14,7 @@ function add(a: number, b: number): number;
 
 #### Exports
 
-##### `MAGIC_NUMBER`
+##### MAGIC_NUMBER
 
 I'm a magic number.
 
@@ -22,7 +22,7 @@ I'm a magic number.
 const MAGIC_NUMBER: number
 ```
 
-##### `PiResult`
+##### PiResult
 
 The interface.
 
@@ -32,7 +32,7 @@ interface PiResult {
 }
 ```
 
-##### `bar`
+##### bar
 
 there
 
@@ -40,7 +40,7 @@ there
 const foo: number, bar: number
 ```
 
-##### `foo`
+##### foo
 
 hello
 
@@ -48,7 +48,7 @@ hello
 const foo: number, bar: number
 ```
 
-##### `getPi`
+##### getPi
 
 Gets the number.
 
@@ -56,7 +56,7 @@ Gets the number.
 function getPi(): PiResult;
 ```
 
-##### `multiply`
+##### multiply
 
 It's good.
 
@@ -73,7 +73,7 @@ export { other } from "@example/test/foo";
 
 #### Exports
 
-##### `Other`
+##### Other
 
 I'm a doc comment.
 
@@ -85,7 +85,7 @@ namespace Other {
 }
 ```
 
-##### `other`
+##### other
 
 Very cool.
 
