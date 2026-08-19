@@ -70,6 +70,22 @@ export interface State {
   };
   console: ConsoleEntry[];
   lastAction: Action | null;
+  resources: Resources;
+}
+
+// Per-state page metrics from Chrome DevTools `Performance.getMetrics`.
+// Times are floating-point seconds.
+export interface Resources {
+  js_heap_used: number;
+  js_heap_total: number;
+  dom_nodes: number;
+  documents: number;
+  js_event_listeners: number;
+  layout_objects: number;
+  timestamp: number;
+  thread_time: number;
+  task_duration: number;
+  script_duration: number;
 }
 
 export type NavigationEntry = {

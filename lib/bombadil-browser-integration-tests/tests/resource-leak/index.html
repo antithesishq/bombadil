@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Memory Leak</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        button { font-size: 24px; padding: 10px 20px; cursor: pointer; }
+        #sink > div { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Memory Leak</h1>
+    <button id="leak">leak</button>
+    <div id="sink"></div>
+    <script>
+        // Never released, so heap and DOM node count grow with every click.
+        const retained = [];
+        const sink = document.getElementById('sink');
+        const leakButton = document.getElementById('leak');
+
+        leakButton.addEventListener('click', () => {
+            const chunk = new Array(50000).fill('leak');
+            retained.push(chunk);
+            for (let i = 0; i < 200; i++) {
+                const el = document.createElement('div');
+                el.textContent = 'leaked node';
+                sink.appendChild(el);
+            }
+        });
+    </script>
+</body>
+</html>

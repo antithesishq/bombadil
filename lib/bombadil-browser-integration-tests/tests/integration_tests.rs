@@ -658,6 +658,47 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 }
 
 #[tokio::test]
+async fn test_resource_leak_detected() {
+    BrowserIntegrationTest::new("resource-leak")
+        .time_limit(Duration::from_secs(8))
+        .expect_error("noDomLeak")
+        .specification(
+            r#"
+import { noResourceLeak } from "@antithesishq/bombadil/browser/extras/resources";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const noDomLeak = noResourceLeak({
+  metric: "dom_nodes",
+  growthLimit: 150,
+  windowMillis: 1000,
+});
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_no_resource_leak() {
+    BrowserIntegrationTest::new("no-resource-leak")
+        .time_limit(Duration::from_secs(8))
+        .specification(
+            r#"
+import { noResourceLeak } from "@antithesishq/bombadil/browser/extras/resources";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const noDomLeak = noResourceLeak({
+  metric: "dom_nodes",
+  growthLimit: 150,
+  windowMillis: 1000,
+});
+"#,
+        )
+        .run()
+        .await;
+}
+
+#[tokio::test]
 async fn test_extractor_exception_stack_trace() {
     BrowserIntegrationTest::new("extractor-exception")
         .expect_error("\n    at throwingFunction")

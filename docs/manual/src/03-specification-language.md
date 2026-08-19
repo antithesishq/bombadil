@@ -454,6 +454,59 @@ export const inputs = weighted([
 ```
 :::
 
+:::: browser
+## Extras
+
+In addition to the default properties, there's a set of extras modules with
+properties that you can use. These are not included in the defaults and need
+to be specifically used and exported in your top-level specification module.
+
+### Detecting resource leaks
+
+Bombadil provides a parameterized property for catching resource leaks in the
+web application being tested:
+
+```typescript
+import { noResourceLeak } from "@antithesishq/bombadil/browser/extras/resources";
+
+// At most 5MB heap growth within 10 seconds.
+export const noHeapLeak = noResourceLeak({
+  metric: "js_heap_used",
+  growthLimit: 5 * 1024 ** 2,
+  windowMillis: 10_000,
+});
+
+// At most 500 DOM nodes allocated within 1 second.
+export const noDomLeak = noResourceLeak({
+  metric: "dom_nodes",
+  growthLimit: 500,
+  windowMillis: 1_000,
+});
+```
+
+The property is a sliding-window invariant --- within any window of `windowMillis`,
+the chosen metric must not grow by more than `growthLimit`. The available
+`metric` values are:
+
+| Metric                 | Meaning                         |
+| ---------------------- | --------------------------------|
+| `"js_heap_used"`       | Used JS heap, in bytes          |
+| `"js_heap_total"`      | Total JS heap, in bytes         |
+| `"dom_nodes"`          | Live DOM node count             |
+| `"js_event_listeners"` | Registered event-listener count |
+| `"layout_objects"`     | Layout object count             |
+
+::: {.callout .callout-note}
+The JS heap is noisy because of garbage collection. For a more robust 
+detection, watch `dom_nodes` or `js_event_listeners`, where a big jump 
+more strongly suggests a leak. If you do watch the JS heap, use a `growthLimit` 
+that is higher than the usual spikes you see before a GC event, and use a long
+`windowMillis`. The [inspect](#bombadil-browser-inspect) command is helpful
+as it visualizes some of these metrics over time.
+:::
+::::
+
+
 ## Examples
 
 ::: browser

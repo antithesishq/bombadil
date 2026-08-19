@@ -19,6 +19,9 @@
       "@antithesishq/bombadil/browser/defaults/properties": [
         "./browser/defaults/properties.ts"
       ],
+      "@antithesishq/bombadil/browser/extras/resources": [
+        "./browser/extras/resources.ts"
+      ],
       "@antithesishq/bombadil/browser/dom": [
         "./browser/dom.ts"
       ],

@@ -320,6 +320,7 @@ async fn run_extractors(
         "console": console_entries,
         "navigationHistory": &state.navigation_history,
         "lastAction": json::to_value(last_action)?,
+        "resources": &state.resources,
     });
 
     // Ensure __bombadilRequire is available (wait for bundle script to execute
