@@ -1,4 +1,5 @@
 export { other } from "@example/test/foo";
+import { Bar } from "@example/test/foo";
 /**
  * This is the docs.
  */
@@ -15,4 +16,7 @@ export declare function getPi(): PiResult;
 // Two things documented separately.
 export declare const /* hello */ foo: number, /* there */ bar: number;
 // I'm a magic number.
-export declare const MAGIC_NUMBER: number;
+export declare const MAGIC_NUMBER: Bar;
+
+// Generic function.
+export declare function generic<T>(): T | null;

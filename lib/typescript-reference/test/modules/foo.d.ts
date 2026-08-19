@@ -11,3 +11,5 @@ export declare namespace Other {
 
 type Internal = number;
 const internal: number;
+
+export type Bar = number;

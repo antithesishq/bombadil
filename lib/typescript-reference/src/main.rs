@@ -6,16 +6,17 @@
 ///
 /// We also impose certain rules, and make assumptions,
 /// like how declarations should be commented.
-use std::collections::HashMap;
 use std::fmt::Write;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::BTreeMap,
     fs,
     path::{Component, Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{self, Parser as _};
+use oxc::allocator::hash_set::HashSet;
+use oxc::allocator::{HashMap, Vec};
 use oxc::codegen::Gen;
 use oxc::span::GetSpan;
 use oxc::{
@@ -26,6 +27,7 @@ use oxc::{
     semantic::SemanticBuilder,
     span::SourceType,
 };
+use oxc_str::Ident;
 use oxc_traverse::{Traverse, traverse_mut};
 use serde::Deserialize;
 use serde_json as json;
@@ -116,20 +118,37 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
         let mut program = parse(&allocator, &source_text, SourceType::d_ts())?;
         let module = Module::extract(&allocator, &mut program)?;
 
-        let undocumented = module.undocumented_declarations();
-        if !undocumented.is_empty() {
-            eprintln!(
-                "some exported declarations in {} are not documented:\n\n{}\n",
-                specifier,
-                undocumented
-                    .iter()
-                    .map(|export| format!(
-                        "- {}",
-                        export.name().unwrap_or("default export")
-                    ))
-                    .collect::<Vec<_>>()
+        {
+            let undocumented = module.undocumented_declarations();
+            if !undocumented.is_empty() {
+                eprintln!(
+                    "some exported declarations in {} are not documented:\n\n{}\n",
+                    specifier,
+                    std::vec::Vec::from_iter(undocumented.iter().map(
+                        |export| format!(
+                            "- {}",
+                            export.name().unwrap_or("default export")
+                        )
+                    ),)
                     .join("\n")
-            );
+                );
+            }
+        }
+
+        {
+            let references = module.internal_references();
+            if !references.is_empty() {
+                eprintln!(
+                    "some internal names in {} are referred to by exported declarations:\n\n{}\n",
+                    specifier,
+                    std::vec::Vec::from_iter(
+                        references
+                            .iter()
+                            .map(|identifier| format!("- {}", identifier)),
+                    )
+                    .join("\n")
+                );
+            }
         }
 
         writeln!(output, "### {specifier}\n")?;
@@ -159,7 +178,13 @@ fn generate_reference(exported_modules: ExportedModules) -> Result<String> {
                 writeln!(
                     output,
                     "```{{.typescript .no-copy}}\nexport {{ {} }} from {:?};\n```",
-                    identifiers.to_vec().join(", "),
+                    Vec::from_iter_in(
+                        identifiers
+                            .iter()
+                            .map(|identifier| identifier.as_str()),
+                        &allocator
+                    )
+                    .join(", "),
                     specifier
                 )?;
             }
@@ -178,12 +203,10 @@ fn parse<'a>(
     if result.panicked {
         bail!(
             "parse error(s):\n\n{}",
-            result
-                .errors
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("\n")
+            std::vec::Vec::from_iter(
+                result.errors.iter().map(ToString::to_string),
+            )
+            .join("\n")
         )
     }
     Ok(result.program)
@@ -235,14 +258,27 @@ impl<'a> CloneIn<'a> for TypeDeclaration<'a> {
     }
 }
 
-#[derive(Debug, Default)]
 struct Module<'a> {
-    by_name: BTreeMap<String, Vec<ModuleDeclaration<'a>>>,
-    defaults: Vec<ModuleDeclaration<'a>>,
-    reexports: BTreeMap<String, Vec<String>>,
+    allocator: &'a Allocator,
+    by_name: BTreeMap<String, Vec<'a, ModuleDeclaration<'a>>>,
+    defaults: Vec<'a, ModuleDeclaration<'a>>,
+    reexports: HashMap<'a, Ident<'a>, Vec<'a, Ident<'a>>>,
+    imported_names: HashSet<'a, Ident<'a>>,
+    referenced_names: HashSet<'a, Ident<'a>>,
 }
 
 impl<'a> Module<'a> {
+    fn new(allocator: &'a Allocator) -> Self {
+        Module {
+            allocator,
+            by_name: Default::default(),
+            defaults: Vec::new_in(allocator),
+            reexports: HashMap::new_in(allocator),
+            imported_names: HashSet::new_in(allocator),
+            referenced_names: HashSet::new_in(allocator),
+        }
+    }
+
     fn extract(
         allocator: &'a Allocator,
         program: &mut ast::Program<'a>,
@@ -254,30 +290,30 @@ impl<'a> Module<'a> {
         if !semantic.errors.is_empty() {
             bail!(
                 "semantic error(s):\n\n{}",
-                semantic
-                    .errors
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                std::vec::Vec::from_iter(
+                    semantic.errors.iter().map(ToString::to_string),
+                )
+                .join("\n")
             )
         }
         let scoping = semantic.semantic.into_scoping();
 
-        let comments = program
-            .comments
-            .iter()
-            .filter(|comment| comment.is_leading())
-            .map(|comment| (comment.attached_to, *comment))
-            .collect::<HashMap<u32, oxc::ast::Comment>>();
+        let comments = HashMap::from_iter_in(
+            program
+                .comments
+                .iter()
+                .filter(|comment| comment.is_leading())
+                .map(|comment| (comment.attached_to, *comment)),
+            allocator,
+        );
 
         let mut traverser = Traverser {
             comments,
-            ..Default::default()
+            ..Traverser::new(allocator)
         };
         traverse_mut(&mut traverser, allocator, program, scoping, ());
 
-        let mut module: Module<'a> = Default::default();
+        let mut module = Module::new(allocator);
         traverser
             .declarations
             .sort_by_key(|module| module.export.name().map(|s| s.to_string()));
@@ -291,13 +327,15 @@ impl<'a> Module<'a> {
                 }
             }
         }
+        module.referenced_names = traverser.referenced_names;
         module.reexports = traverser.reexports;
+        module.imported_names = traverser.imported_names;
 
         Ok(module)
     }
 
-    fn undocumented_declarations(&self) -> Vec<Export<String>> {
-        let mut undocumented = vec![];
+    fn undocumented_declarations(&self) -> Vec<'a, Export<Ident<'a>>> {
+        let mut undocumented = Vec::new_in(self.allocator);
         for export in self
             .defaults
             .iter()
@@ -318,17 +356,36 @@ impl<'a> Module<'a> {
         undocumented
     }
 
+    fn internal_references<'b>(&'b self) -> Vec<'a, Ident<'a>> {
+        let mut unexported = Vec::new_in(self.allocator);
+        for identifier in &self.referenced_names {
+            if !self.by_name.contains_key(identifier.as_str())
+                && !self.imported_names.contains(identifier)
+                && self
+                    .reexports
+                    .values()
+                    .find(|identifiers| identifiers.contains(identifier))
+                    .is_none()
+            {
+                unexported.push(*identifier);
+            }
+        }
+        unexported
+    }
+
     fn get_by_name_mut<'b>(
         &'b mut self,
         name: &str,
-    ) -> &'b mut Vec<ModuleDeclaration<'a>> {
-        self.by_name.entry(name.into()).or_default()
+    ) -> &'b mut Vec<'a, ModuleDeclaration<'a>> {
+        self.by_name
+            .entry(name.into())
+            .or_insert(Vec::new_in(self.allocator))
     }
 }
 
 #[derive(Debug)]
 struct ModuleDeclaration<'a> {
-    export: Export<String>,
+    export: Export<Ident<'a>>,
     kind: ModuleDeclarationKind<'a>,
 }
 
@@ -376,18 +433,21 @@ impl<'a> ModuleDeclaration<'a> {
         };
 
         if let Some(comment) = self.export.comment() {
-            let text = comment
-                .content_span()
-                .source_text(source_text)
-                .lines()
-                .map(|line| {
-                    let trimmed = line.trim_start();
-                    trimmed.strip_prefix('*').unwrap_or(trimmed).trim_start()
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-                .trim()
-                .to_string();
+            let text = Vec::from_iter_in(
+                comment.content_span().source_text(source_text).lines().map(
+                    |line| {
+                        let trimmed = line.trim_start();
+                        trimmed
+                            .strip_prefix('*')
+                            .unwrap_or(trimmed)
+                            .trim_start()
+                    },
+                ),
+                allocator,
+            )
+            .join("\n")
+            .trim()
+            .to_string();
             writeln!(output, "{text}\n")?;
         }
 
@@ -414,8 +474,8 @@ enum Export<Name> {
     },
 }
 
-impl Export<Option<String>> {
-    fn require_named(self) -> Export<String> {
+impl<'a> Export<Option<Ident<'a>>> {
+    fn require_named(self) -> Export<Ident<'a>> {
         match self {
             Export::Named { name, comment } => Export::Named {
                 name: name.expect("export has no name"),
@@ -426,7 +486,7 @@ impl Export<Option<String>> {
     }
 }
 
-impl Export<String> {
+impl<'a> Export<Ident<'a>> {
     fn name(&self) -> Option<&str> {
         match self {
             Export::Named { name, .. } => Some(name),
@@ -444,25 +504,55 @@ impl<Name> Export<Name> {
     }
 }
 
-#[derive(Default)]
 struct Traverser<'a> {
-    exported_current: Option<Export<Option<String>>>,
+    exported_current: Option<Export<Option<Ident<'a>>>>,
     in_nested_module: bool,
-    declarations: Vec<ModuleDeclaration<'a>>,
-    reexports: BTreeMap<String, Vec<String>>,
-    referenced_types: HashSet<String>,
-    referenced_values: HashSet<String>,
-    comments: HashMap<u32, ast::Comment>,
+    declarations: Vec<'a, ModuleDeclaration<'a>>,
+    reexports: HashMap<'a, Ident<'a>, Vec<'a, Ident<'a>>>,
+    imported_names: HashSet<'a, Ident<'a>>,
+    referenced_names: HashSet<'a, Ident<'a>>,
+    comments: HashMap<'a, u32, ast::Comment>,
+}
+
+impl<'a> Traverser<'a> {
+    fn new(allocator: &'a Allocator) -> Self {
+        Traverser {
+            exported_current: Default::default(),
+            in_nested_module: false,
+            declarations: Vec::new_in(allocator),
+            reexports: HashMap::new_in(allocator),
+            imported_names: HashSet::new_in(allocator),
+            referenced_names: HashSet::new_in(allocator),
+            comments: HashMap::new_in(allocator),
+        }
+    }
 }
 
 impl<'a> Traverse<'a, ()> for Traverser<'a> {
+    fn enter_import_declaration_specifier(
+        &mut self,
+        node: &mut ast::ImportDeclarationSpecifier<'a>,
+        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        self.imported_names.insert(node.local().name);
+    }
+
+    fn enter_import_default_specifier(
+        &mut self,
+        node: &mut ast::ImportDefaultSpecifier<'a>,
+        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+    ) {
+        self.imported_names.insert(node.local.name);
+    }
+
     fn enter_export_named_declaration(
         &mut self,
         node: &mut ast::ExportNamedDeclaration<'a>,
-        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         if let Some(source) = &node.source {
-            let mut identifiers = vec![];
+            let mut identifiers: Vec<'a, Ident<'a>> =
+                Vec::new_in(ctx.ast.allocator);
             for specifier in &node.specifiers {
                 if specifier.local.name() != specifier.exported.name() {
                     eprintln!(
@@ -471,15 +561,15 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                         specifier.exported.name()
                     );
                 }
-                identifiers.push(specifier.local.name().to_string());
+                identifiers.push(specifier.local.name().into());
             }
-            self.reexports.insert(source.value.to_string(), identifiers);
+            self.reexports.insert(source.value.into(), identifiers);
         } else if let Some(declaration) = &node.declaration {
             if self.in_nested_module {
                 return;
             }
 
-            let name = declaration.id().map(|id| id.name.to_string());
+            let name = declaration.id().map(|id| id.name);
             let comment = self.comments.get(&node.span.start).cloned();
             self.exported_current = Some(Export::Named { name, comment });
         } else {
@@ -557,7 +647,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
     fn enter_ts_type_reference(
         &mut self,
         node: &mut ast::TSTypeReference<'a>,
-        _ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
+        ctx: &mut oxc_traverse::TraverseCtx<'a, ()>,
     ) {
         if self.exported_current.is_some() {
             let mut current = Some(&node.type_name);
@@ -566,12 +656,26 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                     ast::TSTypeName::IdentifierReference(
                         identifier_reference,
                     ) => {
-                        self.referenced_types
-                            .insert(identifier_reference.name.to_string());
+                        if ctx
+                            .scoping()
+                            .get_root_binding(identifier_reference.name)
+                            .is_some()
+                        {
+                            // Only track references to root-scope bindings (i.e. free variables).
+                            self.referenced_names
+                                .insert(identifier_reference.name);
+                        }
                     }
                     ast::TSTypeName::QualifiedName(name) => {
                         current = Some(&name.left);
-                        self.referenced_types.insert(name.right.to_string());
+                        // Only track references to root-scope bindings (i.e. free variables).
+                        if ctx
+                            .scoping()
+                            .get_root_binding(name.right.name)
+                            .is_some()
+                        {
+                            self.referenced_names.insert(name.right.name);
+                        }
                     }
                     ast::TSTypeName::ThisExpression(this) => {
                         eprintln!("ignoring This type reference: {this:?}");
@@ -609,8 +713,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 node.exported.name()
             );
         } else {
-            self.referenced_values
-                .insert(node.exported.name().to_string());
+            self.referenced_names.insert(node.exported.name().into());
         }
     }
 
@@ -647,8 +750,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                     let name = declaration
                         .id
                         .get_identifier_name()
-                        .expect("variable declaration is missing name")
-                        .to_string();
+                        .expect("variable declaration is missing name");
                     let comment = self
                         .comments
                         .get(&declaration.span.start)
@@ -699,7 +801,7 @@ impl<'a> Traverse<'a, ()> for Traverser<'a> {
                 });
             }
             TSTypeAliasDeclaration(alias) => {
-                self.referenced_types.insert(alias.id.name.to_string());
+                self.referenced_names.insert(alias.id.name);
                 self.declarations.push(ModuleDeclaration {
                     export: export.require_named(),
                     kind: ModuleDeclarationKind::Type(TypeDeclaration::Alias(

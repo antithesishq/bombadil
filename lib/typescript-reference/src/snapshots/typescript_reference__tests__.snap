@@ -19,7 +19,7 @@ function add(a: number, b: number): number;
 I'm a magic number.
 
 ```{.typescript .no-copy}
-const MAGIC_NUMBER: number
+const MAGIC_NUMBER: Bar
 ```
 
 ##### PiResult
@@ -48,6 +48,14 @@ hello
 const foo: number, bar: number
 ```
 
+##### generic
+
+Generic function.
+
+```{.typescript .no-copy}
+function generic<T>(): T | null;
+```
+
 ##### getPi
 
 Gets the number.
@@ -72,6 +80,12 @@ export { other } from "@example/test/foo";
 ### @example/test/foo
 
 #### Exports
+
+##### Bar
+
+```{.typescript .no-copy}
+type Bar = number
+```
 
 ##### Other
 
