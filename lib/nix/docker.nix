@@ -24,25 +24,22 @@ let
     ];
   };
 in
-dockerTools.buildImage {
+dockerTools.buildLayeredImage {
   name = "antithesishq/bombadil";
   tag = version;
-  copyToRoot = buildEnv {
-    name = "image_root";
-    paths = [
-      bombadil
-      coreutils
-      bashInteractive
-      fontconfig
-      liberation_ttf
-      noto-fonts
-      noto-fonts-color-emoji
-      chromium
-      curl
-    ];
-    pathsToLink = [ "/bin" ];
-  };
-  runAsRoot = ''
+  contents = [
+    bombadil
+    coreutils
+    bashInteractive
+    fontconfig
+    liberation_ttf
+    noto-fonts
+    noto-fonts-color-emoji
+    chromium
+    curl
+  ];
+  enableFakechroot = true;
+  fakeRootCommands = ''
     #!${runtimeShell}
     ${dockerTools.shadowSetup}
 
