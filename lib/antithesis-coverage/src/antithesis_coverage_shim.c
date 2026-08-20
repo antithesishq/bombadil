@@ -3,14 +3,17 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/random.h>
 
 typedef void (*init_coverage_module_fn)(size_t edge_count,
                                         const char *symbol_file_name);
 typedef void (*notify_coverage_fn)(size_t edge_index);
+typedef int (*fuzz_getchar_fn)();
 
 static void *voidstar_handle = NULL;
 static init_coverage_module_fn real_init = NULL;
 static notify_coverage_fn real_notify = NULL;
+static fuzz_getchar_fn real_fuzz_getchar = NULL;
 static bool did_check = false;
 static bool has_libvoidstar = false;
 
@@ -39,7 +42,8 @@ static void ensure_loaded(void) {
   real_init =
       (init_coverage_module_fn)dlsym(voidstar_handle, "init_coverage_module");
   real_notify = (notify_coverage_fn)dlsym(voidstar_handle, "notify_coverage");
-  if (!real_init || !real_notify) {
+  real_fuzz_getchar = (fuzz_getchar_fn)dlsym(voidstar_handle, "fuzz_getchar");
+  if (!real_init || !real_notify || !real_fuzz_getchar) {
     debug_out(
         "libvoidstar missing expected symbols; coverage calls will no-op");
     real_init = NULL;
@@ -64,5 +68,18 @@ void antithesis_init_coverage_module(size_t edge_count,
 void antithesis_notify_coverage(size_t edge_index) {
   if (has_libvoidstar) {
     real_notify(edge_index);
+  }
+}
+
+int antithesis_fuzz_getchar() {
+  if (has_libvoidstar) {
+    return real_fuzz_getchar();
+  } else {
+    unsigned char value;
+    size_t result = getrandom(&value, 1, 0);
+    if (result != 1) {
+      debug_out("getrandom returned wrong number of bytes");
+    }
+    return value;
   }
 }

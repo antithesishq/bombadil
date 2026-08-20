@@ -426,6 +426,7 @@ dependencies = [
 name = "bombadil"
 version = "0.7.0"
 dependencies = [
+ "antithesis-coverage",
  "antithesis_sdk",
  "anyhow",
  "boa_engine",

@@ -1,4 +1,4 @@
-use std::ffi::{CString, c_char};
+use std::ffi::{CString, c_char, c_int};
 
 #[link(name = "antithesis_coverage_shim", kind = "static")]
 unsafe extern "C" {
@@ -8,6 +8,7 @@ unsafe extern "C" {
         symbol_file_name: *const c_char,
     ) -> usize;
     fn antithesis_notify_coverage(edge_index: usize);
+    fn antithesis_fuzz_getchar() -> c_int;
 }
 
 #[used]
@@ -37,4 +38,8 @@ pub fn init_coverage_module(
 pub fn notify_coverage(edge_index: usize) {
     log::debug!("notify_coverage({edge_index:?})");
     unsafe { antithesis_notify_coverage(edge_index) }
+}
+
+pub fn fuzz_getchar() -> u8 {
+    (unsafe { antithesis_fuzz_getchar() }) as u8
 }
