@@ -3,7 +3,6 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/random.h>
 
 typedef void (*init_coverage_module_fn)(size_t edge_count,
                                         const char *symbol_file_name);
@@ -75,11 +74,6 @@ int antithesis_fuzz_getchar() {
   if (has_libvoidstar) {
     return real_fuzz_getchar();
   } else {
-    unsigned char value;
-    size_t result = getrandom(&value, 1, 0);
-    if (result != 1) {
-      debug_out("getrandom returned wrong number of bytes");
-    }
-    return value;
+    return 0;
   }
 }
