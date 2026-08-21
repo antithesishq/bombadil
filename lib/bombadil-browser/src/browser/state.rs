@@ -212,6 +212,15 @@ impl Resources {
     }
 }
 
+#[derive(Deserialize)]
+struct RuntimeStateSnapshot {
+    url: String,
+    title: String,
+    content_type: String,
+    edges_new: Vec<(EdgeIndex, EdgeBucket)>,
+    transition_hash: Option<String>,
+}
+
 impl BrowserState {
     #[hotpath::measure]
     pub(crate) fn current(
@@ -223,39 +232,91 @@ impl BrowserState {
         screenshot: Screenshot,
         generation: Generation,
     ) -> Result<Self> {
-        log::trace!("BrowserState::current: evaluating url");
-        let url = Url::parse(
-            &evaluate_expression_in_debugger::<String>(
-                connection,
-                session_id,
-                call_frame_id,
-                "window.location.href",
-            )
-            .context("evaluating capture URL")?,
-        )?;
-
-        log::trace!("BrowserState::current: evaluating title");
-        let title: String = evaluate_expression_in_debugger(
+        log::trace!("BrowserState::current: requesting CDP state");
+        let runtime_state: RuntimeStateSnapshot = evaluate_expression_in_debugger(
             connection,
             session_id,
             call_frame_id,
-            "document.title",
-        )
-        .context("evaluating capture title")?;
+            format!(
+                "
+                (() => {{
+                    const snapshot = (edgesNew, transitionHash) => ({{
+                        url: window.location.href,
+                        title: document.title,
+                        content_type: document.contentType,
+                        edges_new: edgesNew,
+                        transition_hash: transitionHash,
+                    }});
+                    const coverage = window.{NAMESPACE};
+                    if (!coverage) return snapshot([], null);
 
-        log::trace!("BrowserState::current: evaluating content_type");
-        let content_type: String = evaluate_expression_in_debugger(
-            connection,
-            session_id,
-            call_frame_id,
-            "document.contentType",
-        )
-        .context("evaluating capture content type")?;
+                    const SIMHASH_BITS = 64;
 
-        log::trace!("BrowserState::current: getting navigation history");
+                    // Bucket current hits into [1,8], similar to AFL.
+                    function bucket(hits) {{
+                        if (hits <= 3) return hits;
+                        let msb = 0;
+                        let n = hits;
+                        while (n > 0) {{
+                            n = n >> 1;
+                            msb++;
+                        }}
+                        return Math.min(msb + 1, 8);
+                    }}
+
+                    // Stateless version of Splitmix64.
+                    function hash64(x) {{
+                        const M = 0xffffffffffffffffn;
+                        let h = BigInt(x) + 0x9e3779b97f4a7c15n & M;
+                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n & M;
+                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn & M;
+                        return h ^ (h >> 31n);
+                    }}
+
+                    const differences = [];
+                    const similarityWeights = new Int32Array(SIMHASH_BITS);
+                    for (let edge = 0; edge < coverage.{EDGES_CURRENT}.length; edge++) {{
+                        const current = bucket(coverage.{EDGES_CURRENT}[edge]);
+                        coverage.{EDGES_CURRENT}[edge] = current;
+
+                        if (current !== coverage.{EDGES_PREVIOUS}[edge]) {{
+                            differences.push([edge, current]);
+                        }}
+                        if (current === 0) continue;
+
+                        const weight = Math.max(1, Math.min(3, Math.floor(Math.log2(current))));
+                        const hash = hash64(edge);
+                        for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
+                            const enabled = (hash >> BigInt(bit)) & 1n;
+                            similarityWeights[bit] += enabled === 1n ? weight : -weight;
+                        }}
+                    }}
+
+                    coverage.{EDGES_PREVIOUS} = coverage.{EDGES_CURRENT};
+                    coverage.{EDGES_CURRENT} = new Uint8Array({EDGE_MAP_SIZE});
+
+                    if (similarityWeights.every(weight => weight === 0)) {{
+                        return snapshot(differences, null);
+                    }}
+
+                    let transitionHash = 0n;
+                    for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
+                        if (similarityWeights[bit] <= 0) continue;
+                        transitionHash |= 1n << BigInt(bit);
+                    }}
+                    return snapshot(differences, transitionHash.toString());
+                }})()
+                "
+            ),
+        ).context("evaluating capture runtime state")?;
         let navigation_history_result = connection
             .send(page::GetNavigationHistoryParams {}, Some(session_id))
             .context("reading capture navigation history")?;
+        let performance_metrics_result = connection
+            .send(performance::GetMetricsParams {}, Some(session_id))
+            .context("reading capture performance metrics")?;
+
+        let url = Url::parse(&runtime_state.url)?;
 
         let navigation_entries = navigation_history_result
             .entries
@@ -284,127 +345,29 @@ impl BrowserState {
                 .collect(),
         };
 
-        log::trace!("BrowserState::current: evaluating coverage");
-        let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
-            connection,
-            session_id,
-            call_frame_id,
-            format!("
-                (() => {{
-                    if (!window.{NAMESPACE}) return [];
-
-                    // Bucket current hits into [1,8], similar to AFL.
-                    function bucket(hits) {{
-                        if (hits <= 3) return hits;
-                        let msb = 0;
-                        let n = hits;
-                        while (n > 0) {{
-                            n = n >> 1;
-                            msb++;
-                        }}
-                        return Math.min(msb + 1, 8);
-                    }}
-                    for (let i = 0; i < window.{NAMESPACE}.{EDGES_CURRENT}.length; i++) {{
-                        window.{NAMESPACE}.{EDGES_CURRENT}[i] = bucket(window.{NAMESPACE}.{EDGES_CURRENT}[i]);
-                    }}
-
-                    // Compute differences.
-                    const differences = [];
-                    for (let i = 0; i < window.{NAMESPACE}.{EDGES_CURRENT}.length; i++) {{
-                        if (window.{NAMESPACE}.{EDGES_CURRENT}[i] !== window.{NAMESPACE}.{EDGES_PREVIOUS}[i]) {{
-                            differences.push([i, window.{NAMESPACE}.{EDGES_CURRENT}[i]]);
-                        }}
-                    }}
-
-                    // Shift the arrays.
-                    window.{NAMESPACE}.{EDGES_PREVIOUS} = window.{NAMESPACE}.{EDGES_CURRENT};
-                    window.{NAMESPACE}.{EDGES_CURRENT} = new Uint8Array({EDGE_MAP_SIZE});
-
-                    return differences;
-                }})()
-                "
-            ),
-        ).context("evaluating capture coverage")?;
-
-        log::trace!("BrowserState::current: evaluating transition hash");
-        let transition_hash_bigint: Option<String> =
-            evaluate_expression_in_debugger(
-                connection,
-                session_id,
-                call_frame_id,
-                format!(
-                    "
-                (() => {{
-                    if (!window.{NAMESPACE}) return null;
-
-                    const SIMHASH_BITS = 64;
-
-                    // Stateless version of Splitmix64
-                    function hash64(x) {{
-                        const M = 0xffffffffffffffffn;
-                        let h = BigInt(x) + 0x9e3779b97f4a7c15n & M;
-                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n & M;
-                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn & M;
-                        return h ^ (h >> 31n);
-                    }}
-
-                    const acc = new Int32Array(SIMHASH_BITS);
-
-                    for (let i = 0; i < {EDGE_MAP_SIZE}; i++) {{
-                        const bucket = window.{NAMESPACE}.{EDGES_PREVIOUS}[i];
-                        if (bucket === 0) continue;
-
-                        const weight = Math.max(1, Math.min(3, Math.floor(Math.log2(bucket))));
-                        // const weight = bucket > 0 ? 1 : 0; // presence only
-                        let h = hash64(i);
-
-                        for (let b = 0; b < SIMHASH_BITS; b++) {{
-                            const bit = (h >> BigInt(b)) & 1n;
-                            acc[b] += bit === 1n ? weight : -weight;
-                        }}
-                    }}
-
-                    if (acc.every(b => b == 0)) return null;
-
-                    let out = 0n;
-                    for (let b = 0; b < SIMHASH_BITS; b++) {{
-                        if (acc[b] > 0) {{
-                            out |= 1n << BigInt(b);
-                        }}
-                    }}
-
-                    window.{NAMESPACE}.{EDGES_CURRENT}.fill(0);
-                    return out;
-                }})()
-            "
-                ),
-            ).context("evaluating capture transition hash")?;
-
-        let transition_hash = match transition_hash_bigint {
+        let transition_hash = match runtime_state.transition_hash {
             Some(string) => Some(string.parse::<u64>()?),
             None => None,
         };
-
-        let performance_metrics = &connection
-            .send(performance::GetMetricsParams {}, Some(session_id))
-            .context("reading capture performance metrics")?
-            .metrics;
-        let resources = Resources::from_metrics(performance_metrics);
+        let resources =
+            Resources::from_metrics(&performance_metrics_result.metrics);
 
         log::trace!("BrowserState::current: done");
         Ok(BrowserState {
-            connection: connection.clone(),
-            session_id: session_id.clone(),
             generation,
             timestamp: SystemTime::now(),
+            connection: connection.clone(),
+            session_id: session_id.clone(),
             call_frame_id: call_frame_id.clone(),
             url,
-            title,
-            content_type,
+            title: runtime_state.title,
+            content_type: runtime_state.content_type,
             console_entries,
             navigation_history,
             exceptions,
-            coverage: Coverage { edges_new },
+            coverage: Coverage {
+                edges_new: runtime_state.edges_new,
+            },
             transition_hash,
             screenshot,
             resources,
