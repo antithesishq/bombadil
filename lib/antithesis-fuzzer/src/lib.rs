@@ -1,6 +1,6 @@
 use std::ffi::{CString, c_char, c_int};
 
-#[link(name = "antithesis_coverage_shim", kind = "static")]
+#[link(name = "libvoidstar_shim", kind = "static")]
 unsafe extern "C" {
     fn antithesis_load_libvoidstar();
     fn antithesis_init_coverage_module(
@@ -40,6 +40,10 @@ pub fn notify_coverage(edge_index: usize) {
     unsafe { antithesis_notify_coverage(edge_index) }
 }
 
-pub fn fuzz_getchar() -> u8 {
-    (unsafe { antithesis_fuzz_getchar() }) as u8
+pub fn mark_state_boundary() {
+    // We call this as a way of telling the Antithesis
+    // fuzzer that this is the boundary of a state,
+    // from where it may fork off and try other entropy
+    // input.
+    let _ = unsafe { antithesis_fuzz_getchar() };
 }

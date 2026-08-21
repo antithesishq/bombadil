@@ -62,7 +62,7 @@ impl BrowserDriver {
         let (command_send, command_receive) = unbounded_channel();
         let (ready_send, ready_receive) = std_mpsc::channel();
 
-        let coverage_map_offset = antithesis_coverage::init_coverage_module(
+        let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
             EDGE_MAP_SIZE,
             "bombadil.tsv",
         );
@@ -142,7 +142,7 @@ impl InterfaceDriver for BrowserDriver {
                                 < (usize::MAX - EDGE_MAP_SIZE),
                             "offset + index overflows usize"
                         );
-                        antithesis_coverage::notify_coverage(
+                        antithesis_fuzzer::notify_coverage(
                             self.coverage_map_offset + index,
                         );
                     }

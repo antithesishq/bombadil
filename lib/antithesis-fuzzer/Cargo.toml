@@ -1,5 +1,5 @@
 [package]
-name = "antithesis-coverage"
+name = "antithesis-fuzzer"
 version.workspace = true
 edition.workspace = true
 

@@ -95,11 +95,9 @@ impl<D: InterfaceDriver> Runner<D> {
             let event = driver.next_event();
 
             if antithesis::is_in_guest() {
-                // We call this as a way of telling the Antithesis
-                // fuzzer that this is the boundary of a state,
-                // from where it may fork off and try other entropy
-                // input.
-                let _ = antithesis_coverage::fuzz_getchar();
+                // This lets the Antithesis fuzzer know of a new state in our loop,
+                // so that it can fork and change the entropy to explore the SUT.
+                antithesis_fuzzer::mark_state_boundary();
             }
 
             match event {

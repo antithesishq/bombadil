@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [dependencies]
 antithesis_sdk = { workspace = true }
-antithesis-coverage = { path = "../antithesis-coverage" }
+antithesis-fuzzer = { path = "../antithesis-fuzzer" }
 anyhow = { workspace = true, features = ["backtrace"] }
 boa_engine.workspace = true
 bombadil-schema = { path = "../bombadil-schema" }

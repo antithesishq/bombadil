@@ -83,7 +83,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "antithesis-coverage"
+name = "antithesis-fuzzer"
 version = "0.7.0"
 dependencies = [
  "cc",
@@ -426,7 +426,7 @@ dependencies = [
 name = "bombadil"
 version = "0.7.0"
 dependencies = [
- "antithesis-coverage",
+ "antithesis-fuzzer",
  "antithesis_sdk",
  "anyhow",
  "boa_engine",
@@ -462,7 +462,7 @@ dependencies = [
 name = "bombadil-browser"
 version = "0.7.0"
 dependencies = [
- "antithesis-coverage",
+ "antithesis-fuzzer",
  "anyhow",
  "base64",
  "bombadil",
