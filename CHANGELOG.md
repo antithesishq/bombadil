@@ -1,5 +1,11 @@
 # The Bombadil Changelog
 
+## 0.7.2
+
+Bug fixes:
+
+* Only include driver-specific generated reference (#271)
+
 ## 0.7.1
 
 Major updates:
