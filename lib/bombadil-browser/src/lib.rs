@@ -1,3 +1,4 @@
+pub mod allow_url;
 pub mod browser;
 pub mod convert;
 pub mod cookie;

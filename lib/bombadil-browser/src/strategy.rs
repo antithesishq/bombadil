@@ -1,6 +1,6 @@
+use crate::allow_url::is_url_allowed;
 use crate::browser::actions::BrowserActionTemplate;
 use crate::render::format_action;
-use crate::url::is_within_domain;
 use anyhow::{Result, bail};
 use bombadil::render::format_timestamp;
 use bombadil::runner::PropertiesState;
@@ -41,6 +41,7 @@ pub struct TestStrategy<Writer: TraceWriter, Rng> {
     pub test_start: Option<bombadil_schema::Time>,
     pub deadline: Option<SystemTime>,
     pub origin: Url,
+    pub allow_urls: Vec<crate::allow_url::AllowUrl>,
     pub output_path: PathBuf,
     pub violations_count: u64,
 }
@@ -66,7 +67,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
         state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
-        let tree = if is_within_domain(&state.url, &self.origin) {
+        let tree = if is_url_allowed(&state.url, &self.allow_urls) {
             tree
         } else {
             tree.filter(&|a| matches!(a, BrowserAction::Back))

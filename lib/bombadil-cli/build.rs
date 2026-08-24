@@ -32,13 +32,27 @@ fn build_inspect(dist_directory: &Path) {
     let mut command = std::process::Command::new("trunk");
     command
         .arg("build")
+        // trunk 0.21 treats --offline as optional true/false; pass explicitly.
         .arg("--offline")
+        .arg("true")
         .arg("--dist")
         .arg(&dist_absolute)
         .env("CARGO_TARGET_DIR", &wasm_target_directory)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .current_dir(inspect_directory);
+
+    // Trunk 0.21 maps NO_COLOR to --no-color and only accepts true/false.
+    // Normalize common truthy values (e.g. "1") so the child does not fail.
+    match std::env::var("NO_COLOR") {
+        Ok(value) if is_truthy(&value) => {
+            command.env("NO_COLOR", "true");
+        }
+        Ok(_) => {
+            command.env_remove("NO_COLOR");
+        }
+        Err(_) => {}
+    }
 
     let profile = std::env::var("PROFILE").unwrap_or_default();
     if profile == "release" {
@@ -50,6 +64,19 @@ fn build_inspect(dist_directory: &Path) {
     if !status.success() {
         panic!("cargo:warning=trunk build failed");
     }
+}
+
+/// Whether an env value should be treated as enabling NO_COLOR (non-empty and
+/// not an explicit false-like token).
+fn is_truthy(value: &str) -> bool {
+    let value = value.trim();
+    if value.is_empty() {
+        return false;
+    }
+    !matches!(
+        value.to_ascii_lowercase().as_str(),
+        "0" | "false" | "no" | "off"
+    )
 }
 
 fn ensure_placeholder(dist_directory: &Path) {
