@@ -1,0 +1,12 @@
+{
+  "name": "@example/test",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts"
+    },
+    "./foo": {
+      "types": "./foo.d.ts"
+    }
+  }
+}
+

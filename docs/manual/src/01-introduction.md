@@ -1,5 +1,6 @@
 ---
 title: The Bombadil Manual
+lang: en
 ---
 
 # Introduction
@@ -9,7 +10,11 @@ explores and validates correctness properties, *finding harder bugs earlier*.
 It runs in your local developer environment, in CI, and inside
 [Antithesis](https://antithesis.com/).
 
-## Why Bombadil?
+If want to learn more about the background and theory behind property-based testing
+and user interfaces, begin with [Why Bombadil] and [How it works]. If you're
+already convinced and just want to get started, head over to [Installation].
+
+## Why Bombadil
 
 Or rather, *why property-based testing?* Because example-based testing,
 especially when [browser testing]{.browser}[testing terminal applications]{.terminal}, is costly and limited:

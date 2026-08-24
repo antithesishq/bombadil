@@ -1,4 +1,4 @@
-import { always } from "@antithesishq/bombadil";
+import { always, Formula } from "@antithesishq/bombadil";
 import { extract } from "@antithesishq/bombadil/browser";
 
 const responseStatus = extract((state) => {
@@ -8,7 +8,7 @@ const responseStatus = extract((state) => {
     : null;
 });
 
-export const noHttpErrorCodes = always(
+export const noHttpErrorCodes: Formula = always(
   () => (responseStatus.current ?? 0) < 400,
 );
 
@@ -57,13 +57,13 @@ const uncaughtExceptions = extract((state) =>
   state.errors.uncaughtExceptions.map(formatException),
 );
 
-export const noUncaughtExceptions = always(() =>
+export const noUncaughtExceptions: Formula = always(() =>
   uncaughtExceptions.current.every(
     (e) => !e.startsWith("Uncaught") || e.startsWith("Uncaught (in promise)"),
   ),
 );
 
-export const noUnhandledPromiseRejections = always(() =>
+export const noUnhandledPromiseRejections: Formula = always(() =>
   uncaughtExceptions.current.every(
     (e) => !e.startsWith("Uncaught (in promise)"),
   ),
@@ -73,6 +73,6 @@ const consoleErrors = extract((state) =>
   state.console.filter((e) => e.level === "error"),
 );
 
-export const noConsoleErrors = always(
+export const noConsoleErrors: Formula = always(
   () => consoleErrors.current?.length === 0,
 );

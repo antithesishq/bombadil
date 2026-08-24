@@ -1,5 +1,5 @@
 import type { Cell } from "@antithesishq/bombadil";
-import type { Range } from "@antithesishq/bombadil/actions";
+import type { ActionGenerator, Range } from "@antithesishq/bombadil/actions";
 import {
   actions,
   weighted,
@@ -7,6 +7,7 @@ import {
   type Action,
   Fingerprint,
   getFingerprint,
+  ActionTemplate,
 } from "@antithesishq/bombadil/browser";
 import {
   clickablePoint,
@@ -54,7 +55,7 @@ const window = extract((state) => {
   };
 });
 
-export const waitOnce = actions(() => {
+export const waitOnce: ActionGenerator<ActionTemplate> = actions(() => {
   if (lastAction.current !== "Wait") {
     return ["Wait"];
   } else {
@@ -62,7 +63,7 @@ export const waitOnce = actions(() => {
   }
 });
 
-export const scroll = actions(() => {
+export const scroll: ActionGenerator<ActionTemplate> = actions(() => {
   if (contentType.current !== "text/html") return [];
 
   if (!body.current) return [];
@@ -223,7 +224,7 @@ const clickablePoints = extract((state) => {
   return targets;
 });
 
-export const clicks = actions(() => {
+export const clicks: ActionGenerator<ActionTemplate> = actions(() => {
   if (contentType.current !== "text/html") return [];
   return (clickablePoints.current ?? []).map(({ fingerprint, point }) => ({
     Click: { fingerprint, point },
@@ -247,7 +248,7 @@ const activeInput = extract((state) => {
   return null;
 });
 
-export const inputs = actions(() => {
+export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
   if (contentType.current !== "text/html") return [];
   const type = activeInput.current;
   if (!type) return [];
@@ -303,23 +304,23 @@ export const inputs = actions(() => {
 
 // Navigation
 
-export const back = actions(() => {
+export const back: ActionGenerator<ActionTemplate> = actions(() => {
   if (canGoBack.current) return ["Back"];
   return [];
 });
 
-export const forward = actions(() => {
+export const forward: ActionGenerator<ActionTemplate> = actions(() => {
   if (canGoForwardSameOrigin.current) return ["Forward"];
   return [];
 });
 
-export const reload = actions(() => {
+export const reload: ActionGenerator<ActionTemplate> = actions(() => {
   if (lastAction.current !== "Reload" && lastAction.current !== "Wait")
     return ["Reload"];
   return [];
 });
 
-export const navigation = weighted([
+export const navigation: ActionGenerator<ActionTemplate> = weighted([
   [10, back],
   [1, forward],
   [1, reload],

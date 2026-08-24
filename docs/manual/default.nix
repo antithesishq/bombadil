@@ -6,6 +6,9 @@
   ibm-plex,
   gnumake,
   esbuild,
+  python3,
+  npm-package,
+  typescript-reference,
 }:
 let
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
@@ -37,6 +40,7 @@ let
       etoolbox
       mdwtools
       fontawesome5
+      selnolig
       ;
   };
 in
@@ -54,6 +58,7 @@ stdenvNoCC.mkDerivation {
       || (lib.hasSuffix ".css" path)
       || (lib.hasSuffix ".js" path)
       || (lib.hasSuffix ".lua" path)
+      || (lib.hasSuffix ".py" path)
       || (baseNameOf path == "Makefile")
       || (type == "directory");
   };
@@ -63,9 +68,12 @@ stdenvNoCC.mkDerivation {
     texliveBundle
     gnumake
     esbuild
+    (python3.withPackages (p: [ p.beautifulsoup4 ]))
+    typescript-reference
   ];
 
   OSFONTDIR = "${ibm-plex}/share/fonts/opentype";
+  NPM_PACKAGE = "${npm-package}";
 
   buildPhase = ''
     runHook preBuild

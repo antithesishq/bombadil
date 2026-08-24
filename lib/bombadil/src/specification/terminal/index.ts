@@ -15,7 +15,7 @@ export type Size<Number = number> = {
 export type Action<Number = number, String = string> =
   | { TypeText: String }
   | { Resize: Size<Number> }
-  | { Click: { row: Range, column: Range } }
+  | { Click: { row: Range; column: Range } }
   | { ScrollUp: {} }
   | { ScrollDown: {} };
 
@@ -31,9 +31,11 @@ export interface Grid {
 }
 
 export interface GridCell {
-  // The cell's text. A single space for an empty cell, and the empty string
-  // for a continuation cell (the trailing half of a wide character).
-  // Concatenating `contents` across a row reconstructs {@link Grid.rowText}.
+  /**
+   * The cell's text. A single space for an empty cell, and the empty string
+   * for a continuation cell (the trailing half of a wide character).
+   * Concatenating `contents` across a row reconstructs `rowText`.
+   */
   contents: string;
   wide: boolean;
   style: Style;

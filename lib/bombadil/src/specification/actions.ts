@@ -17,13 +17,16 @@ export function branch<T>(branches: [number, Tree<T>][]): Tree<T> {
   return { branches };
 }
 
+/**
+ * A generator of action templates. Instances of this type
+ * is what you need to export from your specification module
+ * in order for Bombadil to register your generators.
+ */
 export class ActionGenerator<A> {
-  constructor(public generate: () => Tree<A>) { }
+  constructor(public generate: () => Tree<A>) {}
 }
 
-export function actions<A>(
-  generate: () => Tree<A> | A[],
-): ActionGenerator<A> {
+export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
   return new ActionGenerator(() => {
     const result = generate();
     if (Array.isArray(result)) {
@@ -54,12 +57,14 @@ export type StringGenerator =
   | "Email"
   | { Text: Range }
   | { CharSet: CharSet.Entries }
-  | { Regexp: string }
+  | { Regexp: string };
 
+/**
+ * Encodes characther ranges or literal strings for use in action templates,
+ * where Bombadil will generate concrete strings based on the charsets.
+ */
 export namespace CharSet {
-  export type Entry =
-    | { Range: Range }
-    | { Literal: string }
+  export type Entry = { Range: Range } | { Literal: string };
 
   export type Entries = Entry[];
 
@@ -68,8 +73,7 @@ export namespace CharSet {
   }
 
   export function fromLiterals(...literals: string[]): CharSet.Entries {
-    return literals.map((literal) => ({ Literal: literal }))
-      ;
+    return literals.map((literal) => ({ Literal: literal }));
   }
 
   export function union(...sets: CharSet.Entries[]): CharSet.Entries {

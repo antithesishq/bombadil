@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "antithesis-fuzzer"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "cc",
  "log",
@@ -424,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "antithesis-fuzzer",
  "antithesis_sdk",
@@ -460,7 +460,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "antithesis-fuzzer",
  "anyhow",
@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -516,11 +516,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.7.0"
+version = "0.7.2"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "anyhow",
  "hegeltest",
@@ -577,7 +577,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "bitflags 2.12.1",
  "insta",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -4192,7 +4192,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "hegeltest",
  "serde",
@@ -4809,6 +4809,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "typescript-reference"
+version = "0.7.2"
+dependencies = [
+ "anyhow",
+ "clap",
+ "insta",
+ "oxc",
+ "oxc_codegen",
+ "oxc_str",
+ "oxc_traverse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "unicase"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5076,7 +5091,7 @@ dependencies = [
 
 [[package]]
 name = "willow-tree"
-version = "0.7.0"
+version = "0.7.2"
 dependencies = [
  "hegeltest",
 ]
