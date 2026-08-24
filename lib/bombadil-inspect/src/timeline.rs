@@ -14,6 +14,7 @@ use crate::duration::format_duration;
 const SPACING_LEFT: f64 = 24.0;
 const SPACING_RIGHT: f64 = 32.0;
 const SPACING_Y: f64 = 6.0;
+const MIN_ZOOM_SELECTION_WIDTH: f64 = 5.0;
 const TIMESCALE_VIOLATIONS_HEIGHT: f64 = 22.0;
 const TIMESCALE_TICK_HEIGHT: f64 = 4.0;
 const TIMESCALE_TEXT_HEIGHT: f64 = 9.0;
@@ -53,7 +54,9 @@ pub fn Timeline(
     }: &TimelineProps,
 ) -> Html {
     let (container_ref, container_size) = use_container_size();
-    let is_mouse_down = use_mut_ref(|| false);
+    let drag_start = use_mut_ref(|| None::<(f64, bool)>);
+    let drag_range = use_state(|| None::<(f64, f64)>);
+    let zoom_range = use_state(|| None::<(f64, f64)>);
 
     let data: Rc<TimelineData> = use_memo(
         (entries.clone(), *test_start),
@@ -133,6 +136,7 @@ pub fn Timeline(
     let Some(x_max) = data.x_max else {
         return html!();
     };
+    let (x_start, x_end) = (*zoom_range).unwrap_or((0.0, x_max));
 
     let print_y_bytes = Callback::from(move |y: f64| format_bytes(y as u64));
     let print_y_percent =
@@ -154,10 +158,11 @@ pub fn Timeline(
         let series_index_and_time = data.series_index_and_time.clone();
         let on_select = on_select.clone();
         let select_at_x = Callback::from(move |x: f64| {
-            let click_x_axis = ((x.clamp(SPACING_LEFT, width - SPACING_RIGHT)
-                - SPACING_LEFT)
-                / axis_x_width)
-                * x_max;
+            let click_x_axis = x_start
+                + ((x.clamp(SPACING_LEFT, width - SPACING_RIGHT)
+                    - SPACING_LEFT)
+                    / axis_x_width)
+                    * (x_end - x_start);
 
             let windows: Vec<&[(usize, f64); 2]> =
                 series_index_and_time.array_windows().collect();
@@ -178,26 +183,69 @@ pub fn Timeline(
             }
         });
         let on_mouse_down = {
-            let select_at_x = select_at_x.clone();
-            let is_mouse_down = is_mouse_down.clone();
+            let drag_start = drag_start.clone();
+            let drag_range = drag_range.clone();
             Callback::from(move |event: MouseEvent| {
-                *is_mouse_down.borrow_mut() = true;
-                select_at_x.emit(event.client_x());
+                *drag_start.borrow_mut() =
+                    Some((f64::from(event.client_x()), event.shift_key()));
+                drag_range.set(None);
             })
         };
         let on_mouse_move = {
+            let drag_start = drag_start.clone();
+            let drag_range = drag_range.clone();
             let select_at_x = select_at_x.clone();
-            let is_mouse_down = is_mouse_down.clone();
             Callback::from(move |event: MouseEvent| {
-                if *is_mouse_down.borrow() {
-                    select_at_x.emit(event.client_x());
+                if let Some((start, zooming)) = *drag_start.borrow()
+                    && zooming
+                {
+                    let end = f64::from(event.client_x());
+                    if (end - start).abs() >= MIN_ZOOM_SELECTION_WIDTH {
+                        drag_range.set(Some((start, end)));
+                    }
+                } else if event.buttons() != 0 {
+                    select_at_x.emit(f64::from(event.client_x()));
                 }
             })
         };
         let on_mouse_up = {
-            let is_mouse_down = is_mouse_down.clone();
+            let drag_start = drag_start.clone();
+            let drag_range = drag_range.clone();
+            let zoom_range = zoom_range.clone();
+            Callback::from(move |event: MouseEvent| {
+                let Some((start, zooming)) = drag_start.borrow_mut().take()
+                else {
+                    return;
+                };
+                let end = f64::from(event.client_x());
+                drag_range.set(None);
+
+                if !zooming || (end - start).abs() < MIN_ZOOM_SELECTION_WIDTH {
+                    select_at_x.emit(end);
+                    return;
+                }
+
+                let to_time = |x: f64| {
+                    x_start
+                        + ((x.clamp(SPACING_LEFT, width - SPACING_RIGHT)
+                            - SPACING_LEFT)
+                            / axis_x_width)
+                            * (x_end - x_start)
+                };
+                let start_time = to_time(start);
+                let end_time = to_time(end);
+                zoom_range.set(Some((
+                    start_time.min(end_time),
+                    start_time.max(end_time),
+                )));
+            })
+        };
+        let on_mouse_leave = {
+            let drag_start = drag_start.clone();
+            let drag_range = drag_range.clone();
             Callback::from(move |_: MouseEvent| {
-                *is_mouse_down.borrow_mut() = false;
+                *drag_start.borrow_mut() = None;
+                drag_range.set(None);
             })
         };
 
@@ -239,7 +287,7 @@ pub fn Timeline(
                 xmlns="http://www.w3.org/2000/svg"
                 onmousedown={on_mouse_down}
                 onmousemove={on_mouse_move}
-                onmouseleave={on_mouse_up.clone()}
+                onmouseleave={on_mouse_leave}
                 onmouseup={on_mouse_up}
             >
                 <g transform={format!("translate(0, {})", SPACING_Y)}>
@@ -248,7 +296,8 @@ pub fn Timeline(
                         width={width}
                         height={chart_height}
                         series={data.series_heap.clone()}
-                        x_max={x_max}
+                        x_start={x_start}
+                        x_end={x_end}
                         y_max={heap_y_max}
                         print_y={print_y_bytes} />
                 </g>
@@ -260,7 +309,8 @@ pub fn Timeline(
                         height={chart_height}
                         series={data.series_cpu.clone()}
                         print_y={print_y_percent}
-                        x_max={x_max}
+                        x_start={x_start}
+                        x_end={x_end}
                         y_max={1.0}
                         />
                 </g>
@@ -270,30 +320,48 @@ pub fn Timeline(
                         width={width}
                         height={TIMESCALE_HEIGHT}
                         series={data.series_violations.clone()}
-                        x_max={x_max}
-                        x_max_time={Duration::from_micros(x_max as u64)}
+                        x_start={x_start}
+                        x_end={x_end}
                         />
                 </g>
 
-                {
-                    {
-                        let width = ((time_after - time_before) / x_max) * axis_x_width;
-                        let height = height - TIMESCALE_AXIS_HEIGHT - SPACING_Y;
-                        html!(
-                            <g transform={format!("translate({}, 0)", SPACING_LEFT + (time_before / x_max) * axis_x_width)} class="cursor">
-                                <line x1="0" y1="0" x2="0" y2={height.to_string()} />
-                                <line x1={width.to_string()} y1="0" x2={width.to_string()} y2={height.to_string()} />
-                                <rect
-                                    x="0"
-                                    y="0"
-                                    width={width.to_string()}
-                                    height={height.to_string()}
-                                    fill="url(#dither)"
-                                    />
-                            </g>
-                        )
-                    }
-                }
+                {if let Some((start, end)) = *drag_range {
+                    let start = start.clamp(SPACING_LEFT, width - SPACING_RIGHT);
+                    let end = end.clamp(SPACING_LEFT, width - SPACING_RIGHT);
+                    html!(<rect
+                        class="zoom-selection"
+                        x={start.min(end).to_string()}
+                        y="0"
+                        width={(end - start).abs().to_string()}
+                        height={height.to_string()}
+                    />)
+                } else {
+                    html!()
+                }}
+
+                {if time_after >= x_start && time_before <= x_end {
+                    let start = time_before.max(x_start);
+                    let end = time_after.min(x_end);
+                    let left = scale_x(start, x_start, x_end, axis_x_width);
+                    let right = scale_x(end, x_start, x_end, axis_x_width);
+                    let cursor_width = right - left;
+                    let cursor_height = height - TIMESCALE_AXIS_HEIGHT - SPACING_Y;
+                    html!(
+                        <g transform={format!("translate({}, 0)", SPACING_LEFT + left)} class="cursor">
+                            <line x1="0" y1="0" x2="0" y2={cursor_height.to_string()} />
+                            <line x1={cursor_width.to_string()} y1="0" x2={cursor_width.to_string()} y2={cursor_height.to_string()} />
+                            <rect
+                                x="0"
+                                y="0"
+                                width={cursor_width.to_string()}
+                                height={cursor_height.to_string()}
+                                fill="url(#dither)"
+                                />
+                        </g>
+                    )
+                } else {
+                    html!()
+                }}
 
             </svg>
         )
@@ -301,8 +369,24 @@ pub fn Timeline(
         html!()
     };
 
+    let reset_zoom = {
+        let zoom_range = zoom_range.clone();
+        Callback::from(move |_| zoom_range.set(None))
+    };
+
     html!(
         <div class="timeline" ref={container_ref}>
+            {if zoom_range.is_some() {
+                html!(<button
+                    type="button"
+                    class="reset-zoom"
+                    onclick={reset_zoom}
+                >
+                    {"Reset zoom"}
+                </button>)
+            } else {
+                html!()
+            }}
             {component_inner}
         </div>
     )
@@ -317,7 +401,8 @@ pub struct LineChartProps {
     width: f64,
     height: f64,
     print_y: Callback<f64, String>,
-    x_max: f64,
+    x_start: f64,
+    x_end: f64,
     #[prop_or_default]
     y_max: Option<f64>,
 }
@@ -342,8 +427,12 @@ pub fn LineChart(props: &LineChartProps) -> Html {
 
     let points = {
         let mut points = vec![];
-        for (x, y) in props.series.iter() {
-            let x = (x / props.x_max) * line_width;
+        for (x, y) in props
+            .series
+            .iter()
+            .filter(|(x, _)| *x >= props.x_start && *x <= props.x_end)
+        {
+            let x = scale_x(*x, props.x_start, props.x_end, line_width);
             let y = props.height - ((y / y_max) * props.height);
             points.push(format!("{x},{y}"))
         }
@@ -381,13 +470,15 @@ pub struct TimescaleProps {
     series: Series<Rc<[PropertyViolation]>>,
     width: f64,
     height: f64,
-    x_max: f64,
-    x_max_time: Duration,
+    x_start: f64,
+    x_end: f64,
 }
 
 #[component]
 pub fn Timescale(props: &TimescaleProps) -> Html {
     let scale_width = props.width - SPACING_LEFT - SPACING_RIGHT;
+    let visible_duration = props.x_end - props.x_start;
+    let include_millis = visible_duration < 10_000_000.0;
     html!(
     <g class="timescale" transform={format!("translate({SPACING_LEFT}, 0)")}>
         <g>
@@ -402,7 +493,10 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
                                 class="time-label"
                                 x={format!("{x}")}
                                 y={format!("{top}", top=TIMESCALE_VIOLATIONS_HEIGHT + TIMESCALE_TICK_HEIGHT * 2.0 + TIMESCALE_TEXT_HEIGHT / 2.0)}>
-                                {format_duration(props.x_max_time.mul_f64(*tick), FormatDurationOptions { include_millis: false })}
+                                {format_duration(
+                                    Duration::from_micros((props.x_start + visible_duration * tick) as u64),
+                                    FormatDurationOptions { include_millis },
+                                )}
                             </text>
                         </>
                     )
@@ -412,11 +506,11 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
         <g>
         {
             props.series.iter().map(|(x, violations)| {
-                if violations.is_empty() {
+                if violations.is_empty() || *x < props.x_start || *x > props.x_end {
                     html!()
                 } else {
                     html!(
-                        <g class="violation" transform={format!("translate({}, {})", (x / props.x_max) * scale_width, TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
+                        <g class="violation" transform={format!("translate({}, {})", scale_x(*x, props.x_start, props.x_end, scale_width), TIMESCALE_VIOLATIONS_HEIGHT / 2.0)}>
                             <title>{format!("{} violations in state", violations.len())}</title>
                             <rect x="-7" y="-7" width="14" height="14" class="background" />
                             <rect x="-7" y="-7" width="14" height="14" fill="url(#violation)" class="pattern" />
@@ -429,6 +523,10 @@ pub fn Timescale(props: &TimescaleProps) -> Html {
         </g>
     </g>
     )
+}
+
+fn scale_x(x: f64, x_start: f64, x_end: f64, width: f64) -> f64 {
+    ((x - x_start) / (x_end - x_start)) * width
 }
 
 fn format_bytes(size: u64) -> String {
