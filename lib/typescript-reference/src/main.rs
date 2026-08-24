@@ -37,11 +37,14 @@ use serde_json as json;
 struct Cli {
     #[arg(long = "package-root")]
     package_root: PathBuf,
+    #[arg(long = "driver")]
+    driver: String,
 }
 
 fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
-    let exported_modules = ExportedModules::build(&cli.package_root)?;
+    let exported_modules =
+        ExportedModules::build(&cli.package_root, &cli.driver)?;
     print!("{}", generate_reference(exported_modules)?);
     Ok(())
 }
@@ -66,7 +69,7 @@ struct ExportedModule {
 }
 
 impl ExportedModules {
-    fn build(package_root: &Path) -> Result<Self> {
+    fn build(package_root: &Path, driver: &str) -> Result<Self> {
         let package_json_path = package_root.join("package.json");
         let package: JsPackage = json::from_reader(
             std::fs::File::open(&package_json_path)
@@ -81,11 +84,19 @@ impl ExportedModules {
 
             let specifier = if subpath == Path::new(".") {
                 package.name.clone()
-            } else {
+            } else if subpath == Path::new("./actions")
+                || subpath.starts_with(format!("./{driver}"))
+            {
                 normalize_lexically(&Path::new(&package.name).join(&subpath))
                     .to_str()
                     .ok_or(anyhow!("invalid utf-8 in package name or subpath"))?
                     .to_string()
+            } else {
+                eprintln!(
+                    "exlucing module based on driver filter: {}",
+                    subpath.display()
+                );
+                continue;
             };
 
             by_specifier.insert(specifier, ExportedModule { path: resolved });
@@ -845,7 +856,7 @@ mod tests {
     #[test]
     fn test_() {
         let exported_modules =
-            ExportedModules::build(Path::new("test/modules")).unwrap();
+            ExportedModules::build(Path::new("test/modules"), "foo").unwrap();
         let output = generate_reference(exported_modules).unwrap();
         assert_snapshot!(output);
     }

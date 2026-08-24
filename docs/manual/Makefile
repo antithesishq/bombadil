@@ -2,13 +2,16 @@
 
 SRC_DIR := src
 TARGET_DIR := target
-# Sort sources to ensure consistent ordering (01-, 02-, etc.)
-SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md) $(TARGET_DIR)/generated/04-reference.md)
-# Extract version from parent Cargo.toml
-VERSION := $(shell grep '^version' ../../Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 
 # Manuals are built once per driver; add a driver here and the build picks it up.
 DRIVERS := browser terminal
+
+SOURCES_GENERATED := $(foreach d,$(DRIVERS),$(TARGET_DIR)/generated/$(d)/04-reference.md)
+# Sort sources to ensure consistent ordering (01-, 02-, etc.)
+SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md) $(SOURCES_GENERATED))
+
+# Extract version from parent Cargo.toml
+VERSION := $(shell grep '^version' ../../Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 
 # Per-driver outputs all live under target/<driver>/ so the manual landing
 # page can link to PDF/EPUB/TXT with simple relative paths.
@@ -76,7 +79,7 @@ man: $(MAN_FILES)
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
 
-$(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md $(SRC_DIR)/partials/typescript-reference.md
+$(TARGET_DIR)/generated/%/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md $(SRC_DIR)/partials/typescript-reference.md
 	mkdir -p $(dir $@)
 	# This executable and the env var is provided by the Nix environment.
 	cat $(SRC_DIR)/partials/reference.md > $@
@@ -86,7 +89,7 @@ $(TARGET_DIR)/generated/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_
 	echo "" >> $@
 	cat $(SRC_DIR)/partials/typescript-reference.md >> $@
 	echo "" >> $@
-	typescript-reference --package-root $(NPM_PACKAGE) >> $@
+	typescript-reference --package-root $(NPM_PACKAGE) --driver $* >> $@
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
