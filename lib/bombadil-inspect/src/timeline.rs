@@ -187,7 +187,7 @@ pub fn Timeline(
             let drag_range = drag_range.clone();
             Callback::from(move |event: MouseEvent| {
                 *drag_start.borrow_mut() =
-                    Some((f64::from(event.client_x()), event.shift_key()));
+                    Some((event.client_x(), event.shift_key()));
                 drag_range.set(None);
             })
         };
@@ -199,12 +199,12 @@ pub fn Timeline(
                 if let Some((start, zooming)) = *drag_start.borrow()
                     && zooming
                 {
-                    let end = f64::from(event.client_x());
+                    let end = event.client_x();
                     if (end - start).abs() >= MIN_ZOOM_SELECTION_WIDTH {
                         drag_range.set(Some((start, end)));
                     }
                 } else if event.buttons() != 0 {
-                    select_at_x.emit(f64::from(event.client_x()));
+                    select_at_x.emit(event.client_x());
                 }
             })
         };
@@ -217,7 +217,7 @@ pub fn Timeline(
                 else {
                     return;
                 };
-                let end = f64::from(event.client_x());
+                let end = event.client_x();
                 drag_range.set(None);
 
                 if !zooming || (end - start).abs() < MIN_ZOOM_SELECTION_WIDTH {
