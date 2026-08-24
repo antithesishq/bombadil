@@ -25,13 +25,6 @@ def heading_level(name: str) -> Level | None:
     return None
 
 
-def level_class(cls: str):
-    """Return the level (1-6) if `cls` is level1..level6, else None."""
-    if cls.startswith("level") and cls[5:] in ("1", "2", "3", "4", "5", "6"):
-        return int(cls[5:])
-    return None
-
-
 def shift_headings(headings: list) -> None:
     levels: set[int] = {
         level
