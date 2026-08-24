@@ -12,9 +12,10 @@ import {
   navigation,
   waitOnce,
 } from "@antithesishq/bombadil/browser/defaults/actions";
-import { weighted } from "@antithesishq/bombadil/browser";
+import { ActionGenerator } from "@antithesishq/bombadil";
+import { ActionTemplate, weighted } from "@antithesishq/bombadil/browser";
 
-export const defaultActions = weighted([
+export const defaultActions: ActionGenerator<ActionTemplate> = weighted([
   [100, clicks],
   [100, inputs],
   [50, scroll],

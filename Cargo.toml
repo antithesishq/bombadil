@@ -11,12 +11,13 @@ members = [
     "lib/bombadil-schema",
     "lib/bombadil-terminal",
     "lib/small-string",
+    "lib/typescript-reference",
     "lib/willow-tree",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.2"
 edition = "2024"
 
 [workspace.dependencies]
@@ -28,7 +29,7 @@ bitflags = "2.12.1"
 boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4" }
 bytes = "1.11.0"
 chromiumoxide = "0.9.1"
-clap = "4.5.46"
+clap = { version = "4.5.46", features = ["derive"] }
 const_format = "0.2.35"
 env_logger = "0.11.8"
 futures = "0.3.31"
@@ -50,8 +51,9 @@ log = "0.4.29"
 mime_guess = "2.0"
 num-traits = "0.2"
 open = "5.0"
-oxc = "0.125.0"
+oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
 oxc_resolver = "11.19.1"
+oxc_codegen = "0.125.0"
 oxc_str = "0.125.0"
 oxc_traverse = "0.125.0"
 owo-colors = "4.3.0"

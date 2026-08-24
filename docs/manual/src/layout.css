@@ -54,6 +54,11 @@ nav#TOC ul {
   align-items: center;
 }
 
+nav#TOC #toc-title {
+  font-size: 1.25rem;
+  font-family: var(--font-family-headings);
+  font-weight: 600;
+}
 nav#TOC ul ul {
   list-style: square;
   padding-left: 1rem;
@@ -74,6 +79,8 @@ nav#TOC a {
   display: flex;
   text-decoration: none;
   display: block;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 nav#TOC a:hover {
@@ -109,6 +116,27 @@ main {
 .content > :first-child {
   margin-top: 0;
 }
+.content > h1:first-child {
+  /* Hacky way to get anchored links (2-foo.html#foo) in TOC to 
+   * position the vertical scroll the same way as non-anchored
+   * links (1-foo.html) do. */
+  margin-top: -2rem;
+  padding-top: 2rem;
+}
+
+.header-anchor {
+  opacity: 0;
+  text-decoration: none;
+  color: var(--color-primary);
+}
+h1:hover .header-anchor,
+h2:hover .header-anchor,
+h3:hover .header-anchor,
+h4:hover .header-anchor,
+h5:hover .header-anchor,
+h6:hover .header-anchor {
+  opacity: 1;
+}
 
 .page-nav {
   display: flex;
@@ -119,10 +147,12 @@ main {
 }
 
 .navlink {
-  flex: 0 1 50%;
+  flex: 1 1 50%;
+  max-width: calc(50% - 1rem);
   display: flex;
   flex-direction: column;
   text-decoration: none;
+  overflow: hidden;
 }
 .navlink.next {
   text-align: right;
@@ -131,6 +161,12 @@ main {
 .navlink-label {
   font-family: var(--font-family-headings);
   font-weight: 600;
+}
+.navlink-title {
+  display: block;
+  width: 100%;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
 .index {
