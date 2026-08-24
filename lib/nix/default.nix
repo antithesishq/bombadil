@@ -218,6 +218,16 @@ in
 
   npm-package = callPackage ./npm-package.nix { inherit src; };
 
+  typescript-reference = craneLibStatic.buildPackage (
+    commonArgs
+    // {
+      doCheck = false;
+      pname = "typescript-reference";
+      cargoExtraArgs = "-p typescript-reference";
+      cargoArtifacts = cargoArtifactsStatic;
+    }
+  );
+
   tests-unit = craneLib.cargoTest (
     commonArgs
     // {

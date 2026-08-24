@@ -91,7 +91,6 @@ fn parse<'a>(
     if result.panicked {
         return Err(InstrumentationError::ParseErrors(result.errors.to_vec()));
     }
-
     Ok(result.program)
 }
 

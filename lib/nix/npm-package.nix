@@ -21,6 +21,9 @@ let
         "." = {
           types = "./dist/index.d.ts";
         };
+        "./actions" = {
+          types = "./dist/actions.d.ts";
+        };
         "./browser" = {
           types = "./dist/browser/index.d.ts";
         };
@@ -36,11 +39,14 @@ let
         "./terminal" = {
           types = "./dist/terminal/index.d.ts";
         };
-        "./actions" = {
-          types = "./dist/actions.d.ts";
+        "./terminal/defaults" = {
+          types = "./dist/terminal/defaults.d.ts";
         };
-        "./internal" = {
-          types = "./dist/internal.d.ts";
+        "./terminal/defaults/actions" = {
+          types = "./dist/terminal/defaults/actions.d.ts";
+        };
+        "./terminal/defaults/properties" = {
+          types = "./dist/terminal/defaults/properties.d.ts";
         };
       };
       files = [

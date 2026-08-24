@@ -1,0 +1,21 @@
+[package]
+name = "typescript-reference"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "typescript-reference"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+oxc.workspace = true
+oxc_codegen.workspace = true
+oxc_str.workspace = true
+oxc_traverse.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true

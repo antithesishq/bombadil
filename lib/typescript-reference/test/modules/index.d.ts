@@ -1,0 +1,22 @@
+export { other } from "@example/test/foo";
+import { Bar } from "@example/test/foo";
+/**
+ * This is the docs.
+ */
+export default function add(a: number, b: number): number;
+// It's good.
+export declare function multiply(a: number, b: number): number;
+// The interface.
+export interface PiResult {
+  // The result.
+  pi: number;
+}
+// Gets the number.
+export declare function getPi(): PiResult;
+// Two things documented separately.
+export declare const /* hello */ foo: number, /* there */ bar: number;
+// I'm a magic number.
+export declare const MAGIC_NUMBER: Bar;
+
+// Generic function.
+export declare function generic<T>(): T | null;

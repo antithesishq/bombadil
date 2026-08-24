@@ -4,7 +4,7 @@ import {
   ActionTemplate,
   State,
 } from "@antithesishq/bombadil/terminal";
-import { ActionGenerator, extract } from "@antithesishq/bombadil";
+import { ActionGenerator, Cell, extract } from "@antithesishq/bombadil";
 import { CharSet } from "@antithesishq/bombadil/actions";
 
 export namespace CharSets {
@@ -130,14 +130,10 @@ export function typeFromSet(
   ]);
 }
 
-export function pasteText(text: string) {
-  return {
-    TypeText: {
-      text: "\x1b[200~" + text + "\x1b[201~",
-    },
-  };
+export function pasteText(text: string): ActionGenerator<ActionTemplate> {
+  return typeFromSet(CharSet.fromLiterals("\x1b[200~" + text + "\x1b[201~"));
 }
 
-export const lastAction = extract<State, Action | null>(
+export const lastAction: Cell<Action | null> = extract<State, Action | null>(
   (state) => state.lastAction,
 ).named("lastAction");
