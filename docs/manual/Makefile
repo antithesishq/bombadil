@@ -6,9 +6,8 @@ TARGET_DIR := target
 # Manuals are built once per driver; add a driver here and the build picks it up.
 DRIVERS := browser terminal
 
-SOURCES_GENERATED := $(foreach d,$(DRIVERS),$(TARGET_DIR)/generated/$(d)/04-reference.md)
 # Sort sources to ensure consistent ordering (01-, 02-, etc.)
-SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md) $(SOURCES_GENERATED))
+SOURCES := $(sort $(wildcard $(SRC_DIR)/*.md))
 
 # Extract version from parent Cargo.toml
 VERSION := $(shell grep '^version' ../../Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
@@ -93,10 +92,10 @@ $(TARGET_DIR)/generated/%/04-reference.md: $(SRC_DIR)/partials/reference.md $(SR
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(TARGET_DIR)/%/.built: $(SOURCES) $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/.built: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	rm -rf $(TARGET_DIR)/$*
 	mkdir -p $(TARGET_DIR)
-	$(PANDOC) $(SOURCES) --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
 	python3 $(SRC_DIR)/html-post-process.py $(TARGET_DIR)
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
@@ -118,21 +117,21 @@ $(TARGET_DIR)/%.js: $(SRC_DIR)/%.js | $(TARGET_DIR)
 	mkdir -p $(TARGET_DIR)
 	cp $< $@
 
-$(TARGET_DIR)/%/bombadil-manual.epub: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.epub: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_EPUB_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_EPUB_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil-manual.pdf: $(SOURCES) $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.pdf: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_PDF_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_PDF_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil-manual.txt: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.txt: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_TXT_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_TXT_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil.1: $(SOURCES) $(SRC_DIR)/driver.lua | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil.1: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) -o $@ $(PANDOC_MAN_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_MAN_OPTS) -M driver=$*
 
 # Top-level manual landing: a static page with title, version, driver dropdown,
 # and links to each driver's entry point and downloads. Shares stylesheets and
