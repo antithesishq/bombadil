@@ -1,5 +1,17 @@
 # The Bombadil Changelog
 
+## 0.7.1
+
+Major updates:
+
+* Generate TypeScript reference in manual (#266)
+* Mark state boundaries for Antithesis fuzzer (#269)
+* Add resource leak property in extras (#267)
+
+Minor updates:
+
+* Add specific error messages/context for failed trace writes (#268)
+
 ## 0.7.0
 
 Major updates:
