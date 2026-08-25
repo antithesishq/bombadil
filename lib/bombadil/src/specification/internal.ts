@@ -52,10 +52,10 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 }
 
-export class CustomAction {
+export class RegisteredCustomAction {
   constructor(
     public name: string,
-    public run: () => Promise<void>,
+    public run: (options: any) => Promise<void>,
   ) {}
 }
 
@@ -71,7 +71,7 @@ export class Runtime<S> {
   private tracking = false;
   private accesses = new Set<number>();
 
-  customActions: Record<string, CustomAction> = {};
+  customActions: Record<string, RegisteredCustomAction> = {};
 
   registerExtractor(cell: ExtractorCell<any, S>): number {
     const index = this.extractors.length;
@@ -129,15 +129,15 @@ export class Runtime<S> {
     }
   }
 
-  registerCustomAction(action: CustomAction) {
+  registerCustomAction(action: RegisteredCustomAction) {
     this.customActions[action.name] = action;
   }
 
-  async runCustomAction(name: string): Promise<void> {
+  async runCustomAction(name: string, options: any): Promise<void> {
     const action = this.customActions[name];
     if (!action) {
       return Promise.reject(`Custom action '${name}' is not registered.`);
     }
-    return action.run();
+    return action.run(options);
   }
 }

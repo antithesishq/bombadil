@@ -100,8 +100,11 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                     height: *height,
                 }
             }
-            BrowserAction::Custom { name } => {
-                browser::BrowserAction::Custom { name: name.clone() }
+            BrowserAction::Custom { name, options } => {
+                browser::BrowserAction::Custom {
+                    name: name.clone(),
+                    options: options.clone(),
+                }
             }
         }
     }
@@ -173,8 +176,11 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                     height: *height,
                 }
             }
-            browser::BrowserAction::Custom { name } => {
-                BrowserAction::Custom { name: name.clone() }
+            browser::BrowserAction::Custom { name, options } => {
+                BrowserAction::Custom {
+                    name: name.clone(),
+                    options: options.clone(),
+                }
             }
         }
     }

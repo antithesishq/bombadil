@@ -5,6 +5,7 @@ use anyhow::ensure;
 use bombadil::specification::js::{JsRange, JsStringGenerator};
 use bombadil_schema::{Rect, browser::Fingerprint};
 use serde::{Deserialize, Serialize};
+use serde_json as json;
 
 use crate::browser::actions::{BrowserAction, BrowserActionTemplate};
 use crate::geometry::Point;
@@ -66,6 +67,7 @@ pub enum JsAction {
     },
     Custom {
         name: String,
+        options: json::Value,
     },
 }
 
@@ -178,7 +180,9 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 }
                 BrowserAction::SetViewport { width, height }
             }
-            JsAction::Custom { name } => BrowserAction::Custom { name },
+            JsAction::Custom { name, options } => {
+                BrowserAction::Custom { name, options }
+            }
         })
     }
 }

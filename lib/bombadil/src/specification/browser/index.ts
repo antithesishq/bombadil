@@ -1,4 +1,5 @@
 import {
+  CustomAction,
   type ActionGenerator,
   type Cell,
   type JSON,
@@ -13,6 +14,7 @@ export type Point<Number = number> = {
 };
 
 export type Action<Number = number, String = string> =
+  | CustomAction
   | "Back"
   | "Forward"
   | "Reload"
@@ -38,8 +40,7 @@ export type Action<Number = number, String = string> =
         delayMillis: Number;
       };
     }
-  | { SetViewport: { width: Number; height: Number } }
-  | { Custom: { name: string } };
+  | { SetViewport: { width: Number; height: Number } };
 
 export type ActionTemplate = Action<Range, StringGenerator>;
 
@@ -118,6 +119,22 @@ export function weighted(
   value: [number, ActionTemplate | ActionGenerator<ActionTemplate>][],
 ): ActionGenerator<ActionTemplate> {
   return bombadil.weighted<ActionTemplate>(value);
+}
+
+export function registerCustomAction<
+  Options extends JSON,
+  Function extends (
+    document: Document,
+    window: Window,
+    options: Options,
+  ) => Promise<void>,
+>(
+  name: string,
+  scriptFunction: Function,
+): (options: Options) => ActionTemplate {
+  return bombadil.registerCustomAction(name, (options) =>
+    scriptFunction(document, window, options),
+  );
 }
 
 // Fingerprints
@@ -212,11 +229,4 @@ function getStructuralPath(el: Element): string {
   }
 
   return parts.join(" > ");
-}
-
-export function registerCustomAction(
-  name: string,
-  scriptFunction: () => Promise<void>,
-) {
-  bombadil.registerCustomAction(name, scriptFunction);
 }

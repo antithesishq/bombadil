@@ -1,5 +1,6 @@
 use crate::{Point, schema::TraceEntry};
 use serde::{Deserialize, Serialize};
+use serde_json as json;
 
 pub type BrowserTraceEntry = TraceEntry<BrowserAction, BrowserStateSummary>;
 
@@ -187,5 +188,6 @@ pub enum BrowserAction {
     },
     Custom {
         name: String,
+        options: json::Value,
     },
 }
