@@ -1192,7 +1192,7 @@ const result = extract((state) => {
   return element?.textContent ?? "";
 });
 
-registerCustomAction("doubleCounter", async () => {
+const doubleCounter = registerCustomAction("doubleCounter", async () => {
   const resultElement = document.getElementById("result");
   if (resultElement) {
     resultElement.textContent = (counter.current * 2).toString();
@@ -1201,7 +1201,7 @@ registerCustomAction("doubleCounter", async () => {
 
 export const _actions = actions(() => {
   if (result.current === "") {
-    return [{ Custom: { name: "doubleCounter" } }];
+    return [doubleCounter()];
   }
   return ["Wait"];
 });
