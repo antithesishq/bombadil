@@ -121,19 +121,16 @@ export function weighted(
   return bombadil.weighted<ActionTemplate>(value);
 }
 
-export function registerCustomAction<
-  Options extends JSON,
-  Function extends (
+export function registerCustomAction<Options extends JSON[]>(
+  name: string,
+  scriptFunction: (
     document: Document,
     window: Window,
-    options: Options,
+    ...options: Options
   ) => Promise<void>,
->(
-  name: string,
-  scriptFunction: Function,
-): (options: Options) => ActionTemplate {
-  return bombadil.registerCustomAction(name, (options) =>
-    scriptFunction(document, window, options),
+): (...options: Options) => ActionTemplate {
+  return bombadil.registerCustomAction(name, (...options) =>
+    scriptFunction(document, window, ...options),
   );
 }
 

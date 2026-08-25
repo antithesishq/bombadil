@@ -42,14 +42,14 @@ export type CustomAction = {
 // Register a new custom action, returning a function used to create
 // action templates in generators. Name must be unique. Prefer using
 // the export from the driver module, which has more a specific type.
-export function registerCustomAction<
-  Options extends JSON,
-  Function extends (options: Options) => Promise<void>,
->(name: string, scriptFunction: Function): (options: Options) => CustomAction {
+export function registerCustomAction<Options extends JSON[]>(
+  name: string,
+  scriptFunction: (...options: Options) => Promise<void>,
+): (...options: Options) => CustomAction {
   runtime.registerCustomAction(
     new RegisteredCustomAction(name, scriptFunction),
   );
-  return (options) => ({ Custom: { name, options } });
+  return (...options) => ({ Custom: { name, options } });
 }
 
 export function weighted<A>(

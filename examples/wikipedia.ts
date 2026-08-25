@@ -15,7 +15,7 @@ export const hasReachedResultsPage = eventually(
 
 const search = registerCustomAction(
   "search",
-  async (document, _window, options: { query: string }) => {
+  async (document, _window, query: string) => {
     const searchButton = document.querySelector<HTMLButtonElement>(
       "#search-form [type=submit]",
     );
@@ -28,13 +28,11 @@ const search = registerCustomAction(
     if (!searchInput) {
       throw new Error("Search input not found");
     }
-
     searchInput.focus();
-    searchInput.value = options.query;
+    searchInput.value = query;
     searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-
     searchButton.click();
   },
 );
 
-export const myActions = actions(() => [search({ query: "Bombadil" }), "Wait"]);
+export const myActions = actions(() => [search("Bombadil")]);
