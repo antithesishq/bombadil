@@ -35,8 +35,8 @@ export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
 
 // Identifies a custom action and provides it with its arguments.
 // This base action might not be supported by all drivers.
-export type CustomAction = {
-  Custom: { name: string; options: any };
+export type CustomAction<Options> = {
+  Custom: { name: string; options: Options };
 };
 
 // Register a new custom action, returning a function used to create
@@ -45,7 +45,7 @@ export type CustomAction = {
 export function registerCustomAction<Options extends JSON[]>(
   name: string,
   scriptFunction: (...options: Options) => Promise<void>,
-): (...options: Options) => CustomAction {
+): (...options: Options) => CustomAction<Options> {
   runtime.registerCustomAction(
     new RegisteredCustomAction(name, scriptFunction),
   );

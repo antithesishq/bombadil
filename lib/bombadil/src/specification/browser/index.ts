@@ -14,7 +14,7 @@ export type Point<Number = number> = {
 };
 
 export type Action<Number = number, String = string> =
-  | CustomAction
+  | CustomAction<JSON[]>
   | "Back"
   | "Forward"
   | "Reload"
