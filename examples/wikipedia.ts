@@ -11,7 +11,7 @@ const title = extract(
 
 export const hasReachedResultsPage = eventually(
   () => title.current === "Bombadil",
-).within(5, "seconds");
+).within(10, "seconds");
 
 const search = registerCustomAction(
   "search",
@@ -35,4 +35,6 @@ const search = registerCustomAction(
   },
 );
 
-export const myActions = actions(() => [search("Bombadil")]);
+const myWait = registerCustomAction("myWait", async () => {});
+
+export const myActions = actions(() => [search("Bombadil"), myWait()]);
