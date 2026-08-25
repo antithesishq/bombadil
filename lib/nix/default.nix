@@ -221,6 +221,7 @@ in
   typescript-reference = craneLibStatic.buildPackage (
     commonArgs
     // {
+      src = depsSrc;
       doCheck = false;
       pname = "typescript-reference";
       cargoExtraArgs = "-p typescript-reference";

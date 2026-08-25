@@ -52,10 +52,10 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 }
 
-export class RegisteredCustomAction<Options extends JSON[]> {
+export class RegisteredCustomAction<Args extends JSON[]> {
   constructor(
     public name: string,
-    public run: (...options: Options) => Promise<void>,
+    public run: (...args: Args) => Promise<void>,
   ) {}
 }
 
@@ -128,8 +128,8 @@ export class Runtime<S> {
     }
   }
 
-  registerCustomAction<Options extends JSON[]>(
-    action: RegisteredCustomAction<Options>,
+  registerCustomAction<Args extends JSON[]>(
+    action: RegisteredCustomAction<Args>,
   ) {
     if (action.name in this.customActions) {
       throw new Error(`Custom action "${action.name}" is already registered.`);
@@ -137,11 +137,11 @@ export class Runtime<S> {
     this.customActions[action.name] = action;
   }
 
-  async runCustomAction(name: string, options: unknown): Promise<void> {
+  async runCustomAction(name: string, args: unknown): Promise<void> {
     const action = this.customActions[name];
     if (!action) {
       return Promise.reject(`Custom action "${name}" is not registered.`);
     }
-    return action.run(options);
+    return action.run(args);
   }
 }

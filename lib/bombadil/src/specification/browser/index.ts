@@ -121,16 +121,19 @@ export function weighted(
   return bombadil.weighted<ActionTemplate>(value);
 }
 
-export function registerCustomAction<Options extends JSON[]>(
+/**
+ * Register a new custom action, returning a function used to create
+ * action templates in generators. Name must be unique.
+ *
+ * The first two parameters to the handler are `Document` and `Window`, and then
+ * any arguments passed to the function.
+ */
+export function registerCustomAction<Args extends JSON[]>(
   name: string,
-  scriptFunction: (
-    document: Document,
-    window: Window,
-    ...options: Options
-  ) => Promise<void>,
-): (...options: Options) => ActionTemplate {
-  return bombadil.registerCustomAction(name, (...options) =>
-    scriptFunction(document, window, ...options),
+  handler: (document: Document, window: Window, ...args: Args) => Promise<void>,
+): (...args: Args) => ActionTemplate {
+  return bombadil.registerCustomAction(name, (...args) =>
+    handler(document, window, ...args),
   );
 }
 

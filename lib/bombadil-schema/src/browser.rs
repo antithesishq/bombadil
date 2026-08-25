@@ -188,6 +188,6 @@ pub enum BrowserAction {
     },
     Custom {
         name: String,
-        options: json::Value,
+        arguments: Vec<json::Value>,
     },
 }

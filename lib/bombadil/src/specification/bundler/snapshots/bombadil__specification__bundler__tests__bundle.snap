@@ -140,11 +140,11 @@ expression: bundle
     function actions(generate) {
     	return bombadilActions.actions(generate);
     }
-    function registerCustomAction(name, scriptFunction) {
-    	runtime.registerCustomAction(new RegisteredCustomAction(name, scriptFunction));
-    	return (...options) => ({ Custom: {
+    function registerCustomAction(name, handler) {
+    	runtime.registerCustomAction(new RegisteredCustomAction(name, handler));
+    	return (...args) => ({ Custom: {
     		name,
-    		options
+    		args
     	} });
     }
     function weighted(value) {
@@ -475,12 +475,12 @@ expression: bundle
     		}
     		this.customActions[action.name] = action;
     	}
-    	async runCustomAction(name, options) {
+    	async runCustomAction(name, args) {
     		const action = this.customActions[name];
     		if (!action) {
     			return Promise.reject(`Custom action "${name}" is not registered.`);
     		}
-    		return action.run(options);
+    		return action.run(args);
     	}
     }
     module.exports.ExtractorCell = ExtractorCell;

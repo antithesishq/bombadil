@@ -33,23 +33,25 @@ export function actions<A>(generate: () => Tree<A> | A[]): ActionGenerator<A> {
   return bombadilActions.actions(generate);
 }
 
-// Identifies a custom action and provides it with its arguments.
-// This base action might not be supported by all drivers.
-export type CustomAction<Options> = {
-  Custom: { name: string; options: Options };
+/**
+ * Identifies a custom action and provides it with its arguments.
+ * This base action might not be supported by all drivers.
+ */
+export type CustomAction<Args> = {
+  Custom: { name: string; args: Args };
 };
 
-// Register a new custom action, returning a function used to create
-// action templates in generators. Name must be unique. Prefer using
-// the export from the driver module, which has more a specific type.
-export function registerCustomAction<Options extends JSON[]>(
+/**
+ * Register a new custom action, returning a function used to create
+ * action templates in generators. Name must be unique. Prefer using
+ * the export from the driver module, which has more a specific type.
+ */
+export function registerCustomAction<Args extends JSON[]>(
   name: string,
-  scriptFunction: (...options: Options) => Promise<void>,
-): (...options: Options) => CustomAction<Options> {
-  runtime.registerCustomAction(
-    new RegisteredCustomAction(name, scriptFunction),
-  );
-  return (...options) => ({ Custom: { name, options } });
+  handler: (...args: Args) => Promise<void>,
+): (...args: Args) => CustomAction<Args> {
+  runtime.registerCustomAction(new RegisteredCustomAction(name, handler));
+  return (...args) => ({ Custom: { name, args } });
 }
 
 export function weighted<A>(

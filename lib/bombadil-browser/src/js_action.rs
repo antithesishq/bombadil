@@ -67,7 +67,8 @@ pub enum JsAction {
     },
     Custom {
         name: String,
-        options: json::Value,
+        // Must be named "args" and not "arguments" due to JS keyword.
+        args: Vec<json::Value>,
     },
 }
 
@@ -180,9 +181,10 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                 }
                 BrowserAction::SetViewport { width, height }
             }
-            JsAction::Custom { name, options } => {
-                BrowserAction::Custom { name, options }
-            }
+            JsAction::Custom {
+                name,
+                args: arguments,
+            } => BrowserAction::Custom { name, arguments },
         })
     }
 }

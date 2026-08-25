@@ -70,7 +70,7 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     },
     Custom {
         name: String,
-        options: json::Value,
+        arguments: Vec<json::Value>,
     },
 }
 
@@ -302,7 +302,10 @@ impl BrowserAction {
                 )
                 .await?;
             }
-            BrowserAction::Custom { name, options } => {
+            BrowserAction::Custom {
+                name,
+                arguments: options,
+            } => {
                 let call = CallFunctionOnParamsBuilder::default().function_declaration(
                     r#"async (name, options) => {
                         try {
@@ -393,9 +396,12 @@ impl BrowserActionTemplate {
                     height: rng.random_range(height.clone()),
                 }
             }
-            BrowserAction::Custom { name, options } => BrowserAction::Custom {
+            BrowserAction::Custom {
+                name,
+                arguments: options,
+            } => BrowserAction::Custom {
                 name: name.clone(),
-                options: options.clone(),
+                arguments: options.clone(),
             },
         }
     }

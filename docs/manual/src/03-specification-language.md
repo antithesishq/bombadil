@@ -454,6 +454,81 @@ export const inputs = weighted([
 ```
 :::
 
+## Custom actions
+
+:::: browser
+
+In addition to the [built-in actions][Action], you can define *custom actions*.
+These are arbitrary functions that run in the browser when the action is
+invoked, with full DOM access and your [extractor cells][Extractors].
+Defining a custom action is useful if you have a multi-step workflow in your
+interface which you just want to get past quickly, like authentication forms or
+cookie consent dialogs.
+
+Call [registerCustomAction] with a name and a handler function, which accepts
+`Document` and `Window` as the first two parameters, and any other parameters
+you need. The remaining parameters correspond to the arguments passed when
+generating the custom action.
+
+Here's a custom action that fills out and submits a search form:
+
+```typescript
+const search = registerCustomAction(
+  "search",
+  async (document, _window, query: string) => {
+    const searchButton = document.querySelector<HTMLButtonElement>(
+      "form [type=submit]",
+    );
+    if (!searchButton) {
+      throw new Error("Search button not found");
+    }
+    const searchInput = document.querySelector<HTMLInputElement>(
+      "form [type=search]",
+    );
+    if (!searchInput) {
+      throw new Error("Search input not found");
+    }
+    searchInput.focus();
+    searchInput.value = query;
+    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+    searchButton.click();
+  },
+);
+```
+
+To generate the `search` action, invoke the returned function in an action
+generator:
+
+```typescript
+export const myActions = actions(() => [
+    search("Something"), 
+    // other actions...
+]);
+```
+
+As with any action generator, you should only return actions that are currently
+valid. A common pattern is a guard in your action generator:
+
+```typescript
+export const myActions = actions(() => {
+    if (title.current == "Search") {
+        return [search("Something")];
+    }
+
+    return [
+        // other actions...
+    ];
+});
+```
+
+::::
+
+:::: terminal
+::: {.callout .callout-note}
+Custom actions are not supported by the terminal driver.
+:::
+::::
+
 ## Extras
 
 In addition to the default properties, there's a set of extras modules with

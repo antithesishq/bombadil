@@ -224,8 +224,16 @@ pub fn format_action<
                 styled::maybe_blue(format!("{}", Formatted(height)))
             )
         }
-        BrowserAction::Custom { name, options } => {
-            format!("{}({})", styled::maybe_bold(name.clone()), options)
+        BrowserAction::Custom { name, arguments } => {
+            format!(
+                "{}({})",
+                styled::maybe_bold(name.clone()),
+                arguments
+                    .iter()
+                    .map(|argument| format!("{argument}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 }
