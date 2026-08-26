@@ -176,13 +176,12 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                     height: *height,
                 }
             }
-            browser::BrowserAction::Custom {
-                name,
-                arguments: options,
-            } => BrowserAction::Custom {
-                name: name.clone(),
-                arguments: options.clone(),
-            },
+            browser::BrowserAction::Custom { name, arguments } => {
+                BrowserAction::Custom {
+                    name: name.clone(),
+                    arguments: arguments.clone(),
+                }
+            }
         }
     }
 }

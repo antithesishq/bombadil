@@ -47,8 +47,13 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
     return this;
   }
 
+  /**
+   * Runs the extractor and updates its cached value.
+   */
   run(state: S): T {
-    return this.extract(state);
+    const value = this.extract(state);
+    this.update(value);
+    return value;
   }
 }
 
@@ -100,12 +105,10 @@ export class Runtime<S> {
     return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
-        const value = extractor.run(state);
-        extractor.update(value);
         return {
           index,
           name: extractor.name,
-          value,
+          value: extractor.run(state),
         };
       } finally {
         this.extractingDepth--;
@@ -135,7 +138,6 @@ export class Runtime<S> {
   async runCustomAction(name: string, args: unknown): Promise<void> {
     const action = this.customActions[name];
     if (!action) {
-      return Promise.reject(`Custom action "${name}" is not registered.`);
       return Promise.reject(
         new Error(`Custom action "${name}" is not registered.`),
       );
