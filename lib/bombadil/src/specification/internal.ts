@@ -136,6 +136,9 @@ export class Runtime<S> {
     const action = this.customActions[name];
     if (!action) {
       return Promise.reject(`Custom action "${name}" is not registered.`);
+      return Promise.reject(
+        new Error(`Custom action "${name}" is not registered.`),
+      );
     }
     return action.run(args);
   }
