@@ -447,22 +447,20 @@ expression: bundle
     		}
     	}
     	runExtractors(state) {
-    		const snapshots = [];
-    		this.extractors.forEach((extractor, index) => {
+    		return this.extractors.map((extractor, index) => {
     			this.extractingDepth++;
     			try {
     				const value = extractor.run(state);
     				extractor.update(value);
-    				snapshots.push({
+    				return {
     					index,
     					name: extractor.name,
     					value
-    				});
+    				};
     			} finally {
     				this.extractingDepth--;
     			}
     		});
-    		return snapshots;
     	}
     	checkNotExtracting() {
     		if (this.extractingDepth > 0) {

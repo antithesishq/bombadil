@@ -97,25 +97,20 @@ export class Runtime<S> {
   }
 
   runExtractors(state: S): RunExtractorResult[] {
-    const snapshots: RunExtractorResult[] = [];
-
-    this.extractors.forEach((extractor, index) => {
+    return this.extractors.map((extractor, index) => {
       this.extractingDepth++;
       try {
         const value = extractor.run(state);
         extractor.update(value);
-
-        snapshots.push({
+        return {
           index,
           name: extractor.name,
           value,
-        });
+        };
       } finally {
         this.extractingDepth--;
       }
     });
-
-    return snapshots;
   }
 
   checkNotExtracting(): void {
