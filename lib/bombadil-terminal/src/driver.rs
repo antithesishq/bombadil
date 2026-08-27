@@ -17,7 +17,13 @@ use bombadil_schema::terminal::{
     TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
     TerminalGrid, TerminalSize, TerminalStyle, TerminalUnderline,
 };
-use libghostty_vt::style as ghostty_style;
+use bytes::Bytes;
+use libghostty_vt::style::{self as ghostty_style, RgbColor};
+use libghostty_vt::terminal::{
+    ColorScheme, ConformanceLevel, DeviceAttributeFeature, DeviceType,
+    PrimaryDeviceAttributes, SecondaryDeviceAttributes,
+    TertiaryDeviceAttributes,
+};
 use libghostty_vt::{
     RenderState, Terminal, TerminalOptions,
     render::{
@@ -211,11 +217,51 @@ impl TerminalDriver {
             max_scrollback: scrollback_lines_max,
         })?;
 
+        terminal.set_default_bg_color(Some(RgbColor {
+            r: 255,
+            g: 255,
+            b: 255,
+        }))?;
+        terminal.set_default_fg_color(Some(RgbColor { r: 0, g: 0, b: 0 }))?;
+        terminal.set_default_cursor_color(Some(RgbColor {
+            r: 128,
+            g: 128,
+            b: 128,
+        }))?;
+
+        let palette = terminal.default_color_palette()?;
+        terminal.set_default_color_palette(Some(palette))?;
+
+        terminal.on_device_attributes(|_| {
+            log::debug!("on_device_attributes");
+            Some(libghostty_vt::terminal::DeviceAttributes {
+                primary: PrimaryDeviceAttributes::new(
+                    ConformanceLevel::VT525,
+                    &[DeviceAttributeFeature::ANSI_COLOR],
+                ),
+                secondary: SecondaryDeviceAttributes {
+                    device_type: DeviceType::VT525,
+                    firmware_version: 0,
+                    rom_cartridge: 0,
+                },
+                tertiary: TertiaryDeviceAttributes { unit_id: 0 },
+            })
+        })?;
+        terminal.on_color_scheme(|_| {
+            log::debug!("on_color_scheme");
+            Some(ColorScheme::Light)
+        })?;
+        terminal.on_enquiry(|_| Some(""))?;
+
         let (process, output) = PtyProcess::spawn(size, &program, &arguments)?;
         let process = Rc::new(RefCell::new(process));
 
         let callback_process = process.clone();
         terminal.on_pty_write(move |_, data| {
+            log::debug!(
+                "on_pty_write: {:?}",
+                Bytes::from_iter(data.iter().copied())
+            );
             let mut process = callback_process.borrow_mut();
             process.write(data);
         })?;
@@ -246,7 +292,10 @@ impl TerminalDriver {
                 break;
             }
             match self.output.read_until(quiescence_timeout.min(remaining)) {
-                ReadResult::Chunk(data) => self.terminal.vt_write(&data),
+                ReadResult::Chunk(data) => {
+                    log::debug!("pty_read: {:?}", data);
+                    self.terminal.vt_write(&data)
+                }
                 ReadResult::Empty | ReadResult::Ended => break,
             }
         }
