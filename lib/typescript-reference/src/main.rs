@@ -80,7 +80,7 @@ impl ExportedModules {
             let resolved = package_root
                 .join(&target.types)
                 .canonicalize()
-                .context(format!("resolving {:?}", &target.types))?;
+                .context(format!("resolving {:?}", target.types))?;
 
             let specifier = if subpath == Path::new(".") {
                 package.name.clone()

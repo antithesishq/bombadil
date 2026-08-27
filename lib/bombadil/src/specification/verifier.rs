@@ -699,11 +699,7 @@ mod tests {
                 assert!(matches!(
                     value,
                     eval::Value::False(
-                        bombadil_ltl::violation::Violation::Always {
-                            violation: _,
-                            subformula: _,
-                            ..
-                        },
+                        bombadil_ltl::violation::Violation::Always { .. },
                         _
                     )
                 ))

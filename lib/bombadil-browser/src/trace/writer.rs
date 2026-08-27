@@ -25,7 +25,7 @@ impl FileTraceWriter {
     ) -> Result<Self> {
         log::info!(
             "storing trace in {}",
-            &root_path
+            root_path
                 .to_str()
                 .expect("states directory path is not valid unicode")
         );
@@ -65,7 +65,7 @@ impl TraceWriter for FileTraceWriter {
         let screenshot_path = self.screenshots_path.join(format!(
             "{}.{}",
             state.timestamp.duration_since(UNIX_EPOCH)?.as_micros(),
-            &state.screenshot.format.extension()
+            state.screenshot.format.extension()
         ));
         File::create_new(&screenshot_path)?
             .write_all(&state.screenshot.data)?;

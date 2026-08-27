@@ -768,10 +768,10 @@ fn run_state_machine(
                     event = events.next() => match event {
                         Some(event) => {
                             state_current = if log::log_enabled!(log::Level::Debug) {
-                                let before = format!("{:?} ({})", &state_current.kind, &state_current.shared.generation);
-                                let event_formatted = format!("{:?}", &event);
+                                let before = format!("{:?} ({})", state_current.kind, state_current.shared.generation);
+                                let event_formatted = format!("{:?}", event);
                                 let state_new = Box::pin(process_event(&context, state_current, event)).await?;
-                                log::debug!("{} + {} -> {:?} ({})", before, event_formatted, &state_new.kind, &state_new.shared.generation);
+                                log::debug!("{} + {} -> {:?} ({})", before, event_formatted, state_new.kind, state_new.shared.generation);
                                 state_new
                             } else {
                                 Box::pin(process_event(&context, state_current, event)).await?
@@ -814,14 +814,14 @@ async fn process_event(
             ) {
                 log::debug!(
                     "skipping state capture during {:?} (reason: {:?})",
-                    &state.kind,
+                    state.kind,
                     reason
                 );
                 state
             } else {
                 log::debug!(
                     "forcing pause from {:?} because of {:?}",
-                    &state,
+                    state,
                     reason
                 );
                 capture_browser_state(state, context).await?
@@ -863,13 +863,13 @@ async fn process_event(
                 call_frame_id: Some(call_frame_id),
             },
         ) => {
-            log::debug!("got paused event: {:?}, {:?}", &reason, &exception);
+            log::debug!("got paused event: {:?}, {:?}", reason, exception);
 
             if reason != debugger::PausedReason::Other {
                 bail!(
                     "unexpected pause reason {:?} when in state: {:?}",
                     reason,
-                    &state
+                    state
                 );
             }
 
@@ -1172,7 +1172,7 @@ async fn process_event(
                 );
                 state
             } else {
-                log::debug!("ignoring Quiesced during {:?}", &state.kind,);
+                log::debug!("ignoring Quiesced during {:?}", state.kind,);
                 state
             }
         }
@@ -1184,7 +1184,7 @@ async fn process_event(
                 bail!(
                     "navigation timed out after {:?} during {:?}",
                     NAVIGATION_TIMEOUT,
-                    &state.kind,
+                    state.kind,
                 );
             } else {
                 state
@@ -1381,7 +1381,7 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
     if page_targets.len() > 2 {
         log::warn!(
             "there are multiple open page targets, picking the first one: {}",
-            &target.url
+            target.url
         )
     }
     for attempt in 1..=5 {

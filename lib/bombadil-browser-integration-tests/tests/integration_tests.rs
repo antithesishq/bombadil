@@ -498,7 +498,7 @@ async fn test_browser_lifecycle() {
     let origin =
         Url::parse(&format!("http://localhost:{}/console-error", port,))
             .unwrap();
-    log::info!("running test server on {}", &origin);
+    log::info!("running test server on {}", origin);
     let user_data_directory = TempDir::new().unwrap();
 
     let downloads_directory = TempDir::new().unwrap();
