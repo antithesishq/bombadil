@@ -290,44 +290,92 @@ fn test_next_disjunction_distributivity(tc: TestCase) {
         ValueEqMode::UpToViolations,
     );
 }
-/*
 
 // X (φ ∧ ψ) ⇔ (X φ) ∧ (X ψ)
-#[test]
-fn test_next_conjunction_distributivity(φ in syntax(), ψ in syntax(), trace in trace()) {
-    let formula_left =
-        Syntax::Next(Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone())))).nnf();
-    let formula_right =
-        Syntax::And(Box::new(Syntax::Next(Box::new(φ.clone()))), Box::new(Syntax::Next(Box::new(ψ.clone())))).nnf();
-    check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+#[hegel::test]
+fn test_next_conjunction_distributivity(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let ψ = tc.draw(syntax());
+    let trace = tc.draw(trace());
+
+    let formula_left = Syntax::Next(Box::new(Syntax::And(
+        Box::new(φ.clone()),
+        Box::new(ψ.clone()),
+    )))
+    .nnf();
+    let formula_right = Syntax::And(
+        Box::new(Syntax::Next(Box::new(φ.clone()))),
+        Box::new(Syntax::Next(Box::new(ψ.clone()))),
+    )
+    .nnf();
+    check_equivalence(
+        formula_left,
+        formula_right,
+        trace,
+        ValueEqMode::UpToViolations,
+    );
 }
 
 // F(φ ∨ ψ) ⇔ (F φ) ∨ (F ψ)
-#[test]
-fn test_eventually_disjunction_distributivity(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
-    let formula_left =
-        Syntax::Eventually(Box::new(Syntax::Or(Box::new(φ.clone()), Box::new(ψ.clone()))), bound).nnf();
-    let formula_right =
-        Syntax::Or(Box::new(Syntax::Eventually(Box::new(φ.clone()), bound)), Box::new(Syntax::Eventually(Box::new(ψ.clone()), bound))).nnf();
-    check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+#[hegel::test]
+fn test_eventually_disjunction_distributivity(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let ψ = tc.draw(syntax());
+    let bound = tc.draw(bound());
+    let trace = tc.draw(trace());
+
+    let formula_left = Syntax::Eventually(
+        Box::new(Syntax::Or(Box::new(φ.clone()), Box::new(ψ.clone()))),
+        bound,
+    )
+    .nnf();
+    let formula_right = Syntax::Or(
+        Box::new(Syntax::Eventually(Box::new(φ.clone()), bound)),
+        Box::new(Syntax::Eventually(Box::new(ψ.clone()), bound)),
+    )
+    .nnf();
+    check_equivalence(
+        formula_left,
+        formula_right,
+        trace,
+        ValueEqMode::UpToViolations,
+    );
 }
 
 // G(φ ∧ ψ) ⇔ (G φ) ∧ (G ψ)
-#[test]
-fn test_always_conjunction_distributivity(φ in syntax(), ψ in syntax(), bound in bound(), trace in trace()) {
-    let formula_left =
-        Syntax::Always(Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone()))), bound).nnf();
-    let formula_right =
-        Syntax::And(Box::new(Syntax::Always(Box::new(φ.clone()), bound)), Box::new(Syntax::Always(Box::new(ψ.clone()), bound))).nnf();
-    check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
-}
+#[hegel::test]
+fn test_always_conjunction_distributivity(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let ψ = tc.draw(syntax());
+    let bound = tc.draw(bound());
+    let trace = tc.draw(trace());
 
+    let formula_left = Syntax::Always(
+        Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone()))),
+        bound,
+    )
+    .nnf();
+    let formula_right = Syntax::And(
+        Box::new(Syntax::Always(Box::new(φ.clone()), bound)),
+        Box::new(Syntax::Always(Box::new(ψ.clone()), bound)),
+    )
+    .nnf();
+    check_equivalence(
+        formula_left,
+        formula_right,
+        trace,
+        ValueEqMode::UpToViolations,
+    );
+}
 
 // Negation propagation
 
 // X(¬φ) ⇔ ¬X(φ)
-#[test]
-fn test_next_self_duality(φ in syntax(), trace in trace()) {
+#[hegel::test]
+fn test_next_self_duality(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let trace = tc.draw(trace());
+
     let formula_left =
         Syntax::Next(Box::new(Syntax::Not(Box::new(φ.clone())))).nnf();
     let formula_right =
@@ -336,33 +384,55 @@ fn test_next_self_duality(φ in syntax(), trace in trace()) {
 }
 
 // G(¬φ) ⇔ ¬F(φ)
-#[test]
-fn test_always_eventually_duality(φ in syntax(), trace in trace()) {
+#[hegel::test]
+fn test_always_eventually_duality(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let trace = tc.draw(trace());
+
     let formula_left =
         Syntax::Always(Box::new(Syntax::Not(Box::new(φ.clone()))), None).nnf();
     let formula_right =
-        Syntax::Not(Box::new(Syntax::Eventually(Box::new(φ.clone()), None))).nnf();
+        Syntax::Not(Box::new(Syntax::Eventually(Box::new(φ.clone()), None)))
+            .nnf();
     check_equivalence(formula_left, formula_right, trace, ValueEqMode::Strict);
 }
 
 // F(φ) ⇔ F(F(φ))
-#[test]
-fn test_eventually_idempotency(φ in syntax(), trace in trace()) {
-    let formula_left =
-        Syntax::Eventually(Box::new(φ.clone()), None).nnf();
-    let formula_right =
-        Syntax::Eventually(Box::new(Syntax::Eventually(Box::new(φ.clone()), None)), None).nnf();
-    check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
+#[hegel::test]
+fn test_eventually_idempotency(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let trace = tc.draw(trace());
+
+    let formula_left = Syntax::Eventually(Box::new(φ.clone()), None).nnf();
+    let formula_right = Syntax::Eventually(
+        Box::new(Syntax::Eventually(Box::new(φ.clone()), None)),
+        None,
+    )
+    .nnf();
+    check_equivalence(
+        formula_left,
+        formula_right,
+        trace,
+        ValueEqMode::UpToViolations,
+    );
 }
 
 // G(φ) ⇔ G(G(φ))
-#[test]
-fn test_always_idempotency(φ in syntax(), trace in trace()) {
-    let formula_left =
-        Syntax::Always(Box::new(φ.clone()), None).nnf();
-    let formula_right =
-        Syntax::Always(Box::new(Syntax::Always(Box::new(φ.clone()), None)), None).nnf();
-    check_equivalence(formula_left, formula_right, trace, ValueEqMode::UpToViolations);
-}
+#[hegel::test]
+fn test_always_idempotency(tc: TestCase) {
+    let φ = tc.draw(syntax());
+    let trace = tc.draw(trace());
 
-*/
+    let formula_left = Syntax::Always(Box::new(φ.clone()), None).nnf();
+    let formula_right = Syntax::Always(
+        Box::new(Syntax::Always(Box::new(φ.clone()), None)),
+        None,
+    )
+    .nnf();
+    check_equivalence(
+        formula_left,
+        formula_right,
+        trace,
+        ValueEqMode::UpToViolations,
+    );
+}
