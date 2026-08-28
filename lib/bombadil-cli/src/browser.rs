@@ -313,7 +313,10 @@ fn reproduce_command_args(
     subcommand: &str,
     shared: &TestSharedOptions,
 ) -> Vec<String> {
-    let mut args = vec![subcommand.to_string(), shared.origin.url.to_string()];
+    let mut args = vec![
+        subcommand.to_string(),
+        shell_quote(shared.origin.url.as_str()),
+    ];
     if let Some(path) = &shared.specification_file {
         args.push(path.display().to_string());
     }
@@ -338,6 +341,10 @@ fn reproduce_command_args(
         args.push(format!("--cookie {cookie}"));
     }
     args
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
 async fn resolve_test_mode(
