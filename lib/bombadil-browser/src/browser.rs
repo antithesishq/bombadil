@@ -406,7 +406,24 @@ impl Browser {
             Box::pin(browser_events),
             receiver_to_stream(inner_events_receiver),
         ]);
-        run_state_machine(context, events_all, done_sender);
+
+        let state_shared = InnerStateShared::default();
+        let state_initial = InnerState {
+            kind: if browser_options.create_target {
+                InnerStateKind::Navigating {
+                    url: context.origin.clone().into(),
+                }
+            } else {
+                let timer = start_quiescence_timer(
+                    &state_shared,
+                    &context,
+                    &context.inner_events_sender,
+                );
+                InnerStateKind::Running(timer)
+            },
+            shared: state_shared,
+        };
+        run_state_machine(context, events_all, state_initial, done_sender);
 
         Ok(Browser {
             browser: Some(browser),
@@ -494,7 +511,11 @@ impl Browser {
     }
 
     pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
-        let _ = self.page.evaluate_on_new_document(script).await?;
+        let add_script = page::AddScriptToEvaluateOnNewDocumentParams {
+            run_immediately: Some(true),
+            ..script.into()
+        };
+        let _ = self.page.evaluate_on_new_document(add_script).await?;
 
         let main_execution_context_id = self
             .page
@@ -749,15 +770,11 @@ async fn inner_events(
 fn run_state_machine(
     mut context: BrowserContext,
     mut events: impl stream::Stream<Item = InnerEvent> + Send + Unpin + 'static,
+    mut state_current: InnerState,
     done_sender: oneshot::Sender<()>,
 ) {
     spawn(async move {
         let result = async {
-            let shared = InnerStateShared::default();
-            let mut state_current = InnerState {
-                kind: InnerStateKind::Navigating { url: context.origin.clone().into() },
-                shared,
-            };
             log::info!("processing events");
             loop {
                 select! {
@@ -1378,7 +1395,7 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         .first()
         .ok_or(anyhow!("no page target available"))?;
 
-    if page_targets.len() > 2 {
+    if page_targets.len() > 1 {
         log::warn!(
             "there are multiple open page targets, picking the first one: {}",
             target.url
@@ -1388,6 +1405,8 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         log::debug!("attempt {attempt} at finding existing page");
         sleep(Duration::from_millis(100 * attempt)).await;
         if let Ok(page) = browser.get_page(target.target_id.clone()).await {
+            let title = page.get_title().await?;
+            log::info!("attached to existin page with title: {:?}", title);
             return Ok(page);
         }
     }
