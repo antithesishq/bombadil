@@ -1,0 +1,16 @@
+[package]
+name = "cdp_protocol"
+version.workspace = true
+edition.workspace = true
+authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "Oskar Wickström <oskar.wickstrom@antithesis.com>"]
+include = ["src/**/*", "*.pdl", "LICENSE-*"]
+
+[dev-dependencies]
+cdp_pdl = { path = "../pdl" }
+tempfile.workspace = true
+
+[dependencies]
+cdp_pdl = { path = "../pdl" }
+cdp_types = { path = "../types" }
+serde.workspace = true
+serde_json.workspace = true

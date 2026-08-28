@@ -160,7 +160,7 @@ dependencies = [
  "log",
  "pin-project-lite",
  "tokio",
- "tungstenite",
+ "tungstenite 0.28.0",
 ]
 
 [[package]]
@@ -334,7 +334,7 @@ dependencies = [
  "oneshot",
  "paste",
  "portable-atomic",
- "rand 0.10.1",
+ "rand 0.10.2",
  "regress",
  "rustc-hash",
  "ryu-js",
@@ -439,12 +439,13 @@ dependencies = [
  "insta",
  "log",
  "num-traits",
+ "oneshot",
  "owo-colors",
  "oxc",
  "oxc_resolver",
  "oxc_str",
  "oxc_traverse",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rand_distr",
  "rand_regex",
  "regex",
@@ -480,7 +481,7 @@ dependencies = [
  "oxc",
  "oxc_str",
  "oxc_traverse",
- "rand 0.10.1",
+ "rand 0.10.2",
  "regex-syntax",
  "scraper",
  "serde",
@@ -506,7 +507,7 @@ dependencies = [
  "indoc",
  "insta",
  "log",
- "rand 0.10.1",
+ "rand 0.10.2",
  "tempfile",
  "tokio",
  "tower",
@@ -539,7 +540,7 @@ dependencies = [
  "log",
  "mime_guess",
  "open",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "tempfile",
@@ -604,7 +605,7 @@ dependencies = [
  "log",
  "owo-colors",
  "portable-pty",
- "rand 0.10.1",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "small-string",
@@ -699,6 +700,56 @@ checksum = "5add81bb678e6cb321aff7fa0dc7689ad82b112dbc032cea19f91d6b8e3582b9"
 dependencies = [
  "find-msvc-tools",
  "shlex",
+]
+
+[[package]]
+name = "cdp"
+version = "0.7.2"
+dependencies = [
+ "anyhow",
+ "cdp_protocol",
+ "cdp_types",
+ "env_logger",
+ "log",
+ "oneshot",
+ "serde",
+ "serde_json",
+ "tungstenite 0.30.0",
+]
+
+[[package]]
+name = "cdp_pdl"
+version = "0.7.2"
+dependencies = [
+ "anyhow",
+ "cdp_types",
+ "either",
+ "heck",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cdp_protocol"
+version = "0.7.2"
+dependencies = [
+ "cdp_pdl",
+ "cdp_types",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "cdp_types"
+version = "0.7.2"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1902,7 +1953,7 @@ dependencies = [
  "miniz_oxide",
  "parking_lot",
  "paste",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rustc-hash",
  "serde",
  "tempfile",
@@ -1920,7 +1971,7 @@ dependencies = [
  "dashu-int",
  "miniz_oxide",
  "parking_lot",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rustc-hash",
  "serde",
  "tempfile",
@@ -3635,9 +3686,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
 dependencies = [
  "chacha20",
  "getrandom 0.4.2",
@@ -3695,7 +3746,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d431c2703ccf129de4d45253c03f49ebb22b97d6ad79ee3ecfc7e3f4862c1d8"
 dependencies = [
  "num-traits",
- "rand 0.10.1",
+ "rand 0.10.2",
 ]
 
 [[package]]
@@ -3704,7 +3755,7 @@ version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "79e745eeef604742ec751000e44d91cdc0552aacacb2c74bee88cc7685918cfa"
 dependencies = [
- "rand 0.10.1",
+ "rand 0.10.2",
  "regex-syntax",
 ]
 
@@ -4802,6 +4853,22 @@ dependencies = [
  "sha1 0.10.6",
  "thiserror 2.0.18",
  "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http 1.4.0",
+ "httparse",
+ "log",
+ "rand 0.10.2",
+ "sha1 0.11.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

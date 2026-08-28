@@ -1,0 +1,296 @@
+# Copyright 2017 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+#
+# Contributing to Chrome DevTools Protocol: https://goo.gle/devtools-contribution-guide-cdp
+
+experimental domain Storage
+  depends on Browser
+  depends on Network
+
+  type SerializedStorageKey extends string
+
+  # Enum of possible storage types.
+  type StorageType extends string
+    enum
+      cookies
+      file_systems
+      indexeddb
+      local_storage
+      shader_cache
+      websql
+      service_workers
+      cache_storage
+      storage_buckets
+      all
+      other
+
+  # Usage for a storage type.
+  type UsageForType extends object
+    properties
+      # Name of storage type.
+      StorageType storageType
+      # Storage usage (bytes).
+      number usage
+
+  # Pair of issuer origin and number of available (signed, but not used) Trust
+  # Tokens from that issuer.
+  experimental type TrustTokens extends object
+    properties
+      string issuerOrigin
+      number count
+
+
+  type StorageBucketsDurability extends string
+    enum
+      relaxed
+      strict
+
+  type StorageBucket extends object
+    properties
+      SerializedStorageKey storageKey
+      # If not specified, it is the default bucket of the storageKey.
+      optional string name
+
+  type StorageBucketInfo extends object
+    properties
+      StorageBucket bucket
+      string id
+      Network.TimeSinceEpoch expiration
+      # Storage quota (bytes).
+      number quota
+      boolean persistent
+      StorageBucketsDurability durability
+
+  # Returns a storage key given a frame id.
+  # Deprecated. Please use Storage.getStorageKey instead.
+  deprecated command getStorageKeyForFrame
+    parameters
+      Page.FrameId frameId
+    returns
+      SerializedStorageKey storageKey
+
+  # Returns storage key for the given frame. If no frame ID is provided,
+  # the storage key of the target executing this command is returned.
+  experimental command getStorageKey
+    parameters
+      optional Page.FrameId frameId
+    returns
+      SerializedStorageKey storageKey
+
+  # Clears storage for origin.
+  command clearDataForOrigin
+    parameters
+      # Security origin.
+      string origin
+      # Comma separated list of StorageType to clear.
+      string storageTypes
+
+  # Clears storage for storage key.
+  command clearDataForStorageKey
+    parameters
+      # Storage key.
+      string storageKey
+      # Comma separated list of StorageType to clear.
+      string storageTypes
+
+  # Returns all browser cookies.
+  command getCookies
+    parameters
+      # Browser context to use when called on the browser endpoint.
+      optional Browser.BrowserContextID browserContextId
+    returns
+      # Array of cookie objects.
+      array of Network.Cookie cookies
+
+  # Sets given cookies.
+  command setCookies
+    parameters
+      # Cookies to be set.
+      array of Network.CookieParam cookies
+      # Browser context to use when called on the browser endpoint.
+      optional Browser.BrowserContextID browserContextId
+
+  # Clears cookies.
+  command clearCookies
+    parameters
+      # Browser context to use when called on the browser endpoint.
+      optional Browser.BrowserContextID browserContextId
+
+  # Returns usage and quota in bytes.
+  command getUsageAndQuota
+    parameters
+      # Security origin.
+      string origin
+    returns
+      # Storage usage (bytes).
+      number usage
+      # Storage quota (bytes).
+      number quota
+      # Whether or not the origin has an active storage quota override
+      boolean overrideActive
+      # Storage usage per type (bytes).
+      array of UsageForType usageBreakdown
+
+  # Override quota for the specified origin
+  experimental command overrideQuotaForOrigin
+    parameters
+      # Security origin.
+      string origin
+      # The quota size (in bytes) to override the original quota with.
+      # If this is called multiple times, the overridden quota will be equal to
+      # the quotaSize provided in the final call. If this is called without
+      # specifying a quotaSize, the quota will be reset to the default value for
+      # the specified origin. If this is called multiple times with different
+      # origins, the override will be maintained for each origin until it is
+      # disabled (called without a quotaSize).
+      optional number quotaSize
+
+  # Registers origin to be notified when an update occurs to its cache storage list.
+  command trackCacheStorageForOrigin
+    parameters
+      # Security origin.
+      string origin
+
+  # Registers storage key to be notified when an update occurs to its cache storage list.
+  command trackCacheStorageForStorageKey
+    parameters
+      # Storage key.
+      string storageKey
+
+  # Registers origin to be notified when an update occurs to its IndexedDB.
+  command trackIndexedDBForOrigin
+    parameters
+      # Security origin.
+      string origin
+
+  # Registers storage key to be notified when an update occurs to its IndexedDB.
+  command trackIndexedDBForStorageKey
+    parameters
+      # Storage key.
+      string storageKey
+
+  # Unregisters origin from receiving notifications for cache storage.
+  command untrackCacheStorageForOrigin
+    parameters
+      # Security origin.
+      string origin
+
+  # Unregisters storage key from receiving notifications for cache storage.
+  command untrackCacheStorageForStorageKey
+    parameters
+      # Storage key.
+      string storageKey
+
+  # Unregisters origin from receiving notifications for IndexedDB.
+  command untrackIndexedDBForOrigin
+    parameters
+      # Security origin.
+      string origin
+
+  # Unregisters storage key from receiving notifications for IndexedDB.
+  command untrackIndexedDBForStorageKey
+    parameters
+      # Storage key.
+      string storageKey
+
+  # Returns the number of stored Trust Tokens per issuer for the
+  # current browsing context.
+  experimental command getTrustTokens
+    returns
+      array of TrustTokens tokens
+
+  # Removes all Trust Tokens issued by the provided issuerOrigin.
+  # Leaves other stored data, including the issuer's Redemption Records, intact.
+  experimental command clearTrustTokens
+    parameters
+      string issuerOrigin
+    returns
+      # True if any tokens were deleted, false otherwise.
+      boolean didDeleteTokens
+
+  # Set tracking for a storage key's buckets.
+  experimental command setStorageBucketTracking
+    parameters
+      string storageKey
+      boolean enable
+
+  # Deletes the Storage Bucket with the given storage key and bucket name.
+  experimental command deleteStorageBucket
+    parameters
+      StorageBucket bucket
+
+  # Deletes state for sites identified as potential bounce trackers, immediately.
+  experimental command runBounceTrackingMitigations
+    returns
+      array of string deletedSites
+
+  # A cache's contents have been modified.
+  event cacheStorageContentUpdated
+    parameters
+      # Origin to update.
+      string origin
+      # Storage key to update.
+      string storageKey
+      # Storage bucket to update.
+      string bucketId
+      # Name of cache in origin.
+      string cacheName
+
+  # A cache has been added/deleted.
+  event cacheStorageListUpdated
+    parameters
+      # Origin to update.
+      string origin
+      # Storage key to update.
+      string storageKey
+      # Storage bucket to update.
+      string bucketId
+
+  # The origin's IndexedDB object store has been modified.
+  event indexedDBContentUpdated
+    parameters
+      # Origin to update.
+      string origin
+      # Storage key to update.
+      string storageKey
+      # Storage bucket to update.
+      string bucketId
+      # Database to update.
+      string databaseName
+      # ObjectStore to update.
+      string objectStoreName
+
+  # The origin's IndexedDB database list has been modified.
+  event indexedDBListUpdated
+    parameters
+      # Origin to update.
+      string origin
+      # Storage key to update.
+      string storageKey
+      # Storage bucket to update.
+      string bucketId
+
+  event storageBucketCreatedOrUpdated
+    parameters
+      StorageBucketInfo bucketInfo
+
+  event storageBucketDeleted
+    parameters
+      string bucketId
+
+  # A single Related Website Set object.
+  experimental type RelatedWebsiteSet extends object
+    properties
+      # The primary site of this set, along with the ccTLDs if there is any.
+      array of string primarySites
+      # The associated sites of this set, along with the ccTLDs if there is any.
+      array of string associatedSites
+      # The service sites of this set, along with the ccTLDs if there is any.
+      array of string serviceSites
+
+  # Returns the effective Related Website Sets in use by this profile for the browser
+  # session. The effective Related Website Sets will not change during a browser session.
+  experimental command getRelatedWebsiteSets
+    returns
+      array of RelatedWebsiteSet sets

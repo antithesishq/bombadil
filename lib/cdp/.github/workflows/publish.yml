@@ -1,0 +1,57 @@
+name: Publish
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
+jobs:
+  publish:
+    if: github.repository == 'mattsse/chromiumoxide'
+    runs-on: ubuntu-latest
+
+    strategy:
+      max-parallel: 1
+      matrix:
+        package:
+          - name: chromiumoxide_types
+            path: chromiumoxide_types
+          - name: chromiumoxide_pdl
+            path: chromiumoxide_pdl
+          - name: chromiumoxide_cdp
+            path: chromiumoxide_cdp
+          - name: chromiumoxide_fetcher
+            path: chromiumoxide_fetcher
+          - name: chromiumoxide
+            path: .
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get version
+        id: meta
+        working-directory: ${{ matrix.package.path }}
+        run: |
+          PACKAGE_VERSION=$(sed -nE 's/^\s*version = "(.*?)"/\1/p' Cargo.toml)
+          PUBLISHED_VERSION=$(cargo search ${{ matrix.package.name }} --limit 1 | sed -nE 's/^[^"]*"//; s/".*//1p' -)
+          if [ "$PACKAGE_VERSION" != "$PUBLISHED_VERSION" ]; then
+            echo "release=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Authenticate with crates.io
+        id: auth
+        if: steps.meta.outputs.release == 'true'
+        uses: rust-lang/crates-io-auth-action@b7e9a28eded4986ec6b1fa40eeee8f8f165559ec # v1.0.3
+
+      - name: Publish ${{ matrix.package.name }}
+        if: steps.meta.outputs.release == 'true'
+        working-directory: ${{ matrix.package.path }}
+        run: |
+          cargo login ${{ steps.auth.outputs.token }}
+          cargo publish --no-verify

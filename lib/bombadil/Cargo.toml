@@ -17,6 +17,7 @@ bombadil-ltl = { path = "../bombadil-ltl" }
 hotpath.workspace = true
 include_dir.workspace = true
 log.workspace = true
+oneshot = { version = "0.2.1", features = ["std"] }
 oxc.workspace = true
 oxc_resolver.workspace = true
 oxc_str.workspace = true

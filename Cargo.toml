@@ -10,6 +10,10 @@ members = [
     "lib/bombadil-inspect",
     "lib/bombadil-schema",
     "lib/bombadil-terminal",
+    "lib/cdp",
+    "lib/cdp/types",
+    "lib/cdp/pdl",
+    "lib/cdp/protocol",
     "lib/small-string",
     "lib/typescript-reference",
     "lib/willow-tree",
@@ -51,6 +55,7 @@ log = "0.4.29"
 mime_guess = "2.0"
 num-traits = "0.2"
 open = "5.0"
+oneshot = { version = "0.2.1", features = ["std"] }
 oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
 oxc_resolver = "11.19.1"
 oxc_codegen = "0.125.0"
@@ -73,6 +78,7 @@ tokio = "1.48.0"
 tokio-stream = "0.1.17"
 tower = "0.5.2"
 tower-http = "0.6.8"
+tungstenite = "0.30.0"
 url = "2.5.7"
 wasm-bindgen = "=0.2.121"
 wasm-bindgen-futures = "0.4"
