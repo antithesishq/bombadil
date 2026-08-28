@@ -38,6 +38,13 @@ fn generated_code_is_fresh() {
     let new = fs::read_to_string(tmp.path().join("cdp.rs")).unwrap();
     let src = dir.join("src/cdp.rs");
     let old = fs::read_to_string(&src).unwrap();
+
+    for (i, (l1, l2)) in new.lines().zip(old.lines()).enumerate() {
+        if l1 != l2 {
+            eprintln!("line {} differs:\n\n{}\n\n!=\n\n{}", i, l1, l2);
+        }
+    }
+
     if new != old {
         fs::write(src, new).unwrap();
         panic!("generated code in the repository is outdated, updating...");
