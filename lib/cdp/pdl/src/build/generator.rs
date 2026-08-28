@@ -4,7 +4,7 @@ use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Error};
 use std::ops::Deref;
@@ -63,10 +63,10 @@ pub struct Generator {
     allowed_domains: Option<HashSet<String>>,
     out_dir: Option<PathBuf>,
     protocol_mods: Vec<String>,
-    domains: HashMap<String, usize>,
+    domains: BTreeMap<String, usize>,
     target_mod: Option<String>,
     /// Used to store the size of a specific type
-    type_size: HashMap<String, usize>,
+    type_size: BTreeMap<String, usize>,
     /// Used to fix a type's size later if the ref was not processed yet
     ref_sizes: VecDeque<(String, String)>,
     /// This contains a list of all enums of all domains with their qualified

@@ -5,6 +5,10 @@ edition.workspace = true
 authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "Oskar Wickström <oskar.wickstrom@antithesis.com>"]
 include = ["src/**/*", "*.pdl", "LICENSE-*"]
 
+[[bin]]
+name = "cdp_protocol_generate"
+path = "src/bin.rs"
+
 [dev-dependencies]
 cdp_pdl = { path = "../pdl" }
 tempfile.workspace = true
