@@ -7,12 +7,12 @@ authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "Oskar Wickström <oska
 license = "MIT"
 
 [dependencies]
-serde.workspace = true
-serde_json.workspace = true
 anyhow.workspace = true
-tungstenite.workspace = true
-cdp_types = { path = "types" }
+crossbeam-channel.workspace = true
 cdp_protocol = { path = "protocol" }
-oneshot.workspace = true
-log.workspace = true
+cdp_types = { path = "types" }
 env_logger.workspace = true
+log.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+tungstenite.workspace = true

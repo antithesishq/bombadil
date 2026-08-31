@@ -8,4 +8,5 @@ pub use crate::error::{CdpError, Result};
 
 pub mod conn;
 pub mod error;
+pub mod events;
 pub mod layout;

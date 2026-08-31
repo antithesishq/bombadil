@@ -1,10 +1,10 @@
 use std::io::ErrorKind;
 use std::net::TcpStream;
-use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use crossbeam_channel as mpmc;
 use tungstenite::client::{IntoClientRequest, connect_with_config};
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
@@ -18,18 +18,17 @@ use serde_json as json;
 use anyhow::{Context, anyhow, bail, ensure};
 
 use crate::error::Result;
+use crate::events::Events;
 
 #[derive(Debug)]
 pub struct Connection {
     next_id: usize,
-    worker_tx: mpsc::SyncSender<WorkerRequest>,
+    worker_tx: mpmc::Sender<WorkerRequest>,
     handle: thread::JoinHandle<Result<()>>,
 }
 
 impl Connection {
-    pub fn connect(
-        url: impl IntoClientRequest,
-    ) -> Result<(Self, mpsc::Receiver<CdpJsonEventMessage>)> {
+    pub fn connect(url: impl IntoClientRequest) -> Result<(Self, Events)> {
         let config = WebSocketConfig::default()
             .max_message_size(None)
             .max_frame_size(None);
@@ -42,8 +41,8 @@ impl Connection {
             _ => bail!("unsupported stream type"),
         }
 
-        let (events_tx, events_rx) = mpsc::sync_channel(1024);
-        let (worker_tx, worker_rx) = mpsc::sync_channel(1);
+        let (events_tx, events_rx) = mpmc::bounded(1024);
+        let (worker_tx, worker_rx) = mpmc::bounded(1);
 
         let handle =
             thread::spawn(move || websocket_worker(ws, worker_rx, events_tx));
@@ -54,7 +53,9 @@ impl Connection {
                 worker_tx,
                 handle,
             },
-            events_rx,
+            Events {
+                receiver: events_rx,
+            },
         ))
     }
 
@@ -78,7 +79,7 @@ impl Connection {
             session_id: session_id.map(|id| id.inner().into()),
             params: serde_json::to_value(&cmd)?,
         };
-        let (reply_tx, reply_rx) = oneshot::channel();
+        let (reply_tx, reply_rx) = mpmc::bounded(1);
         self.worker_tx.send(WorkerRequest::Send {
             call,
             reply: reply_tx,
@@ -107,15 +108,15 @@ impl Connection {
 enum WorkerRequest {
     Send {
         call: MethodCall,
-        reply: oneshot::Sender<json::Value>,
+        reply: mpmc::Sender<json::Value>,
     },
     Close,
 }
 
 fn websocket_worker(
     mut ws: WebSocket<MaybeTlsStream<TcpStream>>,
-    requests_rx: mpsc::Receiver<WorkerRequest>,
-    events_tx: mpsc::SyncSender<CdpJsonEventMessage>,
+    requests_rx: mpmc::Receiver<WorkerRequest>,
+    events_tx: mpmc::Sender<CdpJsonEventMessage>,
 ) -> Result<()> {
     log::info!("starting websocket worker");
     let mut call_current = None;
@@ -134,9 +135,9 @@ fn websocket_worker(
                 ws.close(None)?;
                 return Ok(());
             }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {
-                bail!("command channel closed unexpectedly");
+            Err(mpmc::TryRecvError::Empty) => {}
+            Err(mpmc::TryRecvError::Disconnected) => {
+                bail!("command mpmc closed unexpectedly");
             }
         };
         match ws.read() {

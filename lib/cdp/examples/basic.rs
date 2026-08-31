@@ -61,11 +61,8 @@ fn main() -> Result<()> {
         Some(&session_id),
     )?;
 
-    while let event = events.recv()?
-        && event.method_name() != "loadEventFired"
-    {
-        log::info!("Awaiting page load...");
-    }
+    let _ = events.subscribe::<page::EventLoadEventFired>().next()?;
+    log::info!("Got page load...");
 
     let _ = conn.send(
         target::CloseTargetParams {
@@ -74,8 +71,10 @@ fn main() -> Result<()> {
         None,
     )?;
 
+    drop(conn);
+
     println!("Residual events:");
-    while let Ok(event) = events.try_recv() {
+    for event in events.all() {
         println!("${}: {}", event.method_name(), event.params);
     }
     println!("Done.");
