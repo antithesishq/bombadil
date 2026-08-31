@@ -4,6 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
+use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use tungstenite::client::{IntoClientRequest, connect_with_config};
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
@@ -66,7 +67,7 @@ impl Connection {
     pub fn send<T: Command>(
         &mut self,
         cmd: T,
-        session_id: Option<String>,
+        session_id: Option<&SessionId>,
     ) -> Result<T::Response> {
         let call_id = self.next_call_id();
         log::info!("sending {} ({})", cmd.identifier(), call_id);
@@ -74,7 +75,7 @@ impl Connection {
         let call = MethodCall {
             id: call_id,
             method: cmd.identifier(),
-            session_id,
+            session_id: session_id.map(|id| id.inner().into()),
             params: serde_json::to_value(&cmd)?,
         };
         let (reply_tx, reply_rx) = oneshot::channel();

@@ -48,10 +48,7 @@ fn main() -> Result<()> {
         )?
         .session_id;
 
-    let _ = conn.send(
-        page::EnableParams::default(),
-        Some(session_id.inner().clone()),
-    )?;
+    let _ = conn.send(page::EnableParams::default(), Some(&session_id))?;
 
     let _ = conn.send(
         page::NavigateParams {
@@ -61,7 +58,7 @@ fn main() -> Result<()> {
             frame_id: None,
             referrer_policy: None,
         },
-        Some(session_id.inner().clone()),
+        Some(&session_id),
     )?;
 
     while let event = events.recv()?

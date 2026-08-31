@@ -29513,8 +29513,8 @@ pub mod browser_protocol {
             }
         }
         impl SetSmallViewportHeightDifferenceOverrideParams {
-            pub fn builder(
-            ) -> SetSmallViewportHeightDifferenceOverrideParamsBuilder
+            pub fn builder()
+            -> SetSmallViewportHeightDifferenceOverrideParamsBuilder
             {
                 SetSmallViewportHeightDifferenceOverrideParamsBuilder::default()
             }
@@ -52485,9 +52485,7 @@ pub mod browser_protocol {
             EmbedderAppBannerManager,
             #[serde(rename = "EmbedderDomDistillerViewerSource")]
             EmbedderDomDistillerViewerSource,
-            #[serde(
-                rename = "EmbedderDomDistillerSelfDeletingRequestDelegate"
-            )]
+            #[serde(rename = "EmbedderDomDistillerSelfDeletingRequestDelegate")]
             EmbedderDomDistillerSelfDeletingRequestDelegate,
             #[serde(rename = "EmbedderOomInterventionTabHelper")]
             EmbedderOomInterventionTabHelper,
@@ -52517,9 +52515,7 @@ pub mod browser_protocol {
             RequestedByWebViewClient,
             #[serde(rename = "PostMessageByWebViewClient")]
             PostMessageByWebViewClient,
-            #[serde(
-                rename = "CacheControlNoStoreDeviceBoundSessionTerminated"
-            )]
+            #[serde(rename = "CacheControlNoStoreDeviceBoundSessionTerminated")]
             CacheControlNoStoreDeviceBoundSessionTerminated,
             #[serde(rename = "CacheLimitPrunedOnModerateMemoryPressure")]
             CacheLimitPrunedOnModerateMemoryPressure,
@@ -61747,7 +61743,7 @@ pub mod browser_protocol {
     }
 }
 pub mod de {
-    use serde::{de, Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, de};
     use std::str::FromStr;
     #[doc = r" Use the `FromStr` implementation to serialize an optional value"]
     pub fn deserialize_from_str_optional<'de, D, T>(
