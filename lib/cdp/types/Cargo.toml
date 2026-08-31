@@ -6,5 +6,6 @@ authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "Oskar Wickström <oska
 include = ["src/**/*", "LICENSE-*"]
 
 [dependencies]
+anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

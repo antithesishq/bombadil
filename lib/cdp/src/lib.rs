@@ -5,6 +5,7 @@ pub use cdp_types::{self as types, Binary, Command, Method, MethodType};
 
 pub use crate::conn::Connection;
 pub use crate::error::{CdpError, Result};
+pub use crate::events::{Events, Subscriber};
 
 pub mod conn;
 pub mod error;

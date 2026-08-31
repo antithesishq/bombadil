@@ -18,6 +18,7 @@ fn main() {
         .allowed_deprecated_type("emulateNetworkConditions")
         .only_domains([
             "Browser",
+            "CSS",
             "DOM",
             "Emulation",
             "Fetch",

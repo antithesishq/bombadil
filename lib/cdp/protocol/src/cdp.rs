@@ -160,6 +160,14 @@ pub mod events {
                 CdpEvent::RuntimeInspectRequested(inner) => inner.identifier(),
                 CdpEvent::BrowserDownloadWillBegin(inner) => inner.identifier(),
                 CdpEvent::BrowserDownloadProgress(inner) => inner.identifier(),
+                CdpEvent::CssFontsUpdated(inner) => inner.identifier(),
+                CdpEvent::CssMediaQueryResultChanged(inner) => {
+                    inner.identifier()
+                }
+                CdpEvent::CssStyleSheetAdded(inner) => inner.identifier(),
+                CdpEvent::CssStyleSheetChanged(inner) => inner.identifier(),
+                CdpEvent::CssStyleSheetRemoved(inner) => inner.identifier(),
+                CdpEvent::CssComputedStyleUpdated(inner) => inner.identifier(),
                 CdpEvent::DomAttributeModified(inner) => inner.identifier(),
                 CdpEvent::DomAdoptedStyleSheetsModified(inner) => {
                     inner.identifier()
@@ -377,7 +385,7 @@ pub mod events {
     }
     #[derive(Debug, Clone, PartialEq)]
     pub enum CdpEvent {
-        DebuggerPaused (Box < super :: js_protocol :: debugger :: EventPaused >) , DebuggerResumed (super :: js_protocol :: debugger :: EventResumed) , DebuggerScriptFailedToParse (Box < super :: js_protocol :: debugger :: EventScriptFailedToParse >) , DebuggerScriptParsed (Box < super :: js_protocol :: debugger :: EventScriptParsed >) , RuntimeBindingCalled (super :: js_protocol :: runtime :: EventBindingCalled) , RuntimeConsoleApiCalled (super :: js_protocol :: runtime :: EventConsoleApiCalled) , RuntimeExceptionRevoked (super :: js_protocol :: runtime :: EventExceptionRevoked) , RuntimeExceptionThrown (Box < super :: js_protocol :: runtime :: EventExceptionThrown >) , RuntimeExecutionContextCreated (super :: js_protocol :: runtime :: EventExecutionContextCreated) , RuntimeExecutionContextDestroyed (super :: js_protocol :: runtime :: EventExecutionContextDestroyed) , RuntimeExecutionContextsCleared (super :: js_protocol :: runtime :: EventExecutionContextsCleared) , RuntimeInspectRequested (Box < super :: js_protocol :: runtime :: EventInspectRequested >) , BrowserDownloadWillBegin (super :: browser_protocol :: browser :: EventDownloadWillBegin) , BrowserDownloadProgress (super :: browser_protocol :: browser :: EventDownloadProgress) , DomAttributeModified (super :: browser_protocol :: dom :: EventAttributeModified) , DomAdoptedStyleSheetsModified (super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified) , DomAttributeRemoved (super :: browser_protocol :: dom :: EventAttributeRemoved) , DomCharacterDataModified (super :: browser_protocol :: dom :: EventCharacterDataModified) , DomChildNodeCountUpdated (super :: browser_protocol :: dom :: EventChildNodeCountUpdated) , DomChildNodeInserted (Box < super :: browser_protocol :: dom :: EventChildNodeInserted >) , DomChildNodeRemoved (super :: browser_protocol :: dom :: EventChildNodeRemoved) , DomDistributedNodesUpdated (super :: browser_protocol :: dom :: EventDistributedNodesUpdated) , DomDocumentUpdated (super :: browser_protocol :: dom :: EventDocumentUpdated) , DomInlineStyleInvalidated (super :: browser_protocol :: dom :: EventInlineStyleInvalidated) , DomPseudoElementAdded (Box < super :: browser_protocol :: dom :: EventPseudoElementAdded >) , DomTopLayerElementsUpdated (super :: browser_protocol :: dom :: EventTopLayerElementsUpdated) , DomScrollableFlagUpdated (super :: browser_protocol :: dom :: EventScrollableFlagUpdated) , DomAdRelatedStateUpdated (super :: browser_protocol :: dom :: EventAdRelatedStateUpdated) , DomAffectedByStartingStylesFlagUpdated (super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated) , DomPseudoElementRemoved (super :: browser_protocol :: dom :: EventPseudoElementRemoved) , DomSetChildNodes (super :: browser_protocol :: dom :: EventSetChildNodes) , DomShadowRootPopped (super :: browser_protocol :: dom :: EventShadowRootPopped) , DomShadowRootPushed (Box < super :: browser_protocol :: dom :: EventShadowRootPushed >) , EmulationVirtualTimeBudgetExpired (super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired) , EmulationScreenOrientationLockChanged (super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged) , FetchRequestPaused (Box < super :: browser_protocol :: fetch :: EventRequestPaused >) , FetchAuthRequired (Box < super :: browser_protocol :: fetch :: EventAuthRequired >) , InputDragIntercepted (super :: browser_protocol :: input :: EventDragIntercepted) , NetworkDataReceived (super :: browser_protocol :: network :: EventDataReceived) , NetworkEventSourceMessageReceived (super :: browser_protocol :: network :: EventEventSourceMessageReceived) , NetworkLoadingFailed (super :: browser_protocol :: network :: EventLoadingFailed) , NetworkLoadingFinished (super :: browser_protocol :: network :: EventLoadingFinished) , NetworkRequestServedFromCache (super :: browser_protocol :: network :: EventRequestServedFromCache) , NetworkRequestWillBeSent (Box < super :: browser_protocol :: network :: EventRequestWillBeSent >) , NetworkResourceChangedPriority (super :: browser_protocol :: network :: EventResourceChangedPriority) , NetworkSignedExchangeReceived (Box < super :: browser_protocol :: network :: EventSignedExchangeReceived >) , NetworkResponseReceived (Box < super :: browser_protocol :: network :: EventResponseReceived >) , NetworkWebSocketClosed (super :: browser_protocol :: network :: EventWebSocketClosed) , NetworkWebSocketCreated (Box < super :: browser_protocol :: network :: EventWebSocketCreated >) , NetworkWebSocketFrameError (super :: browser_protocol :: network :: EventWebSocketFrameError) , NetworkWebSocketFrameReceived (super :: browser_protocol :: network :: EventWebSocketFrameReceived) , NetworkWebSocketFrameSent (super :: browser_protocol :: network :: EventWebSocketFrameSent) , NetworkWebSocketHandshakeResponseReceived (Box < super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived >) , NetworkWebSocketWillSendHandshakeRequest (super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest) , NetworkWebTransportCreated (Box < super :: browser_protocol :: network :: EventWebTransportCreated >) , NetworkWebTransportConnectionEstablished (super :: browser_protocol :: network :: EventWebTransportConnectionEstablished) , NetworkWebTransportClosed (super :: browser_protocol :: network :: EventWebTransportClosed) , NetworkDirectTcpSocketCreated (Box < super :: browser_protocol :: network :: EventDirectTcpSocketCreated >) , NetworkDirectTcpSocketOpened (super :: browser_protocol :: network :: EventDirectTcpSocketOpened) , NetworkDirectTcpSocketAborted (super :: browser_protocol :: network :: EventDirectTcpSocketAborted) , NetworkDirectTcpSocketClosed (super :: browser_protocol :: network :: EventDirectTcpSocketClosed) , NetworkDirectTcpSocketChunkSent (super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent) , NetworkDirectTcpSocketChunkReceived (super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived) , NetworkDirectUdpSocketJoinedMulticastGroup (super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup) , NetworkDirectUdpSocketLeftMulticastGroup (super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup) , NetworkDirectUdpSocketCreated (Box < super :: browser_protocol :: network :: EventDirectUdpSocketCreated >) , NetworkDirectUdpSocketOpened (super :: browser_protocol :: network :: EventDirectUdpSocketOpened) , NetworkDirectUdpSocketAborted (super :: browser_protocol :: network :: EventDirectUdpSocketAborted) , NetworkDirectUdpSocketClosed (super :: browser_protocol :: network :: EventDirectUdpSocketClosed) , NetworkDirectUdpSocketChunkSent (super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent) , NetworkDirectUdpSocketChunkReceived (super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived) , NetworkRequestWillBeSentExtraInfo (Box < super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo >) , NetworkResponseReceivedExtraInfo (Box < super :: browser_protocol :: network :: EventResponseReceivedExtraInfo >) , NetworkResponseReceivedEarlyHints (super :: browser_protocol :: network :: EventResponseReceivedEarlyHints) , NetworkTrustTokenOperationDone (super :: browser_protocol :: network :: EventTrustTokenOperationDone) , NetworkPolicyUpdated (super :: browser_protocol :: network :: EventPolicyUpdated) , NetworkReportingApiReportAdded (Box < super :: browser_protocol :: network :: EventReportingApiReportAdded >) , NetworkReportingApiReportUpdated (Box < super :: browser_protocol :: network :: EventReportingApiReportUpdated >) , NetworkReportingApiEndpointsChangedForOrigin (super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin) , NetworkDeviceBoundSessionsAdded (super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded) , NetworkDeviceBoundSessionEventOccurred (Box < super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred >) , PageDomContentEventFired (super :: browser_protocol :: page :: EventDomContentEventFired) , PageFileChooserOpened (super :: browser_protocol :: page :: EventFileChooserOpened) , PageFrameAttached (super :: browser_protocol :: page :: EventFrameAttached) , PageFrameDetached (super :: browser_protocol :: page :: EventFrameDetached) , PageFrameSubtreeWillBeDetached (super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached) , PageFrameNavigated (Box < super :: browser_protocol :: page :: EventFrameNavigated >) , PageDocumentOpened (Box < super :: browser_protocol :: page :: EventDocumentOpened >) , PageFrameResized (super :: browser_protocol :: page :: EventFrameResized) , PageFrameStartedNavigating (super :: browser_protocol :: page :: EventFrameStartedNavigating) , PageFrameRequestedNavigation (super :: browser_protocol :: page :: EventFrameRequestedNavigation) , PageFrameStartedLoading (super :: browser_protocol :: page :: EventFrameStartedLoading) , PageFrameStoppedLoading (super :: browser_protocol :: page :: EventFrameStoppedLoading) , PageInterstitialHidden (super :: browser_protocol :: page :: EventInterstitialHidden) , PageInterstitialShown (super :: browser_protocol :: page :: EventInterstitialShown) , PageJavascriptDialogClosed (super :: browser_protocol :: page :: EventJavascriptDialogClosed) , PageJavascriptDialogOpening (super :: browser_protocol :: page :: EventJavascriptDialogOpening) , PageLifecycleEvent (super :: browser_protocol :: page :: EventLifecycleEvent) , PageBackForwardCacheNotUsed (super :: browser_protocol :: page :: EventBackForwardCacheNotUsed) , PageLoadEventFired (super :: browser_protocol :: page :: EventLoadEventFired) , PageNavigatedWithinDocument (super :: browser_protocol :: page :: EventNavigatedWithinDocument) , PageScreencastFrame (super :: browser_protocol :: page :: EventScreencastFrame) , PageScreencastVisibilityChanged (super :: browser_protocol :: page :: EventScreencastVisibilityChanged) , PageWindowOpen (super :: browser_protocol :: page :: EventWindowOpen) , PageCompilationCacheProduced (super :: browser_protocol :: page :: EventCompilationCacheProduced) , PerformanceMetrics (super :: browser_protocol :: performance :: EventMetrics) , SecurityVisibleSecurityStateChanged (Box < super :: browser_protocol :: security :: EventVisibleSecurityStateChanged >) , TargetAttachedToTarget (Box < super :: browser_protocol :: target :: EventAttachedToTarget >) , TargetDetachedFromTarget (super :: browser_protocol :: target :: EventDetachedFromTarget) , TargetReceivedMessageFromTarget (super :: browser_protocol :: target :: EventReceivedMessageFromTarget) , TargetTargetCreated (Box < super :: browser_protocol :: target :: EventTargetCreated >) , TargetTargetDestroyed (super :: browser_protocol :: target :: EventTargetDestroyed) , TargetTargetCrashed (super :: browser_protocol :: target :: EventTargetCrashed) , TargetTargetInfoChanged (Box < super :: browser_protocol :: target :: EventTargetInfoChanged >) , Other (serde_json :: Value) }
+        DebuggerPaused (Box < super :: js_protocol :: debugger :: EventPaused >) , DebuggerResumed (super :: js_protocol :: debugger :: EventResumed) , DebuggerScriptFailedToParse (Box < super :: js_protocol :: debugger :: EventScriptFailedToParse >) , DebuggerScriptParsed (Box < super :: js_protocol :: debugger :: EventScriptParsed >) , RuntimeBindingCalled (super :: js_protocol :: runtime :: EventBindingCalled) , RuntimeConsoleApiCalled (super :: js_protocol :: runtime :: EventConsoleApiCalled) , RuntimeExceptionRevoked (super :: js_protocol :: runtime :: EventExceptionRevoked) , RuntimeExceptionThrown (Box < super :: js_protocol :: runtime :: EventExceptionThrown >) , RuntimeExecutionContextCreated (super :: js_protocol :: runtime :: EventExecutionContextCreated) , RuntimeExecutionContextDestroyed (super :: js_protocol :: runtime :: EventExecutionContextDestroyed) , RuntimeExecutionContextsCleared (super :: js_protocol :: runtime :: EventExecutionContextsCleared) , RuntimeInspectRequested (Box < super :: js_protocol :: runtime :: EventInspectRequested >) , BrowserDownloadWillBegin (super :: browser_protocol :: browser :: EventDownloadWillBegin) , BrowserDownloadProgress (super :: browser_protocol :: browser :: EventDownloadProgress) , CssFontsUpdated (Box < super :: browser_protocol :: css :: EventFontsUpdated >) , CssMediaQueryResultChanged (super :: browser_protocol :: css :: EventMediaQueryResultChanged) , CssStyleSheetAdded (super :: browser_protocol :: css :: EventStyleSheetAdded) , CssStyleSheetChanged (super :: browser_protocol :: css :: EventStyleSheetChanged) , CssStyleSheetRemoved (super :: browser_protocol :: css :: EventStyleSheetRemoved) , CssComputedStyleUpdated (super :: browser_protocol :: css :: EventComputedStyleUpdated) , DomAttributeModified (super :: browser_protocol :: dom :: EventAttributeModified) , DomAdoptedStyleSheetsModified (super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified) , DomAttributeRemoved (super :: browser_protocol :: dom :: EventAttributeRemoved) , DomCharacterDataModified (super :: browser_protocol :: dom :: EventCharacterDataModified) , DomChildNodeCountUpdated (super :: browser_protocol :: dom :: EventChildNodeCountUpdated) , DomChildNodeInserted (Box < super :: browser_protocol :: dom :: EventChildNodeInserted >) , DomChildNodeRemoved (super :: browser_protocol :: dom :: EventChildNodeRemoved) , DomDistributedNodesUpdated (super :: browser_protocol :: dom :: EventDistributedNodesUpdated) , DomDocumentUpdated (super :: browser_protocol :: dom :: EventDocumentUpdated) , DomInlineStyleInvalidated (super :: browser_protocol :: dom :: EventInlineStyleInvalidated) , DomPseudoElementAdded (Box < super :: browser_protocol :: dom :: EventPseudoElementAdded >) , DomTopLayerElementsUpdated (super :: browser_protocol :: dom :: EventTopLayerElementsUpdated) , DomScrollableFlagUpdated (super :: browser_protocol :: dom :: EventScrollableFlagUpdated) , DomAdRelatedStateUpdated (super :: browser_protocol :: dom :: EventAdRelatedStateUpdated) , DomAffectedByStartingStylesFlagUpdated (super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated) , DomPseudoElementRemoved (super :: browser_protocol :: dom :: EventPseudoElementRemoved) , DomSetChildNodes (super :: browser_protocol :: dom :: EventSetChildNodes) , DomShadowRootPopped (super :: browser_protocol :: dom :: EventShadowRootPopped) , DomShadowRootPushed (Box < super :: browser_protocol :: dom :: EventShadowRootPushed >) , EmulationVirtualTimeBudgetExpired (super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired) , EmulationScreenOrientationLockChanged (super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged) , FetchRequestPaused (Box < super :: browser_protocol :: fetch :: EventRequestPaused >) , FetchAuthRequired (Box < super :: browser_protocol :: fetch :: EventAuthRequired >) , InputDragIntercepted (super :: browser_protocol :: input :: EventDragIntercepted) , NetworkDataReceived (super :: browser_protocol :: network :: EventDataReceived) , NetworkEventSourceMessageReceived (super :: browser_protocol :: network :: EventEventSourceMessageReceived) , NetworkLoadingFailed (super :: browser_protocol :: network :: EventLoadingFailed) , NetworkLoadingFinished (super :: browser_protocol :: network :: EventLoadingFinished) , NetworkRequestServedFromCache (super :: browser_protocol :: network :: EventRequestServedFromCache) , NetworkRequestWillBeSent (Box < super :: browser_protocol :: network :: EventRequestWillBeSent >) , NetworkResourceChangedPriority (super :: browser_protocol :: network :: EventResourceChangedPriority) , NetworkSignedExchangeReceived (Box < super :: browser_protocol :: network :: EventSignedExchangeReceived >) , NetworkResponseReceived (Box < super :: browser_protocol :: network :: EventResponseReceived >) , NetworkWebSocketClosed (super :: browser_protocol :: network :: EventWebSocketClosed) , NetworkWebSocketCreated (Box < super :: browser_protocol :: network :: EventWebSocketCreated >) , NetworkWebSocketFrameError (super :: browser_protocol :: network :: EventWebSocketFrameError) , NetworkWebSocketFrameReceived (super :: browser_protocol :: network :: EventWebSocketFrameReceived) , NetworkWebSocketFrameSent (super :: browser_protocol :: network :: EventWebSocketFrameSent) , NetworkWebSocketHandshakeResponseReceived (Box < super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived >) , NetworkWebSocketWillSendHandshakeRequest (super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest) , NetworkWebTransportCreated (Box < super :: browser_protocol :: network :: EventWebTransportCreated >) , NetworkWebTransportConnectionEstablished (super :: browser_protocol :: network :: EventWebTransportConnectionEstablished) , NetworkWebTransportClosed (super :: browser_protocol :: network :: EventWebTransportClosed) , NetworkDirectTcpSocketCreated (Box < super :: browser_protocol :: network :: EventDirectTcpSocketCreated >) , NetworkDirectTcpSocketOpened (super :: browser_protocol :: network :: EventDirectTcpSocketOpened) , NetworkDirectTcpSocketAborted (super :: browser_protocol :: network :: EventDirectTcpSocketAborted) , NetworkDirectTcpSocketClosed (super :: browser_protocol :: network :: EventDirectTcpSocketClosed) , NetworkDirectTcpSocketChunkSent (super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent) , NetworkDirectTcpSocketChunkReceived (super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived) , NetworkDirectUdpSocketJoinedMulticastGroup (super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup) , NetworkDirectUdpSocketLeftMulticastGroup (super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup) , NetworkDirectUdpSocketCreated (Box < super :: browser_protocol :: network :: EventDirectUdpSocketCreated >) , NetworkDirectUdpSocketOpened (super :: browser_protocol :: network :: EventDirectUdpSocketOpened) , NetworkDirectUdpSocketAborted (super :: browser_protocol :: network :: EventDirectUdpSocketAborted) , NetworkDirectUdpSocketClosed (super :: browser_protocol :: network :: EventDirectUdpSocketClosed) , NetworkDirectUdpSocketChunkSent (super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent) , NetworkDirectUdpSocketChunkReceived (super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived) , NetworkRequestWillBeSentExtraInfo (Box < super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo >) , NetworkResponseReceivedExtraInfo (Box < super :: browser_protocol :: network :: EventResponseReceivedExtraInfo >) , NetworkResponseReceivedEarlyHints (super :: browser_protocol :: network :: EventResponseReceivedEarlyHints) , NetworkTrustTokenOperationDone (super :: browser_protocol :: network :: EventTrustTokenOperationDone) , NetworkPolicyUpdated (super :: browser_protocol :: network :: EventPolicyUpdated) , NetworkReportingApiReportAdded (Box < super :: browser_protocol :: network :: EventReportingApiReportAdded >) , NetworkReportingApiReportUpdated (Box < super :: browser_protocol :: network :: EventReportingApiReportUpdated >) , NetworkReportingApiEndpointsChangedForOrigin (super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin) , NetworkDeviceBoundSessionsAdded (super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded) , NetworkDeviceBoundSessionEventOccurred (Box < super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred >) , PageDomContentEventFired (super :: browser_protocol :: page :: EventDomContentEventFired) , PageFileChooserOpened (super :: browser_protocol :: page :: EventFileChooserOpened) , PageFrameAttached (super :: browser_protocol :: page :: EventFrameAttached) , PageFrameDetached (super :: browser_protocol :: page :: EventFrameDetached) , PageFrameSubtreeWillBeDetached (super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached) , PageFrameNavigated (Box < super :: browser_protocol :: page :: EventFrameNavigated >) , PageDocumentOpened (Box < super :: browser_protocol :: page :: EventDocumentOpened >) , PageFrameResized (super :: browser_protocol :: page :: EventFrameResized) , PageFrameStartedNavigating (super :: browser_protocol :: page :: EventFrameStartedNavigating) , PageFrameRequestedNavigation (super :: browser_protocol :: page :: EventFrameRequestedNavigation) , PageFrameStartedLoading (super :: browser_protocol :: page :: EventFrameStartedLoading) , PageFrameStoppedLoading (super :: browser_protocol :: page :: EventFrameStoppedLoading) , PageInterstitialHidden (super :: browser_protocol :: page :: EventInterstitialHidden) , PageInterstitialShown (super :: browser_protocol :: page :: EventInterstitialShown) , PageJavascriptDialogClosed (super :: browser_protocol :: page :: EventJavascriptDialogClosed) , PageJavascriptDialogOpening (super :: browser_protocol :: page :: EventJavascriptDialogOpening) , PageLifecycleEvent (super :: browser_protocol :: page :: EventLifecycleEvent) , PageBackForwardCacheNotUsed (super :: browser_protocol :: page :: EventBackForwardCacheNotUsed) , PageLoadEventFired (super :: browser_protocol :: page :: EventLoadEventFired) , PageNavigatedWithinDocument (super :: browser_protocol :: page :: EventNavigatedWithinDocument) , PageScreencastFrame (super :: browser_protocol :: page :: EventScreencastFrame) , PageScreencastVisibilityChanged (super :: browser_protocol :: page :: EventScreencastVisibilityChanged) , PageWindowOpen (super :: browser_protocol :: page :: EventWindowOpen) , PageCompilationCacheProduced (super :: browser_protocol :: page :: EventCompilationCacheProduced) , PerformanceMetrics (super :: browser_protocol :: performance :: EventMetrics) , SecurityVisibleSecurityStateChanged (Box < super :: browser_protocol :: security :: EventVisibleSecurityStateChanged >) , TargetAttachedToTarget (Box < super :: browser_protocol :: target :: EventAttachedToTarget >) , TargetDetachedFromTarget (super :: browser_protocol :: target :: EventDetachedFromTarget) , TargetReceivedMessageFromTarget (super :: browser_protocol :: target :: EventReceivedMessageFromTarget) , TargetTargetCreated (Box < super :: browser_protocol :: target :: EventTargetCreated >) , TargetTargetDestroyed (super :: browser_protocol :: target :: EventTargetDestroyed) , TargetTargetCrashed (super :: browser_protocol :: target :: EventTargetCrashed) , TargetTargetInfoChanged (Box < super :: browser_protocol :: target :: EventTargetInfoChanged >) , Other (serde_json :: Value) }
     impl CdpEvent {
         pub fn other(other: serde_json::Value) -> Self {
             CdpEvent::Other(other)
@@ -421,6 +429,22 @@ pub mod events {
                     serde_json::to_value(inner)
                 }
                 CdpEvent::BrowserDownloadProgress(inner) => {
+                    serde_json::to_value(inner)
+                }
+                CdpEvent::CssFontsUpdated(inner) => serde_json::to_value(inner),
+                CdpEvent::CssMediaQueryResultChanged(inner) => {
+                    serde_json::to_value(inner)
+                }
+                CdpEvent::CssStyleSheetAdded(inner) => {
+                    serde_json::to_value(inner)
+                }
+                CdpEvent::CssStyleSheetChanged(inner) => {
+                    serde_json::to_value(inner)
+                }
+                CdpEvent::CssStyleSheetRemoved(inner) => {
+                    serde_json::to_value(inner)
+                }
+                CdpEvent::CssComputedStyleUpdated(inner) => {
                     serde_json::to_value(inner)
                 }
                 CdpEvent::DomAttributeModified(inner) => {
@@ -755,6 +779,14 @@ pub mod events {
                     Ok(Box::new(event))
                 }
                 CdpEvent::BrowserDownloadProgress(event) => Ok(Box::new(event)),
+                CdpEvent::CssFontsUpdated(event) => Ok(Box::new(*event)),
+                CdpEvent::CssMediaQueryResultChanged(event) => {
+                    Ok(Box::new(event))
+                }
+                CdpEvent::CssStyleSheetAdded(event) => Ok(Box::new(event)),
+                CdpEvent::CssStyleSheetChanged(event) => Ok(Box::new(event)),
+                CdpEvent::CssStyleSheetRemoved(event) => Ok(Box::new(event)),
+                CdpEvent::CssComputedStyleUpdated(event) => Ok(Box::new(event)),
                 CdpEvent::DomAttributeModified(event) => Ok(Box::new(event)),
                 CdpEvent::DomAdoptedStyleSheetsModified(event) => {
                     Ok(Box::new(event))
@@ -1075,7 +1107,7 @@ pub mod events {
                                         "params",
                                     ));
                                 }
-                                params = Some (match method . as_ref () . ok_or_else (|| de :: Error :: missing_field ("params")) ? . as_str () { super :: js_protocol :: debugger :: EventPaused :: IDENTIFIER => CdpEvent :: DebuggerPaused (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventPaused > () ?)) , super :: js_protocol :: debugger :: EventResumed :: IDENTIFIER => CdpEvent :: DebuggerResumed (map . next_value :: < super :: js_protocol :: debugger :: EventResumed > () ?) , super :: js_protocol :: debugger :: EventScriptFailedToParse :: IDENTIFIER => CdpEvent :: DebuggerScriptFailedToParse (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventScriptFailedToParse > () ?)) , super :: js_protocol :: debugger :: EventScriptParsed :: IDENTIFIER => CdpEvent :: DebuggerScriptParsed (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventScriptParsed > () ?)) , super :: js_protocol :: runtime :: EventBindingCalled :: IDENTIFIER => CdpEvent :: RuntimeBindingCalled (map . next_value :: < super :: js_protocol :: runtime :: EventBindingCalled > () ?) , super :: js_protocol :: runtime :: EventConsoleApiCalled :: IDENTIFIER => CdpEvent :: RuntimeConsoleApiCalled (map . next_value :: < super :: js_protocol :: runtime :: EventConsoleApiCalled > () ?) , super :: js_protocol :: runtime :: EventExceptionRevoked :: IDENTIFIER => CdpEvent :: RuntimeExceptionRevoked (map . next_value :: < super :: js_protocol :: runtime :: EventExceptionRevoked > () ?) , super :: js_protocol :: runtime :: EventExceptionThrown :: IDENTIFIER => CdpEvent :: RuntimeExceptionThrown (Box :: new (map . next_value :: < super :: js_protocol :: runtime :: EventExceptionThrown > () ?)) , super :: js_protocol :: runtime :: EventExecutionContextCreated :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextCreated (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextCreated > () ?) , super :: js_protocol :: runtime :: EventExecutionContextDestroyed :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextDestroyed (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextDestroyed > () ?) , super :: js_protocol :: runtime :: EventExecutionContextsCleared :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextsCleared (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextsCleared > () ?) , super :: js_protocol :: runtime :: EventInspectRequested :: IDENTIFIER => CdpEvent :: RuntimeInspectRequested (Box :: new (map . next_value :: < super :: js_protocol :: runtime :: EventInspectRequested > () ?)) , super :: browser_protocol :: browser :: EventDownloadWillBegin :: IDENTIFIER => CdpEvent :: BrowserDownloadWillBegin (map . next_value :: < super :: browser_protocol :: browser :: EventDownloadWillBegin > () ?) , super :: browser_protocol :: browser :: EventDownloadProgress :: IDENTIFIER => CdpEvent :: BrowserDownloadProgress (map . next_value :: < super :: browser_protocol :: browser :: EventDownloadProgress > () ?) , super :: browser_protocol :: dom :: EventAttributeModified :: IDENTIFIER => CdpEvent :: DomAttributeModified (map . next_value :: < super :: browser_protocol :: dom :: EventAttributeModified > () ?) , super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified :: IDENTIFIER => CdpEvent :: DomAdoptedStyleSheetsModified (map . next_value :: < super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified > () ?) , super :: browser_protocol :: dom :: EventAttributeRemoved :: IDENTIFIER => CdpEvent :: DomAttributeRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventAttributeRemoved > () ?) , super :: browser_protocol :: dom :: EventCharacterDataModified :: IDENTIFIER => CdpEvent :: DomCharacterDataModified (map . next_value :: < super :: browser_protocol :: dom :: EventCharacterDataModified > () ?) , super :: browser_protocol :: dom :: EventChildNodeCountUpdated :: IDENTIFIER => CdpEvent :: DomChildNodeCountUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeCountUpdated > () ?) , super :: browser_protocol :: dom :: EventChildNodeInserted :: IDENTIFIER => CdpEvent :: DomChildNodeInserted (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeInserted > () ?)) , super :: browser_protocol :: dom :: EventChildNodeRemoved :: IDENTIFIER => CdpEvent :: DomChildNodeRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeRemoved > () ?) , super :: browser_protocol :: dom :: EventDistributedNodesUpdated :: IDENTIFIER => CdpEvent :: DomDistributedNodesUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventDistributedNodesUpdated > () ?) , super :: browser_protocol :: dom :: EventDocumentUpdated :: IDENTIFIER => CdpEvent :: DomDocumentUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventDocumentUpdated > () ?) , super :: browser_protocol :: dom :: EventInlineStyleInvalidated :: IDENTIFIER => CdpEvent :: DomInlineStyleInvalidated (map . next_value :: < super :: browser_protocol :: dom :: EventInlineStyleInvalidated > () ?) , super :: browser_protocol :: dom :: EventPseudoElementAdded :: IDENTIFIER => CdpEvent :: DomPseudoElementAdded (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventPseudoElementAdded > () ?)) , super :: browser_protocol :: dom :: EventTopLayerElementsUpdated :: IDENTIFIER => CdpEvent :: DomTopLayerElementsUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventTopLayerElementsUpdated > () ?) , super :: browser_protocol :: dom :: EventScrollableFlagUpdated :: IDENTIFIER => CdpEvent :: DomScrollableFlagUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventScrollableFlagUpdated > () ?) , super :: browser_protocol :: dom :: EventAdRelatedStateUpdated :: IDENTIFIER => CdpEvent :: DomAdRelatedStateUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventAdRelatedStateUpdated > () ?) , super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated :: IDENTIFIER => CdpEvent :: DomAffectedByStartingStylesFlagUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated > () ?) , super :: browser_protocol :: dom :: EventPseudoElementRemoved :: IDENTIFIER => CdpEvent :: DomPseudoElementRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventPseudoElementRemoved > () ?) , super :: browser_protocol :: dom :: EventSetChildNodes :: IDENTIFIER => CdpEvent :: DomSetChildNodes (map . next_value :: < super :: browser_protocol :: dom :: EventSetChildNodes > () ?) , super :: browser_protocol :: dom :: EventShadowRootPopped :: IDENTIFIER => CdpEvent :: DomShadowRootPopped (map . next_value :: < super :: browser_protocol :: dom :: EventShadowRootPopped > () ?) , super :: browser_protocol :: dom :: EventShadowRootPushed :: IDENTIFIER => CdpEvent :: DomShadowRootPushed (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventShadowRootPushed > () ?)) , super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired :: IDENTIFIER => CdpEvent :: EmulationVirtualTimeBudgetExpired (map . next_value :: < super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired > () ?) , super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged :: IDENTIFIER => CdpEvent :: EmulationScreenOrientationLockChanged (map . next_value :: < super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged > () ?) , super :: browser_protocol :: fetch :: EventRequestPaused :: IDENTIFIER => CdpEvent :: FetchRequestPaused (Box :: new (map . next_value :: < super :: browser_protocol :: fetch :: EventRequestPaused > () ?)) , super :: browser_protocol :: fetch :: EventAuthRequired :: IDENTIFIER => CdpEvent :: FetchAuthRequired (Box :: new (map . next_value :: < super :: browser_protocol :: fetch :: EventAuthRequired > () ?)) , super :: browser_protocol :: input :: EventDragIntercepted :: IDENTIFIER => CdpEvent :: InputDragIntercepted (map . next_value :: < super :: browser_protocol :: input :: EventDragIntercepted > () ?) , super :: browser_protocol :: network :: EventDataReceived :: IDENTIFIER => CdpEvent :: NetworkDataReceived (map . next_value :: < super :: browser_protocol :: network :: EventDataReceived > () ?) , super :: browser_protocol :: network :: EventEventSourceMessageReceived :: IDENTIFIER => CdpEvent :: NetworkEventSourceMessageReceived (map . next_value :: < super :: browser_protocol :: network :: EventEventSourceMessageReceived > () ?) , super :: browser_protocol :: network :: EventLoadingFailed :: IDENTIFIER => CdpEvent :: NetworkLoadingFailed (map . next_value :: < super :: browser_protocol :: network :: EventLoadingFailed > () ?) , super :: browser_protocol :: network :: EventLoadingFinished :: IDENTIFIER => CdpEvent :: NetworkLoadingFinished (map . next_value :: < super :: browser_protocol :: network :: EventLoadingFinished > () ?) , super :: browser_protocol :: network :: EventRequestServedFromCache :: IDENTIFIER => CdpEvent :: NetworkRequestServedFromCache (map . next_value :: < super :: browser_protocol :: network :: EventRequestServedFromCache > () ?) , super :: browser_protocol :: network :: EventRequestWillBeSent :: IDENTIFIER => CdpEvent :: NetworkRequestWillBeSent (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventRequestWillBeSent > () ?)) , super :: browser_protocol :: network :: EventResourceChangedPriority :: IDENTIFIER => CdpEvent :: NetworkResourceChangedPriority (map . next_value :: < super :: browser_protocol :: network :: EventResourceChangedPriority > () ?) , super :: browser_protocol :: network :: EventSignedExchangeReceived :: IDENTIFIER => CdpEvent :: NetworkSignedExchangeReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventSignedExchangeReceived > () ?)) , super :: browser_protocol :: network :: EventResponseReceived :: IDENTIFIER => CdpEvent :: NetworkResponseReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceived > () ?)) , super :: browser_protocol :: network :: EventWebSocketClosed :: IDENTIFIER => CdpEvent :: NetworkWebSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketClosed > () ?) , super :: browser_protocol :: network :: EventWebSocketCreated :: IDENTIFIER => CdpEvent :: NetworkWebSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketCreated > () ?)) , super :: browser_protocol :: network :: EventWebSocketFrameError :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameError (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameError > () ?) , super :: browser_protocol :: network :: EventWebSocketFrameReceived :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameReceived (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameReceived > () ?) , super :: browser_protocol :: network :: EventWebSocketFrameSent :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameSent (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameSent > () ?) , super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived :: IDENTIFIER => CdpEvent :: NetworkWebSocketHandshakeResponseReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived > () ?)) , super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest :: IDENTIFIER => CdpEvent :: NetworkWebSocketWillSendHandshakeRequest (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest > () ?) , super :: browser_protocol :: network :: EventWebTransportCreated :: IDENTIFIER => CdpEvent :: NetworkWebTransportCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportCreated > () ?)) , super :: browser_protocol :: network :: EventWebTransportConnectionEstablished :: IDENTIFIER => CdpEvent :: NetworkWebTransportConnectionEstablished (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportConnectionEstablished > () ?) , super :: browser_protocol :: network :: EventWebTransportClosed :: IDENTIFIER => CdpEvent :: NetworkWebTransportClosed (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportClosed > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketCreated :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketCreated > () ?)) , super :: browser_protocol :: network :: EventDirectTcpSocketOpened :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketOpened (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketOpened > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketAborted :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketAborted (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketAborted > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketClosed :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketClosed > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketChunkSent (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketChunkReceived (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketJoinedMulticastGroup (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketLeftMulticastGroup (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketCreated :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketCreated > () ?)) , super :: browser_protocol :: network :: EventDirectUdpSocketOpened :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketOpened (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketOpened > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketAborted :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketAborted (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketAborted > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketClosed :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketClosed > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketChunkSent (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketChunkReceived (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived > () ?) , super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo :: IDENTIFIER => CdpEvent :: NetworkRequestWillBeSentExtraInfo (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo > () ?)) , super :: browser_protocol :: network :: EventResponseReceivedExtraInfo :: IDENTIFIER => CdpEvent :: NetworkResponseReceivedExtraInfo (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceivedExtraInfo > () ?)) , super :: browser_protocol :: network :: EventResponseReceivedEarlyHints :: IDENTIFIER => CdpEvent :: NetworkResponseReceivedEarlyHints (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceivedEarlyHints > () ?) , super :: browser_protocol :: network :: EventTrustTokenOperationDone :: IDENTIFIER => CdpEvent :: NetworkTrustTokenOperationDone (map . next_value :: < super :: browser_protocol :: network :: EventTrustTokenOperationDone > () ?) , super :: browser_protocol :: network :: EventPolicyUpdated :: IDENTIFIER => CdpEvent :: NetworkPolicyUpdated (map . next_value :: < super :: browser_protocol :: network :: EventPolicyUpdated > () ?) , super :: browser_protocol :: network :: EventReportingApiReportAdded :: IDENTIFIER => CdpEvent :: NetworkReportingApiReportAdded (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiReportAdded > () ?)) , super :: browser_protocol :: network :: EventReportingApiReportUpdated :: IDENTIFIER => CdpEvent :: NetworkReportingApiReportUpdated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiReportUpdated > () ?)) , super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin :: IDENTIFIER => CdpEvent :: NetworkReportingApiEndpointsChangedForOrigin (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin > () ?) , super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded :: IDENTIFIER => CdpEvent :: NetworkDeviceBoundSessionsAdded (map . next_value :: < super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded > () ?) , super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred :: IDENTIFIER => CdpEvent :: NetworkDeviceBoundSessionEventOccurred (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred > () ?)) , super :: browser_protocol :: page :: EventDomContentEventFired :: IDENTIFIER => CdpEvent :: PageDomContentEventFired (map . next_value :: < super :: browser_protocol :: page :: EventDomContentEventFired > () ?) , super :: browser_protocol :: page :: EventFileChooserOpened :: IDENTIFIER => CdpEvent :: PageFileChooserOpened (map . next_value :: < super :: browser_protocol :: page :: EventFileChooserOpened > () ?) , super :: browser_protocol :: page :: EventFrameAttached :: IDENTIFIER => CdpEvent :: PageFrameAttached (map . next_value :: < super :: browser_protocol :: page :: EventFrameAttached > () ?) , super :: browser_protocol :: page :: EventFrameDetached :: IDENTIFIER => CdpEvent :: PageFrameDetached (map . next_value :: < super :: browser_protocol :: page :: EventFrameDetached > () ?) , super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached :: IDENTIFIER => CdpEvent :: PageFrameSubtreeWillBeDetached (map . next_value :: < super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached > () ?) , super :: browser_protocol :: page :: EventFrameNavigated :: IDENTIFIER => CdpEvent :: PageFrameNavigated (Box :: new (map . next_value :: < super :: browser_protocol :: page :: EventFrameNavigated > () ?)) , super :: browser_protocol :: page :: EventDocumentOpened :: IDENTIFIER => CdpEvent :: PageDocumentOpened (Box :: new (map . next_value :: < super :: browser_protocol :: page :: EventDocumentOpened > () ?)) , super :: browser_protocol :: page :: EventFrameResized :: IDENTIFIER => CdpEvent :: PageFrameResized (map . next_value :: < super :: browser_protocol :: page :: EventFrameResized > () ?) , super :: browser_protocol :: page :: EventFrameStartedNavigating :: IDENTIFIER => CdpEvent :: PageFrameStartedNavigating (map . next_value :: < super :: browser_protocol :: page :: EventFrameStartedNavigating > () ?) , super :: browser_protocol :: page :: EventFrameRequestedNavigation :: IDENTIFIER => CdpEvent :: PageFrameRequestedNavigation (map . next_value :: < super :: browser_protocol :: page :: EventFrameRequestedNavigation > () ?) , super :: browser_protocol :: page :: EventFrameStartedLoading :: IDENTIFIER => CdpEvent :: PageFrameStartedLoading (map . next_value :: < super :: browser_protocol :: page :: EventFrameStartedLoading > () ?) , super :: browser_protocol :: page :: EventFrameStoppedLoading :: IDENTIFIER => CdpEvent :: PageFrameStoppedLoading (map . next_value :: < super :: browser_protocol :: page :: EventFrameStoppedLoading > () ?) , super :: browser_protocol :: page :: EventInterstitialHidden :: IDENTIFIER => CdpEvent :: PageInterstitialHidden (map . next_value :: < super :: browser_protocol :: page :: EventInterstitialHidden > () ?) , super :: browser_protocol :: page :: EventInterstitialShown :: IDENTIFIER => CdpEvent :: PageInterstitialShown (map . next_value :: < super :: browser_protocol :: page :: EventInterstitialShown > () ?) , super :: browser_protocol :: page :: EventJavascriptDialogClosed :: IDENTIFIER => CdpEvent :: PageJavascriptDialogClosed (map . next_value :: < super :: browser_protocol :: page :: EventJavascriptDialogClosed > () ?) , super :: browser_protocol :: page :: EventJavascriptDialogOpening :: IDENTIFIER => CdpEvent :: PageJavascriptDialogOpening (map . next_value :: < super :: browser_protocol :: page :: EventJavascriptDialogOpening > () ?) , super :: browser_protocol :: page :: EventLifecycleEvent :: IDENTIFIER => CdpEvent :: PageLifecycleEvent (map . next_value :: < super :: browser_protocol :: page :: EventLifecycleEvent > () ?) , super :: browser_protocol :: page :: EventBackForwardCacheNotUsed :: IDENTIFIER => CdpEvent :: PageBackForwardCacheNotUsed (map . next_value :: < super :: browser_protocol :: page :: EventBackForwardCacheNotUsed > () ?) , super :: browser_protocol :: page :: EventLoadEventFired :: IDENTIFIER => CdpEvent :: PageLoadEventFired (map . next_value :: < super :: browser_protocol :: page :: EventLoadEventFired > () ?) , super :: browser_protocol :: page :: EventNavigatedWithinDocument :: IDENTIFIER => CdpEvent :: PageNavigatedWithinDocument (map . next_value :: < super :: browser_protocol :: page :: EventNavigatedWithinDocument > () ?) , super :: browser_protocol :: page :: EventScreencastFrame :: IDENTIFIER => CdpEvent :: PageScreencastFrame (map . next_value :: < super :: browser_protocol :: page :: EventScreencastFrame > () ?) , super :: browser_protocol :: page :: EventScreencastVisibilityChanged :: IDENTIFIER => CdpEvent :: PageScreencastVisibilityChanged (map . next_value :: < super :: browser_protocol :: page :: EventScreencastVisibilityChanged > () ?) , super :: browser_protocol :: page :: EventWindowOpen :: IDENTIFIER => CdpEvent :: PageWindowOpen (map . next_value :: < super :: browser_protocol :: page :: EventWindowOpen > () ?) , super :: browser_protocol :: page :: EventCompilationCacheProduced :: IDENTIFIER => CdpEvent :: PageCompilationCacheProduced (map . next_value :: < super :: browser_protocol :: page :: EventCompilationCacheProduced > () ?) , super :: browser_protocol :: performance :: EventMetrics :: IDENTIFIER => CdpEvent :: PerformanceMetrics (map . next_value :: < super :: browser_protocol :: performance :: EventMetrics > () ?) , super :: browser_protocol :: security :: EventVisibleSecurityStateChanged :: IDENTIFIER => CdpEvent :: SecurityVisibleSecurityStateChanged (Box :: new (map . next_value :: < super :: browser_protocol :: security :: EventVisibleSecurityStateChanged > () ?)) , super :: browser_protocol :: target :: EventAttachedToTarget :: IDENTIFIER => CdpEvent :: TargetAttachedToTarget (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventAttachedToTarget > () ?)) , super :: browser_protocol :: target :: EventDetachedFromTarget :: IDENTIFIER => CdpEvent :: TargetDetachedFromTarget (map . next_value :: < super :: browser_protocol :: target :: EventDetachedFromTarget > () ?) , super :: browser_protocol :: target :: EventReceivedMessageFromTarget :: IDENTIFIER => CdpEvent :: TargetReceivedMessageFromTarget (map . next_value :: < super :: browser_protocol :: target :: EventReceivedMessageFromTarget > () ?) , super :: browser_protocol :: target :: EventTargetCreated :: IDENTIFIER => CdpEvent :: TargetTargetCreated (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventTargetCreated > () ?)) , super :: browser_protocol :: target :: EventTargetDestroyed :: IDENTIFIER => CdpEvent :: TargetTargetDestroyed (map . next_value :: < super :: browser_protocol :: target :: EventTargetDestroyed > () ?) , super :: browser_protocol :: target :: EventTargetCrashed :: IDENTIFIER => CdpEvent :: TargetTargetCrashed (map . next_value :: < super :: browser_protocol :: target :: EventTargetCrashed > () ?) , super :: browser_protocol :: target :: EventTargetInfoChanged :: IDENTIFIER => CdpEvent :: TargetTargetInfoChanged (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventTargetInfoChanged > () ?)) , _ => CdpEvent :: Other (map . next_value :: < serde_json :: Value > () ?) }) ;
+                                params = Some (match method . as_ref () . ok_or_else (|| de :: Error :: missing_field ("params")) ? . as_str () { super :: js_protocol :: debugger :: EventPaused :: IDENTIFIER => CdpEvent :: DebuggerPaused (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventPaused > () ?)) , super :: js_protocol :: debugger :: EventResumed :: IDENTIFIER => CdpEvent :: DebuggerResumed (map . next_value :: < super :: js_protocol :: debugger :: EventResumed > () ?) , super :: js_protocol :: debugger :: EventScriptFailedToParse :: IDENTIFIER => CdpEvent :: DebuggerScriptFailedToParse (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventScriptFailedToParse > () ?)) , super :: js_protocol :: debugger :: EventScriptParsed :: IDENTIFIER => CdpEvent :: DebuggerScriptParsed (Box :: new (map . next_value :: < super :: js_protocol :: debugger :: EventScriptParsed > () ?)) , super :: js_protocol :: runtime :: EventBindingCalled :: IDENTIFIER => CdpEvent :: RuntimeBindingCalled (map . next_value :: < super :: js_protocol :: runtime :: EventBindingCalled > () ?) , super :: js_protocol :: runtime :: EventConsoleApiCalled :: IDENTIFIER => CdpEvent :: RuntimeConsoleApiCalled (map . next_value :: < super :: js_protocol :: runtime :: EventConsoleApiCalled > () ?) , super :: js_protocol :: runtime :: EventExceptionRevoked :: IDENTIFIER => CdpEvent :: RuntimeExceptionRevoked (map . next_value :: < super :: js_protocol :: runtime :: EventExceptionRevoked > () ?) , super :: js_protocol :: runtime :: EventExceptionThrown :: IDENTIFIER => CdpEvent :: RuntimeExceptionThrown (Box :: new (map . next_value :: < super :: js_protocol :: runtime :: EventExceptionThrown > () ?)) , super :: js_protocol :: runtime :: EventExecutionContextCreated :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextCreated (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextCreated > () ?) , super :: js_protocol :: runtime :: EventExecutionContextDestroyed :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextDestroyed (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextDestroyed > () ?) , super :: js_protocol :: runtime :: EventExecutionContextsCleared :: IDENTIFIER => CdpEvent :: RuntimeExecutionContextsCleared (map . next_value :: < super :: js_protocol :: runtime :: EventExecutionContextsCleared > () ?) , super :: js_protocol :: runtime :: EventInspectRequested :: IDENTIFIER => CdpEvent :: RuntimeInspectRequested (Box :: new (map . next_value :: < super :: js_protocol :: runtime :: EventInspectRequested > () ?)) , super :: browser_protocol :: browser :: EventDownloadWillBegin :: IDENTIFIER => CdpEvent :: BrowserDownloadWillBegin (map . next_value :: < super :: browser_protocol :: browser :: EventDownloadWillBegin > () ?) , super :: browser_protocol :: browser :: EventDownloadProgress :: IDENTIFIER => CdpEvent :: BrowserDownloadProgress (map . next_value :: < super :: browser_protocol :: browser :: EventDownloadProgress > () ?) , super :: browser_protocol :: css :: EventFontsUpdated :: IDENTIFIER => CdpEvent :: CssFontsUpdated (Box :: new (map . next_value :: < super :: browser_protocol :: css :: EventFontsUpdated > () ?)) , super :: browser_protocol :: css :: EventMediaQueryResultChanged :: IDENTIFIER => CdpEvent :: CssMediaQueryResultChanged (map . next_value :: < super :: browser_protocol :: css :: EventMediaQueryResultChanged > () ?) , super :: browser_protocol :: css :: EventStyleSheetAdded :: IDENTIFIER => CdpEvent :: CssStyleSheetAdded (map . next_value :: < super :: browser_protocol :: css :: EventStyleSheetAdded > () ?) , super :: browser_protocol :: css :: EventStyleSheetChanged :: IDENTIFIER => CdpEvent :: CssStyleSheetChanged (map . next_value :: < super :: browser_protocol :: css :: EventStyleSheetChanged > () ?) , super :: browser_protocol :: css :: EventStyleSheetRemoved :: IDENTIFIER => CdpEvent :: CssStyleSheetRemoved (map . next_value :: < super :: browser_protocol :: css :: EventStyleSheetRemoved > () ?) , super :: browser_protocol :: css :: EventComputedStyleUpdated :: IDENTIFIER => CdpEvent :: CssComputedStyleUpdated (map . next_value :: < super :: browser_protocol :: css :: EventComputedStyleUpdated > () ?) , super :: browser_protocol :: dom :: EventAttributeModified :: IDENTIFIER => CdpEvent :: DomAttributeModified (map . next_value :: < super :: browser_protocol :: dom :: EventAttributeModified > () ?) , super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified :: IDENTIFIER => CdpEvent :: DomAdoptedStyleSheetsModified (map . next_value :: < super :: browser_protocol :: dom :: EventAdoptedStyleSheetsModified > () ?) , super :: browser_protocol :: dom :: EventAttributeRemoved :: IDENTIFIER => CdpEvent :: DomAttributeRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventAttributeRemoved > () ?) , super :: browser_protocol :: dom :: EventCharacterDataModified :: IDENTIFIER => CdpEvent :: DomCharacterDataModified (map . next_value :: < super :: browser_protocol :: dom :: EventCharacterDataModified > () ?) , super :: browser_protocol :: dom :: EventChildNodeCountUpdated :: IDENTIFIER => CdpEvent :: DomChildNodeCountUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeCountUpdated > () ?) , super :: browser_protocol :: dom :: EventChildNodeInserted :: IDENTIFIER => CdpEvent :: DomChildNodeInserted (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeInserted > () ?)) , super :: browser_protocol :: dom :: EventChildNodeRemoved :: IDENTIFIER => CdpEvent :: DomChildNodeRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventChildNodeRemoved > () ?) , super :: browser_protocol :: dom :: EventDistributedNodesUpdated :: IDENTIFIER => CdpEvent :: DomDistributedNodesUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventDistributedNodesUpdated > () ?) , super :: browser_protocol :: dom :: EventDocumentUpdated :: IDENTIFIER => CdpEvent :: DomDocumentUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventDocumentUpdated > () ?) , super :: browser_protocol :: dom :: EventInlineStyleInvalidated :: IDENTIFIER => CdpEvent :: DomInlineStyleInvalidated (map . next_value :: < super :: browser_protocol :: dom :: EventInlineStyleInvalidated > () ?) , super :: browser_protocol :: dom :: EventPseudoElementAdded :: IDENTIFIER => CdpEvent :: DomPseudoElementAdded (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventPseudoElementAdded > () ?)) , super :: browser_protocol :: dom :: EventTopLayerElementsUpdated :: IDENTIFIER => CdpEvent :: DomTopLayerElementsUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventTopLayerElementsUpdated > () ?) , super :: browser_protocol :: dom :: EventScrollableFlagUpdated :: IDENTIFIER => CdpEvent :: DomScrollableFlagUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventScrollableFlagUpdated > () ?) , super :: browser_protocol :: dom :: EventAdRelatedStateUpdated :: IDENTIFIER => CdpEvent :: DomAdRelatedStateUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventAdRelatedStateUpdated > () ?) , super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated :: IDENTIFIER => CdpEvent :: DomAffectedByStartingStylesFlagUpdated (map . next_value :: < super :: browser_protocol :: dom :: EventAffectedByStartingStylesFlagUpdated > () ?) , super :: browser_protocol :: dom :: EventPseudoElementRemoved :: IDENTIFIER => CdpEvent :: DomPseudoElementRemoved (map . next_value :: < super :: browser_protocol :: dom :: EventPseudoElementRemoved > () ?) , super :: browser_protocol :: dom :: EventSetChildNodes :: IDENTIFIER => CdpEvent :: DomSetChildNodes (map . next_value :: < super :: browser_protocol :: dom :: EventSetChildNodes > () ?) , super :: browser_protocol :: dom :: EventShadowRootPopped :: IDENTIFIER => CdpEvent :: DomShadowRootPopped (map . next_value :: < super :: browser_protocol :: dom :: EventShadowRootPopped > () ?) , super :: browser_protocol :: dom :: EventShadowRootPushed :: IDENTIFIER => CdpEvent :: DomShadowRootPushed (Box :: new (map . next_value :: < super :: browser_protocol :: dom :: EventShadowRootPushed > () ?)) , super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired :: IDENTIFIER => CdpEvent :: EmulationVirtualTimeBudgetExpired (map . next_value :: < super :: browser_protocol :: emulation :: EventVirtualTimeBudgetExpired > () ?) , super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged :: IDENTIFIER => CdpEvent :: EmulationScreenOrientationLockChanged (map . next_value :: < super :: browser_protocol :: emulation :: EventScreenOrientationLockChanged > () ?) , super :: browser_protocol :: fetch :: EventRequestPaused :: IDENTIFIER => CdpEvent :: FetchRequestPaused (Box :: new (map . next_value :: < super :: browser_protocol :: fetch :: EventRequestPaused > () ?)) , super :: browser_protocol :: fetch :: EventAuthRequired :: IDENTIFIER => CdpEvent :: FetchAuthRequired (Box :: new (map . next_value :: < super :: browser_protocol :: fetch :: EventAuthRequired > () ?)) , super :: browser_protocol :: input :: EventDragIntercepted :: IDENTIFIER => CdpEvent :: InputDragIntercepted (map . next_value :: < super :: browser_protocol :: input :: EventDragIntercepted > () ?) , super :: browser_protocol :: network :: EventDataReceived :: IDENTIFIER => CdpEvent :: NetworkDataReceived (map . next_value :: < super :: browser_protocol :: network :: EventDataReceived > () ?) , super :: browser_protocol :: network :: EventEventSourceMessageReceived :: IDENTIFIER => CdpEvent :: NetworkEventSourceMessageReceived (map . next_value :: < super :: browser_protocol :: network :: EventEventSourceMessageReceived > () ?) , super :: browser_protocol :: network :: EventLoadingFailed :: IDENTIFIER => CdpEvent :: NetworkLoadingFailed (map . next_value :: < super :: browser_protocol :: network :: EventLoadingFailed > () ?) , super :: browser_protocol :: network :: EventLoadingFinished :: IDENTIFIER => CdpEvent :: NetworkLoadingFinished (map . next_value :: < super :: browser_protocol :: network :: EventLoadingFinished > () ?) , super :: browser_protocol :: network :: EventRequestServedFromCache :: IDENTIFIER => CdpEvent :: NetworkRequestServedFromCache (map . next_value :: < super :: browser_protocol :: network :: EventRequestServedFromCache > () ?) , super :: browser_protocol :: network :: EventRequestWillBeSent :: IDENTIFIER => CdpEvent :: NetworkRequestWillBeSent (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventRequestWillBeSent > () ?)) , super :: browser_protocol :: network :: EventResourceChangedPriority :: IDENTIFIER => CdpEvent :: NetworkResourceChangedPriority (map . next_value :: < super :: browser_protocol :: network :: EventResourceChangedPriority > () ?) , super :: browser_protocol :: network :: EventSignedExchangeReceived :: IDENTIFIER => CdpEvent :: NetworkSignedExchangeReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventSignedExchangeReceived > () ?)) , super :: browser_protocol :: network :: EventResponseReceived :: IDENTIFIER => CdpEvent :: NetworkResponseReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceived > () ?)) , super :: browser_protocol :: network :: EventWebSocketClosed :: IDENTIFIER => CdpEvent :: NetworkWebSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketClosed > () ?) , super :: browser_protocol :: network :: EventWebSocketCreated :: IDENTIFIER => CdpEvent :: NetworkWebSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketCreated > () ?)) , super :: browser_protocol :: network :: EventWebSocketFrameError :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameError (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameError > () ?) , super :: browser_protocol :: network :: EventWebSocketFrameReceived :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameReceived (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameReceived > () ?) , super :: browser_protocol :: network :: EventWebSocketFrameSent :: IDENTIFIER => CdpEvent :: NetworkWebSocketFrameSent (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketFrameSent > () ?) , super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived :: IDENTIFIER => CdpEvent :: NetworkWebSocketHandshakeResponseReceived (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketHandshakeResponseReceived > () ?)) , super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest :: IDENTIFIER => CdpEvent :: NetworkWebSocketWillSendHandshakeRequest (map . next_value :: < super :: browser_protocol :: network :: EventWebSocketWillSendHandshakeRequest > () ?) , super :: browser_protocol :: network :: EventWebTransportCreated :: IDENTIFIER => CdpEvent :: NetworkWebTransportCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportCreated > () ?)) , super :: browser_protocol :: network :: EventWebTransportConnectionEstablished :: IDENTIFIER => CdpEvent :: NetworkWebTransportConnectionEstablished (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportConnectionEstablished > () ?) , super :: browser_protocol :: network :: EventWebTransportClosed :: IDENTIFIER => CdpEvent :: NetworkWebTransportClosed (map . next_value :: < super :: browser_protocol :: network :: EventWebTransportClosed > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketCreated :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketCreated > () ?)) , super :: browser_protocol :: network :: EventDirectTcpSocketOpened :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketOpened (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketOpened > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketAborted :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketAborted (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketAborted > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketClosed :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketClosed > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketChunkSent (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketChunkSent > () ?) , super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived :: IDENTIFIER => CdpEvent :: NetworkDirectTcpSocketChunkReceived (map . next_value :: < super :: browser_protocol :: network :: EventDirectTcpSocketChunkReceived > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketJoinedMulticastGroup (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketJoinedMulticastGroup > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketLeftMulticastGroup (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketLeftMulticastGroup > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketCreated :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketCreated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketCreated > () ?)) , super :: browser_protocol :: network :: EventDirectUdpSocketOpened :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketOpened (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketOpened > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketAborted :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketAborted (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketAborted > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketClosed :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketClosed (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketClosed > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketChunkSent (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketChunkSent > () ?) , super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived :: IDENTIFIER => CdpEvent :: NetworkDirectUdpSocketChunkReceived (map . next_value :: < super :: browser_protocol :: network :: EventDirectUdpSocketChunkReceived > () ?) , super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo :: IDENTIFIER => CdpEvent :: NetworkRequestWillBeSentExtraInfo (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventRequestWillBeSentExtraInfo > () ?)) , super :: browser_protocol :: network :: EventResponseReceivedExtraInfo :: IDENTIFIER => CdpEvent :: NetworkResponseReceivedExtraInfo (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceivedExtraInfo > () ?)) , super :: browser_protocol :: network :: EventResponseReceivedEarlyHints :: IDENTIFIER => CdpEvent :: NetworkResponseReceivedEarlyHints (map . next_value :: < super :: browser_protocol :: network :: EventResponseReceivedEarlyHints > () ?) , super :: browser_protocol :: network :: EventTrustTokenOperationDone :: IDENTIFIER => CdpEvent :: NetworkTrustTokenOperationDone (map . next_value :: < super :: browser_protocol :: network :: EventTrustTokenOperationDone > () ?) , super :: browser_protocol :: network :: EventPolicyUpdated :: IDENTIFIER => CdpEvent :: NetworkPolicyUpdated (map . next_value :: < super :: browser_protocol :: network :: EventPolicyUpdated > () ?) , super :: browser_protocol :: network :: EventReportingApiReportAdded :: IDENTIFIER => CdpEvent :: NetworkReportingApiReportAdded (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiReportAdded > () ?)) , super :: browser_protocol :: network :: EventReportingApiReportUpdated :: IDENTIFIER => CdpEvent :: NetworkReportingApiReportUpdated (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiReportUpdated > () ?)) , super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin :: IDENTIFIER => CdpEvent :: NetworkReportingApiEndpointsChangedForOrigin (map . next_value :: < super :: browser_protocol :: network :: EventReportingApiEndpointsChangedForOrigin > () ?) , super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded :: IDENTIFIER => CdpEvent :: NetworkDeviceBoundSessionsAdded (map . next_value :: < super :: browser_protocol :: network :: EventDeviceBoundSessionsAdded > () ?) , super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred :: IDENTIFIER => CdpEvent :: NetworkDeviceBoundSessionEventOccurred (Box :: new (map . next_value :: < super :: browser_protocol :: network :: EventDeviceBoundSessionEventOccurred > () ?)) , super :: browser_protocol :: page :: EventDomContentEventFired :: IDENTIFIER => CdpEvent :: PageDomContentEventFired (map . next_value :: < super :: browser_protocol :: page :: EventDomContentEventFired > () ?) , super :: browser_protocol :: page :: EventFileChooserOpened :: IDENTIFIER => CdpEvent :: PageFileChooserOpened (map . next_value :: < super :: browser_protocol :: page :: EventFileChooserOpened > () ?) , super :: browser_protocol :: page :: EventFrameAttached :: IDENTIFIER => CdpEvent :: PageFrameAttached (map . next_value :: < super :: browser_protocol :: page :: EventFrameAttached > () ?) , super :: browser_protocol :: page :: EventFrameDetached :: IDENTIFIER => CdpEvent :: PageFrameDetached (map . next_value :: < super :: browser_protocol :: page :: EventFrameDetached > () ?) , super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached :: IDENTIFIER => CdpEvent :: PageFrameSubtreeWillBeDetached (map . next_value :: < super :: browser_protocol :: page :: EventFrameSubtreeWillBeDetached > () ?) , super :: browser_protocol :: page :: EventFrameNavigated :: IDENTIFIER => CdpEvent :: PageFrameNavigated (Box :: new (map . next_value :: < super :: browser_protocol :: page :: EventFrameNavigated > () ?)) , super :: browser_protocol :: page :: EventDocumentOpened :: IDENTIFIER => CdpEvent :: PageDocumentOpened (Box :: new (map . next_value :: < super :: browser_protocol :: page :: EventDocumentOpened > () ?)) , super :: browser_protocol :: page :: EventFrameResized :: IDENTIFIER => CdpEvent :: PageFrameResized (map . next_value :: < super :: browser_protocol :: page :: EventFrameResized > () ?) , super :: browser_protocol :: page :: EventFrameStartedNavigating :: IDENTIFIER => CdpEvent :: PageFrameStartedNavigating (map . next_value :: < super :: browser_protocol :: page :: EventFrameStartedNavigating > () ?) , super :: browser_protocol :: page :: EventFrameRequestedNavigation :: IDENTIFIER => CdpEvent :: PageFrameRequestedNavigation (map . next_value :: < super :: browser_protocol :: page :: EventFrameRequestedNavigation > () ?) , super :: browser_protocol :: page :: EventFrameStartedLoading :: IDENTIFIER => CdpEvent :: PageFrameStartedLoading (map . next_value :: < super :: browser_protocol :: page :: EventFrameStartedLoading > () ?) , super :: browser_protocol :: page :: EventFrameStoppedLoading :: IDENTIFIER => CdpEvent :: PageFrameStoppedLoading (map . next_value :: < super :: browser_protocol :: page :: EventFrameStoppedLoading > () ?) , super :: browser_protocol :: page :: EventInterstitialHidden :: IDENTIFIER => CdpEvent :: PageInterstitialHidden (map . next_value :: < super :: browser_protocol :: page :: EventInterstitialHidden > () ?) , super :: browser_protocol :: page :: EventInterstitialShown :: IDENTIFIER => CdpEvent :: PageInterstitialShown (map . next_value :: < super :: browser_protocol :: page :: EventInterstitialShown > () ?) , super :: browser_protocol :: page :: EventJavascriptDialogClosed :: IDENTIFIER => CdpEvent :: PageJavascriptDialogClosed (map . next_value :: < super :: browser_protocol :: page :: EventJavascriptDialogClosed > () ?) , super :: browser_protocol :: page :: EventJavascriptDialogOpening :: IDENTIFIER => CdpEvent :: PageJavascriptDialogOpening (map . next_value :: < super :: browser_protocol :: page :: EventJavascriptDialogOpening > () ?) , super :: browser_protocol :: page :: EventLifecycleEvent :: IDENTIFIER => CdpEvent :: PageLifecycleEvent (map . next_value :: < super :: browser_protocol :: page :: EventLifecycleEvent > () ?) , super :: browser_protocol :: page :: EventBackForwardCacheNotUsed :: IDENTIFIER => CdpEvent :: PageBackForwardCacheNotUsed (map . next_value :: < super :: browser_protocol :: page :: EventBackForwardCacheNotUsed > () ?) , super :: browser_protocol :: page :: EventLoadEventFired :: IDENTIFIER => CdpEvent :: PageLoadEventFired (map . next_value :: < super :: browser_protocol :: page :: EventLoadEventFired > () ?) , super :: browser_protocol :: page :: EventNavigatedWithinDocument :: IDENTIFIER => CdpEvent :: PageNavigatedWithinDocument (map . next_value :: < super :: browser_protocol :: page :: EventNavigatedWithinDocument > () ?) , super :: browser_protocol :: page :: EventScreencastFrame :: IDENTIFIER => CdpEvent :: PageScreencastFrame (map . next_value :: < super :: browser_protocol :: page :: EventScreencastFrame > () ?) , super :: browser_protocol :: page :: EventScreencastVisibilityChanged :: IDENTIFIER => CdpEvent :: PageScreencastVisibilityChanged (map . next_value :: < super :: browser_protocol :: page :: EventScreencastVisibilityChanged > () ?) , super :: browser_protocol :: page :: EventWindowOpen :: IDENTIFIER => CdpEvent :: PageWindowOpen (map . next_value :: < super :: browser_protocol :: page :: EventWindowOpen > () ?) , super :: browser_protocol :: page :: EventCompilationCacheProduced :: IDENTIFIER => CdpEvent :: PageCompilationCacheProduced (map . next_value :: < super :: browser_protocol :: page :: EventCompilationCacheProduced > () ?) , super :: browser_protocol :: performance :: EventMetrics :: IDENTIFIER => CdpEvent :: PerformanceMetrics (map . next_value :: < super :: browser_protocol :: performance :: EventMetrics > () ?) , super :: browser_protocol :: security :: EventVisibleSecurityStateChanged :: IDENTIFIER => CdpEvent :: SecurityVisibleSecurityStateChanged (Box :: new (map . next_value :: < super :: browser_protocol :: security :: EventVisibleSecurityStateChanged > () ?)) , super :: browser_protocol :: target :: EventAttachedToTarget :: IDENTIFIER => CdpEvent :: TargetAttachedToTarget (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventAttachedToTarget > () ?)) , super :: browser_protocol :: target :: EventDetachedFromTarget :: IDENTIFIER => CdpEvent :: TargetDetachedFromTarget (map . next_value :: < super :: browser_protocol :: target :: EventDetachedFromTarget > () ?) , super :: browser_protocol :: target :: EventReceivedMessageFromTarget :: IDENTIFIER => CdpEvent :: TargetReceivedMessageFromTarget (map . next_value :: < super :: browser_protocol :: target :: EventReceivedMessageFromTarget > () ?) , super :: browser_protocol :: target :: EventTargetCreated :: IDENTIFIER => CdpEvent :: TargetTargetCreated (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventTargetCreated > () ?)) , super :: browser_protocol :: target :: EventTargetDestroyed :: IDENTIFIER => CdpEvent :: TargetTargetDestroyed (map . next_value :: < super :: browser_protocol :: target :: EventTargetDestroyed > () ?) , super :: browser_protocol :: target :: EventTargetCrashed :: IDENTIFIER => CdpEvent :: TargetTargetCrashed (map . next_value :: < super :: browser_protocol :: target :: EventTargetCrashed > () ?) , super :: browser_protocol :: target :: EventTargetInfoChanged :: IDENTIFIER => CdpEvent :: TargetTargetInfoChanged (Box :: new (map . next_value :: < super :: browser_protocol :: target :: EventTargetInfoChanged > () ?)) , _ => CdpEvent :: Other (map . next_value :: < serde_json :: Value > () ?) }) ;
                             }
                         }
                     }
@@ -1367,6 +1399,118 @@ pub mod events {
             el: super::browser_protocol::browser::EventDownloadProgress,
         ) -> CdpEvent {
             CdpEvent::BrowserDownloadProgress(el)
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventFontsUpdated
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssFontsUpdated(val) => Ok(*val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventFontsUpdated> for CdpEvent {
+        fn from(
+            el: super::browser_protocol::css::EventFontsUpdated,
+        ) -> CdpEvent {
+            CdpEvent::CssFontsUpdated(Box::new(el))
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventMediaQueryResultChanged
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssMediaQueryResultChanged(val) => Ok(val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventMediaQueryResultChanged>
+        for CdpEvent
+    {
+        fn from(
+            el: super::browser_protocol::css::EventMediaQueryResultChanged,
+        ) -> CdpEvent {
+            CdpEvent::CssMediaQueryResultChanged(el)
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventStyleSheetAdded
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssStyleSheetAdded(val) => Ok(val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventStyleSheetAdded> for CdpEvent {
+        fn from(
+            el: super::browser_protocol::css::EventStyleSheetAdded,
+        ) -> CdpEvent {
+            CdpEvent::CssStyleSheetAdded(el)
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventStyleSheetChanged
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssStyleSheetChanged(val) => Ok(val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventStyleSheetChanged> for CdpEvent {
+        fn from(
+            el: super::browser_protocol::css::EventStyleSheetChanged,
+        ) -> CdpEvent {
+            CdpEvent::CssStyleSheetChanged(el)
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventStyleSheetRemoved
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssStyleSheetRemoved(val) => Ok(val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventStyleSheetRemoved> for CdpEvent {
+        fn from(
+            el: super::browser_protocol::css::EventStyleSheetRemoved,
+        ) -> CdpEvent {
+            CdpEvent::CssStyleSheetRemoved(el)
+        }
+    }
+    impl std::convert::TryFrom<CdpEvent>
+        for super::browser_protocol::css::EventComputedStyleUpdated
+    {
+        type Error = CdpEvent;
+        fn try_from(event: CdpEvent) -> Result<Self, Self::Error> {
+            match event {
+                CdpEvent::CssComputedStyleUpdated(val) => Ok(val),
+                _ => Err(event),
+            }
+        }
+    }
+    impl From<super::browser_protocol::css::EventComputedStyleUpdated>
+        for CdpEvent
+    {
+        fn from(
+            el: super::browser_protocol::css::EventComputedStyleUpdated,
+        ) -> CdpEvent {
+            CdpEvent::CssComputedStyleUpdated(el)
         }
     }
     impl std::convert::TryFrom<CdpEvent>
@@ -3372,6 +3516,106 @@ pub mod events {
         }
     }
     impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventFontsUpdated
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind for super::browser_protocol::css::EventFontsUpdated {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventMediaQueryResultChanged
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind
+        for super::browser_protocol::css::EventMediaQueryResultChanged
+    {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventStyleSheetAdded
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind
+        for super::browser_protocol::css::EventStyleSheetAdded
+    {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventStyleSheetChanged
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind
+        for super::browser_protocol::css::EventStyleSheetChanged
+    {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventStyleSheetRemoved
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind
+        for super::browser_protocol::css::EventStyleSheetRemoved
+    {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
+        for super::browser_protocol::css::EventComputedStyleUpdated
+    {
+        fn as_any(&self) -> &dyn ::std::any::Any {
+            self
+        }
+    }
+    impl super::IntoEventKind
+        for super::browser_protocol::css::EventComputedStyleUpdated
+    {
+        fn event_kind() -> super::EventKind
+        where
+            Self: Sized + 'static,
+        {
+            super::EventKind::BuiltIn
+        }
+    }
+    impl super::sealed::SealedEvent
         for super::browser_protocol::dom::EventAttributeModified
     {
         fn as_any(&self) -> &dyn ::std::any::Any {
@@ -4975,6 +5219,24 @@ pub mod events {
                     $builtin(event);
                 }
                 CdpEvent::BrowserDownloadProgress(event) => {
+                    $builtin(event);
+                }
+                CdpEvent::CssFontsUpdated(event) => {
+                    $builtin(*event);
+                }
+                CdpEvent::CssMediaQueryResultChanged(event) => {
+                    $builtin(event);
+                }
+                CdpEvent::CssStyleSheetAdded(event) => {
+                    $builtin(event);
+                }
+                CdpEvent::CssStyleSheetChanged(event) => {
+                    $builtin(event);
+                }
+                CdpEvent::CssStyleSheetRemoved(event) => {
+                    $builtin(event);
+                }
+                CdpEvent::CssComputedStyleUpdated(event) => {
                     $builtin(event);
                 }
                 CdpEvent::DomAttributeModified(event) => {
@@ -17584,6 +17846,9196 @@ pub mod browser_protocol {
             }
         }
     }
+    #[doc = "This domain exposes CSS read/write operations. All CSS objects (stylesheets, rules, and styles)\nhave an associated `id` used in subsequent operations on the related object. Each object type has\na specific `id` structure, and those are not interchangeable between objects of different kinds.\nCSS objects can be loaded using the `get*ForNode()` calls (which accept a DOM node id). A client\ncan also keep track of stylesheets via the `styleSheetAdded`/`styleSheetRemoved` events and\nsubsequently load the required stylesheet contents using the `getStyleSheet[Text]()` methods."]
+    pub mod css {
+        use serde::{Deserialize, Serialize};
+        #[doc = "Stylesheet type: \"injected\" for stylesheets injected via extension, \"user-agent\" for user-agent\nstylesheets, \"inspector\" for stylesheets created by the inspector (i.e. those holding the \"via\ninspector\" rules), \"regular\" for regular stylesheets."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum StyleSheetOrigin {
+            #[serde(rename = "injected")]
+            Injected,
+            #[serde(rename = "user-agent")]
+            UserAgent,
+            #[serde(rename = "inspector")]
+            Inspector,
+            #[serde(rename = "regular")]
+            Regular,
+        }
+        impl AsRef<str> for StyleSheetOrigin {
+            fn as_ref(&self) -> &str {
+                match self {
+                    StyleSheetOrigin::Injected => "injected",
+                    StyleSheetOrigin::UserAgent => "user-agent",
+                    StyleSheetOrigin::Inspector => "inspector",
+                    StyleSheetOrigin::Regular => "regular",
+                }
+            }
+        }
+        impl ::std::str::FromStr for StyleSheetOrigin {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "injected" | "Injected" => Ok(StyleSheetOrigin::Injected),
+                    "user-agent" | "UserAgent" => {
+                        Ok(StyleSheetOrigin::UserAgent)
+                    }
+                    "inspector" | "Inspector" => {
+                        Ok(StyleSheetOrigin::Inspector)
+                    }
+                    "regular" | "Regular" => Ok(StyleSheetOrigin::Regular),
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        #[doc = "CSS rule collection for a single pseudo style.\n[PseudoElementMatches](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-PseudoElementMatches)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct PseudoElementMatches {
+            #[doc = "Pseudo element type."]
+            #[serde(rename = "pseudoType")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub pseudo_type: super::dom::PseudoType,
+            #[doc = "Pseudo element custom ident."]
+            #[serde(rename = "pseudoIdentifier")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub pseudo_identifier: Option<String>,
+            #[doc = "Matches of CSS rules applicable to the pseudo style."]
+            #[serde(rename = "matches")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub matches: Vec<RuleMatch>,
+        }
+        impl PseudoElementMatches {
+            pub fn new(
+                pseudo_type: impl Into<super::dom::PseudoType>,
+                matches: Vec<RuleMatch>,
+            ) -> Self {
+                Self {
+                    pseudo_type: pseudo_type.into(),
+                    matches,
+                    pseudo_identifier: None,
+                }
+            }
+        }
+        impl PseudoElementMatches {
+            pub fn builder() -> PseudoElementMatchesBuilder {
+                PseudoElementMatchesBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct PseudoElementMatchesBuilder {
+            pseudo_type: Option<super::dom::PseudoType>,
+            pseudo_identifier: Option<String>,
+            matches: Option<Vec<RuleMatch>>,
+        }
+        impl PseudoElementMatchesBuilder {
+            pub fn pseudo_type(
+                mut self,
+                pseudo_type: impl Into<super::dom::PseudoType>,
+            ) -> Self {
+                self.pseudo_type = Some(pseudo_type.into());
+                self
+            }
+            pub fn pseudo_identifier(
+                mut self,
+                pseudo_identifier: impl Into<String>,
+            ) -> Self {
+                self.pseudo_identifier = Some(pseudo_identifier.into());
+                self
+            }
+            pub fn matche(mut self, matche: impl Into<RuleMatch>) -> Self {
+                let v = self.matches.get_or_insert(Vec::new());
+                v.push(matche.into());
+                self
+            }
+            pub fn matches<I, S>(mut self, matches: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<RuleMatch>,
+            {
+                let v = self.matches.get_or_insert(Vec::new());
+                for val in matches {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<PseudoElementMatches, String> {
+                Ok(PseudoElementMatches {
+                    pseudo_type: self.pseudo_type.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(pseudo_type)
+                        )
+                    })?,
+                    pseudo_identifier: self.pseudo_identifier,
+                    matches: self.matches.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(matches)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl PseudoElementMatches {
+            pub const IDENTIFIER: &'static str = "CSS.PseudoElementMatches";
+        }
+        #[doc = "CSS style coming from animations with the name of the animation.\n[CSSAnimationStyle](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSAnimationStyle)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssAnimationStyle {
+            #[doc = "The name of the animation."]
+            #[serde(rename = "name")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub name: Option<String>,
+            #[doc = "The style coming from the animation."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+        }
+        impl CssAnimationStyle {
+            pub fn new(style: impl Into<CssStyle>) -> Self {
+                Self {
+                    style: style.into(),
+                    name: None,
+                }
+            }
+        }
+        impl CssAnimationStyle {
+            pub fn builder() -> CssAnimationStyleBuilder {
+                CssAnimationStyleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssAnimationStyleBuilder {
+            name: Option<String>,
+            style: Option<CssStyle>,
+        }
+        impl CssAnimationStyleBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> Result<CssAnimationStyle, String> {
+                Ok(CssAnimationStyle {
+                    name: self.name,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssAnimationStyle {
+            pub const IDENTIFIER: &'static str = "CSS.CSSAnimationStyle";
+        }
+        #[doc = "Inherited CSS rule collection from ancestor node.\n[InheritedStyleEntry](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-InheritedStyleEntry)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct InheritedStyleEntry {
+            #[doc = "The ancestor node's inline style, if any, in the style inheritance chain."]
+            #[serde(rename = "inlineStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inline_style: Option<CssStyle>,
+            #[doc = "Matches of CSS rules matching the ancestor node in the style inheritance chain."]
+            #[serde(rename = "matchedCSSRules")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub matched_css_rules: Vec<RuleMatch>,
+        }
+        impl InheritedStyleEntry {
+            pub fn new(matched_css_rules: Vec<RuleMatch>) -> Self {
+                Self {
+                    matched_css_rules,
+                    inline_style: None,
+                }
+            }
+        }
+        impl InheritedStyleEntry {
+            pub fn builder() -> InheritedStyleEntryBuilder {
+                InheritedStyleEntryBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct InheritedStyleEntryBuilder {
+            inline_style: Option<CssStyle>,
+            matched_css_rules: Option<Vec<RuleMatch>>,
+        }
+        impl InheritedStyleEntryBuilder {
+            pub fn inline_style(
+                mut self,
+                inline_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.inline_style = Some(inline_style.into());
+                self
+            }
+            pub fn matched_css_rule(
+                mut self,
+                matched_css_rule: impl Into<RuleMatch>,
+            ) -> Self {
+                let v = self.matched_css_rules.get_or_insert(Vec::new());
+                v.push(matched_css_rule.into());
+                self
+            }
+            pub fn matched_css_rules<I, S>(
+                mut self,
+                matched_css_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<RuleMatch>,
+            {
+                let v = self.matched_css_rules.get_or_insert(Vec::new());
+                for val in matched_css_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<InheritedStyleEntry, String> {
+                Ok(InheritedStyleEntry {
+                    inline_style: self.inline_style,
+                    matched_css_rules: self.matched_css_rules.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(matched_css_rules)
+                            )
+                        },
+                    )?,
+                })
+            }
+        }
+        impl InheritedStyleEntry {
+            pub const IDENTIFIER: &'static str = "CSS.InheritedStyleEntry";
+        }
+        #[doc = "Inherited CSS style collection for animated styles from ancestor node.\n[InheritedAnimatedStyleEntry](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-InheritedAnimatedStyleEntry)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct InheritedAnimatedStyleEntry {
+            #[doc = "Styles coming from the animations of the ancestor, if any, in the style inheritance chain."]
+            #[serde(rename = "animationStyles")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub animation_styles: Option<Vec<CssAnimationStyle>>,
+            #[doc = "The style coming from the transitions of the ancestor, if any, in the style inheritance chain."]
+            #[serde(rename = "transitionsStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub transitions_style: Option<CssStyle>,
+        }
+        impl InheritedAnimatedStyleEntry {
+            pub fn builder() -> InheritedAnimatedStyleEntryBuilder {
+                InheritedAnimatedStyleEntryBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct InheritedAnimatedStyleEntryBuilder {
+            animation_styles: Option<Vec<CssAnimationStyle>>,
+            transitions_style: Option<CssStyle>,
+        }
+        impl InheritedAnimatedStyleEntryBuilder {
+            pub fn animation_style(
+                mut self,
+                animation_style: impl Into<CssAnimationStyle>,
+            ) -> Self {
+                let v = self.animation_styles.get_or_insert(Vec::new());
+                v.push(animation_style.into());
+                self
+            }
+            pub fn animation_styles<I, S>(mut self, animation_styles: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssAnimationStyle>,
+            {
+                let v = self.animation_styles.get_or_insert(Vec::new());
+                for val in animation_styles {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn transitions_style(
+                mut self,
+                transitions_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.transitions_style = Some(transitions_style.into());
+                self
+            }
+            pub fn build(self) -> InheritedAnimatedStyleEntry {
+                InheritedAnimatedStyleEntry {
+                    animation_styles: self.animation_styles,
+                    transitions_style: self.transitions_style,
+                }
+            }
+        }
+        impl InheritedAnimatedStyleEntry {
+            pub const IDENTIFIER: &'static str =
+                "CSS.InheritedAnimatedStyleEntry";
+        }
+        #[doc = "Inherited pseudo element matches from pseudos of an ancestor node.\n[InheritedPseudoElementMatches](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-InheritedPseudoElementMatches)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct InheritedPseudoElementMatches {
+            #[doc = "Matches of pseudo styles from the pseudos of an ancestor node."]
+            #[serde(rename = "pseudoElements")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub pseudo_elements: Vec<PseudoElementMatches>,
+        }
+        impl InheritedPseudoElementMatches {
+            pub fn new(pseudo_elements: Vec<PseudoElementMatches>) -> Self {
+                Self { pseudo_elements }
+            }
+        }
+        impl InheritedPseudoElementMatches {
+            pub fn builder() -> InheritedPseudoElementMatchesBuilder {
+                InheritedPseudoElementMatchesBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct InheritedPseudoElementMatchesBuilder {
+            pseudo_elements: Option<Vec<PseudoElementMatches>>,
+        }
+        impl InheritedPseudoElementMatchesBuilder {
+            pub fn pseudo_element(
+                mut self,
+                pseudo_element: impl Into<PseudoElementMatches>,
+            ) -> Self {
+                let v = self.pseudo_elements.get_or_insert(Vec::new());
+                v.push(pseudo_element.into());
+                self
+            }
+            pub fn pseudo_elements<I, S>(mut self, pseudo_elements: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<PseudoElementMatches>,
+            {
+                let v = self.pseudo_elements.get_or_insert(Vec::new());
+                for val in pseudo_elements {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<InheritedPseudoElementMatches, String> {
+                Ok(InheritedPseudoElementMatches {
+                    pseudo_elements: self.pseudo_elements.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(pseudo_elements)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl InheritedPseudoElementMatches {
+            pub const IDENTIFIER: &'static str =
+                "CSS.InheritedPseudoElementMatches";
+        }
+        #[doc = "Match data for a CSS rule.\n[RuleMatch](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-RuleMatch)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct RuleMatch {
+            #[doc = "CSS rule in the match."]
+            #[serde(rename = "rule")]
+            pub rule: CssRule,
+            #[doc = "Matching selector indices in the rule's selectorList selectors (0-based)."]
+            #[serde(rename = "matchingSelectors")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub matching_selectors: Vec<i64>,
+        }
+        impl RuleMatch {
+            pub fn new(
+                rule: impl Into<CssRule>,
+                matching_selectors: Vec<i64>,
+            ) -> Self {
+                Self {
+                    rule: rule.into(),
+                    matching_selectors,
+                }
+            }
+        }
+        impl RuleMatch {
+            pub fn builder() -> RuleMatchBuilder {
+                RuleMatchBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct RuleMatchBuilder {
+            rule: Option<CssRule>,
+            matching_selectors: Option<Vec<i64>>,
+        }
+        impl RuleMatchBuilder {
+            pub fn rule(mut self, rule: impl Into<CssRule>) -> Self {
+                self.rule = Some(rule.into());
+                self
+            }
+            pub fn matching_selector(
+                mut self,
+                matching_selector: impl Into<i64>,
+            ) -> Self {
+                let v = self.matching_selectors.get_or_insert(Vec::new());
+                v.push(matching_selector.into());
+                self
+            }
+            pub fn matching_selectors<I, S>(
+                mut self,
+                matching_selectors: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<i64>,
+            {
+                let v = self.matching_selectors.get_or_insert(Vec::new());
+                for val in matching_selectors {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<RuleMatch, String> {
+                Ok(RuleMatch {
+                    rule: self.rule.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(rule)
+                        )
+                    })?,
+                    matching_selectors: self.matching_selectors.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(matching_selectors)
+                            )
+                        },
+                    )?,
+                })
+            }
+        }
+        impl RuleMatch {
+            pub const IDENTIFIER: &'static str = "CSS.RuleMatch";
+        }
+        #[doc = "Data for a simple selector (these are delimited by commas in a selector list).\n[Value](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-Value)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct Value {
+            #[doc = "Value text."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "Value range in the underlying resource (if available)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Specificity of the selector."]
+            #[serde(rename = "specificity")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub specificity: Option<Specificity>,
+        }
+        impl Value {
+            pub fn new(text: impl Into<String>) -> Self {
+                Self {
+                    text: text.into(),
+                    range: None,
+                    specificity: None,
+                }
+            }
+        }
+        impl<T: Into<String>> From<T> for Value {
+            fn from(url: T) -> Self {
+                Value::new(url)
+            }
+        }
+        impl Value {
+            pub fn builder() -> ValueBuilder {
+                ValueBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ValueBuilder {
+            text: Option<String>,
+            range: Option<SourceRange>,
+            specificity: Option<Specificity>,
+        }
+        impl ValueBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn specificity(
+                mut self,
+                specificity: impl Into<Specificity>,
+            ) -> Self {
+                self.specificity = Some(specificity.into());
+                self
+            }
+            pub fn build(self) -> Result<Value, String> {
+                Ok(Value {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    range: self.range,
+                    specificity: self.specificity,
+                })
+            }
+        }
+        impl Value {
+            pub const IDENTIFIER: &'static str = "CSS.Value";
+        }
+        #[doc = "Contribution of an individual simple selector to specificity.\n[SpecificityComponent](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-SpecificityComponent)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SpecificityComponent {
+            #[doc = "The simple selector text that contributes to specificity."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "The a component contribution."]
+            #[serde(rename = "a")]
+            pub a: i64,
+            #[doc = "The b component contribution."]
+            #[serde(rename = "b")]
+            pub b: i64,
+            #[doc = "The c component contribution."]
+            #[serde(rename = "c")]
+            pub c: i64,
+        }
+        impl SpecificityComponent {
+            pub fn new(
+                text: impl Into<String>,
+                a: impl Into<i64>,
+                b: impl Into<i64>,
+                c: impl Into<i64>,
+            ) -> Self {
+                Self {
+                    text: text.into(),
+                    a: a.into(),
+                    b: b.into(),
+                    c: c.into(),
+                }
+            }
+        }
+        impl SpecificityComponent {
+            pub fn builder() -> SpecificityComponentBuilder {
+                SpecificityComponentBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SpecificityComponentBuilder {
+            text: Option<String>,
+            a: Option<i64>,
+            b: Option<i64>,
+            c: Option<i64>,
+        }
+        impl SpecificityComponentBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn a(mut self, a: impl Into<i64>) -> Self {
+                self.a = Some(a.into());
+                self
+            }
+            pub fn b(mut self, b: impl Into<i64>) -> Self {
+                self.b = Some(b.into());
+                self
+            }
+            pub fn c(mut self, c: impl Into<i64>) -> Self {
+                self.c = Some(c.into());
+                self
+            }
+            pub fn build(self) -> Result<SpecificityComponent, String> {
+                Ok(SpecificityComponent {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    a: self.a.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(a))
+                    })?,
+                    b: self.b.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(b))
+                    })?,
+                    c: self.c.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(c))
+                    })?,
+                })
+            }
+        }
+        impl SpecificityComponent {
+            pub const IDENTIFIER: &'static str = "CSS.SpecificityComponent";
+        }
+        #[doc = "Specificity:\nhttps://drafts.csswg.org/selectors/#specificity-rules\n[Specificity](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-Specificity)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct Specificity {
+            #[doc = "The a component, which represents the number of ID selectors."]
+            #[serde(rename = "a")]
+            pub a: i64,
+            #[doc = "The b component, which represents the number of class selectors, attributes selectors, and\npseudo-classes."]
+            #[serde(rename = "b")]
+            pub b: i64,
+            #[doc = "The c component, which represents the number of type selectors and pseudo-elements."]
+            #[serde(rename = "c")]
+            pub c: i64,
+            #[doc = "Per-simple-selector contributions used to explain this specificity."]
+            #[serde(rename = "components")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub components: Option<Vec<SpecificityComponent>>,
+        }
+        impl Specificity {
+            pub fn new(
+                a: impl Into<i64>,
+                b: impl Into<i64>,
+                c: impl Into<i64>,
+            ) -> Self {
+                Self {
+                    a: a.into(),
+                    b: b.into(),
+                    c: c.into(),
+                    components: None,
+                }
+            }
+        }
+        impl Specificity {
+            pub fn builder() -> SpecificityBuilder {
+                SpecificityBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SpecificityBuilder {
+            a: Option<i64>,
+            b: Option<i64>,
+            c: Option<i64>,
+            components: Option<Vec<SpecificityComponent>>,
+        }
+        impl SpecificityBuilder {
+            pub fn a(mut self, a: impl Into<i64>) -> Self {
+                self.a = Some(a.into());
+                self
+            }
+            pub fn b(mut self, b: impl Into<i64>) -> Self {
+                self.b = Some(b.into());
+                self
+            }
+            pub fn c(mut self, c: impl Into<i64>) -> Self {
+                self.c = Some(c.into());
+                self
+            }
+            pub fn component(
+                mut self,
+                component: impl Into<SpecificityComponent>,
+            ) -> Self {
+                let v = self.components.get_or_insert(Vec::new());
+                v.push(component.into());
+                self
+            }
+            pub fn components<I, S>(mut self, components: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<SpecificityComponent>,
+            {
+                let v = self.components.get_or_insert(Vec::new());
+                for val in components {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<Specificity, String> {
+                Ok(Specificity {
+                    a: self.a.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(a))
+                    })?,
+                    b: self.b.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(b))
+                    })?,
+                    c: self.c.ok_or_else(|| {
+                        format!("Field `{}` is mandatory.", std::stringify!(c))
+                    })?,
+                    components: self.components,
+                })
+            }
+        }
+        impl Specificity {
+            pub const IDENTIFIER: &'static str = "CSS.Specificity";
+        }
+        #[doc = "Selector list data.\n[SelectorList](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-SelectorList)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SelectorList {
+            #[doc = "Selectors in the list."]
+            #[serde(rename = "selectors")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub selectors: Vec<Value>,
+            #[doc = "Rule selector text."]
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SelectorList {
+            pub fn new(selectors: Vec<Value>, text: impl Into<String>) -> Self {
+                Self {
+                    selectors,
+                    text: text.into(),
+                }
+            }
+        }
+        impl SelectorList {
+            pub fn builder() -> SelectorListBuilder {
+                SelectorListBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SelectorListBuilder {
+            selectors: Option<Vec<Value>>,
+            text: Option<String>,
+        }
+        impl SelectorListBuilder {
+            pub fn selector(mut self, selector: impl Into<Value>) -> Self {
+                let v = self.selectors.get_or_insert(Vec::new());
+                v.push(selector.into());
+                self
+            }
+            pub fn selectors<I, S>(mut self, selectors: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<Value>,
+            {
+                let v = self.selectors.get_or_insert(Vec::new());
+                for val in selectors {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SelectorList, String> {
+                Ok(SelectorList {
+                    selectors: self.selectors.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(selectors)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SelectorList {
+            pub const IDENTIFIER: &'static str = "CSS.SelectorList";
+        }
+        #[doc = "CSS stylesheet metainformation.\n[CSSStyleSheetHeader](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSStyleSheetHeader)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssStyleSheetHeader {
+            #[doc = "The stylesheet identifier."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[doc = "Owner frame identifier."]
+            #[serde(rename = "frameId")]
+            pub frame_id: super::page::FrameId,
+            #[doc = "Stylesheet resource URL. Empty if this is a constructed stylesheet created using\nnew CSSStyleSheet() (but non-empty if this is a constructed stylesheet imported\nas a CSS module script)."]
+            #[serde(rename = "sourceURL")]
+            pub source_url: String,
+            #[doc = "URL of source map associated with the stylesheet (if any)."]
+            #[serde(rename = "sourceMapURL")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub source_map_url: Option<String>,
+            #[doc = "Stylesheet origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Stylesheet title."]
+            #[serde(rename = "title")]
+            pub title: String,
+            #[doc = "The backend id for the owner node of the stylesheet."]
+            #[serde(rename = "ownerNode")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub owner_node: Option<super::dom::BackendNodeId>,
+            #[doc = "Denotes whether the stylesheet is disabled."]
+            #[serde(rename = "disabled")]
+            pub disabled: bool,
+            #[doc = "Whether the sourceURL field value comes from the sourceURL comment."]
+            #[serde(rename = "hasSourceURL")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub has_source_url: Option<bool>,
+            #[doc = "Whether this stylesheet is created for STYLE tag by parser. This flag is not set for\ndocument.written STYLE tags."]
+            #[serde(rename = "isInline")]
+            pub is_inline: bool,
+            #[doc = "Whether this stylesheet is mutable. Inline stylesheets become mutable\nafter they have been modified via CSSOM API.\n`<link>` element's stylesheets become mutable only if DevTools modifies them.\nConstructed stylesheets (new CSSStyleSheet()) are mutable immediately after creation."]
+            #[serde(rename = "isMutable")]
+            pub is_mutable: bool,
+            #[doc = "True if this stylesheet is created through new CSSStyleSheet() or imported as a\nCSS module script."]
+            #[serde(rename = "isConstructed")]
+            pub is_constructed: bool,
+            #[doc = "Line offset of the stylesheet within the resource (zero based)."]
+            #[serde(rename = "startLine")]
+            pub start_line: f64,
+            #[doc = "Column offset of the stylesheet within the resource (zero based)."]
+            #[serde(rename = "startColumn")]
+            pub start_column: f64,
+            #[doc = "Size of the content (in characters)."]
+            #[serde(rename = "length")]
+            pub length: f64,
+            #[doc = "Line offset of the end of the stylesheet within the resource (zero based)."]
+            #[serde(rename = "endLine")]
+            pub end_line: f64,
+            #[doc = "Column offset of the end of the stylesheet within the resource (zero based)."]
+            #[serde(rename = "endColumn")]
+            pub end_column: f64,
+            #[doc = "If the style sheet was loaded from a network resource, this indicates when the resource failed to load"]
+            #[serde(rename = "loadingFailed")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub loading_failed: Option<bool>,
+        }
+        impl CssStyleSheetHeader {
+            pub fn builder() -> CssStyleSheetHeaderBuilder {
+                CssStyleSheetHeaderBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssStyleSheetHeaderBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            frame_id: Option<super::page::FrameId>,
+            source_url: Option<String>,
+            source_map_url: Option<String>,
+            origin: Option<StyleSheetOrigin>,
+            title: Option<String>,
+            owner_node: Option<super::dom::BackendNodeId>,
+            disabled: Option<bool>,
+            has_source_url: Option<bool>,
+            is_inline: Option<bool>,
+            is_mutable: Option<bool>,
+            is_constructed: Option<bool>,
+            start_line: Option<f64>,
+            start_column: Option<f64>,
+            length: Option<f64>,
+            end_line: Option<f64>,
+            end_column: Option<f64>,
+            loading_failed: Option<bool>,
+        }
+        impl CssStyleSheetHeaderBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn frame_id(
+                mut self,
+                frame_id: impl Into<super::page::FrameId>,
+            ) -> Self {
+                self.frame_id = Some(frame_id.into());
+                self
+            }
+            pub fn source_url(mut self, source_url: impl Into<String>) -> Self {
+                self.source_url = Some(source_url.into());
+                self
+            }
+            pub fn source_map_url(
+                mut self,
+                source_map_url: impl Into<String>,
+            ) -> Self {
+                self.source_map_url = Some(source_map_url.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn title(mut self, title: impl Into<String>) -> Self {
+                self.title = Some(title.into());
+                self
+            }
+            pub fn owner_node(
+                mut self,
+                owner_node: impl Into<super::dom::BackendNodeId>,
+            ) -> Self {
+                self.owner_node = Some(owner_node.into());
+                self
+            }
+            pub fn disabled(mut self, disabled: impl Into<bool>) -> Self {
+                self.disabled = Some(disabled.into());
+                self
+            }
+            pub fn has_source_url(
+                mut self,
+                has_source_url: impl Into<bool>,
+            ) -> Self {
+                self.has_source_url = Some(has_source_url.into());
+                self
+            }
+            pub fn is_inline(mut self, is_inline: impl Into<bool>) -> Self {
+                self.is_inline = Some(is_inline.into());
+                self
+            }
+            pub fn is_mutable(mut self, is_mutable: impl Into<bool>) -> Self {
+                self.is_mutable = Some(is_mutable.into());
+                self
+            }
+            pub fn is_constructed(
+                mut self,
+                is_constructed: impl Into<bool>,
+            ) -> Self {
+                self.is_constructed = Some(is_constructed.into());
+                self
+            }
+            pub fn start_line(mut self, start_line: impl Into<f64>) -> Self {
+                self.start_line = Some(start_line.into());
+                self
+            }
+            pub fn start_column(
+                mut self,
+                start_column: impl Into<f64>,
+            ) -> Self {
+                self.start_column = Some(start_column.into());
+                self
+            }
+            pub fn length(mut self, length: impl Into<f64>) -> Self {
+                self.length = Some(length.into());
+                self
+            }
+            pub fn end_line(mut self, end_line: impl Into<f64>) -> Self {
+                self.end_line = Some(end_line.into());
+                self
+            }
+            pub fn end_column(mut self, end_column: impl Into<f64>) -> Self {
+                self.end_column = Some(end_column.into());
+                self
+            }
+            pub fn loading_failed(
+                mut self,
+                loading_failed: impl Into<bool>,
+            ) -> Self {
+                self.loading_failed = Some(loading_failed.into());
+                self
+            }
+            pub fn build(self) -> Result<CssStyleSheetHeader, String> {
+                Ok(CssStyleSheetHeader {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    frame_id: self.frame_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(frame_id)
+                        )
+                    })?,
+                    source_url: self.source_url.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(source_url)
+                        )
+                    })?,
+                    source_map_url: self.source_map_url,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    title: self.title.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(title)
+                        )
+                    })?,
+                    owner_node: self.owner_node,
+                    disabled: self.disabled.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(disabled)
+                        )
+                    })?,
+                    has_source_url: self.has_source_url,
+                    is_inline: self.is_inline.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(is_inline)
+                        )
+                    })?,
+                    is_mutable: self.is_mutable.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(is_mutable)
+                        )
+                    })?,
+                    is_constructed: self.is_constructed.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(is_constructed)
+                        )
+                    })?,
+                    start_line: self.start_line.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(start_line)
+                        )
+                    })?,
+                    start_column: self.start_column.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(start_column)
+                        )
+                    })?,
+                    length: self.length.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(length)
+                        )
+                    })?,
+                    end_line: self.end_line.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(end_line)
+                        )
+                    })?,
+                    end_column: self.end_column.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(end_column)
+                        )
+                    })?,
+                    loading_failed: self.loading_failed,
+                })
+            }
+        }
+        impl CssStyleSheetHeader {
+            pub const IDENTIFIER: &'static str = "CSS.CSSStyleSheetHeader";
+        }
+        #[doc = "CSS rule representation.\n[CSSRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssRule {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Rule selector data."]
+            #[serde(rename = "selectorList")]
+            pub selector_list: SelectorList,
+            #[doc = "Array of selectors from ancestor style rules, sorted by distance from the current rule."]
+            #[serde(rename = "nestingSelectors")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub nesting_selectors: Option<Vec<String>>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+            #[doc = "The BackendNodeId of the DOM node that constitutes the origin tree scope of this rule."]
+            #[serde(rename = "originTreeScopeNodeId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub origin_tree_scope_node_id: Option<super::dom::BackendNodeId>,
+            #[doc = "Media list array (for rules involving media queries). The array enumerates media queries\nstarting with the innermost one, going outwards."]
+            #[serde(rename = "media")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub media: Option<Vec<CssMedia>>,
+            #[doc = "Container query list array (for rules involving container queries).\nThe array enumerates container queries starting with the innermost one, going outwards."]
+            #[serde(rename = "containerQueries")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub container_queries: Option<Vec<CssContainerQuery>>,
+            #[doc = "@supports CSS at-rule array.\nThe array enumerates @supports at-rules starting with the innermost one, going outwards."]
+            #[serde(rename = "supports")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub supports: Option<Vec<CssSupports>>,
+            #[doc = "Cascade layer array. Contains the layer hierarchy that this rule belongs to starting\nwith the innermost layer and going outwards."]
+            #[serde(rename = "layers")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub layers: Option<Vec<CssLayer>>,
+            #[doc = "@scope CSS at-rule array.\nThe array enumerates @scope at-rules starting with the innermost one, going outwards."]
+            #[serde(rename = "scopes")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub scopes: Option<Vec<CssScope>>,
+            #[doc = "The array keeps the types of ancestor CSSRules from the innermost going outwards."]
+            #[serde(rename = "ruleTypes")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub rule_types: Option<Vec<CssRuleType>>,
+            #[doc = "@starting-style CSS at-rule array.\nThe array enumerates @starting-style at-rules starting with the innermost one, going outwards."]
+            #[serde(rename = "startingStyles")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub starting_styles: Option<Vec<CssStartingStyle>>,
+            #[doc = "@navigation CSS at-rule array.\nThe array enumerates @navigation at-rules starting with the innermost one, going outwards."]
+            #[serde(rename = "navigations")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub navigations: Option<Vec<CssNavigation>>,
+        }
+        impl CssRule {
+            pub fn new(
+                selector_list: impl Into<SelectorList>,
+                origin: impl Into<StyleSheetOrigin>,
+                style: impl Into<CssStyle>,
+            ) -> Self {
+                Self {
+                    selector_list: selector_list.into(),
+                    origin: origin.into(),
+                    style: style.into(),
+                    style_sheet_id: None,
+                    nesting_selectors: None,
+                    origin_tree_scope_node_id: None,
+                    media: None,
+                    container_queries: None,
+                    supports: None,
+                    layers: None,
+                    scopes: None,
+                    rule_types: None,
+                    starting_styles: None,
+                    navigations: None,
+                }
+            }
+        }
+        impl CssRule {
+            pub fn builder() -> CssRuleBuilder {
+                CssRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssRuleBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            selector_list: Option<SelectorList>,
+            nesting_selectors: Option<Vec<String>>,
+            origin: Option<StyleSheetOrigin>,
+            style: Option<CssStyle>,
+            origin_tree_scope_node_id: Option<super::dom::BackendNodeId>,
+            media: Option<Vec<CssMedia>>,
+            container_queries: Option<Vec<CssContainerQuery>>,
+            supports: Option<Vec<CssSupports>>,
+            layers: Option<Vec<CssLayer>>,
+            scopes: Option<Vec<CssScope>>,
+            rule_types: Option<Vec<CssRuleType>>,
+            starting_styles: Option<Vec<CssStartingStyle>>,
+            navigations: Option<Vec<CssNavigation>>,
+        }
+        impl CssRuleBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn selector_list(
+                mut self,
+                selector_list: impl Into<SelectorList>,
+            ) -> Self {
+                self.selector_list = Some(selector_list.into());
+                self
+            }
+            pub fn nesting_selector(
+                mut self,
+                nesting_selector: impl Into<String>,
+            ) -> Self {
+                let v = self.nesting_selectors.get_or_insert(Vec::new());
+                v.push(nesting_selector.into());
+                self
+            }
+            pub fn nesting_selectors<I, S>(
+                mut self,
+                nesting_selectors: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.nesting_selectors.get_or_insert(Vec::new());
+                for val in nesting_selectors {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn origin_tree_scope_node_id(
+                mut self,
+                origin_tree_scope_node_id: impl Into<super::dom::BackendNodeId>,
+            ) -> Self {
+                self.origin_tree_scope_node_id =
+                    Some(origin_tree_scope_node_id.into());
+                self
+            }
+            pub fn media(mut self, media: impl Into<CssMedia>) -> Self {
+                let v = self.media.get_or_insert(Vec::new());
+                v.push(media.into());
+                self
+            }
+            pub fn medias<I, S>(mut self, medias: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssMedia>,
+            {
+                let v = self.media.get_or_insert(Vec::new());
+                for val in medias {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn container_querie(
+                mut self,
+                container_querie: impl Into<CssContainerQuery>,
+            ) -> Self {
+                let v = self.container_queries.get_or_insert(Vec::new());
+                v.push(container_querie.into());
+                self
+            }
+            pub fn container_queries<I, S>(
+                mut self,
+                container_queries: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssContainerQuery>,
+            {
+                let v = self.container_queries.get_or_insert(Vec::new());
+                for val in container_queries {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn support(mut self, support: impl Into<CssSupports>) -> Self {
+                let v = self.supports.get_or_insert(Vec::new());
+                v.push(support.into());
+                self
+            }
+            pub fn supports<I, S>(mut self, supports: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssSupports>,
+            {
+                let v = self.supports.get_or_insert(Vec::new());
+                for val in supports {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn layer(mut self, layer: impl Into<CssLayer>) -> Self {
+                let v = self.layers.get_or_insert(Vec::new());
+                v.push(layer.into());
+                self
+            }
+            pub fn layers<I, S>(mut self, layers: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssLayer>,
+            {
+                let v = self.layers.get_or_insert(Vec::new());
+                for val in layers {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn scope(mut self, scope: impl Into<CssScope>) -> Self {
+                let v = self.scopes.get_or_insert(Vec::new());
+                v.push(scope.into());
+                self
+            }
+            pub fn scopes<I, S>(mut self, scopes: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssScope>,
+            {
+                let v = self.scopes.get_or_insert(Vec::new());
+                for val in scopes {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn rule_type(
+                mut self,
+                rule_type: impl Into<CssRuleType>,
+            ) -> Self {
+                let v = self.rule_types.get_or_insert(Vec::new());
+                v.push(rule_type.into());
+                self
+            }
+            pub fn rule_types<I, S>(mut self, rule_types: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssRuleType>,
+            {
+                let v = self.rule_types.get_or_insert(Vec::new());
+                for val in rule_types {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn starting_style(
+                mut self,
+                starting_style: impl Into<CssStartingStyle>,
+            ) -> Self {
+                let v = self.starting_styles.get_or_insert(Vec::new());
+                v.push(starting_style.into());
+                self
+            }
+            pub fn starting_styles<I, S>(mut self, starting_styles: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssStartingStyle>,
+            {
+                let v = self.starting_styles.get_or_insert(Vec::new());
+                for val in starting_styles {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn navigation(
+                mut self,
+                navigation: impl Into<CssNavigation>,
+            ) -> Self {
+                let v = self.navigations.get_or_insert(Vec::new());
+                v.push(navigation.into());
+                self
+            }
+            pub fn navigations<I, S>(mut self, navigations: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssNavigation>,
+            {
+                let v = self.navigations.get_or_insert(Vec::new());
+                for val in navigations {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<CssRule, String> {
+                Ok(CssRule {
+                    style_sheet_id: self.style_sheet_id,
+                    selector_list: self.selector_list.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(selector_list)
+                        )
+                    })?,
+                    nesting_selectors: self.nesting_selectors,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                    origin_tree_scope_node_id: self.origin_tree_scope_node_id,
+                    media: self.media,
+                    container_queries: self.container_queries,
+                    supports: self.supports,
+                    layers: self.layers,
+                    scopes: self.scopes,
+                    rule_types: self.rule_types,
+                    starting_styles: self.starting_styles,
+                    navigations: self.navigations,
+                })
+            }
+        }
+        impl CssRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSRule";
+        }
+        #[doc = "Enum indicating the type of a CSS rule, used to represent the order of a style rule's ancestors.\nThis list only contains rule types that are collected during the ancestor rule collection."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum CssRuleType {
+            #[serde(rename = "MediaRule")]
+            MediaRule,
+            #[serde(rename = "SupportsRule")]
+            SupportsRule,
+            #[serde(rename = "ContainerRule")]
+            ContainerRule,
+            #[serde(rename = "LayerRule")]
+            LayerRule,
+            #[serde(rename = "ScopeRule")]
+            ScopeRule,
+            #[serde(rename = "StyleRule")]
+            StyleRule,
+            #[serde(rename = "StartingStyleRule")]
+            StartingStyleRule,
+            #[serde(rename = "NavigationRule")]
+            NavigationRule,
+        }
+        impl AsRef<str> for CssRuleType {
+            fn as_ref(&self) -> &str {
+                match self {
+                    CssRuleType::MediaRule => "MediaRule",
+                    CssRuleType::SupportsRule => "SupportsRule",
+                    CssRuleType::ContainerRule => "ContainerRule",
+                    CssRuleType::LayerRule => "LayerRule",
+                    CssRuleType::ScopeRule => "ScopeRule",
+                    CssRuleType::StyleRule => "StyleRule",
+                    CssRuleType::StartingStyleRule => "StartingStyleRule",
+                    CssRuleType::NavigationRule => "NavigationRule",
+                }
+            }
+        }
+        impl ::std::str::FromStr for CssRuleType {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "MediaRule" | "mediarule" => Ok(CssRuleType::MediaRule),
+                    "SupportsRule" | "supportsrule" => {
+                        Ok(CssRuleType::SupportsRule)
+                    }
+                    "ContainerRule" | "containerrule" => {
+                        Ok(CssRuleType::ContainerRule)
+                    }
+                    "LayerRule" | "layerrule" => Ok(CssRuleType::LayerRule),
+                    "ScopeRule" | "scoperule" => Ok(CssRuleType::ScopeRule),
+                    "StyleRule" | "stylerule" => Ok(CssRuleType::StyleRule),
+                    "StartingStyleRule" | "startingstylerule" => {
+                        Ok(CssRuleType::StartingStyleRule)
+                    }
+                    "NavigationRule" | "navigationrule" => {
+                        Ok(CssRuleType::NavigationRule)
+                    }
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        #[doc = "CSS coverage information.\n[RuleUsage](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-RuleUsage)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct RuleUsage {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[doc = "Offset of the start of the rule (including selector) from the beginning of the stylesheet."]
+            #[serde(rename = "startOffset")]
+            pub start_offset: f64,
+            #[doc = "Offset of the end of the rule body from the beginning of the stylesheet."]
+            #[serde(rename = "endOffset")]
+            pub end_offset: f64,
+            #[doc = "Indicates whether the rule was actually used by some element in the page."]
+            #[serde(rename = "used")]
+            pub used: bool,
+        }
+        impl RuleUsage {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                start_offset: impl Into<f64>,
+                end_offset: impl Into<f64>,
+                used: impl Into<bool>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    start_offset: start_offset.into(),
+                    end_offset: end_offset.into(),
+                    used: used.into(),
+                }
+            }
+        }
+        impl RuleUsage {
+            pub fn builder() -> RuleUsageBuilder {
+                RuleUsageBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct RuleUsageBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            start_offset: Option<f64>,
+            end_offset: Option<f64>,
+            used: Option<bool>,
+        }
+        impl RuleUsageBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn start_offset(
+                mut self,
+                start_offset: impl Into<f64>,
+            ) -> Self {
+                self.start_offset = Some(start_offset.into());
+                self
+            }
+            pub fn end_offset(mut self, end_offset: impl Into<f64>) -> Self {
+                self.end_offset = Some(end_offset.into());
+                self
+            }
+            pub fn used(mut self, used: impl Into<bool>) -> Self {
+                self.used = Some(used.into());
+                self
+            }
+            pub fn build(self) -> Result<RuleUsage, String> {
+                Ok(RuleUsage {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    start_offset: self.start_offset.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(start_offset)
+                        )
+                    })?,
+                    end_offset: self.end_offset.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(end_offset)
+                        )
+                    })?,
+                    used: self.used.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(used)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl RuleUsage {
+            pub const IDENTIFIER: &'static str = "CSS.RuleUsage";
+        }
+        #[doc = "Text range within a resource. All numbers are zero-based.\n[SourceRange](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-SourceRange)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SourceRange {
+            #[doc = "Start line of range."]
+            #[serde(rename = "startLine")]
+            pub start_line: i64,
+            #[doc = "Start column of range (inclusive)."]
+            #[serde(rename = "startColumn")]
+            pub start_column: i64,
+            #[doc = "End line of range"]
+            #[serde(rename = "endLine")]
+            pub end_line: i64,
+            #[doc = "End column of range (exclusive)."]
+            #[serde(rename = "endColumn")]
+            pub end_column: i64,
+        }
+        impl SourceRange {
+            pub fn new(
+                start_line: impl Into<i64>,
+                start_column: impl Into<i64>,
+                end_line: impl Into<i64>,
+                end_column: impl Into<i64>,
+            ) -> Self {
+                Self {
+                    start_line: start_line.into(),
+                    start_column: start_column.into(),
+                    end_line: end_line.into(),
+                    end_column: end_column.into(),
+                }
+            }
+        }
+        impl SourceRange {
+            pub fn builder() -> SourceRangeBuilder {
+                SourceRangeBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SourceRangeBuilder {
+            start_line: Option<i64>,
+            start_column: Option<i64>,
+            end_line: Option<i64>,
+            end_column: Option<i64>,
+        }
+        impl SourceRangeBuilder {
+            pub fn start_line(mut self, start_line: impl Into<i64>) -> Self {
+                self.start_line = Some(start_line.into());
+                self
+            }
+            pub fn start_column(
+                mut self,
+                start_column: impl Into<i64>,
+            ) -> Self {
+                self.start_column = Some(start_column.into());
+                self
+            }
+            pub fn end_line(mut self, end_line: impl Into<i64>) -> Self {
+                self.end_line = Some(end_line.into());
+                self
+            }
+            pub fn end_column(mut self, end_column: impl Into<i64>) -> Self {
+                self.end_column = Some(end_column.into());
+                self
+            }
+            pub fn build(self) -> Result<SourceRange, String> {
+                Ok(SourceRange {
+                    start_line: self.start_line.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(start_line)
+                        )
+                    })?,
+                    start_column: self.start_column.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(start_column)
+                        )
+                    })?,
+                    end_line: self.end_line.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(end_line)
+                        )
+                    })?,
+                    end_column: self.end_column.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(end_column)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SourceRange {
+            pub const IDENTIFIER: &'static str = "CSS.SourceRange";
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ShorthandEntry {
+            #[doc = "Shorthand name."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "Shorthand value."]
+            #[serde(rename = "value")]
+            pub value: String,
+            #[doc = "Whether the property has \"!important\" annotation (implies `false` if absent)."]
+            #[serde(rename = "important")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub important: Option<bool>,
+        }
+        impl ShorthandEntry {
+            pub fn new(
+                name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    value: value.into(),
+                    important: None,
+                }
+            }
+        }
+        impl ShorthandEntry {
+            pub fn builder() -> ShorthandEntryBuilder {
+                ShorthandEntryBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ShorthandEntryBuilder {
+            name: Option<String>,
+            value: Option<String>,
+            important: Option<bool>,
+        }
+        impl ShorthandEntryBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn important(mut self, important: impl Into<bool>) -> Self {
+                self.important = Some(important.into());
+                self
+            }
+            pub fn build(self) -> Result<ShorthandEntry, String> {
+                Ok(ShorthandEntry {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                    important: self.important,
+                })
+            }
+        }
+        impl ShorthandEntry {
+            pub const IDENTIFIER: &'static str = "CSS.ShorthandEntry";
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssComputedStyleProperty {
+            #[doc = "Computed style property name."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "Computed style property value."]
+            #[serde(rename = "value")]
+            pub value: String,
+        }
+        impl CssComputedStyleProperty {
+            pub fn new(
+                name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    value: value.into(),
+                }
+            }
+        }
+        impl CssComputedStyleProperty {
+            pub fn builder() -> CssComputedStylePropertyBuilder {
+                CssComputedStylePropertyBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssComputedStylePropertyBuilder {
+            name: Option<String>,
+            value: Option<String>,
+        }
+        impl CssComputedStylePropertyBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn build(self) -> Result<CssComputedStyleProperty, String> {
+                Ok(CssComputedStyleProperty {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssComputedStyleProperty {
+            pub const IDENTIFIER: &'static str = "CSS.CSSComputedStyleProperty";
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ComputedStyleExtraFields {
+            #[doc = "Returns whether or not this node is being rendered with base appearance,\nwhich happens when it has its appearance property set to base/base-select\nor it is in the subtree of an element being rendered with base appearance."]
+            #[serde(rename = "isAppearanceBase")]
+            pub is_appearance_base: bool,
+        }
+        impl ComputedStyleExtraFields {
+            pub fn new(is_appearance_base: impl Into<bool>) -> Self {
+                Self {
+                    is_appearance_base: is_appearance_base.into(),
+                }
+            }
+        }
+        impl ComputedStyleExtraFields {
+            pub fn builder() -> ComputedStyleExtraFieldsBuilder {
+                ComputedStyleExtraFieldsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ComputedStyleExtraFieldsBuilder {
+            is_appearance_base: Option<bool>,
+        }
+        impl ComputedStyleExtraFieldsBuilder {
+            pub fn is_appearance_base(
+                mut self,
+                is_appearance_base: impl Into<bool>,
+            ) -> Self {
+                self.is_appearance_base = Some(is_appearance_base.into());
+                self
+            }
+            pub fn build(self) -> Result<ComputedStyleExtraFields, String> {
+                Ok(ComputedStyleExtraFields {
+                    is_appearance_base: self.is_appearance_base.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(is_appearance_base)
+                            )
+                        },
+                    )?,
+                })
+            }
+        }
+        impl ComputedStyleExtraFields {
+            pub const IDENTIFIER: &'static str = "CSS.ComputedStyleExtraFields";
+        }
+        #[doc = "CSS style representation.\n[CSSStyle](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSStyle)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssStyle {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "CSS properties in the style."]
+            #[serde(rename = "cssProperties")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub css_properties: Vec<CssProperty>,
+            #[doc = "Computed values for all shorthands found in the style."]
+            #[serde(rename = "shorthandEntries")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub shorthand_entries: Vec<ShorthandEntry>,
+            #[doc = "Style declaration text (if available)."]
+            #[serde(rename = "cssText")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_text: Option<String>,
+            #[doc = "Style declaration range in the enclosing stylesheet (if available)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+        }
+        impl CssStyle {
+            pub fn new(
+                css_properties: Vec<CssProperty>,
+                shorthand_entries: Vec<ShorthandEntry>,
+            ) -> Self {
+                Self {
+                    css_properties,
+                    shorthand_entries,
+                    style_sheet_id: None,
+                    css_text: None,
+                    range: None,
+                }
+            }
+        }
+        impl CssStyle {
+            pub fn builder() -> CssStyleBuilder {
+                CssStyleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssStyleBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            css_properties: Option<Vec<CssProperty>>,
+            shorthand_entries: Option<Vec<ShorthandEntry>>,
+            css_text: Option<String>,
+            range: Option<SourceRange>,
+        }
+        impl CssStyleBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn css_propertie(
+                mut self,
+                css_propertie: impl Into<CssProperty>,
+            ) -> Self {
+                let v = self.css_properties.get_or_insert(Vec::new());
+                v.push(css_propertie.into());
+                self
+            }
+            pub fn css_properties<I, S>(mut self, css_properties: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssProperty>,
+            {
+                let v = self.css_properties.get_or_insert(Vec::new());
+                for val in css_properties {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn shorthand_entrie(
+                mut self,
+                shorthand_entrie: impl Into<ShorthandEntry>,
+            ) -> Self {
+                let v = self.shorthand_entries.get_or_insert(Vec::new());
+                v.push(shorthand_entrie.into());
+                self
+            }
+            pub fn shorthand_entries<I, S>(
+                mut self,
+                shorthand_entries: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<ShorthandEntry>,
+            {
+                let v = self.shorthand_entries.get_or_insert(Vec::new());
+                for val in shorthand_entries {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn css_text(mut self, css_text: impl Into<String>) -> Self {
+                self.css_text = Some(css_text.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn build(self) -> Result<CssStyle, String> {
+                Ok(CssStyle {
+                    style_sheet_id: self.style_sheet_id,
+                    css_properties: self.css_properties.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(css_properties)
+                        )
+                    })?,
+                    shorthand_entries: self.shorthand_entries.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(shorthand_entries)
+                            )
+                        },
+                    )?,
+                    css_text: self.css_text,
+                    range: self.range,
+                })
+            }
+        }
+        impl CssStyle {
+            pub const IDENTIFIER: &'static str = "CSS.CSSStyle";
+        }
+        #[doc = "CSS property declaration data.\n[CSSProperty](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSProperty)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssProperty {
+            #[doc = "The property name."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "The property value."]
+            #[serde(rename = "value")]
+            pub value: String,
+            #[doc = "Whether the property has \"!important\" annotation (implies `false` if absent)."]
+            #[serde(rename = "important")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub important: Option<bool>,
+            #[doc = "Whether the property is implicit (implies `false` if absent)."]
+            #[serde(rename = "implicit")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub implicit: Option<bool>,
+            #[doc = "The full property text as specified in the style."]
+            #[serde(rename = "text")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub text: Option<String>,
+            #[doc = "Whether the property is understood by the browser (implies `true` if absent)."]
+            #[serde(rename = "parsedOk")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub parsed_ok: Option<bool>,
+            #[doc = "Whether the property is disabled by the user (present for source-based properties only)."]
+            #[serde(rename = "disabled")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub disabled: Option<bool>,
+            #[doc = "The entire property range in the enclosing style declaration (if available)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Parsed longhand components of this property if it is a shorthand.\nThis field will be empty if the given property is not a shorthand."]
+            #[serde(rename = "longhandProperties")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub longhand_properties: Option<Vec<CssProperty>>,
+        }
+        impl CssProperty {
+            pub fn new(
+                name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    value: value.into(),
+                    important: None,
+                    implicit: None,
+                    text: None,
+                    parsed_ok: None,
+                    disabled: None,
+                    range: None,
+                    longhand_properties: None,
+                }
+            }
+        }
+        impl CssProperty {
+            pub fn builder() -> CssPropertyBuilder {
+                CssPropertyBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssPropertyBuilder {
+            name: Option<String>,
+            value: Option<String>,
+            important: Option<bool>,
+            implicit: Option<bool>,
+            text: Option<String>,
+            parsed_ok: Option<bool>,
+            disabled: Option<bool>,
+            range: Option<SourceRange>,
+            longhand_properties: Option<Vec<CssProperty>>,
+        }
+        impl CssPropertyBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn important(mut self, important: impl Into<bool>) -> Self {
+                self.important = Some(important.into());
+                self
+            }
+            pub fn implicit(mut self, implicit: impl Into<bool>) -> Self {
+                self.implicit = Some(implicit.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn parsed_ok(mut self, parsed_ok: impl Into<bool>) -> Self {
+                self.parsed_ok = Some(parsed_ok.into());
+                self
+            }
+            pub fn disabled(mut self, disabled: impl Into<bool>) -> Self {
+                self.disabled = Some(disabled.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn longhand_propertie(
+                mut self,
+                longhand_propertie: impl Into<CssProperty>,
+            ) -> Self {
+                let v = self.longhand_properties.get_or_insert(Vec::new());
+                v.push(longhand_propertie.into());
+                self
+            }
+            pub fn longhand_properties<I, S>(
+                mut self,
+                longhand_properties: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssProperty>,
+            {
+                let v = self.longhand_properties.get_or_insert(Vec::new());
+                for val in longhand_properties {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<CssProperty, String> {
+                Ok(CssProperty {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                    important: self.important,
+                    implicit: self.implicit,
+                    text: self.text,
+                    parsed_ok: self.parsed_ok,
+                    disabled: self.disabled,
+                    range: self.range,
+                    longhand_properties: self.longhand_properties,
+                })
+            }
+        }
+        impl CssProperty {
+            pub const IDENTIFIER: &'static str = "CSS.CSSProperty";
+        }
+        #[doc = "CSS media rule descriptor.\n[CSSMedia](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSMedia)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssMedia {
+            #[doc = "Media query text."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "Source of the media query: \"mediaRule\" if specified by a @media rule, \"importRule\" if\nspecified by an @import rule, \"linkedSheet\" if specified by a \"media\" attribute in a linked\nstylesheet's LINK tag, \"inlineSheet\" if specified by a \"media\" attribute in an inline\nstylesheet's STYLE tag."]
+            #[serde(rename = "source")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub source: CssMediaSource,
+            #[doc = "URL of the document containing the media query description."]
+            #[serde(rename = "sourceURL")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub source_url: Option<String>,
+            #[doc = "The associated rule (@media or @import) header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Array of media queries."]
+            #[serde(rename = "mediaList")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub media_list: Option<Vec<MediaQuery>>,
+        }
+        #[doc = "Source of the media query: \"mediaRule\" if specified by a @media rule, \"importRule\" if\nspecified by an @import rule, \"linkedSheet\" if specified by a \"media\" attribute in a linked\nstylesheet's LINK tag, \"inlineSheet\" if specified by a \"media\" attribute in an inline\nstylesheet's STYLE tag."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum CssMediaSource {
+            #[serde(rename = "mediaRule")]
+            MediaRule,
+            #[serde(rename = "importRule")]
+            ImportRule,
+            #[serde(rename = "linkedSheet")]
+            LinkedSheet,
+            #[serde(rename = "inlineSheet")]
+            InlineSheet,
+        }
+        impl AsRef<str> for CssMediaSource {
+            fn as_ref(&self) -> &str {
+                match self {
+                    CssMediaSource::MediaRule => "mediaRule",
+                    CssMediaSource::ImportRule => "importRule",
+                    CssMediaSource::LinkedSheet => "linkedSheet",
+                    CssMediaSource::InlineSheet => "inlineSheet",
+                }
+            }
+        }
+        impl ::std::str::FromStr for CssMediaSource {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "mediaRule" | "MediaRule" | "mediarule" => {
+                        Ok(CssMediaSource::MediaRule)
+                    }
+                    "importRule" | "ImportRule" | "importrule" => {
+                        Ok(CssMediaSource::ImportRule)
+                    }
+                    "linkedSheet" | "LinkedSheet" | "linkedsheet" => {
+                        Ok(CssMediaSource::LinkedSheet)
+                    }
+                    "inlineSheet" | "InlineSheet" | "inlinesheet" => {
+                        Ok(CssMediaSource::InlineSheet)
+                    }
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        impl CssMedia {
+            pub fn new(
+                text: impl Into<String>,
+                source: impl Into<CssMediaSource>,
+            ) -> Self {
+                Self {
+                    text: text.into(),
+                    source: source.into(),
+                    source_url: None,
+                    range: None,
+                    style_sheet_id: None,
+                    media_list: None,
+                }
+            }
+        }
+        impl CssMedia {
+            pub fn builder() -> CssMediaBuilder {
+                CssMediaBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssMediaBuilder {
+            text: Option<String>,
+            source: Option<CssMediaSource>,
+            source_url: Option<String>,
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            media_list: Option<Vec<MediaQuery>>,
+        }
+        impl CssMediaBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn source(mut self, source: impl Into<CssMediaSource>) -> Self {
+                self.source = Some(source.into());
+                self
+            }
+            pub fn source_url(mut self, source_url: impl Into<String>) -> Self {
+                self.source_url = Some(source_url.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn media_list(
+                mut self,
+                media_list: impl Into<MediaQuery>,
+            ) -> Self {
+                let v = self.media_list.get_or_insert(Vec::new());
+                v.push(media_list.into());
+                self
+            }
+            pub fn media_lists<I, S>(mut self, media_lists: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<MediaQuery>,
+            {
+                let v = self.media_list.get_or_insert(Vec::new());
+                for val in media_lists {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<CssMedia, String> {
+                Ok(CssMedia {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    source: self.source.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(source)
+                        )
+                    })?,
+                    source_url: self.source_url,
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                    media_list: self.media_list,
+                })
+            }
+        }
+        impl CssMedia {
+            pub const IDENTIFIER: &'static str = "CSS.CSSMedia";
+        }
+        #[doc = "Media query descriptor.\n[MediaQuery](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-MediaQuery)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct MediaQuery {
+            #[doc = "Array of media query expressions."]
+            #[serde(rename = "expressions")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub expressions: Vec<MediaQueryExpression>,
+            #[doc = "Whether the media query condition is satisfied."]
+            #[serde(rename = "active")]
+            pub active: bool,
+        }
+        impl MediaQuery {
+            pub fn new(
+                expressions: Vec<MediaQueryExpression>,
+                active: impl Into<bool>,
+            ) -> Self {
+                Self {
+                    expressions,
+                    active: active.into(),
+                }
+            }
+        }
+        impl MediaQuery {
+            pub fn builder() -> MediaQueryBuilder {
+                MediaQueryBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct MediaQueryBuilder {
+            expressions: Option<Vec<MediaQueryExpression>>,
+            active: Option<bool>,
+        }
+        impl MediaQueryBuilder {
+            pub fn expression(
+                mut self,
+                expression: impl Into<MediaQueryExpression>,
+            ) -> Self {
+                let v = self.expressions.get_or_insert(Vec::new());
+                v.push(expression.into());
+                self
+            }
+            pub fn expressions<I, S>(mut self, expressions: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<MediaQueryExpression>,
+            {
+                let v = self.expressions.get_or_insert(Vec::new());
+                for val in expressions {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn active(mut self, active: impl Into<bool>) -> Self {
+                self.active = Some(active.into());
+                self
+            }
+            pub fn build(self) -> Result<MediaQuery, String> {
+                Ok(MediaQuery {
+                    expressions: self.expressions.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(expressions)
+                        )
+                    })?,
+                    active: self.active.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(active)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl MediaQuery {
+            pub const IDENTIFIER: &'static str = "CSS.MediaQuery";
+        }
+        #[doc = "Media query expression descriptor.\n[MediaQueryExpression](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-MediaQueryExpression)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct MediaQueryExpression {
+            #[doc = "Media query expression value."]
+            #[serde(rename = "value")]
+            pub value: f64,
+            #[doc = "Media query expression units."]
+            #[serde(rename = "unit")]
+            pub unit: String,
+            #[doc = "Media query expression feature."]
+            #[serde(rename = "feature")]
+            pub feature: String,
+            #[doc = "The associated range of the value text in the enclosing stylesheet (if available)."]
+            #[serde(rename = "valueRange")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub value_range: Option<SourceRange>,
+            #[doc = "Computed length of media query expression (if applicable)."]
+            #[serde(rename = "computedLength")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub computed_length: Option<f64>,
+        }
+        impl MediaQueryExpression {
+            pub fn new(
+                value: impl Into<f64>,
+                unit: impl Into<String>,
+                feature: impl Into<String>,
+            ) -> Self {
+                Self {
+                    value: value.into(),
+                    unit: unit.into(),
+                    feature: feature.into(),
+                    value_range: None,
+                    computed_length: None,
+                }
+            }
+        }
+        impl MediaQueryExpression {
+            pub fn builder() -> MediaQueryExpressionBuilder {
+                MediaQueryExpressionBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct MediaQueryExpressionBuilder {
+            value: Option<f64>,
+            unit: Option<String>,
+            feature: Option<String>,
+            value_range: Option<SourceRange>,
+            computed_length: Option<f64>,
+        }
+        impl MediaQueryExpressionBuilder {
+            pub fn value(mut self, value: impl Into<f64>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn unit(mut self, unit: impl Into<String>) -> Self {
+                self.unit = Some(unit.into());
+                self
+            }
+            pub fn feature(mut self, feature: impl Into<String>) -> Self {
+                self.feature = Some(feature.into());
+                self
+            }
+            pub fn value_range(
+                mut self,
+                value_range: impl Into<SourceRange>,
+            ) -> Self {
+                self.value_range = Some(value_range.into());
+                self
+            }
+            pub fn computed_length(
+                mut self,
+                computed_length: impl Into<f64>,
+            ) -> Self {
+                self.computed_length = Some(computed_length.into());
+                self
+            }
+            pub fn build(self) -> Result<MediaQueryExpression, String> {
+                Ok(MediaQueryExpression {
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                    unit: self.unit.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(unit)
+                        )
+                    })?,
+                    feature: self.feature.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(feature)
+                        )
+                    })?,
+                    value_range: self.value_range,
+                    computed_length: self.computed_length,
+                })
+            }
+        }
+        impl MediaQueryExpression {
+            pub const IDENTIFIER: &'static str = "CSS.MediaQueryExpression";
+        }
+        #[doc = "CSS container query rule descriptor.\n[CSSContainerQuery](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSContainerQuery)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssContainerQuery {
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Optional name for the container."]
+            #[serde(rename = "name")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub name: Option<String>,
+            #[doc = "Optional physical axes queried for the container."]
+            #[serde(rename = "physicalAxes")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(default)]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str_optional"
+            )]
+            pub physical_axes: Option<super::dom::PhysicalAxes>,
+            #[doc = "Optional logical axes queried for the container."]
+            #[serde(rename = "logicalAxes")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(default)]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str_optional"
+            )]
+            pub logical_axes: Option<super::dom::LogicalAxes>,
+            #[doc = "true if the query contains scroll-state() queries."]
+            #[serde(rename = "queriesScrollState")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub queries_scroll_state: Option<bool>,
+            #[doc = "true if the query contains anchored() queries."]
+            #[serde(rename = "queriesAnchored")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub queries_anchored: Option<bool>,
+            #[doc = "CSSContainerRule.conditionText"]
+            #[serde(rename = "conditionText")]
+            pub condition_text: String,
+        }
+        impl CssContainerQuery {
+            pub fn new(condition_text: impl Into<String>) -> Self {
+                Self {
+                    condition_text: condition_text.into(),
+                    range: None,
+                    style_sheet_id: None,
+                    name: None,
+                    physical_axes: None,
+                    logical_axes: None,
+                    queries_scroll_state: None,
+                    queries_anchored: None,
+                }
+            }
+        }
+        impl<T: Into<String>> From<T> for CssContainerQuery {
+            fn from(url: T) -> Self {
+                CssContainerQuery::new(url)
+            }
+        }
+        impl CssContainerQuery {
+            pub fn builder() -> CssContainerQueryBuilder {
+                CssContainerQueryBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssContainerQueryBuilder {
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            name: Option<String>,
+            physical_axes: Option<super::dom::PhysicalAxes>,
+            logical_axes: Option<super::dom::LogicalAxes>,
+            queries_scroll_state: Option<bool>,
+            queries_anchored: Option<bool>,
+            condition_text: Option<String>,
+        }
+        impl CssContainerQueryBuilder {
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn physical_axes(
+                mut self,
+                physical_axes: impl Into<super::dom::PhysicalAxes>,
+            ) -> Self {
+                self.physical_axes = Some(physical_axes.into());
+                self
+            }
+            pub fn logical_axes(
+                mut self,
+                logical_axes: impl Into<super::dom::LogicalAxes>,
+            ) -> Self {
+                self.logical_axes = Some(logical_axes.into());
+                self
+            }
+            pub fn queries_scroll_state(
+                mut self,
+                queries_scroll_state: impl Into<bool>,
+            ) -> Self {
+                self.queries_scroll_state = Some(queries_scroll_state.into());
+                self
+            }
+            pub fn queries_anchored(
+                mut self,
+                queries_anchored: impl Into<bool>,
+            ) -> Self {
+                self.queries_anchored = Some(queries_anchored.into());
+                self
+            }
+            pub fn condition_text(
+                mut self,
+                condition_text: impl Into<String>,
+            ) -> Self {
+                self.condition_text = Some(condition_text.into());
+                self
+            }
+            pub fn build(self) -> Result<CssContainerQuery, String> {
+                Ok(CssContainerQuery {
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                    name: self.name,
+                    physical_axes: self.physical_axes,
+                    logical_axes: self.logical_axes,
+                    queries_scroll_state: self.queries_scroll_state,
+                    queries_anchored: self.queries_anchored,
+                    condition_text: self.condition_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(condition_text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssContainerQuery {
+            pub const IDENTIFIER: &'static str = "CSS.CSSContainerQuery";
+        }
+        #[doc = "CSS Supports at-rule descriptor.\n[CSSSupports](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSSupports)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssSupports {
+            #[doc = "Supports rule text."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "Whether the supports condition is satisfied."]
+            #[serde(rename = "active")]
+            pub active: bool,
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssSupports {
+            pub fn new(
+                text: impl Into<String>,
+                active: impl Into<bool>,
+            ) -> Self {
+                Self {
+                    text: text.into(),
+                    active: active.into(),
+                    range: None,
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssSupports {
+            pub fn builder() -> CssSupportsBuilder {
+                CssSupportsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssSupportsBuilder {
+            text: Option<String>,
+            active: Option<bool>,
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssSupportsBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn active(mut self, active: impl Into<bool>) -> Self {
+                self.active = Some(active.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CssSupports, String> {
+                Ok(CssSupports {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    active: self.active.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(active)
+                        )
+                    })?,
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                })
+            }
+        }
+        impl CssSupports {
+            pub const IDENTIFIER: &'static str = "CSS.CSSSupports";
+        }
+        #[doc = "CSS Navigation at-rule descriptor.\n[CSSNavigation](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSNavigation)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssNavigation {
+            #[doc = "Navigation rule text."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "Whether the navigation condition is satisfied."]
+            #[serde(rename = "active")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub active: Option<bool>,
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssNavigation {
+            pub fn new(text: impl Into<String>) -> Self {
+                Self {
+                    text: text.into(),
+                    active: None,
+                    range: None,
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl<T: Into<String>> From<T> for CssNavigation {
+            fn from(url: T) -> Self {
+                CssNavigation::new(url)
+            }
+        }
+        impl CssNavigation {
+            pub fn builder() -> CssNavigationBuilder {
+                CssNavigationBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssNavigationBuilder {
+            text: Option<String>,
+            active: Option<bool>,
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssNavigationBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn active(mut self, active: impl Into<bool>) -> Self {
+                self.active = Some(active.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CssNavigation, String> {
+                Ok(CssNavigation {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    active: self.active,
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                })
+            }
+        }
+        impl CssNavigation {
+            pub const IDENTIFIER: &'static str = "CSS.CSSNavigation";
+        }
+        #[doc = "CSS Scope at-rule descriptor.\n[CSSScope](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSScope)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssScope {
+            #[doc = "Scope rule text."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssScope {
+            pub fn new(text: impl Into<String>) -> Self {
+                Self {
+                    text: text.into(),
+                    range: None,
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl<T: Into<String>> From<T> for CssScope {
+            fn from(url: T) -> Self {
+                CssScope::new(url)
+            }
+        }
+        impl CssScope {
+            pub fn builder() -> CssScopeBuilder {
+                CssScopeBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssScopeBuilder {
+            text: Option<String>,
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssScopeBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CssScope, String> {
+                Ok(CssScope {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                })
+            }
+        }
+        impl CssScope {
+            pub const IDENTIFIER: &'static str = "CSS.CSSScope";
+        }
+        #[doc = "CSS Layer at-rule descriptor.\n[CSSLayer](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSLayer)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssLayer {
+            #[doc = "Layer name."]
+            #[serde(rename = "text")]
+            pub text: String,
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssLayer {
+            pub fn new(text: impl Into<String>) -> Self {
+                Self {
+                    text: text.into(),
+                    range: None,
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl<T: Into<String>> From<T> for CssLayer {
+            fn from(url: T) -> Self {
+                CssLayer::new(url)
+            }
+        }
+        impl CssLayer {
+            pub fn builder() -> CssLayerBuilder {
+                CssLayerBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssLayerBuilder {
+            text: Option<String>,
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssLayerBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CssLayer, String> {
+                Ok(CssLayer {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                })
+            }
+        }
+        impl CssLayer {
+            pub const IDENTIFIER: &'static str = "CSS.CSSLayer";
+        }
+        #[doc = "CSS Starting Style at-rule descriptor.\n[CSSStartingStyle](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSStartingStyle)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct CssStartingStyle {
+            #[doc = "The associated rule header range in the enclosing stylesheet (if\navailable)."]
+            #[serde(rename = "range")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub range: Option<SourceRange>,
+            #[doc = "Identifier of the stylesheet containing this object (if exists)."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssStartingStyle {
+            pub fn builder() -> CssStartingStyleBuilder {
+                CssStartingStyleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssStartingStyleBuilder {
+            range: Option<SourceRange>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CssStartingStyleBuilder {
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> CssStartingStyle {
+                CssStartingStyle {
+                    range: self.range,
+                    style_sheet_id: self.style_sheet_id,
+                }
+            }
+        }
+        impl CssStartingStyle {
+            pub const IDENTIFIER: &'static str = "CSS.CSSStartingStyle";
+        }
+        #[doc = "CSS Layer data.\n[CSSLayerData](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSLayerData)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssLayerData {
+            #[doc = "Layer name."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "Direct sub-layers"]
+            #[serde(rename = "subLayers")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub sub_layers: Option<Vec<CssLayerData>>,
+            #[doc = "Layer order. The order determines the order of the layer in the cascade order.\nA higher number has higher priority in the cascade order."]
+            #[serde(rename = "order")]
+            pub order: f64,
+        }
+        impl CssLayerData {
+            pub fn new(name: impl Into<String>, order: impl Into<f64>) -> Self {
+                Self {
+                    name: name.into(),
+                    order: order.into(),
+                    sub_layers: None,
+                }
+            }
+        }
+        impl CssLayerData {
+            pub fn builder() -> CssLayerDataBuilder {
+                CssLayerDataBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssLayerDataBuilder {
+            name: Option<String>,
+            sub_layers: Option<Vec<CssLayerData>>,
+            order: Option<f64>,
+        }
+        impl CssLayerDataBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn sub_layer(
+                mut self,
+                sub_layer: impl Into<CssLayerData>,
+            ) -> Self {
+                let v = self.sub_layers.get_or_insert(Vec::new());
+                v.push(sub_layer.into());
+                self
+            }
+            pub fn sub_layers<I, S>(mut self, sub_layers: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssLayerData>,
+            {
+                let v = self.sub_layers.get_or_insert(Vec::new());
+                for val in sub_layers {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn order(mut self, order: impl Into<f64>) -> Self {
+                self.order = Some(order.into());
+                self
+            }
+            pub fn build(self) -> Result<CssLayerData, String> {
+                Ok(CssLayerData {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    sub_layers: self.sub_layers,
+                    order: self.order.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(order)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssLayerData {
+            pub const IDENTIFIER: &'static str = "CSS.CSSLayerData";
+        }
+        #[doc = "Information about amount of glyphs that were rendered with given font.\n[PlatformFontUsage](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-PlatformFontUsage)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct PlatformFontUsage {
+            #[doc = "Font's family name reported by platform."]
+            #[serde(rename = "familyName")]
+            pub family_name: String,
+            #[doc = "Font's PostScript name reported by platform."]
+            #[serde(rename = "postScriptName")]
+            pub post_script_name: String,
+            #[doc = "Indicates if the font was downloaded or resolved locally."]
+            #[serde(rename = "isCustomFont")]
+            pub is_custom_font: bool,
+            #[doc = "Amount of glyphs that were rendered with this font."]
+            #[serde(rename = "glyphCount")]
+            pub glyph_count: f64,
+        }
+        impl PlatformFontUsage {
+            pub fn new(
+                family_name: impl Into<String>,
+                post_script_name: impl Into<String>,
+                is_custom_font: impl Into<bool>,
+                glyph_count: impl Into<f64>,
+            ) -> Self {
+                Self {
+                    family_name: family_name.into(),
+                    post_script_name: post_script_name.into(),
+                    is_custom_font: is_custom_font.into(),
+                    glyph_count: glyph_count.into(),
+                }
+            }
+        }
+        impl PlatformFontUsage {
+            pub fn builder() -> PlatformFontUsageBuilder {
+                PlatformFontUsageBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct PlatformFontUsageBuilder {
+            family_name: Option<String>,
+            post_script_name: Option<String>,
+            is_custom_font: Option<bool>,
+            glyph_count: Option<f64>,
+        }
+        impl PlatformFontUsageBuilder {
+            pub fn family_name(
+                mut self,
+                family_name: impl Into<String>,
+            ) -> Self {
+                self.family_name = Some(family_name.into());
+                self
+            }
+            pub fn post_script_name(
+                mut self,
+                post_script_name: impl Into<String>,
+            ) -> Self {
+                self.post_script_name = Some(post_script_name.into());
+                self
+            }
+            pub fn is_custom_font(
+                mut self,
+                is_custom_font: impl Into<bool>,
+            ) -> Self {
+                self.is_custom_font = Some(is_custom_font.into());
+                self
+            }
+            pub fn glyph_count(mut self, glyph_count: impl Into<f64>) -> Self {
+                self.glyph_count = Some(glyph_count.into());
+                self
+            }
+            pub fn build(self) -> Result<PlatformFontUsage, String> {
+                Ok(PlatformFontUsage {
+                    family_name: self.family_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(family_name)
+                        )
+                    })?,
+                    post_script_name: self.post_script_name.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(post_script_name)
+                            )
+                        },
+                    )?,
+                    is_custom_font: self.is_custom_font.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(is_custom_font)
+                        )
+                    })?,
+                    glyph_count: self.glyph_count.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(glyph_count)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl PlatformFontUsage {
+            pub const IDENTIFIER: &'static str = "CSS.PlatformFontUsage";
+        }
+        #[doc = "Information about font variation axes for variable fonts\n[FontVariationAxis](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-FontVariationAxis)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct FontVariationAxis {
+            #[doc = "The font-variation-setting tag (a.k.a. \"axis tag\")."]
+            #[serde(rename = "tag")]
+            pub tag: String,
+            #[doc = "Human-readable variation name in the default language (normally, \"en\")."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "The minimum value (inclusive) the font supports for this tag."]
+            #[serde(rename = "minValue")]
+            pub min_value: f64,
+            #[doc = "The maximum value (inclusive) the font supports for this tag."]
+            #[serde(rename = "maxValue")]
+            pub max_value: f64,
+            #[doc = "The default value."]
+            #[serde(rename = "defaultValue")]
+            pub default_value: f64,
+        }
+        impl FontVariationAxis {
+            pub fn builder() -> FontVariationAxisBuilder {
+                FontVariationAxisBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct FontVariationAxisBuilder {
+            tag: Option<String>,
+            name: Option<String>,
+            min_value: Option<f64>,
+            max_value: Option<f64>,
+            default_value: Option<f64>,
+        }
+        impl FontVariationAxisBuilder {
+            pub fn tag(mut self, tag: impl Into<String>) -> Self {
+                self.tag = Some(tag.into());
+                self
+            }
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn min_value(mut self, min_value: impl Into<f64>) -> Self {
+                self.min_value = Some(min_value.into());
+                self
+            }
+            pub fn max_value(mut self, max_value: impl Into<f64>) -> Self {
+                self.max_value = Some(max_value.into());
+                self
+            }
+            pub fn default_value(
+                mut self,
+                default_value: impl Into<f64>,
+            ) -> Self {
+                self.default_value = Some(default_value.into());
+                self
+            }
+            pub fn build(self) -> Result<FontVariationAxis, String> {
+                Ok(FontVariationAxis {
+                    tag: self.tag.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(tag)
+                        )
+                    })?,
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    min_value: self.min_value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(min_value)
+                        )
+                    })?,
+                    max_value: self.max_value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(max_value)
+                        )
+                    })?,
+                    default_value: self.default_value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(default_value)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl FontVariationAxis {
+            pub const IDENTIFIER: &'static str = "CSS.FontVariationAxis";
+        }
+        #[doc = "Properties of a web font: https://www.w3.org/TR/2008/REC-CSS2-20080411/fonts.html#font-descriptions\nand additional information such as platformFontFamily and fontVariationAxes.\n[FontFace](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-FontFace)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct FontFace {
+            #[doc = "The font-family."]
+            #[serde(rename = "fontFamily")]
+            pub font_family: String,
+            #[doc = "The font-style."]
+            #[serde(rename = "fontStyle")]
+            pub font_style: String,
+            #[doc = "The font-variant."]
+            #[serde(rename = "fontVariant")]
+            pub font_variant: String,
+            #[doc = "The font-weight."]
+            #[serde(rename = "fontWeight")]
+            pub font_weight: String,
+            #[doc = "The font-stretch."]
+            #[serde(rename = "fontStretch")]
+            pub font_stretch: String,
+            #[doc = "The font-display."]
+            #[serde(rename = "fontDisplay")]
+            pub font_display: String,
+            #[doc = "The unicode-range."]
+            #[serde(rename = "unicodeRange")]
+            pub unicode_range: String,
+            #[doc = "The src."]
+            #[serde(rename = "src")]
+            pub src: String,
+            #[doc = "The resolved platform font family"]
+            #[serde(rename = "platformFontFamily")]
+            pub platform_font_family: String,
+            #[doc = "Available variation settings (a.k.a. \"axes\")."]
+            #[serde(rename = "fontVariationAxes")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub font_variation_axes: Option<Vec<FontVariationAxis>>,
+        }
+        impl FontFace {
+            pub fn builder() -> FontFaceBuilder {
+                FontFaceBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct FontFaceBuilder {
+            font_family: Option<String>,
+            font_style: Option<String>,
+            font_variant: Option<String>,
+            font_weight: Option<String>,
+            font_stretch: Option<String>,
+            font_display: Option<String>,
+            unicode_range: Option<String>,
+            src: Option<String>,
+            platform_font_family: Option<String>,
+            font_variation_axes: Option<Vec<FontVariationAxis>>,
+        }
+        impl FontFaceBuilder {
+            pub fn font_family(
+                mut self,
+                font_family: impl Into<String>,
+            ) -> Self {
+                self.font_family = Some(font_family.into());
+                self
+            }
+            pub fn font_style(mut self, font_style: impl Into<String>) -> Self {
+                self.font_style = Some(font_style.into());
+                self
+            }
+            pub fn font_variant(
+                mut self,
+                font_variant: impl Into<String>,
+            ) -> Self {
+                self.font_variant = Some(font_variant.into());
+                self
+            }
+            pub fn font_weight(
+                mut self,
+                font_weight: impl Into<String>,
+            ) -> Self {
+                self.font_weight = Some(font_weight.into());
+                self
+            }
+            pub fn font_stretch(
+                mut self,
+                font_stretch: impl Into<String>,
+            ) -> Self {
+                self.font_stretch = Some(font_stretch.into());
+                self
+            }
+            pub fn font_display(
+                mut self,
+                font_display: impl Into<String>,
+            ) -> Self {
+                self.font_display = Some(font_display.into());
+                self
+            }
+            pub fn unicode_range(
+                mut self,
+                unicode_range: impl Into<String>,
+            ) -> Self {
+                self.unicode_range = Some(unicode_range.into());
+                self
+            }
+            pub fn src(mut self, src: impl Into<String>) -> Self {
+                self.src = Some(src.into());
+                self
+            }
+            pub fn platform_font_family(
+                mut self,
+                platform_font_family: impl Into<String>,
+            ) -> Self {
+                self.platform_font_family = Some(platform_font_family.into());
+                self
+            }
+            pub fn font_variation_axe(
+                mut self,
+                font_variation_axe: impl Into<FontVariationAxis>,
+            ) -> Self {
+                let v = self.font_variation_axes.get_or_insert(Vec::new());
+                v.push(font_variation_axe.into());
+                self
+            }
+            pub fn font_variation_axes<I, S>(
+                mut self,
+                font_variation_axes: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<FontVariationAxis>,
+            {
+                let v = self.font_variation_axes.get_or_insert(Vec::new());
+                for val in font_variation_axes {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<FontFace, String> {
+                Ok(FontFace {
+                    font_family: self.font_family.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_family)
+                        )
+                    })?,
+                    font_style: self.font_style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_style)
+                        )
+                    })?,
+                    font_variant: self.font_variant.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_variant)
+                        )
+                    })?,
+                    font_weight: self.font_weight.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_weight)
+                        )
+                    })?,
+                    font_stretch: self.font_stretch.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_stretch)
+                        )
+                    })?,
+                    font_display: self.font_display.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(font_display)
+                        )
+                    })?,
+                    unicode_range: self.unicode_range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(unicode_range)
+                        )
+                    })?,
+                    src: self.src.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(src)
+                        )
+                    })?,
+                    platform_font_family: self
+                        .platform_font_family
+                        .ok_or_else(|| {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(platform_font_family)
+                            )
+                        })?,
+                    font_variation_axes: self.font_variation_axes,
+                })
+            }
+        }
+        impl FontFace {
+            pub const IDENTIFIER: &'static str = "CSS.FontFace";
+        }
+        #[doc = "CSS try rule representation.\n[CSSTryRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSTryRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssTryRule {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+        }
+        impl CssTryRule {
+            pub fn new(
+                origin: impl Into<StyleSheetOrigin>,
+                style: impl Into<CssStyle>,
+            ) -> Self {
+                Self {
+                    origin: origin.into(),
+                    style: style.into(),
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssTryRule {
+            pub fn builder() -> CssTryRuleBuilder {
+                CssTryRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssTryRuleBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            style: Option<CssStyle>,
+        }
+        impl CssTryRuleBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> Result<CssTryRule, String> {
+                Ok(CssTryRule {
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssTryRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSTryRule";
+        }
+        #[doc = "CSS @position-try rule representation.\n[CSSPositionTryRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSPositionTryRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssPositionTryRule {
+            #[doc = "The prelude dashed-ident name"]
+            #[serde(rename = "name")]
+            pub name: Value,
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+            #[serde(rename = "active")]
+            pub active: bool,
+        }
+        impl CssPositionTryRule {
+            pub fn new(
+                name: impl Into<Value>,
+                origin: impl Into<StyleSheetOrigin>,
+                style: impl Into<CssStyle>,
+                active: impl Into<bool>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    origin: origin.into(),
+                    style: style.into(),
+                    active: active.into(),
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssPositionTryRule {
+            pub fn builder() -> CssPositionTryRuleBuilder {
+                CssPositionTryRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssPositionTryRuleBuilder {
+            name: Option<Value>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            style: Option<CssStyle>,
+            active: Option<bool>,
+        }
+        impl CssPositionTryRuleBuilder {
+            pub fn name(mut self, name: impl Into<Value>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn active(mut self, active: impl Into<bool>) -> Self {
+                self.active = Some(active.into());
+                self
+            }
+            pub fn build(self) -> Result<CssPositionTryRule, String> {
+                Ok(CssPositionTryRule {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                    active: self.active.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(active)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssPositionTryRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSPositionTryRule";
+        }
+        #[doc = "CSS keyframes rule representation.\n[CSSKeyframesRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSKeyframesRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssKeyframesRule {
+            #[doc = "Animation name."]
+            #[serde(rename = "animationName")]
+            pub animation_name: Value,
+            #[doc = "List of keyframes."]
+            #[serde(rename = "keyframes")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub keyframes: Vec<CssKeyframeRule>,
+        }
+        impl CssKeyframesRule {
+            pub fn new(
+                animation_name: impl Into<Value>,
+                keyframes: Vec<CssKeyframeRule>,
+            ) -> Self {
+                Self {
+                    animation_name: animation_name.into(),
+                    keyframes,
+                }
+            }
+        }
+        impl CssKeyframesRule {
+            pub fn builder() -> CssKeyframesRuleBuilder {
+                CssKeyframesRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssKeyframesRuleBuilder {
+            animation_name: Option<Value>,
+            keyframes: Option<Vec<CssKeyframeRule>>,
+        }
+        impl CssKeyframesRuleBuilder {
+            pub fn animation_name(
+                mut self,
+                animation_name: impl Into<Value>,
+            ) -> Self {
+                self.animation_name = Some(animation_name.into());
+                self
+            }
+            pub fn keyframe(
+                mut self,
+                keyframe: impl Into<CssKeyframeRule>,
+            ) -> Self {
+                let v = self.keyframes.get_or_insert(Vec::new());
+                v.push(keyframe.into());
+                self
+            }
+            pub fn keyframes<I, S>(mut self, keyframes: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssKeyframeRule>,
+            {
+                let v = self.keyframes.get_or_insert(Vec::new());
+                for val in keyframes {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<CssKeyframesRule, String> {
+                Ok(CssKeyframesRule {
+                    animation_name: self.animation_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(animation_name)
+                        )
+                    })?,
+                    keyframes: self.keyframes.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(keyframes)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssKeyframesRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSKeyframesRule";
+        }
+        #[doc = "Representation of a custom property registration through CSS.registerProperty\n[CSSPropertyRegistration](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSPropertyRegistration)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssPropertyRegistration {
+            #[serde(rename = "propertyName")]
+            pub property_name: String,
+            #[serde(rename = "initialValue")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub initial_value: Option<Value>,
+            #[serde(rename = "inherits")]
+            pub inherits: bool,
+            #[serde(rename = "syntax")]
+            pub syntax: String,
+        }
+        impl CssPropertyRegistration {
+            pub fn new(
+                property_name: impl Into<String>,
+                inherits: impl Into<bool>,
+                syntax: impl Into<String>,
+            ) -> Self {
+                Self {
+                    property_name: property_name.into(),
+                    inherits: inherits.into(),
+                    syntax: syntax.into(),
+                    initial_value: None,
+                }
+            }
+        }
+        impl CssPropertyRegistration {
+            pub fn builder() -> CssPropertyRegistrationBuilder {
+                CssPropertyRegistrationBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssPropertyRegistrationBuilder {
+            property_name: Option<String>,
+            initial_value: Option<Value>,
+            inherits: Option<bool>,
+            syntax: Option<String>,
+        }
+        impl CssPropertyRegistrationBuilder {
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<String>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn initial_value(
+                mut self,
+                initial_value: impl Into<Value>,
+            ) -> Self {
+                self.initial_value = Some(initial_value.into());
+                self
+            }
+            pub fn inherits(mut self, inherits: impl Into<bool>) -> Self {
+                self.inherits = Some(inherits.into());
+                self
+            }
+            pub fn syntax(mut self, syntax: impl Into<String>) -> Self {
+                self.syntax = Some(syntax.into());
+                self
+            }
+            pub fn build(self) -> Result<CssPropertyRegistration, String> {
+                Ok(CssPropertyRegistration {
+                    property_name: self.property_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(property_name)
+                        )
+                    })?,
+                    initial_value: self.initial_value,
+                    inherits: self.inherits.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(inherits)
+                        )
+                    })?,
+                    syntax: self.syntax.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(syntax)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssPropertyRegistration {
+            pub const IDENTIFIER: &'static str = "CSS.CSSPropertyRegistration";
+        }
+        #[doc = "CSS generic @rule representation.\n[CSSAtRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSAtRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssAtRule {
+            #[doc = "Type of at-rule."]
+            #[serde(rename = "type")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub r#type: CssAtRuleType,
+            #[doc = "Subsection of font-feature-values, if this is a subsection."]
+            #[serde(rename = "subsection")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(default)]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str_optional"
+            )]
+            pub subsection: Option<CssAtRuleSubsection>,
+            #[doc = "LINT.ThenChange(//third_party/blink/renderer/core/inspector/inspector_style_sheet.cc:FontVariantAlternatesFeatureType,//third_party/blink/renderer/core/inspector/inspector_css_agent.cc:FontVariantAlternatesFeatureType)\nAssociated name, if applicable."]
+            #[serde(rename = "name")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub name: Option<Value>,
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+        }
+        #[doc = "Type of at-rule."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum CssAtRuleType {
+            #[serde(rename = "font-face")]
+            FontFace,
+            #[serde(rename = "font-feature-values")]
+            FontFeatureValues,
+            #[serde(rename = "font-palette-values")]
+            FontPaletteValues,
+            #[serde(rename = "counter-style")]
+            CounterStyle,
+        }
+        impl AsRef<str> for CssAtRuleType {
+            fn as_ref(&self) -> &str {
+                match self {
+                    CssAtRuleType::FontFace => "font-face",
+                    CssAtRuleType::FontFeatureValues => "font-feature-values",
+                    CssAtRuleType::FontPaletteValues => "font-palette-values",
+                    CssAtRuleType::CounterStyle => "counter-style",
+                }
+            }
+        }
+        impl ::std::str::FromStr for CssAtRuleType {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "font-face" | "FontFace" => Ok(CssAtRuleType::FontFace),
+                    "font-feature-values" | "FontFeatureValues" => {
+                        Ok(CssAtRuleType::FontFeatureValues)
+                    }
+                    "font-palette-values" | "FontPaletteValues" => {
+                        Ok(CssAtRuleType::FontPaletteValues)
+                    }
+                    "counter-style" | "CounterStyle" => {
+                        Ok(CssAtRuleType::CounterStyle)
+                    }
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        #[doc = "Subsection of font-feature-values, if this is a subsection."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum CssAtRuleSubsection {
+            #[doc = "LINT.IfChange(FontVariantAlternatesFeatureType)"]
+            #[serde(rename = "swash")]
+            Swash,
+            #[serde(rename = "annotation")]
+            Annotation,
+            #[serde(rename = "ornaments")]
+            Ornaments,
+            #[serde(rename = "stylistic")]
+            Stylistic,
+            #[serde(rename = "styleset")]
+            Styleset,
+            #[serde(rename = "character-variant")]
+            CharacterVariant,
+        }
+        impl AsRef<str> for CssAtRuleSubsection {
+            fn as_ref(&self) -> &str {
+                match self {
+                    CssAtRuleSubsection::Swash => "swash",
+                    CssAtRuleSubsection::Annotation => "annotation",
+                    CssAtRuleSubsection::Ornaments => "ornaments",
+                    CssAtRuleSubsection::Stylistic => "stylistic",
+                    CssAtRuleSubsection::Styleset => "styleset",
+                    CssAtRuleSubsection::CharacterVariant => {
+                        "character-variant"
+                    }
+                }
+            }
+        }
+        impl ::std::str::FromStr for CssAtRuleSubsection {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "swash" | "Swash" => Ok(CssAtRuleSubsection::Swash),
+                    "annotation" | "Annotation" => {
+                        Ok(CssAtRuleSubsection::Annotation)
+                    }
+                    "ornaments" | "Ornaments" => {
+                        Ok(CssAtRuleSubsection::Ornaments)
+                    }
+                    "stylistic" | "Stylistic" => {
+                        Ok(CssAtRuleSubsection::Stylistic)
+                    }
+                    "styleset" | "Styleset" => {
+                        Ok(CssAtRuleSubsection::Styleset)
+                    }
+                    "character-variant" | "CharacterVariant" => {
+                        Ok(CssAtRuleSubsection::CharacterVariant)
+                    }
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        impl CssAtRule {
+            pub fn new(
+                r#type: impl Into<CssAtRuleType>,
+                origin: impl Into<StyleSheetOrigin>,
+                style: impl Into<CssStyle>,
+            ) -> Self {
+                Self {
+                    r#type: r#type.into(),
+                    origin: origin.into(),
+                    style: style.into(),
+                    subsection: None,
+                    name: None,
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssAtRule {
+            pub fn builder() -> CssAtRuleBuilder {
+                CssAtRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssAtRuleBuilder {
+            r#type: Option<CssAtRuleType>,
+            subsection: Option<CssAtRuleSubsection>,
+            name: Option<Value>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            style: Option<CssStyle>,
+        }
+        impl CssAtRuleBuilder {
+            pub fn r#type(mut self, r#type: impl Into<CssAtRuleType>) -> Self {
+                self.r#type = Some(r#type.into());
+                self
+            }
+            pub fn subsection(
+                mut self,
+                subsection: impl Into<CssAtRuleSubsection>,
+            ) -> Self {
+                self.subsection = Some(subsection.into());
+                self
+            }
+            pub fn name(mut self, name: impl Into<Value>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> Result<CssAtRule, String> {
+                Ok(CssAtRule {
+                    r#type: self.r#type.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(r#type)
+                        )
+                    })?,
+                    subsection: self.subsection,
+                    name: self.name,
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssAtRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSAtRule";
+        }
+        #[doc = "CSS property at-rule representation.\n[CSSPropertyRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSPropertyRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssPropertyRule {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated property name."]
+            #[serde(rename = "propertyName")]
+            pub property_name: Value,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+        }
+        impl CssPropertyRule {
+            pub fn new(
+                origin: impl Into<StyleSheetOrigin>,
+                property_name: impl Into<Value>,
+                style: impl Into<CssStyle>,
+            ) -> Self {
+                Self {
+                    origin: origin.into(),
+                    property_name: property_name.into(),
+                    style: style.into(),
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssPropertyRule {
+            pub fn builder() -> CssPropertyRuleBuilder {
+                CssPropertyRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssPropertyRuleBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            property_name: Option<Value>,
+            style: Option<CssStyle>,
+        }
+        impl CssPropertyRuleBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<Value>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> Result<CssPropertyRule, String> {
+                Ok(CssPropertyRule {
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    property_name: self.property_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(property_name)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssPropertyRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSPropertyRule";
+        }
+        #[doc = "CSS function argument representation.\n[CSSFunctionParameter](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSFunctionParameter)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssFunctionParameter {
+            #[doc = "The parameter name."]
+            #[serde(rename = "name")]
+            pub name: String,
+            #[doc = "The parameter type."]
+            #[serde(rename = "type")]
+            pub r#type: String,
+        }
+        impl CssFunctionParameter {
+            pub fn new(
+                name: impl Into<String>,
+                r#type: impl Into<String>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    r#type: r#type.into(),
+                }
+            }
+        }
+        impl CssFunctionParameter {
+            pub fn builder() -> CssFunctionParameterBuilder {
+                CssFunctionParameterBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssFunctionParameterBuilder {
+            name: Option<String>,
+            r#type: Option<String>,
+        }
+        impl CssFunctionParameterBuilder {
+            pub fn name(mut self, name: impl Into<String>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn r#type(mut self, r#type: impl Into<String>) -> Self {
+                self.r#type = Some(r#type.into());
+                self
+            }
+            pub fn build(self) -> Result<CssFunctionParameter, String> {
+                Ok(CssFunctionParameter {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    r#type: self.r#type.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(r#type)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssFunctionParameter {
+            pub const IDENTIFIER: &'static str = "CSS.CSSFunctionParameter";
+        }
+        #[doc = "CSS function conditional block representation.\n[CSSFunctionConditionNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSFunctionConditionNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssFunctionConditionNode {
+            #[doc = "Media query for this conditional block. Only one type of condition should be set."]
+            #[serde(rename = "media")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub media: Option<CssMedia>,
+            #[doc = "Container query for this conditional block. Only one type of condition should be set."]
+            #[serde(rename = "containerQueries")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub container_queries: Option<CssContainerQuery>,
+            #[doc = "@supports CSS at-rule condition. Only one type of condition should be set."]
+            #[serde(rename = "supports")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub supports: Option<CssSupports>,
+            #[doc = "@navigation condition. Only one type of condition should be set."]
+            #[serde(rename = "navigation")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub navigation: Option<CssNavigation>,
+            #[doc = "Block body."]
+            #[serde(rename = "children")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub children: Vec<CssFunctionNode>,
+            #[doc = "The condition text."]
+            #[serde(rename = "conditionText")]
+            pub condition_text: String,
+        }
+        impl CssFunctionConditionNode {
+            pub fn new(
+                children: Vec<CssFunctionNode>,
+                condition_text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    children,
+                    condition_text: condition_text.into(),
+                    media: None,
+                    container_queries: None,
+                    supports: None,
+                    navigation: None,
+                }
+            }
+        }
+        impl CssFunctionConditionNode {
+            pub fn builder() -> CssFunctionConditionNodeBuilder {
+                CssFunctionConditionNodeBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssFunctionConditionNodeBuilder {
+            media: Option<CssMedia>,
+            container_queries: Option<CssContainerQuery>,
+            supports: Option<CssSupports>,
+            navigation: Option<CssNavigation>,
+            children: Option<Vec<CssFunctionNode>>,
+            condition_text: Option<String>,
+        }
+        impl CssFunctionConditionNodeBuilder {
+            pub fn media(mut self, media: impl Into<CssMedia>) -> Self {
+                self.media = Some(media.into());
+                self
+            }
+            pub fn container_queries(
+                mut self,
+                container_queries: impl Into<CssContainerQuery>,
+            ) -> Self {
+                self.container_queries = Some(container_queries.into());
+                self
+            }
+            pub fn supports(
+                mut self,
+                supports: impl Into<CssSupports>,
+            ) -> Self {
+                self.supports = Some(supports.into());
+                self
+            }
+            pub fn navigation(
+                mut self,
+                navigation: impl Into<CssNavigation>,
+            ) -> Self {
+                self.navigation = Some(navigation.into());
+                self
+            }
+            pub fn children(
+                mut self,
+                children: impl Into<CssFunctionNode>,
+            ) -> Self {
+                let v = self.children.get_or_insert(Vec::new());
+                v.push(children.into());
+                self
+            }
+            pub fn childrens<I, S>(mut self, childrens: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssFunctionNode>,
+            {
+                let v = self.children.get_or_insert(Vec::new());
+                for val in childrens {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn condition_text(
+                mut self,
+                condition_text: impl Into<String>,
+            ) -> Self {
+                self.condition_text = Some(condition_text.into());
+                self
+            }
+            pub fn build(self) -> Result<CssFunctionConditionNode, String> {
+                Ok(CssFunctionConditionNode {
+                    media: self.media,
+                    container_queries: self.container_queries,
+                    supports: self.supports,
+                    navigation: self.navigation,
+                    children: self.children.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(children)
+                        )
+                    })?,
+                    condition_text: self.condition_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(condition_text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssFunctionConditionNode {
+            pub const IDENTIFIER: &'static str = "CSS.CSSFunctionConditionNode";
+        }
+        #[doc = "Section of the body of a CSS function rule.\n[CSSFunctionNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSFunctionNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct CssFunctionNode {
+            #[doc = "A conditional block. If set, style should not be set."]
+            #[serde(rename = "condition")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub condition: Option<CssFunctionConditionNode>,
+            #[doc = "Values set by this node. If set, condition should not be set."]
+            #[serde(rename = "style")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style: Option<CssStyle>,
+        }
+        impl CssFunctionNode {
+            pub fn builder() -> CssFunctionNodeBuilder {
+                CssFunctionNodeBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssFunctionNodeBuilder {
+            condition: Option<CssFunctionConditionNode>,
+            style: Option<CssStyle>,
+        }
+        impl CssFunctionNodeBuilder {
+            pub fn condition(
+                mut self,
+                condition: impl Into<CssFunctionConditionNode>,
+            ) -> Self {
+                self.condition = Some(condition.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> CssFunctionNode {
+                CssFunctionNode {
+                    condition: self.condition,
+                    style: self.style,
+                }
+            }
+        }
+        impl CssFunctionNode {
+            pub const IDENTIFIER: &'static str = "CSS.CSSFunctionNode";
+        }
+        #[doc = "CSS function at-rule representation.\n[CSSFunctionRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSFunctionRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssFunctionRule {
+            #[doc = "Name of the function."]
+            #[serde(rename = "name")]
+            pub name: Value,
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "List of parameters."]
+            #[serde(rename = "parameters")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub parameters: Vec<CssFunctionParameter>,
+            #[doc = "Function body."]
+            #[serde(rename = "children")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub children: Vec<CssFunctionNode>,
+            #[doc = "The BackendNodeId of the DOM node that constitutes the origin tree scope of this rule."]
+            #[serde(rename = "originTreeScopeNodeId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub origin_tree_scope_node_id: Option<super::dom::BackendNodeId>,
+        }
+        impl CssFunctionRule {
+            pub fn new(
+                name: impl Into<Value>,
+                origin: impl Into<StyleSheetOrigin>,
+                parameters: Vec<CssFunctionParameter>,
+                children: Vec<CssFunctionNode>,
+            ) -> Self {
+                Self {
+                    name: name.into(),
+                    origin: origin.into(),
+                    parameters,
+                    children,
+                    style_sheet_id: None,
+                    origin_tree_scope_node_id: None,
+                }
+            }
+        }
+        impl CssFunctionRule {
+            pub fn builder() -> CssFunctionRuleBuilder {
+                CssFunctionRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssFunctionRuleBuilder {
+            name: Option<Value>,
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            parameters: Option<Vec<CssFunctionParameter>>,
+            children: Option<Vec<CssFunctionNode>>,
+            origin_tree_scope_node_id: Option<super::dom::BackendNodeId>,
+        }
+        impl CssFunctionRuleBuilder {
+            pub fn name(mut self, name: impl Into<Value>) -> Self {
+                self.name = Some(name.into());
+                self
+            }
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn parameter(
+                mut self,
+                parameter: impl Into<CssFunctionParameter>,
+            ) -> Self {
+                let v = self.parameters.get_or_insert(Vec::new());
+                v.push(parameter.into());
+                self
+            }
+            pub fn parameters<I, S>(mut self, parameters: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssFunctionParameter>,
+            {
+                let v = self.parameters.get_or_insert(Vec::new());
+                for val in parameters {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn children(
+                mut self,
+                children: impl Into<CssFunctionNode>,
+            ) -> Self {
+                let v = self.children.get_or_insert(Vec::new());
+                v.push(children.into());
+                self
+            }
+            pub fn childrens<I, S>(mut self, childrens: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssFunctionNode>,
+            {
+                let v = self.children.get_or_insert(Vec::new());
+                for val in childrens {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn origin_tree_scope_node_id(
+                mut self,
+                origin_tree_scope_node_id: impl Into<super::dom::BackendNodeId>,
+            ) -> Self {
+                self.origin_tree_scope_node_id =
+                    Some(origin_tree_scope_node_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CssFunctionRule, String> {
+                Ok(CssFunctionRule {
+                    name: self.name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(name)
+                        )
+                    })?,
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    parameters: self.parameters.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(parameters)
+                        )
+                    })?,
+                    children: self.children.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(children)
+                        )
+                    })?,
+                    origin_tree_scope_node_id: self.origin_tree_scope_node_id,
+                })
+            }
+        }
+        impl CssFunctionRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSFunctionRule";
+        }
+        #[doc = "CSS keyframe rule representation.\n[CSSKeyframeRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-CSSKeyframeRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CssKeyframeRule {
+            #[doc = "The css style sheet identifier (absent for user agent stylesheet and user-specified\nstylesheet rules) this rule came from."]
+            #[serde(rename = "styleSheetId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub style_sheet_id: Option<super::dom::StyleSheetId>,
+            #[doc = "Parent stylesheet's origin."]
+            #[serde(rename = "origin")]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str"
+            )]
+            pub origin: StyleSheetOrigin,
+            #[doc = "Associated key text."]
+            #[serde(rename = "keyText")]
+            pub key_text: Value,
+            #[doc = "Associated style declaration."]
+            #[serde(rename = "style")]
+            pub style: CssStyle,
+        }
+        impl CssKeyframeRule {
+            pub fn new(
+                origin: impl Into<StyleSheetOrigin>,
+                key_text: impl Into<Value>,
+                style: impl Into<CssStyle>,
+            ) -> Self {
+                Self {
+                    origin: origin.into(),
+                    key_text: key_text.into(),
+                    style: style.into(),
+                    style_sheet_id: None,
+                }
+            }
+        }
+        impl CssKeyframeRule {
+            pub fn builder() -> CssKeyframeRuleBuilder {
+                CssKeyframeRuleBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CssKeyframeRuleBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            origin: Option<StyleSheetOrigin>,
+            key_text: Option<Value>,
+            style: Option<CssStyle>,
+        }
+        impl CssKeyframeRuleBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn origin(
+                mut self,
+                origin: impl Into<StyleSheetOrigin>,
+            ) -> Self {
+                self.origin = Some(origin.into());
+                self
+            }
+            pub fn key_text(mut self, key_text: impl Into<Value>) -> Self {
+                self.key_text = Some(key_text.into());
+                self
+            }
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                self.style = Some(style.into());
+                self
+            }
+            pub fn build(self) -> Result<CssKeyframeRule, String> {
+                Ok(CssKeyframeRule {
+                    style_sheet_id: self.style_sheet_id,
+                    origin: self.origin.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(origin)
+                        )
+                    })?,
+                    key_text: self.key_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(key_text)
+                        )
+                    })?,
+                    style: self.style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CssKeyframeRule {
+            pub const IDENTIFIER: &'static str = "CSS.CSSKeyframeRule";
+        }
+        #[doc = "A descriptor of operation to mutate style declaration text.\n[StyleDeclarationEdit](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#type-StyleDeclarationEdit)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct StyleDeclarationEdit {
+            #[doc = "The css style sheet identifier."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[doc = "The range of the style text in the enclosing stylesheet."]
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[doc = "New style text."]
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl StyleDeclarationEdit {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl StyleDeclarationEdit {
+            pub fn builder() -> StyleDeclarationEditBuilder {
+                StyleDeclarationEditBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct StyleDeclarationEditBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl StyleDeclarationEditBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<StyleDeclarationEdit, String> {
+                Ok(StyleDeclarationEdit {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl StyleDeclarationEdit {
+            pub const IDENTIFIER: &'static str = "CSS.StyleDeclarationEdit";
+        }
+        #[doc = "Inserts a new rule with the given `ruleText` in a stylesheet with given `styleSheetId`, at the\nposition specified by `location`.\n[addRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-addRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct AddRuleParams {
+            #[doc = "The css style sheet identifier where a new rule should be inserted."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[doc = "The text of a new rule."]
+            #[serde(rename = "ruleText")]
+            pub rule_text: String,
+            #[doc = "Text position of a new rule in the target style sheet."]
+            #[serde(rename = "location")]
+            pub location: SourceRange,
+            #[doc = "NodeId for the DOM node in whose context custom property declarations for registered properties should be\nvalidated. If omitted, declarations in the new rule text can only be validated statically, which may produce\nincorrect results if the declaration contains a var() for example."]
+            #[serde(rename = "nodeForPropertySyntaxValidation")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub node_for_property_syntax_validation: Option<super::dom::NodeId>,
+        }
+        impl AddRuleParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                rule_text: impl Into<String>,
+                location: impl Into<SourceRange>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    rule_text: rule_text.into(),
+                    location: location.into(),
+                    node_for_property_syntax_validation: None,
+                }
+            }
+        }
+        impl AddRuleParams {
+            pub fn builder() -> AddRuleParamsBuilder {
+                AddRuleParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct AddRuleParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            rule_text: Option<String>,
+            location: Option<SourceRange>,
+            node_for_property_syntax_validation: Option<super::dom::NodeId>,
+        }
+        impl AddRuleParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn rule_text(mut self, rule_text: impl Into<String>) -> Self {
+                self.rule_text = Some(rule_text.into());
+                self
+            }
+            pub fn location(
+                mut self,
+                location: impl Into<SourceRange>,
+            ) -> Self {
+                self.location = Some(location.into());
+                self
+            }
+            pub fn node_for_property_syntax_validation(
+                mut self,
+                node_for_property_syntax_validation: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_for_property_syntax_validation =
+                    Some(node_for_property_syntax_validation.into());
+                self
+            }
+            pub fn build(self) -> Result<AddRuleParams, String> {
+                Ok(AddRuleParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    rule_text: self.rule_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(rule_text)
+                        )
+                    })?,
+                    location: self.location.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(location)
+                        )
+                    })?,
+                    node_for_property_syntax_validation: self
+                        .node_for_property_syntax_validation,
+                })
+            }
+        }
+        impl AddRuleParams {
+            pub const IDENTIFIER: &'static str = "CSS.addRule";
+        }
+        impl cdp_types::Method for AddRuleParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for AddRuleParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Inserts a new rule with the given `ruleText` in a stylesheet with given `styleSheetId`, at the\nposition specified by `location`.\n[addRule](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-addRule)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct AddRuleReturns {
+            #[doc = "The newly created rule."]
+            #[serde(rename = "rule")]
+            pub rule: CssRule,
+        }
+        impl AddRuleReturns {
+            pub fn new(rule: impl Into<CssRule>) -> Self {
+                Self { rule: rule.into() }
+            }
+        }
+        impl AddRuleReturns {
+            pub fn builder() -> AddRuleReturnsBuilder {
+                AddRuleReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct AddRuleReturnsBuilder {
+            rule: Option<CssRule>,
+        }
+        impl AddRuleReturnsBuilder {
+            pub fn rule(mut self, rule: impl Into<CssRule>) -> Self {
+                self.rule = Some(rule.into());
+                self
+            }
+            pub fn build(self) -> Result<AddRuleReturns, String> {
+                Ok(AddRuleReturns {
+                    rule: self.rule.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(rule)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for AddRuleParams {
+            type Response = AddRuleReturns;
+        }
+        #[doc = "Returns all class names from specified stylesheet.\n[collectClassNames](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-collectClassNames)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CollectClassNamesParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+        }
+        impl CollectClassNamesParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                }
+            }
+        }
+        impl CollectClassNamesParams {
+            pub fn builder() -> CollectClassNamesParamsBuilder {
+                CollectClassNamesParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CollectClassNamesParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CollectClassNamesParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CollectClassNamesParams, String> {
+                Ok(CollectClassNamesParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl CollectClassNamesParams {
+            pub const IDENTIFIER: &'static str = "CSS.collectClassNames";
+        }
+        impl cdp_types::Method for CollectClassNamesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for CollectClassNamesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns all class names from specified stylesheet.\n[collectClassNames](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-collectClassNames)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CollectClassNamesReturns {
+            #[doc = "Class name list."]
+            #[serde(rename = "classNames")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub class_names: Vec<String>,
+        }
+        impl CollectClassNamesReturns {
+            pub fn new(class_names: Vec<String>) -> Self {
+                Self { class_names }
+            }
+        }
+        impl CollectClassNamesReturns {
+            pub fn builder() -> CollectClassNamesReturnsBuilder {
+                CollectClassNamesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CollectClassNamesReturnsBuilder {
+            class_names: Option<Vec<String>>,
+        }
+        impl CollectClassNamesReturnsBuilder {
+            pub fn class_name(mut self, class_name: impl Into<String>) -> Self {
+                let v = self.class_names.get_or_insert(Vec::new());
+                v.push(class_name.into());
+                self
+            }
+            pub fn class_names<I, S>(mut self, class_names: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.class_names.get_or_insert(Vec::new());
+                for val in class_names {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<CollectClassNamesReturns, String> {
+                Ok(CollectClassNamesReturns {
+                    class_names: self.class_names.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(class_names)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for CollectClassNamesParams {
+            type Response = CollectClassNamesReturns;
+        }
+        #[doc = "Creates a new special \"via-inspector\" stylesheet in the frame with given `frameId`.\n[createStyleSheet](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-createStyleSheet)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CreateStyleSheetParams {
+            #[doc = "Identifier of the frame where \"via-inspector\" stylesheet should be created."]
+            #[serde(rename = "frameId")]
+            pub frame_id: super::page::FrameId,
+            #[doc = "If true, creates a new stylesheet for every call. If false,\nreturns a stylesheet previously created by a call with force=false\nfor the frame's document if it exists or creates a new stylesheet\n(default: false)."]
+            #[serde(rename = "force")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub force: Option<bool>,
+        }
+        impl CreateStyleSheetParams {
+            pub fn new(frame_id: impl Into<super::page::FrameId>) -> Self {
+                Self {
+                    frame_id: frame_id.into(),
+                    force: None,
+                }
+            }
+        }
+        impl CreateStyleSheetParams {
+            pub fn builder() -> CreateStyleSheetParamsBuilder {
+                CreateStyleSheetParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CreateStyleSheetParamsBuilder {
+            frame_id: Option<super::page::FrameId>,
+            force: Option<bool>,
+        }
+        impl CreateStyleSheetParamsBuilder {
+            pub fn frame_id(
+                mut self,
+                frame_id: impl Into<super::page::FrameId>,
+            ) -> Self {
+                self.frame_id = Some(frame_id.into());
+                self
+            }
+            pub fn force(mut self, force: impl Into<bool>) -> Self {
+                self.force = Some(force.into());
+                self
+            }
+            pub fn build(self) -> Result<CreateStyleSheetParams, String> {
+                Ok(CreateStyleSheetParams {
+                    frame_id: self.frame_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(frame_id)
+                        )
+                    })?,
+                    force: self.force,
+                })
+            }
+        }
+        impl CreateStyleSheetParams {
+            pub const IDENTIFIER: &'static str = "CSS.createStyleSheet";
+        }
+        impl cdp_types::Method for CreateStyleSheetParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for CreateStyleSheetParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Creates a new special \"via-inspector\" stylesheet in the frame with given `frameId`.\n[createStyleSheet](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-createStyleSheet)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct CreateStyleSheetReturns {
+            #[doc = "Identifier of the created \"via-inspector\" stylesheet."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+        }
+        impl CreateStyleSheetReturns {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                }
+            }
+        }
+        impl CreateStyleSheetReturns {
+            pub fn builder() -> CreateStyleSheetReturnsBuilder {
+                CreateStyleSheetReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct CreateStyleSheetReturnsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl CreateStyleSheetReturnsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<CreateStyleSheetReturns, String> {
+                Ok(CreateStyleSheetReturns {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for CreateStyleSheetParams {
+            type Response = CreateStyleSheetReturns;
+        }
+        #[doc = "Disables the CSS agent for the given page.\n[disable](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-disable)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct DisableParams {}
+        impl DisableParams {
+            pub const IDENTIFIER: &'static str = "CSS.disable";
+        }
+        impl cdp_types::Method for DisableParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for DisableParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Disables the CSS agent for the given page.\n[disable](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-disable)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct DisableReturns {}
+        impl cdp_types::Command for DisableParams {
+            type Response = DisableReturns;
+        }
+        #[doc = "Enables the CSS agent for the given page. Clients should not assume that the CSS agent has been\nenabled until the result of this command is received.\n[enable](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-enable)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct EnableParams {}
+        impl EnableParams {
+            pub const IDENTIFIER: &'static str = "CSS.enable";
+        }
+        impl cdp_types::Method for EnableParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EnableParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Enables the CSS agent for the given page. Clients should not assume that the CSS agent has been\nenabled until the result of this command is received.\n[enable](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-enable)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct EnableReturns {}
+        impl cdp_types::Command for EnableParams {
+            type Response = EnableReturns;
+        }
+        #[doc = "Ensures that the given node will have specified pseudo-classes whenever its style is computed by\nthe browser.\n[forcePseudoState](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-forcePseudoState)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ForcePseudoStateParams {
+            #[doc = "The element id for which to force the pseudo state."]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+            #[doc = "Element pseudo classes to force when computing the element's style."]
+            #[serde(rename = "forcedPseudoClasses")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub forced_pseudo_classes: Vec<String>,
+        }
+        impl ForcePseudoStateParams {
+            pub fn new(
+                node_id: impl Into<super::dom::NodeId>,
+                forced_pseudo_classes: Vec<String>,
+            ) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                    forced_pseudo_classes,
+                }
+            }
+        }
+        impl ForcePseudoStateParams {
+            pub fn builder() -> ForcePseudoStateParamsBuilder {
+                ForcePseudoStateParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ForcePseudoStateParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+            forced_pseudo_classes: Option<Vec<String>>,
+        }
+        impl ForcePseudoStateParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn forced_pseudo_classe(
+                mut self,
+                forced_pseudo_classe: impl Into<String>,
+            ) -> Self {
+                let v = self.forced_pseudo_classes.get_or_insert(Vec::new());
+                v.push(forced_pseudo_classe.into());
+                self
+            }
+            pub fn forced_pseudo_classes<I, S>(
+                mut self,
+                forced_pseudo_classes: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.forced_pseudo_classes.get_or_insert(Vec::new());
+                for val in forced_pseudo_classes {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<ForcePseudoStateParams, String> {
+                Ok(ForcePseudoStateParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                    forced_pseudo_classes: self
+                        .forced_pseudo_classes
+                        .ok_or_else(|| {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(forced_pseudo_classes)
+                            )
+                        })?,
+                })
+            }
+        }
+        impl ForcePseudoStateParams {
+            pub const IDENTIFIER: &'static str = "CSS.forcePseudoState";
+        }
+        impl cdp_types::Method for ForcePseudoStateParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for ForcePseudoStateParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Ensures that the given node will have specified pseudo-classes whenever its style is computed by\nthe browser.\n[forcePseudoState](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-forcePseudoState)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct ForcePseudoStateReturns {}
+        impl cdp_types::Command for ForcePseudoStateParams {
+            type Response = ForcePseudoStateReturns;
+        }
+        #[doc = "Ensures that the given node is in its starting-style state.\n[forceStartingStyle](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-forceStartingStyle)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ForceStartingStyleParams {
+            #[doc = "The element id for which to force the starting-style state."]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+            #[doc = "Boolean indicating if this is on or off."]
+            #[serde(rename = "forced")]
+            pub forced: bool,
+        }
+        impl ForceStartingStyleParams {
+            pub fn new(
+                node_id: impl Into<super::dom::NodeId>,
+                forced: impl Into<bool>,
+            ) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                    forced: forced.into(),
+                }
+            }
+        }
+        impl ForceStartingStyleParams {
+            pub fn builder() -> ForceStartingStyleParamsBuilder {
+                ForceStartingStyleParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ForceStartingStyleParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+            forced: Option<bool>,
+        }
+        impl ForceStartingStyleParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn forced(mut self, forced: impl Into<bool>) -> Self {
+                self.forced = Some(forced.into());
+                self
+            }
+            pub fn build(self) -> Result<ForceStartingStyleParams, String> {
+                Ok(ForceStartingStyleParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                    forced: self.forced.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(forced)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl ForceStartingStyleParams {
+            pub const IDENTIFIER: &'static str = "CSS.forceStartingStyle";
+        }
+        impl cdp_types::Method for ForceStartingStyleParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for ForceStartingStyleParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Ensures that the given node is in its starting-style state.\n[forceStartingStyle](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-forceStartingStyle)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct ForceStartingStyleReturns {}
+        impl cdp_types::Command for ForceStartingStyleParams {
+            type Response = ForceStartingStyleReturns;
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetBackgroundColorsParams {
+            #[doc = "Id of the node to get background colors for."]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetBackgroundColorsParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetBackgroundColorsParams {
+            pub fn builder() -> GetBackgroundColorsParamsBuilder {
+                GetBackgroundColorsParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetBackgroundColorsParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetBackgroundColorsParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(self) -> Result<GetBackgroundColorsParams, String> {
+                Ok(GetBackgroundColorsParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetBackgroundColorsParams {
+            pub const IDENTIFIER: &'static str = "CSS.getBackgroundColors";
+        }
+        impl cdp_types::Method for GetBackgroundColorsParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetBackgroundColorsParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetBackgroundColorsReturns {
+            #[doc = "The range of background colors behind this element, if it contains any visible text. If no\nvisible text is present, this will be undefined. In the case of a flat background color,\nthis will consist of simply that color. In the case of a gradient, this will consist of each\nof the color stops. For anything more complicated, this will be an empty array. Images will\nbe ignored (as if the image had failed to load)."]
+            #[serde(rename = "backgroundColors")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub background_colors: Option<Vec<String>>,
+            #[doc = "The computed font size for this node, as a CSS computed value string (e.g. '12px')."]
+            #[serde(rename = "computedFontSize")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub computed_font_size: Option<String>,
+            #[doc = "The computed font weight for this node, as a CSS computed value string (e.g. 'normal' or\n'100')."]
+            #[serde(rename = "computedFontWeight")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub computed_font_weight: Option<String>,
+        }
+        impl GetBackgroundColorsReturns {
+            pub fn builder() -> GetBackgroundColorsReturnsBuilder {
+                GetBackgroundColorsReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetBackgroundColorsReturnsBuilder {
+            background_colors: Option<Vec<String>>,
+            computed_font_size: Option<String>,
+            computed_font_weight: Option<String>,
+        }
+        impl GetBackgroundColorsReturnsBuilder {
+            pub fn background_color(
+                mut self,
+                background_color: impl Into<String>,
+            ) -> Self {
+                let v = self.background_colors.get_or_insert(Vec::new());
+                v.push(background_color.into());
+                self
+            }
+            pub fn background_colors<I, S>(
+                mut self,
+                background_colors: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.background_colors.get_or_insert(Vec::new());
+                for val in background_colors {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn computed_font_size(
+                mut self,
+                computed_font_size: impl Into<String>,
+            ) -> Self {
+                self.computed_font_size = Some(computed_font_size.into());
+                self
+            }
+            pub fn computed_font_weight(
+                mut self,
+                computed_font_weight: impl Into<String>,
+            ) -> Self {
+                self.computed_font_weight = Some(computed_font_weight.into());
+                self
+            }
+            pub fn build(self) -> GetBackgroundColorsReturns {
+                GetBackgroundColorsReturns {
+                    background_colors: self.background_colors,
+                    computed_font_size: self.computed_font_size,
+                    computed_font_weight: self.computed_font_weight,
+                }
+            }
+        }
+        impl cdp_types::Command for GetBackgroundColorsParams {
+            type Response = GetBackgroundColorsReturns;
+        }
+        #[doc = "Returns the computed style for a DOM node identified by `nodeId`.\n[getComputedStyleForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getComputedStyleForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetComputedStyleForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetComputedStyleForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetComputedStyleForNodeParams {
+            pub fn builder() -> GetComputedStyleForNodeParamsBuilder {
+                GetComputedStyleForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetComputedStyleForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetComputedStyleForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetComputedStyleForNodeParams, String> {
+                Ok(GetComputedStyleForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetComputedStyleForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getComputedStyleForNode";
+        }
+        impl cdp_types::Method for GetComputedStyleForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetComputedStyleForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns the computed style for a DOM node identified by `nodeId`.\n[getComputedStyleForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getComputedStyleForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetComputedStyleForNodeReturns {
+            #[doc = "Computed style for the specified DOM node."]
+            #[serde(rename = "computedStyle")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub computed_style: Vec<CssComputedStyleProperty>,
+            #[doc = "A list of non-standard \"extra fields\" which blink stores alongside each\ncomputed style."]
+            #[serde(rename = "extraFields")]
+            pub extra_fields: ComputedStyleExtraFields,
+        }
+        impl GetComputedStyleForNodeReturns {
+            pub fn new(
+                computed_style: Vec<CssComputedStyleProperty>,
+                extra_fields: impl Into<ComputedStyleExtraFields>,
+            ) -> Self {
+                Self {
+                    computed_style,
+                    extra_fields: extra_fields.into(),
+                }
+            }
+        }
+        impl GetComputedStyleForNodeReturns {
+            pub fn builder() -> GetComputedStyleForNodeReturnsBuilder {
+                GetComputedStyleForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetComputedStyleForNodeReturnsBuilder {
+            computed_style: Option<Vec<CssComputedStyleProperty>>,
+            extra_fields: Option<ComputedStyleExtraFields>,
+        }
+        impl GetComputedStyleForNodeReturnsBuilder {
+            pub fn computed_style(
+                mut self,
+                computed_style: impl Into<CssComputedStyleProperty>,
+            ) -> Self {
+                let v = self.computed_style.get_or_insert(Vec::new());
+                v.push(computed_style.into());
+                self
+            }
+            pub fn computed_styles<I, S>(mut self, computed_styles: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssComputedStyleProperty>,
+            {
+                let v = self.computed_style.get_or_insert(Vec::new());
+                for val in computed_styles {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn extra_fields(
+                mut self,
+                extra_fields: impl Into<ComputedStyleExtraFields>,
+            ) -> Self {
+                self.extra_fields = Some(extra_fields.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetComputedStyleForNodeReturns, String> {
+                Ok(GetComputedStyleForNodeReturns {
+                    computed_style: self.computed_style.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(computed_style)
+                        )
+                    })?,
+                    extra_fields: self.extra_fields.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(extra_fields)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetComputedStyleForNodeParams {
+            type Response = GetComputedStyleForNodeReturns;
+        }
+        #[doc = "Resolve the specified values in the context of the provided element.\nFor example, a value of '1em' is evaluated according to the computed\n'font-size' of the element and a value 'calc(1px + 2px)' will be\nresolved to '3px'.\nIf the `propertyName` was specified the `values` are resolved as if\nthey were property's declaration. If a value cannot be parsed according\nto the provided property syntax, the value is parsed using combined\nsyntax as if null `propertyName` was provided. If the value cannot be\nresolved even then, return the provided value without any changes.\nNote: this function currently does not resolve CSS random() function,\nit returns unmodified random() function parts.`\n[resolveValues](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-resolveValues)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ResolveValuesParams {
+            #[doc = "Cascade-dependent keywords (revert/revert-layer) do not work."]
+            #[serde(rename = "values")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub values: Vec<String>,
+            #[doc = "Id of the node in whose context the expression is evaluated"]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+            #[doc = "Only longhands and custom property names are accepted."]
+            #[serde(rename = "propertyName")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub property_name: Option<String>,
+            #[doc = "Pseudo element type, only works for pseudo elements that generate\nelements in the tree, such as ::before and ::after."]
+            #[serde(rename = "pseudoType")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(default)]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str_optional"
+            )]
+            pub pseudo_type: Option<super::dom::PseudoType>,
+            #[doc = "Pseudo element custom ident."]
+            #[serde(rename = "pseudoIdentifier")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub pseudo_identifier: Option<String>,
+        }
+        impl ResolveValuesParams {
+            pub fn new(
+                values: Vec<String>,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                Self {
+                    values,
+                    node_id: node_id.into(),
+                    property_name: None,
+                    pseudo_type: None,
+                    pseudo_identifier: None,
+                }
+            }
+        }
+        impl ResolveValuesParams {
+            pub fn builder() -> ResolveValuesParamsBuilder {
+                ResolveValuesParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ResolveValuesParamsBuilder {
+            values: Option<Vec<String>>,
+            node_id: Option<super::dom::NodeId>,
+            property_name: Option<String>,
+            pseudo_type: Option<super::dom::PseudoType>,
+            pseudo_identifier: Option<String>,
+        }
+        impl ResolveValuesParamsBuilder {
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                let v = self.values.get_or_insert(Vec::new());
+                v.push(value.into());
+                self
+            }
+            pub fn values<I, S>(mut self, values: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.values.get_or_insert(Vec::new());
+                for val in values {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<String>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn pseudo_type(
+                mut self,
+                pseudo_type: impl Into<super::dom::PseudoType>,
+            ) -> Self {
+                self.pseudo_type = Some(pseudo_type.into());
+                self
+            }
+            pub fn pseudo_identifier(
+                mut self,
+                pseudo_identifier: impl Into<String>,
+            ) -> Self {
+                self.pseudo_identifier = Some(pseudo_identifier.into());
+                self
+            }
+            pub fn build(self) -> Result<ResolveValuesParams, String> {
+                Ok(ResolveValuesParams {
+                    values: self.values.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(values)
+                        )
+                    })?,
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                    property_name: self.property_name,
+                    pseudo_type: self.pseudo_type,
+                    pseudo_identifier: self.pseudo_identifier,
+                })
+            }
+        }
+        impl ResolveValuesParams {
+            pub const IDENTIFIER: &'static str = "CSS.resolveValues";
+        }
+        impl cdp_types::Method for ResolveValuesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for ResolveValuesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Resolve the specified values in the context of the provided element.\nFor example, a value of '1em' is evaluated according to the computed\n'font-size' of the element and a value 'calc(1px + 2px)' will be\nresolved to '3px'.\nIf the `propertyName` was specified the `values` are resolved as if\nthey were property's declaration. If a value cannot be parsed according\nto the provided property syntax, the value is parsed using combined\nsyntax as if null `propertyName` was provided. If the value cannot be\nresolved even then, return the provided value without any changes.\nNote: this function currently does not resolve CSS random() function,\nit returns unmodified random() function parts.`\n[resolveValues](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-resolveValues)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct ResolveValuesReturns {
+            #[serde(rename = "results")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub results: Vec<String>,
+        }
+        impl ResolveValuesReturns {
+            pub fn new(results: Vec<String>) -> Self {
+                Self { results }
+            }
+        }
+        impl ResolveValuesReturns {
+            pub fn builder() -> ResolveValuesReturnsBuilder {
+                ResolveValuesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ResolveValuesReturnsBuilder {
+            results: Option<Vec<String>>,
+        }
+        impl ResolveValuesReturnsBuilder {
+            pub fn result(mut self, result: impl Into<String>) -> Self {
+                let v = self.results.get_or_insert(Vec::new());
+                v.push(result.into());
+                self
+            }
+            pub fn results<I, S>(mut self, results: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<String>,
+            {
+                let v = self.results.get_or_insert(Vec::new());
+                for val in results {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<ResolveValuesReturns, String> {
+                Ok(ResolveValuesReturns {
+                    results: self.results.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(results)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for ResolveValuesParams {
+            type Response = ResolveValuesReturns;
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLonghandPropertiesParams {
+            #[serde(rename = "shorthandName")]
+            pub shorthand_name: String,
+            #[serde(rename = "value")]
+            pub value: String,
+        }
+        impl GetLonghandPropertiesParams {
+            pub fn new(
+                shorthand_name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Self {
+                Self {
+                    shorthand_name: shorthand_name.into(),
+                    value: value.into(),
+                }
+            }
+        }
+        impl GetLonghandPropertiesParams {
+            pub fn builder() -> GetLonghandPropertiesParamsBuilder {
+                GetLonghandPropertiesParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLonghandPropertiesParamsBuilder {
+            shorthand_name: Option<String>,
+            value: Option<String>,
+        }
+        impl GetLonghandPropertiesParamsBuilder {
+            pub fn shorthand_name(
+                mut self,
+                shorthand_name: impl Into<String>,
+            ) -> Self {
+                self.shorthand_name = Some(shorthand_name.into());
+                self
+            }
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn build(self) -> Result<GetLonghandPropertiesParams, String> {
+                Ok(GetLonghandPropertiesParams {
+                    shorthand_name: self.shorthand_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(shorthand_name)
+                        )
+                    })?,
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetLonghandPropertiesParams {
+            pub const IDENTIFIER: &'static str = "CSS.getLonghandProperties";
+        }
+        impl cdp_types::Method for GetLonghandPropertiesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetLonghandPropertiesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLonghandPropertiesReturns {
+            #[serde(rename = "longhandProperties")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub longhand_properties: Vec<CssProperty>,
+        }
+        impl GetLonghandPropertiesReturns {
+            pub fn new(longhand_properties: Vec<CssProperty>) -> Self {
+                Self {
+                    longhand_properties,
+                }
+            }
+        }
+        impl GetLonghandPropertiesReturns {
+            pub fn builder() -> GetLonghandPropertiesReturnsBuilder {
+                GetLonghandPropertiesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLonghandPropertiesReturnsBuilder {
+            longhand_properties: Option<Vec<CssProperty>>,
+        }
+        impl GetLonghandPropertiesReturnsBuilder {
+            pub fn longhand_propertie(
+                mut self,
+                longhand_propertie: impl Into<CssProperty>,
+            ) -> Self {
+                let v = self.longhand_properties.get_or_insert(Vec::new());
+                v.push(longhand_propertie.into());
+                self
+            }
+            pub fn longhand_properties<I, S>(
+                mut self,
+                longhand_properties: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssProperty>,
+            {
+                let v = self.longhand_properties.get_or_insert(Vec::new());
+                for val in longhand_properties {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<GetLonghandPropertiesReturns, String> {
+                Ok(GetLonghandPropertiesReturns {
+                    longhand_properties: self.longhand_properties.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(longhand_properties)
+                            )
+                        },
+                    )?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetLonghandPropertiesParams {
+            type Response = GetLonghandPropertiesReturns;
+        }
+        #[doc = "Returns the styles defined inline (explicitly in the \"style\" attribute and implicitly, using DOM\nattributes) for a DOM node identified by `nodeId`.\n[getInlineStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getInlineStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetInlineStylesForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetInlineStylesForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetInlineStylesForNodeParams {
+            pub fn builder() -> GetInlineStylesForNodeParamsBuilder {
+                GetInlineStylesForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetInlineStylesForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetInlineStylesForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(self) -> Result<GetInlineStylesForNodeParams, String> {
+                Ok(GetInlineStylesForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetInlineStylesForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getInlineStylesForNode";
+        }
+        impl cdp_types::Method for GetInlineStylesForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetInlineStylesForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns the styles defined inline (explicitly in the \"style\" attribute and implicitly, using DOM\nattributes) for a DOM node identified by `nodeId`.\n[getInlineStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getInlineStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetInlineStylesForNodeReturns {
+            #[doc = "Inline style for the specified DOM node."]
+            #[serde(rename = "inlineStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inline_style: Option<CssStyle>,
+            #[doc = "Attribute-defined element style (e.g. resulting from \"width=20 height=100%\")."]
+            #[serde(rename = "attributesStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub attributes_style: Option<CssStyle>,
+        }
+        impl GetInlineStylesForNodeReturns {
+            pub fn builder() -> GetInlineStylesForNodeReturnsBuilder {
+                GetInlineStylesForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetInlineStylesForNodeReturnsBuilder {
+            inline_style: Option<CssStyle>,
+            attributes_style: Option<CssStyle>,
+        }
+        impl GetInlineStylesForNodeReturnsBuilder {
+            pub fn inline_style(
+                mut self,
+                inline_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.inline_style = Some(inline_style.into());
+                self
+            }
+            pub fn attributes_style(
+                mut self,
+                attributes_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.attributes_style = Some(attributes_style.into());
+                self
+            }
+            pub fn build(self) -> GetInlineStylesForNodeReturns {
+                GetInlineStylesForNodeReturns {
+                    inline_style: self.inline_style,
+                    attributes_style: self.attributes_style,
+                }
+            }
+        }
+        impl cdp_types::Command for GetInlineStylesForNodeParams {
+            type Response = GetInlineStylesForNodeReturns;
+        }
+        #[doc = "Returns the styles coming from animations & transitions\nincluding the animation & transition styles coming from inheritance chain.\n[getAnimatedStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getAnimatedStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetAnimatedStylesForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetAnimatedStylesForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetAnimatedStylesForNodeParams {
+            pub fn builder() -> GetAnimatedStylesForNodeParamsBuilder {
+                GetAnimatedStylesForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetAnimatedStylesForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetAnimatedStylesForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetAnimatedStylesForNodeParams, String> {
+                Ok(GetAnimatedStylesForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetAnimatedStylesForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getAnimatedStylesForNode";
+        }
+        impl cdp_types::Method for GetAnimatedStylesForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetAnimatedStylesForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns the styles coming from animations & transitions\nincluding the animation & transition styles coming from inheritance chain.\n[getAnimatedStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getAnimatedStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetAnimatedStylesForNodeReturns {
+            #[doc = "Styles coming from animations."]
+            #[serde(rename = "animationStyles")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub animation_styles: Option<Vec<CssAnimationStyle>>,
+            #[doc = "Style coming from transitions."]
+            #[serde(rename = "transitionsStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub transitions_style: Option<CssStyle>,
+            #[doc = "Inherited style entries for animationsStyle and transitionsStyle from\nthe inheritance chain of the element."]
+            #[serde(rename = "inherited")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inherited: Option<Vec<InheritedAnimatedStyleEntry>>,
+        }
+        impl GetAnimatedStylesForNodeReturns {
+            pub fn builder() -> GetAnimatedStylesForNodeReturnsBuilder {
+                GetAnimatedStylesForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetAnimatedStylesForNodeReturnsBuilder {
+            animation_styles: Option<Vec<CssAnimationStyle>>,
+            transitions_style: Option<CssStyle>,
+            inherited: Option<Vec<InheritedAnimatedStyleEntry>>,
+        }
+        impl GetAnimatedStylesForNodeReturnsBuilder {
+            pub fn animation_style(
+                mut self,
+                animation_style: impl Into<CssAnimationStyle>,
+            ) -> Self {
+                let v = self.animation_styles.get_or_insert(Vec::new());
+                v.push(animation_style.into());
+                self
+            }
+            pub fn animation_styles<I, S>(mut self, animation_styles: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssAnimationStyle>,
+            {
+                let v = self.animation_styles.get_or_insert(Vec::new());
+                for val in animation_styles {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn transitions_style(
+                mut self,
+                transitions_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.transitions_style = Some(transitions_style.into());
+                self
+            }
+            pub fn inherited(
+                mut self,
+                inherited: impl Into<InheritedAnimatedStyleEntry>,
+            ) -> Self {
+                let v = self.inherited.get_or_insert(Vec::new());
+                v.push(inherited.into());
+                self
+            }
+            pub fn inheriteds<I, S>(mut self, inheriteds: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<InheritedAnimatedStyleEntry>,
+            {
+                let v = self.inherited.get_or_insert(Vec::new());
+                for val in inheriteds {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> GetAnimatedStylesForNodeReturns {
+                GetAnimatedStylesForNodeReturns {
+                    animation_styles: self.animation_styles,
+                    transitions_style: self.transitions_style,
+                    inherited: self.inherited,
+                }
+            }
+        }
+        impl cdp_types::Command for GetAnimatedStylesForNodeParams {
+            type Response = GetAnimatedStylesForNodeReturns;
+        }
+        #[doc = "Returns requested styles for a DOM node identified by `nodeId`.\n[getMatchedStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getMatchedStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetMatchedStylesForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetMatchedStylesForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetMatchedStylesForNodeParams {
+            pub fn builder() -> GetMatchedStylesForNodeParamsBuilder {
+                GetMatchedStylesForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetMatchedStylesForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetMatchedStylesForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetMatchedStylesForNodeParams, String> {
+                Ok(GetMatchedStylesForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetMatchedStylesForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getMatchedStylesForNode";
+        }
+        impl cdp_types::Method for GetMatchedStylesForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetMatchedStylesForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns requested styles for a DOM node identified by `nodeId`.\n[getMatchedStylesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getMatchedStylesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetMatchedStylesForNodeReturns {
+            #[doc = "Inline style for the specified DOM node."]
+            #[serde(rename = "inlineStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inline_style: Option<CssStyle>,
+            #[doc = "Attribute-defined element style (e.g. resulting from \"width=20 height=100%\")."]
+            #[serde(rename = "attributesStyle")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub attributes_style: Option<CssStyle>,
+            #[doc = "CSS rules matching this node, from all applicable stylesheets."]
+            #[serde(rename = "matchedCSSRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub matched_css_rules: Option<Vec<RuleMatch>>,
+            #[doc = "Pseudo style matches for this node."]
+            #[serde(rename = "pseudoElements")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub pseudo_elements: Option<Vec<PseudoElementMatches>>,
+            #[doc = "A chain of inherited styles (from the immediate node parent up to the DOM tree root)."]
+            #[serde(rename = "inherited")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inherited: Option<Vec<InheritedStyleEntry>>,
+            #[doc = "A chain of inherited pseudo element styles (from the immediate node parent up to the DOM tree root)."]
+            #[serde(rename = "inheritedPseudoElements")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub inherited_pseudo_elements:
+                Option<Vec<InheritedPseudoElementMatches>>,
+            #[doc = "A list of CSS keyframed animations matching this node."]
+            #[serde(rename = "cssKeyframesRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_keyframes_rules: Option<Vec<CssKeyframesRule>>,
+            #[doc = "A list of CSS @position-try rules matching this node, based on the position-try-fallbacks property."]
+            #[serde(rename = "cssPositionTryRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_position_try_rules: Option<Vec<CssPositionTryRule>>,
+            #[doc = "Index of the active fallback in the applied position-try-fallback property,\nwill not be set if there is no active position-try fallback."]
+            #[serde(rename = "activePositionFallbackIndex")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub active_position_fallback_index: Option<i64>,
+            #[doc = "A list of CSS at-property rules matching this node."]
+            #[serde(rename = "cssPropertyRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_property_rules: Option<Vec<CssPropertyRule>>,
+            #[doc = "A list of CSS property registrations matching this node."]
+            #[serde(rename = "cssPropertyRegistrations")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_property_registrations:
+                Option<Vec<CssPropertyRegistration>>,
+            #[doc = "A list of simple @rules matching this node or its pseudo-elements."]
+            #[serde(rename = "cssAtRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_at_rules: Option<Vec<CssAtRule>>,
+            #[doc = "Id of the first parent element that does not have display: contents."]
+            #[serde(rename = "parentLayoutNodeId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub parent_layout_node_id: Option<super::dom::NodeId>,
+            #[doc = "A list of CSS at-function rules referenced by styles of this node."]
+            #[serde(rename = "cssFunctionRules")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub css_function_rules: Option<Vec<CssFunctionRule>>,
+        }
+        impl GetMatchedStylesForNodeReturns {
+            pub fn builder() -> GetMatchedStylesForNodeReturnsBuilder {
+                GetMatchedStylesForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetMatchedStylesForNodeReturnsBuilder {
+            inline_style: Option<CssStyle>,
+            attributes_style: Option<CssStyle>,
+            matched_css_rules: Option<Vec<RuleMatch>>,
+            pseudo_elements: Option<Vec<PseudoElementMatches>>,
+            inherited: Option<Vec<InheritedStyleEntry>>,
+            inherited_pseudo_elements:
+                Option<Vec<InheritedPseudoElementMatches>>,
+            css_keyframes_rules: Option<Vec<CssKeyframesRule>>,
+            css_position_try_rules: Option<Vec<CssPositionTryRule>>,
+            active_position_fallback_index: Option<i64>,
+            css_property_rules: Option<Vec<CssPropertyRule>>,
+            css_property_registrations: Option<Vec<CssPropertyRegistration>>,
+            css_at_rules: Option<Vec<CssAtRule>>,
+            parent_layout_node_id: Option<super::dom::NodeId>,
+            css_function_rules: Option<Vec<CssFunctionRule>>,
+        }
+        impl GetMatchedStylesForNodeReturnsBuilder {
+            pub fn inline_style(
+                mut self,
+                inline_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.inline_style = Some(inline_style.into());
+                self
+            }
+            pub fn attributes_style(
+                mut self,
+                attributes_style: impl Into<CssStyle>,
+            ) -> Self {
+                self.attributes_style = Some(attributes_style.into());
+                self
+            }
+            pub fn matched_css_rule(
+                mut self,
+                matched_css_rule: impl Into<RuleMatch>,
+            ) -> Self {
+                let v = self.matched_css_rules.get_or_insert(Vec::new());
+                v.push(matched_css_rule.into());
+                self
+            }
+            pub fn matched_css_rules<I, S>(
+                mut self,
+                matched_css_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<RuleMatch>,
+            {
+                let v = self.matched_css_rules.get_or_insert(Vec::new());
+                for val in matched_css_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn pseudo_element(
+                mut self,
+                pseudo_element: impl Into<PseudoElementMatches>,
+            ) -> Self {
+                let v = self.pseudo_elements.get_or_insert(Vec::new());
+                v.push(pseudo_element.into());
+                self
+            }
+            pub fn pseudo_elements<I, S>(mut self, pseudo_elements: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<PseudoElementMatches>,
+            {
+                let v = self.pseudo_elements.get_or_insert(Vec::new());
+                for val in pseudo_elements {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn inherited(
+                mut self,
+                inherited: impl Into<InheritedStyleEntry>,
+            ) -> Self {
+                let v = self.inherited.get_or_insert(Vec::new());
+                v.push(inherited.into());
+                self
+            }
+            pub fn inheriteds<I, S>(mut self, inheriteds: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<InheritedStyleEntry>,
+            {
+                let v = self.inherited.get_or_insert(Vec::new());
+                for val in inheriteds {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn inherited_pseudo_element(
+                mut self,
+                inherited_pseudo_element: impl Into<InheritedPseudoElementMatches>,
+            ) -> Self {
+                let v =
+                    self.inherited_pseudo_elements.get_or_insert(Vec::new());
+                v.push(inherited_pseudo_element.into());
+                self
+            }
+            pub fn inherited_pseudo_elements<I, S>(
+                mut self,
+                inherited_pseudo_elements: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<InheritedPseudoElementMatches>,
+            {
+                let v =
+                    self.inherited_pseudo_elements.get_or_insert(Vec::new());
+                for val in inherited_pseudo_elements {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn css_keyframes_rule(
+                mut self,
+                css_keyframes_rule: impl Into<CssKeyframesRule>,
+            ) -> Self {
+                let v = self.css_keyframes_rules.get_or_insert(Vec::new());
+                v.push(css_keyframes_rule.into());
+                self
+            }
+            pub fn css_keyframes_rules<I, S>(
+                mut self,
+                css_keyframes_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssKeyframesRule>,
+            {
+                let v = self.css_keyframes_rules.get_or_insert(Vec::new());
+                for val in css_keyframes_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn css_position_try_rule(
+                mut self,
+                css_position_try_rule: impl Into<CssPositionTryRule>,
+            ) -> Self {
+                let v = self.css_position_try_rules.get_or_insert(Vec::new());
+                v.push(css_position_try_rule.into());
+                self
+            }
+            pub fn css_position_try_rules<I, S>(
+                mut self,
+                css_position_try_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssPositionTryRule>,
+            {
+                let v = self.css_position_try_rules.get_or_insert(Vec::new());
+                for val in css_position_try_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn active_position_fallback_index(
+                mut self,
+                active_position_fallback_index: impl Into<i64>,
+            ) -> Self {
+                self.active_position_fallback_index =
+                    Some(active_position_fallback_index.into());
+                self
+            }
+            pub fn css_property_rule(
+                mut self,
+                css_property_rule: impl Into<CssPropertyRule>,
+            ) -> Self {
+                let v = self.css_property_rules.get_or_insert(Vec::new());
+                v.push(css_property_rule.into());
+                self
+            }
+            pub fn css_property_rules<I, S>(
+                mut self,
+                css_property_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssPropertyRule>,
+            {
+                let v = self.css_property_rules.get_or_insert(Vec::new());
+                for val in css_property_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn css_property_registration(
+                mut self,
+                css_property_registration: impl Into<CssPropertyRegistration>,
+            ) -> Self {
+                let v =
+                    self.css_property_registrations.get_or_insert(Vec::new());
+                v.push(css_property_registration.into());
+                self
+            }
+            pub fn css_property_registrations<I, S>(
+                mut self,
+                css_property_registrations: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssPropertyRegistration>,
+            {
+                let v =
+                    self.css_property_registrations.get_or_insert(Vec::new());
+                for val in css_property_registrations {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn css_at_rule(
+                mut self,
+                css_at_rule: impl Into<CssAtRule>,
+            ) -> Self {
+                let v = self.css_at_rules.get_or_insert(Vec::new());
+                v.push(css_at_rule.into());
+                self
+            }
+            pub fn css_at_rules<I, S>(mut self, css_at_rules: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssAtRule>,
+            {
+                let v = self.css_at_rules.get_or_insert(Vec::new());
+                for val in css_at_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn parent_layout_node_id(
+                mut self,
+                parent_layout_node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.parent_layout_node_id = Some(parent_layout_node_id.into());
+                self
+            }
+            pub fn css_function_rule(
+                mut self,
+                css_function_rule: impl Into<CssFunctionRule>,
+            ) -> Self {
+                let v = self.css_function_rules.get_or_insert(Vec::new());
+                v.push(css_function_rule.into());
+                self
+            }
+            pub fn css_function_rules<I, S>(
+                mut self,
+                css_function_rules: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssFunctionRule>,
+            {
+                let v = self.css_function_rules.get_or_insert(Vec::new());
+                for val in css_function_rules {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> GetMatchedStylesForNodeReturns {
+                GetMatchedStylesForNodeReturns {
+                    inline_style: self.inline_style,
+                    attributes_style: self.attributes_style,
+                    matched_css_rules: self.matched_css_rules,
+                    pseudo_elements: self.pseudo_elements,
+                    inherited: self.inherited,
+                    inherited_pseudo_elements: self.inherited_pseudo_elements,
+                    css_keyframes_rules: self.css_keyframes_rules,
+                    css_position_try_rules: self.css_position_try_rules,
+                    active_position_fallback_index: self
+                        .active_position_fallback_index,
+                    css_property_rules: self.css_property_rules,
+                    css_property_registrations: self.css_property_registrations,
+                    css_at_rules: self.css_at_rules,
+                    parent_layout_node_id: self.parent_layout_node_id,
+                    css_function_rules: self.css_function_rules,
+                }
+            }
+        }
+        impl cdp_types::Command for GetMatchedStylesForNodeParams {
+            type Response = GetMatchedStylesForNodeReturns;
+        }
+        #[doc = "Returns the values of the default UA-defined environment variables used in env()\n[getEnvironmentVariables](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getEnvironmentVariables)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetEnvironmentVariablesParams {}
+        impl GetEnvironmentVariablesParams {
+            pub const IDENTIFIER: &'static str = "CSS.getEnvironmentVariables";
+        }
+        impl cdp_types::Method for GetEnvironmentVariablesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetEnvironmentVariablesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns the values of the default UA-defined environment variables used in env()\n[getEnvironmentVariables](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getEnvironmentVariables)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetEnvironmentVariablesReturns {
+            #[serde(rename = "environmentVariables")]
+            pub environment_variables: serde_json::Value,
+        }
+        impl GetEnvironmentVariablesReturns {
+            pub fn new(
+                environment_variables: impl Into<serde_json::Value>,
+            ) -> Self {
+                Self {
+                    environment_variables: environment_variables.into(),
+                }
+            }
+        }
+        impl GetEnvironmentVariablesReturns {
+            pub fn builder() -> GetEnvironmentVariablesReturnsBuilder {
+                GetEnvironmentVariablesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetEnvironmentVariablesReturnsBuilder {
+            environment_variables: Option<serde_json::Value>,
+        }
+        impl GetEnvironmentVariablesReturnsBuilder {
+            pub fn environment_variables(
+                mut self,
+                environment_variables: impl Into<serde_json::Value>,
+            ) -> Self {
+                self.environment_variables = Some(environment_variables.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetEnvironmentVariablesReturns, String> {
+                Ok(GetEnvironmentVariablesReturns {
+                    environment_variables: self
+                        .environment_variables
+                        .ok_or_else(|| {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(environment_variables)
+                            )
+                        })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetEnvironmentVariablesParams {
+            type Response = GetEnvironmentVariablesReturns;
+        }
+        #[doc = "Returns all media queries parsed by the rendering engine.\n[getMediaQueries](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getMediaQueries)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct GetMediaQueriesParams {}
+        impl GetMediaQueriesParams {
+            pub const IDENTIFIER: &'static str = "CSS.getMediaQueries";
+        }
+        impl cdp_types::Method for GetMediaQueriesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetMediaQueriesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns all media queries parsed by the rendering engine.\n[getMediaQueries](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getMediaQueries)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetMediaQueriesReturns {
+            #[serde(rename = "medias")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub medias: Vec<CssMedia>,
+        }
+        impl GetMediaQueriesReturns {
+            pub fn new(medias: Vec<CssMedia>) -> Self {
+                Self { medias }
+            }
+        }
+        impl GetMediaQueriesReturns {
+            pub fn builder() -> GetMediaQueriesReturnsBuilder {
+                GetMediaQueriesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetMediaQueriesReturnsBuilder {
+            medias: Option<Vec<CssMedia>>,
+        }
+        impl GetMediaQueriesReturnsBuilder {
+            pub fn media(mut self, media: impl Into<CssMedia>) -> Self {
+                let v = self.medias.get_or_insert(Vec::new());
+                v.push(media.into());
+                self
+            }
+            pub fn medias<I, S>(mut self, medias: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssMedia>,
+            {
+                let v = self.medias.get_or_insert(Vec::new());
+                for val in medias {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<GetMediaQueriesReturns, String> {
+                Ok(GetMediaQueriesReturns {
+                    medias: self.medias.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(medias)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetMediaQueriesParams {
+            type Response = GetMediaQueriesReturns;
+        }
+        #[doc = "Requests information about platform fonts which we used to render child TextNodes in the given\nnode.\n[getPlatformFontsForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getPlatformFontsForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetPlatformFontsForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetPlatformFontsForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetPlatformFontsForNodeParams {
+            pub fn builder() -> GetPlatformFontsForNodeParamsBuilder {
+                GetPlatformFontsForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetPlatformFontsForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetPlatformFontsForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetPlatformFontsForNodeParams, String> {
+                Ok(GetPlatformFontsForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetPlatformFontsForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getPlatformFontsForNode";
+        }
+        impl cdp_types::Method for GetPlatformFontsForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetPlatformFontsForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Requests information about platform fonts which we used to render child TextNodes in the given\nnode.\n[getPlatformFontsForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getPlatformFontsForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetPlatformFontsForNodeReturns {
+            #[doc = "Usage statistics for every employed platform font."]
+            #[serde(rename = "fonts")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub fonts: Vec<PlatformFontUsage>,
+        }
+        impl GetPlatformFontsForNodeReturns {
+            pub fn new(fonts: Vec<PlatformFontUsage>) -> Self {
+                Self { fonts }
+            }
+        }
+        impl GetPlatformFontsForNodeReturns {
+            pub fn builder() -> GetPlatformFontsForNodeReturnsBuilder {
+                GetPlatformFontsForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetPlatformFontsForNodeReturnsBuilder {
+            fonts: Option<Vec<PlatformFontUsage>>,
+        }
+        impl GetPlatformFontsForNodeReturnsBuilder {
+            pub fn font(mut self, font: impl Into<PlatformFontUsage>) -> Self {
+                let v = self.fonts.get_or_insert(Vec::new());
+                v.push(font.into());
+                self
+            }
+            pub fn fonts<I, S>(mut self, fonts: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<PlatformFontUsage>,
+            {
+                let v = self.fonts.get_or_insert(Vec::new());
+                for val in fonts {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetPlatformFontsForNodeReturns, String> {
+                Ok(GetPlatformFontsForNodeReturns {
+                    fonts: self.fonts.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(fonts)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetPlatformFontsForNodeParams {
+            type Response = GetPlatformFontsForNodeReturns;
+        }
+        #[doc = "Returns the current textual content for a stylesheet.\n[getStyleSheetText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getStyleSheetText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetStyleSheetTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+        }
+        impl GetStyleSheetTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                }
+            }
+        }
+        impl GetStyleSheetTextParams {
+            pub fn builder() -> GetStyleSheetTextParamsBuilder {
+                GetStyleSheetTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetStyleSheetTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+        }
+        impl GetStyleSheetTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn build(self) -> Result<GetStyleSheetTextParams, String> {
+                Ok(GetStyleSheetTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetStyleSheetTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.getStyleSheetText";
+        }
+        impl cdp_types::Method for GetStyleSheetTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetStyleSheetTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns the current textual content for a stylesheet.\n[getStyleSheetText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getStyleSheetText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetStyleSheetTextReturns {
+            #[doc = "The stylesheet text."]
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl GetStyleSheetTextReturns {
+            pub fn new(text: impl Into<String>) -> Self {
+                Self { text: text.into() }
+            }
+        }
+        impl<T: Into<String>> From<T> for GetStyleSheetTextReturns {
+            fn from(url: T) -> Self {
+                GetStyleSheetTextReturns::new(url)
+            }
+        }
+        impl GetStyleSheetTextReturns {
+            pub fn builder() -> GetStyleSheetTextReturnsBuilder {
+                GetStyleSheetTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetStyleSheetTextReturnsBuilder {
+            text: Option<String>,
+        }
+        impl GetStyleSheetTextReturnsBuilder {
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<GetStyleSheetTextReturns, String> {
+                Ok(GetStyleSheetTextReturns {
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetStyleSheetTextParams {
+            type Response = GetStyleSheetTextReturns;
+        }
+        #[doc = "Returns all layers parsed by the rendering engine for the tree scope of a node.\nGiven a DOM element identified by nodeId, getLayersForNode returns the root\nlayer for the nearest ancestor document or shadow root. The layer root contains\nthe full layer tree for the tree scope and their ordering.\n[getLayersForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getLayersForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLayersForNodeParams {
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl GetLayersForNodeParams {
+            pub fn new(node_id: impl Into<super::dom::NodeId>) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                }
+            }
+        }
+        impl GetLayersForNodeParams {
+            pub fn builder() -> GetLayersForNodeParamsBuilder {
+                GetLayersForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLayersForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl GetLayersForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(self) -> Result<GetLayersForNodeParams, String> {
+                Ok(GetLayersForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetLayersForNodeParams {
+            pub const IDENTIFIER: &'static str = "CSS.getLayersForNode";
+        }
+        impl cdp_types::Method for GetLayersForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetLayersForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Returns all layers parsed by the rendering engine for the tree scope of a node.\nGiven a DOM element identified by nodeId, getLayersForNode returns the root\nlayer for the nearest ancestor document or shadow root. The layer root contains\nthe full layer tree for the tree scope and their ordering.\n[getLayersForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getLayersForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLayersForNodeReturns {
+            #[serde(rename = "rootLayer")]
+            pub root_layer: CssLayerData,
+        }
+        impl GetLayersForNodeReturns {
+            pub fn new(root_layer: impl Into<CssLayerData>) -> Self {
+                Self {
+                    root_layer: root_layer.into(),
+                }
+            }
+        }
+        impl GetLayersForNodeReturns {
+            pub fn builder() -> GetLayersForNodeReturnsBuilder {
+                GetLayersForNodeReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLayersForNodeReturnsBuilder {
+            root_layer: Option<CssLayerData>,
+        }
+        impl GetLayersForNodeReturnsBuilder {
+            pub fn root_layer(
+                mut self,
+                root_layer: impl Into<CssLayerData>,
+            ) -> Self {
+                self.root_layer = Some(root_layer.into());
+                self
+            }
+            pub fn build(self) -> Result<GetLayersForNodeReturns, String> {
+                Ok(GetLayersForNodeReturns {
+                    root_layer: self.root_layer.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(root_layer)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetLayersForNodeParams {
+            type Response = GetLayersForNodeReturns;
+        }
+        #[doc = "Given a CSS selector text and a style sheet ID, getLocationForSelector\nreturns an array of locations of the CSS selector in the style sheet.\n[getLocationForSelector](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getLocationForSelector)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLocationForSelectorParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "selectorText")]
+            pub selector_text: String,
+        }
+        impl GetLocationForSelectorParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                selector_text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    selector_text: selector_text.into(),
+                }
+            }
+        }
+        impl GetLocationForSelectorParams {
+            pub fn builder() -> GetLocationForSelectorParamsBuilder {
+                GetLocationForSelectorParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLocationForSelectorParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            selector_text: Option<String>,
+        }
+        impl GetLocationForSelectorParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn selector_text(
+                mut self,
+                selector_text: impl Into<String>,
+            ) -> Self {
+                self.selector_text = Some(selector_text.into());
+                self
+            }
+            pub fn build(self) -> Result<GetLocationForSelectorParams, String> {
+                Ok(GetLocationForSelectorParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    selector_text: self.selector_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(selector_text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl GetLocationForSelectorParams {
+            pub const IDENTIFIER: &'static str = "CSS.getLocationForSelector";
+        }
+        impl cdp_types::Method for GetLocationForSelectorParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for GetLocationForSelectorParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Given a CSS selector text and a style sheet ID, getLocationForSelector\nreturns an array of locations of the CSS selector in the style sheet.\n[getLocationForSelector](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-getLocationForSelector)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct GetLocationForSelectorReturns {
+            #[serde(rename = "ranges")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub ranges: Vec<SourceRange>,
+        }
+        impl GetLocationForSelectorReturns {
+            pub fn new(ranges: Vec<SourceRange>) -> Self {
+                Self { ranges }
+            }
+        }
+        impl GetLocationForSelectorReturns {
+            pub fn builder() -> GetLocationForSelectorReturnsBuilder {
+                GetLocationForSelectorReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct GetLocationForSelectorReturnsBuilder {
+            ranges: Option<Vec<SourceRange>>,
+        }
+        impl GetLocationForSelectorReturnsBuilder {
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                let v = self.ranges.get_or_insert(Vec::new());
+                v.push(range.into());
+                self
+            }
+            pub fn ranges<I, S>(mut self, ranges: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<SourceRange>,
+            {
+                let v = self.ranges.get_or_insert(Vec::new());
+                for val in ranges {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<GetLocationForSelectorReturns, String> {
+                Ok(GetLocationForSelectorReturns {
+                    ranges: self.ranges.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(ranges)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for GetLocationForSelectorParams {
+            type Response = GetLocationForSelectorReturns;
+        }
+        #[doc = "Starts tracking the given node for the computed style updates\nand whenever the computed style is updated for node, it queues\na `computedStyleUpdated` event with throttling.\nThere can only be 1 node tracked for computed style updates\nso passing a new node id removes tracking from the previous node.\nPass `undefined` to disable tracking.\n[trackComputedStyleUpdatesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-trackComputedStyleUpdatesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct TrackComputedStyleUpdatesForNodeParams {
+            #[serde(rename = "nodeId")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub node_id: Option<super::dom::NodeId>,
+        }
+        impl TrackComputedStyleUpdatesForNodeParams {
+            pub fn builder() -> TrackComputedStyleUpdatesForNodeParamsBuilder {
+                TrackComputedStyleUpdatesForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct TrackComputedStyleUpdatesForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+        }
+        impl TrackComputedStyleUpdatesForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn build(self) -> TrackComputedStyleUpdatesForNodeParams {
+                TrackComputedStyleUpdatesForNodeParams {
+                    node_id: self.node_id,
+                }
+            }
+        }
+        impl TrackComputedStyleUpdatesForNodeParams {
+            pub const IDENTIFIER: &'static str =
+                "CSS.trackComputedStyleUpdatesForNode";
+        }
+        impl cdp_types::Method for TrackComputedStyleUpdatesForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for TrackComputedStyleUpdatesForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Starts tracking the given node for the computed style updates\nand whenever the computed style is updated for node, it queues\na `computedStyleUpdated` event with throttling.\nThere can only be 1 node tracked for computed style updates\nso passing a new node id removes tracking from the previous node.\nPass `undefined` to disable tracking.\n[trackComputedStyleUpdatesForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-trackComputedStyleUpdatesForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct TrackComputedStyleUpdatesForNodeReturns {}
+        impl cdp_types::Command for TrackComputedStyleUpdatesForNodeParams {
+            type Response = TrackComputedStyleUpdatesForNodeReturns;
+        }
+        #[doc = "Starts tracking the given computed styles for updates. The specified array of properties\nreplaces the one previously specified. Pass empty array to disable tracking.\nUse takeComputedStyleUpdates to retrieve the list of nodes that had properties modified.\nThe changes to computed style properties are only tracked for nodes pushed to the front-end\nby the DOM agent. If no changes to the tracked properties occur after the node has been pushed\nto the front-end, no updates will be issued for the node.\n[trackComputedStyleUpdates](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-trackComputedStyleUpdates)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct TrackComputedStyleUpdatesParams {
+            #[serde(rename = "propertiesToTrack")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub properties_to_track: Vec<CssComputedStyleProperty>,
+        }
+        impl TrackComputedStyleUpdatesParams {
+            pub fn new(
+                properties_to_track: Vec<CssComputedStyleProperty>,
+            ) -> Self {
+                Self {
+                    properties_to_track,
+                }
+            }
+        }
+        impl TrackComputedStyleUpdatesParams {
+            pub fn builder() -> TrackComputedStyleUpdatesParamsBuilder {
+                TrackComputedStyleUpdatesParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct TrackComputedStyleUpdatesParamsBuilder {
+            properties_to_track: Option<Vec<CssComputedStyleProperty>>,
+        }
+        impl TrackComputedStyleUpdatesParamsBuilder {
+            pub fn properties_to_track(
+                mut self,
+                properties_to_track: impl Into<CssComputedStyleProperty>,
+            ) -> Self {
+                let v = self.properties_to_track.get_or_insert(Vec::new());
+                v.push(properties_to_track.into());
+                self
+            }
+            pub fn properties_to_tracks<I, S>(
+                mut self,
+                properties_to_tracks: I,
+            ) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssComputedStyleProperty>,
+            {
+                let v = self.properties_to_track.get_or_insert(Vec::new());
+                for val in properties_to_tracks {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<TrackComputedStyleUpdatesParams, String> {
+                Ok(TrackComputedStyleUpdatesParams {
+                    properties_to_track: self.properties_to_track.ok_or_else(
+                        || {
+                            format!(
+                                "Field `{}` is mandatory.",
+                                std::stringify!(properties_to_track)
+                            )
+                        },
+                    )?,
+                })
+            }
+        }
+        impl TrackComputedStyleUpdatesParams {
+            pub const IDENTIFIER: &'static str =
+                "CSS.trackComputedStyleUpdates";
+        }
+        impl cdp_types::Method for TrackComputedStyleUpdatesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for TrackComputedStyleUpdatesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Starts tracking the given computed styles for updates. The specified array of properties\nreplaces the one previously specified. Pass empty array to disable tracking.\nUse takeComputedStyleUpdates to retrieve the list of nodes that had properties modified.\nThe changes to computed style properties are only tracked for nodes pushed to the front-end\nby the DOM agent. If no changes to the tracked properties occur after the node has been pushed\nto the front-end, no updates will be issued for the node.\n[trackComputedStyleUpdates](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-trackComputedStyleUpdates)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct TrackComputedStyleUpdatesReturns {}
+        impl cdp_types::Command for TrackComputedStyleUpdatesParams {
+            type Response = TrackComputedStyleUpdatesReturns;
+        }
+        #[doc = "Polls the next batch of computed style updates.\n[takeComputedStyleUpdates](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-takeComputedStyleUpdates)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct TakeComputedStyleUpdatesParams {}
+        impl TakeComputedStyleUpdatesParams {
+            pub const IDENTIFIER: &'static str = "CSS.takeComputedStyleUpdates";
+        }
+        impl cdp_types::Method for TakeComputedStyleUpdatesParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for TakeComputedStyleUpdatesParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Polls the next batch of computed style updates.\n[takeComputedStyleUpdates](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-takeComputedStyleUpdates)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct TakeComputedStyleUpdatesReturns {
+            #[doc = "The list of node Ids that have their tracked computed styles updated."]
+            #[serde(rename = "nodeIds")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub node_ids: Vec<super::dom::NodeId>,
+        }
+        impl TakeComputedStyleUpdatesReturns {
+            pub fn new(node_ids: Vec<super::dom::NodeId>) -> Self {
+                Self { node_ids }
+            }
+        }
+        impl TakeComputedStyleUpdatesReturns {
+            pub fn builder() -> TakeComputedStyleUpdatesReturnsBuilder {
+                TakeComputedStyleUpdatesReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct TakeComputedStyleUpdatesReturnsBuilder {
+            node_ids: Option<Vec<super::dom::NodeId>>,
+        }
+        impl TakeComputedStyleUpdatesReturnsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                let v = self.node_ids.get_or_insert(Vec::new());
+                v.push(node_id.into());
+                self
+            }
+            pub fn node_ids<I, S>(mut self, node_ids: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<super::dom::NodeId>,
+            {
+                let v = self.node_ids.get_or_insert(Vec::new());
+                for val in node_ids {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<TakeComputedStyleUpdatesReturns, String> {
+                Ok(TakeComputedStyleUpdatesReturns {
+                    node_ids: self.node_ids.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_ids)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for TakeComputedStyleUpdatesParams {
+            type Response = TakeComputedStyleUpdatesReturns;
+        }
+        #[doc = "Find a rule with the given active property for the given node and set the new value for this\nproperty\n[setEffectivePropertyValueForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setEffectivePropertyValueForNode)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetEffectivePropertyValueForNodeParams {
+            #[doc = "The element id for which to set property."]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+            #[serde(rename = "propertyName")]
+            pub property_name: String,
+            #[serde(rename = "value")]
+            pub value: String,
+        }
+        impl SetEffectivePropertyValueForNodeParams {
+            pub fn new(
+                node_id: impl Into<super::dom::NodeId>,
+                property_name: impl Into<String>,
+                value: impl Into<String>,
+            ) -> Self {
+                Self {
+                    node_id: node_id.into(),
+                    property_name: property_name.into(),
+                    value: value.into(),
+                }
+            }
+        }
+        impl SetEffectivePropertyValueForNodeParams {
+            pub fn builder() -> SetEffectivePropertyValueForNodeParamsBuilder {
+                SetEffectivePropertyValueForNodeParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetEffectivePropertyValueForNodeParamsBuilder {
+            node_id: Option<super::dom::NodeId>,
+            property_name: Option<String>,
+            value: Option<String>,
+        }
+        impl SetEffectivePropertyValueForNodeParamsBuilder {
+            pub fn node_id(
+                mut self,
+                node_id: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_id = Some(node_id.into());
+                self
+            }
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<String>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn value(mut self, value: impl Into<String>) -> Self {
+                self.value = Some(value.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<SetEffectivePropertyValueForNodeParams, String>
+            {
+                Ok(SetEffectivePropertyValueForNodeParams {
+                    node_id: self.node_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(node_id)
+                        )
+                    })?,
+                    property_name: self.property_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(property_name)
+                        )
+                    })?,
+                    value: self.value.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(value)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetEffectivePropertyValueForNodeParams {
+            pub const IDENTIFIER: &'static str =
+                "CSS.setEffectivePropertyValueForNode";
+        }
+        impl cdp_types::Method for SetEffectivePropertyValueForNodeParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetEffectivePropertyValueForNodeParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Find a rule with the given active property for the given node and set the new value for this\nproperty\n[setEffectivePropertyValueForNode](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setEffectivePropertyValueForNode)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct SetEffectivePropertyValueForNodeReturns {}
+        impl cdp_types::Command for SetEffectivePropertyValueForNodeParams {
+            type Response = SetEffectivePropertyValueForNodeReturns;
+        }
+        #[doc = "Modifies the property rule property name.\n[setPropertyRulePropertyName](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setPropertyRulePropertyName)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetPropertyRulePropertyNameParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "propertyName")]
+            pub property_name: String,
+        }
+        impl SetPropertyRulePropertyNameParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                property_name: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    property_name: property_name.into(),
+                }
+            }
+        }
+        impl SetPropertyRulePropertyNameParams {
+            pub fn builder() -> SetPropertyRulePropertyNameParamsBuilder {
+                SetPropertyRulePropertyNameParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetPropertyRulePropertyNameParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            property_name: Option<String>,
+        }
+        impl SetPropertyRulePropertyNameParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<String>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<SetPropertyRulePropertyNameParams, String> {
+                Ok(SetPropertyRulePropertyNameParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    property_name: self.property_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(property_name)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetPropertyRulePropertyNameParams {
+            pub const IDENTIFIER: &'static str =
+                "CSS.setPropertyRulePropertyName";
+        }
+        impl cdp_types::Method for SetPropertyRulePropertyNameParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetPropertyRulePropertyNameParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the property rule property name.\n[setPropertyRulePropertyName](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setPropertyRulePropertyName)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetPropertyRulePropertyNameReturns {
+            #[doc = "The resulting key text after modification."]
+            #[serde(rename = "propertyName")]
+            pub property_name: Value,
+        }
+        impl SetPropertyRulePropertyNameReturns {
+            pub fn new(property_name: impl Into<Value>) -> Self {
+                Self {
+                    property_name: property_name.into(),
+                }
+            }
+        }
+        impl SetPropertyRulePropertyNameReturns {
+            pub fn builder() -> SetPropertyRulePropertyNameReturnsBuilder {
+                SetPropertyRulePropertyNameReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetPropertyRulePropertyNameReturnsBuilder {
+            property_name: Option<Value>,
+        }
+        impl SetPropertyRulePropertyNameReturnsBuilder {
+            pub fn property_name(
+                mut self,
+                property_name: impl Into<Value>,
+            ) -> Self {
+                self.property_name = Some(property_name.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<SetPropertyRulePropertyNameReturns, String>
+            {
+                Ok(SetPropertyRulePropertyNameReturns {
+                    property_name: self.property_name.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(property_name)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetPropertyRulePropertyNameParams {
+            type Response = SetPropertyRulePropertyNameReturns;
+        }
+        #[doc = "Modifies the keyframe rule key text.\n[setKeyframeKey](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setKeyframeKey)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetKeyframeKeyParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "keyText")]
+            pub key_text: String,
+        }
+        impl SetKeyframeKeyParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                key_text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    key_text: key_text.into(),
+                }
+            }
+        }
+        impl SetKeyframeKeyParams {
+            pub fn builder() -> SetKeyframeKeyParamsBuilder {
+                SetKeyframeKeyParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetKeyframeKeyParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            key_text: Option<String>,
+        }
+        impl SetKeyframeKeyParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn key_text(mut self, key_text: impl Into<String>) -> Self {
+                self.key_text = Some(key_text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetKeyframeKeyParams, String> {
+                Ok(SetKeyframeKeyParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    key_text: self.key_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(key_text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetKeyframeKeyParams {
+            pub const IDENTIFIER: &'static str = "CSS.setKeyframeKey";
+        }
+        impl cdp_types::Method for SetKeyframeKeyParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetKeyframeKeyParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the keyframe rule key text.\n[setKeyframeKey](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setKeyframeKey)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetKeyframeKeyReturns {
+            #[doc = "The resulting key text after modification."]
+            #[serde(rename = "keyText")]
+            pub key_text: Value,
+        }
+        impl SetKeyframeKeyReturns {
+            pub fn new(key_text: impl Into<Value>) -> Self {
+                Self {
+                    key_text: key_text.into(),
+                }
+            }
+        }
+        impl SetKeyframeKeyReturns {
+            pub fn builder() -> SetKeyframeKeyReturnsBuilder {
+                SetKeyframeKeyReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetKeyframeKeyReturnsBuilder {
+            key_text: Option<Value>,
+        }
+        impl SetKeyframeKeyReturnsBuilder {
+            pub fn key_text(mut self, key_text: impl Into<Value>) -> Self {
+                self.key_text = Some(key_text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetKeyframeKeyReturns, String> {
+                Ok(SetKeyframeKeyReturns {
+                    key_text: self.key_text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(key_text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetKeyframeKeyParams {
+            type Response = SetKeyframeKeyReturns;
+        }
+        #[doc = "Modifies the rule selector.\n[setMediaText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setMediaText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetMediaTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetMediaTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetMediaTextParams {
+            pub fn builder() -> SetMediaTextParamsBuilder {
+                SetMediaTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetMediaTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl SetMediaTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetMediaTextParams, String> {
+                Ok(SetMediaTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetMediaTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.setMediaText";
+        }
+        impl cdp_types::Method for SetMediaTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetMediaTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the rule selector.\n[setMediaText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setMediaText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetMediaTextReturns {
+            #[doc = "The resulting CSS media rule after modification."]
+            #[serde(rename = "media")]
+            pub media: CssMedia,
+        }
+        impl SetMediaTextReturns {
+            pub fn new(media: impl Into<CssMedia>) -> Self {
+                Self {
+                    media: media.into(),
+                }
+            }
+        }
+        impl SetMediaTextReturns {
+            pub fn builder() -> SetMediaTextReturnsBuilder {
+                SetMediaTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetMediaTextReturnsBuilder {
+            media: Option<CssMedia>,
+        }
+        impl SetMediaTextReturnsBuilder {
+            pub fn media(mut self, media: impl Into<CssMedia>) -> Self {
+                self.media = Some(media.into());
+                self
+            }
+            pub fn build(self) -> Result<SetMediaTextReturns, String> {
+                Ok(SetMediaTextReturns {
+                    media: self.media.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(media)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetMediaTextParams {
+            type Response = SetMediaTextReturns;
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetContainerQueryConditionTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetContainerQueryConditionTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetContainerQueryConditionTextParams {
+            pub fn builder() -> SetContainerQueryConditionTextParamsBuilder {
+                SetContainerQueryConditionTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetContainerQueryConditionTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl SetContainerQueryConditionTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<SetContainerQueryConditionTextParams, String>
+            {
+                Ok(SetContainerQueryConditionTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetContainerQueryConditionTextParams {
+            pub const IDENTIFIER: &'static str =
+                "CSS.setContainerQueryConditionText";
+        }
+        impl cdp_types::Method for SetContainerQueryConditionTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetContainerQueryConditionTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetContainerQueryConditionTextReturns {
+            #[doc = "The resulting CSS container query rule after modification."]
+            #[serde(rename = "containerQuery")]
+            pub container_query: CssContainerQuery,
+        }
+        impl SetContainerQueryConditionTextReturns {
+            pub fn new(container_query: impl Into<CssContainerQuery>) -> Self {
+                Self {
+                    container_query: container_query.into(),
+                }
+            }
+        }
+        impl SetContainerQueryConditionTextReturns {
+            pub fn builder() -> SetContainerQueryConditionTextReturnsBuilder {
+                SetContainerQueryConditionTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetContainerQueryConditionTextReturnsBuilder {
+            container_query: Option<CssContainerQuery>,
+        }
+        impl SetContainerQueryConditionTextReturnsBuilder {
+            pub fn container_query(
+                mut self,
+                container_query: impl Into<CssContainerQuery>,
+            ) -> Self {
+                self.container_query = Some(container_query.into());
+                self
+            }
+            pub fn build(
+                self,
+            ) -> Result<SetContainerQueryConditionTextReturns, String>
+            {
+                Ok(SetContainerQueryConditionTextReturns {
+                    container_query: self.container_query.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(container_query)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetContainerQueryConditionTextParams {
+            type Response = SetContainerQueryConditionTextReturns;
+        }
+        #[doc = "Modifies the expression of a supports at-rule.\n[setSupportsText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setSupportsText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetSupportsTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetSupportsTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetSupportsTextParams {
+            pub fn builder() -> SetSupportsTextParamsBuilder {
+                SetSupportsTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetSupportsTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl SetSupportsTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetSupportsTextParams, String> {
+                Ok(SetSupportsTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetSupportsTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.setSupportsText";
+        }
+        impl cdp_types::Method for SetSupportsTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetSupportsTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the expression of a supports at-rule.\n[setSupportsText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setSupportsText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetSupportsTextReturns {
+            #[doc = "The resulting CSS Supports rule after modification."]
+            #[serde(rename = "supports")]
+            pub supports: CssSupports,
+        }
+        impl SetSupportsTextReturns {
+            pub fn new(supports: impl Into<CssSupports>) -> Self {
+                Self {
+                    supports: supports.into(),
+                }
+            }
+        }
+        impl SetSupportsTextReturns {
+            pub fn builder() -> SetSupportsTextReturnsBuilder {
+                SetSupportsTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetSupportsTextReturnsBuilder {
+            supports: Option<CssSupports>,
+        }
+        impl SetSupportsTextReturnsBuilder {
+            pub fn supports(
+                mut self,
+                supports: impl Into<CssSupports>,
+            ) -> Self {
+                self.supports = Some(supports.into());
+                self
+            }
+            pub fn build(self) -> Result<SetSupportsTextReturns, String> {
+                Ok(SetSupportsTextReturns {
+                    supports: self.supports.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(supports)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetSupportsTextParams {
+            type Response = SetSupportsTextReturns;
+        }
+        #[doc = "Modifies the expression of a navigation at-rule.\n[setNavigationText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setNavigationText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetNavigationTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetNavigationTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetNavigationTextParams {
+            pub fn builder() -> SetNavigationTextParamsBuilder {
+                SetNavigationTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetNavigationTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl SetNavigationTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetNavigationTextParams, String> {
+                Ok(SetNavigationTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetNavigationTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.setNavigationText";
+        }
+        impl cdp_types::Method for SetNavigationTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetNavigationTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the expression of a navigation at-rule.\n[setNavigationText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setNavigationText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetNavigationTextReturns {
+            #[doc = "The resulting CSS Navigation rule after modification."]
+            #[serde(rename = "navigation")]
+            pub navigation: CssNavigation,
+        }
+        impl SetNavigationTextReturns {
+            pub fn new(navigation: impl Into<CssNavigation>) -> Self {
+                Self {
+                    navigation: navigation.into(),
+                }
+            }
+        }
+        impl SetNavigationTextReturns {
+            pub fn builder() -> SetNavigationTextReturnsBuilder {
+                SetNavigationTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetNavigationTextReturnsBuilder {
+            navigation: Option<CssNavigation>,
+        }
+        impl SetNavigationTextReturnsBuilder {
+            pub fn navigation(
+                mut self,
+                navigation: impl Into<CssNavigation>,
+            ) -> Self {
+                self.navigation = Some(navigation.into());
+                self
+            }
+            pub fn build(self) -> Result<SetNavigationTextReturns, String> {
+                Ok(SetNavigationTextReturns {
+                    navigation: self.navigation.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(navigation)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetNavigationTextParams {
+            type Response = SetNavigationTextReturns;
+        }
+        #[doc = "Modifies the expression of a scope at-rule.\n[setScopeText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setScopeText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetScopeTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetScopeTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetScopeTextParams {
+            pub fn builder() -> SetScopeTextParamsBuilder {
+                SetScopeTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetScopeTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            text: Option<String>,
+        }
+        impl SetScopeTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetScopeTextParams, String> {
+                Ok(SetScopeTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetScopeTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.setScopeText";
+        }
+        impl cdp_types::Method for SetScopeTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetScopeTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the expression of a scope at-rule.\n[setScopeText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setScopeText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetScopeTextReturns {
+            #[doc = "The resulting CSS Scope rule after modification."]
+            #[serde(rename = "scope")]
+            pub scope: CssScope,
+        }
+        impl SetScopeTextReturns {
+            pub fn new(scope: impl Into<CssScope>) -> Self {
+                Self {
+                    scope: scope.into(),
+                }
+            }
+        }
+        impl SetScopeTextReturns {
+            pub fn builder() -> SetScopeTextReturnsBuilder {
+                SetScopeTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetScopeTextReturnsBuilder {
+            scope: Option<CssScope>,
+        }
+        impl SetScopeTextReturnsBuilder {
+            pub fn scope(mut self, scope: impl Into<CssScope>) -> Self {
+                self.scope = Some(scope.into());
+                self
+            }
+            pub fn build(self) -> Result<SetScopeTextReturns, String> {
+                Ok(SetScopeTextReturns {
+                    scope: self.scope.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(scope)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetScopeTextParams {
+            type Response = SetScopeTextReturns;
+        }
+        #[doc = "Modifies the rule selector.\n[setRuleSelector](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setRuleSelector)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetRuleSelectorParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "range")]
+            pub range: SourceRange,
+            #[serde(rename = "selector")]
+            pub selector: String,
+        }
+        impl SetRuleSelectorParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                range: impl Into<SourceRange>,
+                selector: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    range: range.into(),
+                    selector: selector.into(),
+                }
+            }
+        }
+        impl SetRuleSelectorParams {
+            pub fn builder() -> SetRuleSelectorParamsBuilder {
+                SetRuleSelectorParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetRuleSelectorParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            range: Option<SourceRange>,
+            selector: Option<String>,
+        }
+        impl SetRuleSelectorParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn range(mut self, range: impl Into<SourceRange>) -> Self {
+                self.range = Some(range.into());
+                self
+            }
+            pub fn selector(mut self, selector: impl Into<String>) -> Self {
+                self.selector = Some(selector.into());
+                self
+            }
+            pub fn build(self) -> Result<SetRuleSelectorParams, String> {
+                Ok(SetRuleSelectorParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    range: self.range.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(range)
+                        )
+                    })?,
+                    selector: self.selector.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(selector)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetRuleSelectorParams {
+            pub const IDENTIFIER: &'static str = "CSS.setRuleSelector";
+        }
+        impl cdp_types::Method for SetRuleSelectorParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetRuleSelectorParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Modifies the rule selector.\n[setRuleSelector](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setRuleSelector)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetRuleSelectorReturns {
+            #[doc = "The resulting selector list after modification."]
+            #[serde(rename = "selectorList")]
+            pub selector_list: SelectorList,
+        }
+        impl SetRuleSelectorReturns {
+            pub fn new(selector_list: impl Into<SelectorList>) -> Self {
+                Self {
+                    selector_list: selector_list.into(),
+                }
+            }
+        }
+        impl SetRuleSelectorReturns {
+            pub fn builder() -> SetRuleSelectorReturnsBuilder {
+                SetRuleSelectorReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetRuleSelectorReturnsBuilder {
+            selector_list: Option<SelectorList>,
+        }
+        impl SetRuleSelectorReturnsBuilder {
+            pub fn selector_list(
+                mut self,
+                selector_list: impl Into<SelectorList>,
+            ) -> Self {
+                self.selector_list = Some(selector_list.into());
+                self
+            }
+            pub fn build(self) -> Result<SetRuleSelectorReturns, String> {
+                Ok(SetRuleSelectorReturns {
+                    selector_list: self.selector_list.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(selector_list)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetRuleSelectorParams {
+            type Response = SetRuleSelectorReturns;
+        }
+        #[doc = "Sets the new stylesheet text.\n[setStyleSheetText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setStyleSheetText)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetStyleSheetTextParams {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+            #[serde(rename = "text")]
+            pub text: String,
+        }
+        impl SetStyleSheetTextParams {
+            pub fn new(
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+                text: impl Into<String>,
+            ) -> Self {
+                Self {
+                    style_sheet_id: style_sheet_id.into(),
+                    text: text.into(),
+                }
+            }
+        }
+        impl SetStyleSheetTextParams {
+            pub fn builder() -> SetStyleSheetTextParamsBuilder {
+                SetStyleSheetTextParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetStyleSheetTextParamsBuilder {
+            style_sheet_id: Option<super::dom::StyleSheetId>,
+            text: Option<String>,
+        }
+        impl SetStyleSheetTextParamsBuilder {
+            pub fn style_sheet_id(
+                mut self,
+                style_sheet_id: impl Into<super::dom::StyleSheetId>,
+            ) -> Self {
+                self.style_sheet_id = Some(style_sheet_id.into());
+                self
+            }
+            pub fn text(mut self, text: impl Into<String>) -> Self {
+                self.text = Some(text.into());
+                self
+            }
+            pub fn build(self) -> Result<SetStyleSheetTextParams, String> {
+                Ok(SetStyleSheetTextParams {
+                    style_sheet_id: self.style_sheet_id.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(style_sheet_id)
+                        )
+                    })?,
+                    text: self.text.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(text)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetStyleSheetTextParams {
+            pub const IDENTIFIER: &'static str = "CSS.setStyleSheetText";
+        }
+        impl cdp_types::Method for SetStyleSheetTextParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetStyleSheetTextParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Sets the new stylesheet text.\n[setStyleSheetText](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setStyleSheetText)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct SetStyleSheetTextReturns {
+            #[doc = "URL of source map associated with script (if any)."]
+            #[serde(rename = "sourceMapURL")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub source_map_url: Option<String>,
+        }
+        impl SetStyleSheetTextReturns {
+            pub fn builder() -> SetStyleSheetTextReturnsBuilder {
+                SetStyleSheetTextReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetStyleSheetTextReturnsBuilder {
+            source_map_url: Option<String>,
+        }
+        impl SetStyleSheetTextReturnsBuilder {
+            pub fn source_map_url(
+                mut self,
+                source_map_url: impl Into<String>,
+            ) -> Self {
+                self.source_map_url = Some(source_map_url.into());
+                self
+            }
+            pub fn build(self) -> SetStyleSheetTextReturns {
+                SetStyleSheetTextReturns {
+                    source_map_url: self.source_map_url,
+                }
+            }
+        }
+        impl cdp_types::Command for SetStyleSheetTextParams {
+            type Response = SetStyleSheetTextReturns;
+        }
+        #[doc = "Applies specified style edits one after another in the given order.\n[setStyleTexts](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setStyleTexts)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetStyleTextsParams {
+            #[serde(rename = "edits")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub edits: Vec<StyleDeclarationEdit>,
+            #[doc = "NodeId for the DOM node in whose context custom property declarations for registered properties should be\nvalidated. If omitted, declarations in the new rule text can only be validated statically, which may produce\nincorrect results if the declaration contains a var() for example."]
+            #[serde(rename = "nodeForPropertySyntaxValidation")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub node_for_property_syntax_validation: Option<super::dom::NodeId>,
+        }
+        impl SetStyleTextsParams {
+            pub fn new(edits: Vec<StyleDeclarationEdit>) -> Self {
+                Self {
+                    edits,
+                    node_for_property_syntax_validation: None,
+                }
+            }
+        }
+        impl SetStyleTextsParams {
+            pub fn builder() -> SetStyleTextsParamsBuilder {
+                SetStyleTextsParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetStyleTextsParamsBuilder {
+            edits: Option<Vec<StyleDeclarationEdit>>,
+            node_for_property_syntax_validation: Option<super::dom::NodeId>,
+        }
+        impl SetStyleTextsParamsBuilder {
+            pub fn edit(
+                mut self,
+                edit: impl Into<StyleDeclarationEdit>,
+            ) -> Self {
+                let v = self.edits.get_or_insert(Vec::new());
+                v.push(edit.into());
+                self
+            }
+            pub fn edits<I, S>(mut self, edits: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<StyleDeclarationEdit>,
+            {
+                let v = self.edits.get_or_insert(Vec::new());
+                for val in edits {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn node_for_property_syntax_validation(
+                mut self,
+                node_for_property_syntax_validation: impl Into<super::dom::NodeId>,
+            ) -> Self {
+                self.node_for_property_syntax_validation =
+                    Some(node_for_property_syntax_validation.into());
+                self
+            }
+            pub fn build(self) -> Result<SetStyleTextsParams, String> {
+                Ok(SetStyleTextsParams {
+                    edits: self.edits.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(edits)
+                        )
+                    })?,
+                    node_for_property_syntax_validation: self
+                        .node_for_property_syntax_validation,
+                })
+            }
+        }
+        impl SetStyleTextsParams {
+            pub const IDENTIFIER: &'static str = "CSS.setStyleTexts";
+        }
+        impl cdp_types::Method for SetStyleTextsParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetStyleTextsParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Applies specified style edits one after another in the given order.\n[setStyleTexts](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setStyleTexts)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetStyleTextsReturns {
+            #[doc = "The resulting styles after modification."]
+            #[serde(rename = "styles")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub styles: Vec<CssStyle>,
+        }
+        impl SetStyleTextsReturns {
+            pub fn new(styles: Vec<CssStyle>) -> Self {
+                Self { styles }
+            }
+        }
+        impl SetStyleTextsReturns {
+            pub fn builder() -> SetStyleTextsReturnsBuilder {
+                SetStyleTextsReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetStyleTextsReturnsBuilder {
+            styles: Option<Vec<CssStyle>>,
+        }
+        impl SetStyleTextsReturnsBuilder {
+            pub fn style(mut self, style: impl Into<CssStyle>) -> Self {
+                let v = self.styles.get_or_insert(Vec::new());
+                v.push(style.into());
+                self
+            }
+            pub fn styles<I, S>(mut self, styles: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<CssStyle>,
+            {
+                let v = self.styles.get_or_insert(Vec::new());
+                for val in styles {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<SetStyleTextsReturns, String> {
+                Ok(SetStyleTextsReturns {
+                    styles: self.styles.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(styles)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for SetStyleTextsParams {
+            type Response = SetStyleTextsReturns;
+        }
+        #[doc = "Enables the selector recording.\n[startRuleUsageTracking](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-startRuleUsageTracking)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct StartRuleUsageTrackingParams {}
+        impl StartRuleUsageTrackingParams {
+            pub const IDENTIFIER: &'static str = "CSS.startRuleUsageTracking";
+        }
+        impl cdp_types::Method for StartRuleUsageTrackingParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for StartRuleUsageTrackingParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Enables the selector recording.\n[startRuleUsageTracking](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-startRuleUsageTracking)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct StartRuleUsageTrackingReturns {}
+        impl cdp_types::Command for StartRuleUsageTrackingParams {
+            type Response = StartRuleUsageTrackingReturns;
+        }
+        #[doc = "Stop tracking rule usage and return the list of rules that were used since last call to\n`takeCoverageDelta` (or since start of coverage instrumentation).\n[stopRuleUsageTracking](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-stopRuleUsageTracking)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct StopRuleUsageTrackingParams {}
+        impl StopRuleUsageTrackingParams {
+            pub const IDENTIFIER: &'static str = "CSS.stopRuleUsageTracking";
+        }
+        impl cdp_types::Method for StopRuleUsageTrackingParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for StopRuleUsageTrackingParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Stop tracking rule usage and return the list of rules that were used since last call to\n`takeCoverageDelta` (or since start of coverage instrumentation).\n[stopRuleUsageTracking](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-stopRuleUsageTracking)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct StopRuleUsageTrackingReturns {
+            #[serde(rename = "ruleUsage")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub rule_usage: Vec<RuleUsage>,
+        }
+        impl StopRuleUsageTrackingReturns {
+            pub fn new(rule_usage: Vec<RuleUsage>) -> Self {
+                Self { rule_usage }
+            }
+        }
+        impl StopRuleUsageTrackingReturns {
+            pub fn builder() -> StopRuleUsageTrackingReturnsBuilder {
+                StopRuleUsageTrackingReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct StopRuleUsageTrackingReturnsBuilder {
+            rule_usage: Option<Vec<RuleUsage>>,
+        }
+        impl StopRuleUsageTrackingReturnsBuilder {
+            pub fn rule_usage(
+                mut self,
+                rule_usage: impl Into<RuleUsage>,
+            ) -> Self {
+                let v = self.rule_usage.get_or_insert(Vec::new());
+                v.push(rule_usage.into());
+                self
+            }
+            pub fn rule_usages<I, S>(mut self, rule_usages: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<RuleUsage>,
+            {
+                let v = self.rule_usage.get_or_insert(Vec::new());
+                for val in rule_usages {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn build(self) -> Result<StopRuleUsageTrackingReturns, String> {
+                Ok(StopRuleUsageTrackingReturns {
+                    rule_usage: self.rule_usage.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(rule_usage)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for StopRuleUsageTrackingParams {
+            type Response = StopRuleUsageTrackingReturns;
+        }
+        #[doc = "Obtain list of rules that became used since last call to this method (or since start of coverage\ninstrumentation).\n[takeCoverageDelta](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-takeCoverageDelta)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct TakeCoverageDeltaParams {}
+        impl TakeCoverageDeltaParams {
+            pub const IDENTIFIER: &'static str = "CSS.takeCoverageDelta";
+        }
+        impl cdp_types::Method for TakeCoverageDeltaParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for TakeCoverageDeltaParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Obtain list of rules that became used since last call to this method (or since start of coverage\ninstrumentation).\n[takeCoverageDelta](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-takeCoverageDelta)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct TakeCoverageDeltaReturns {
+            #[serde(rename = "coverage")]
+            #[serde(skip_serializing_if = "Vec::is_empty")]
+            pub coverage: Vec<RuleUsage>,
+            #[doc = "Monotonically increasing time, in seconds."]
+            #[serde(rename = "timestamp")]
+            pub timestamp: f64,
+        }
+        impl TakeCoverageDeltaReturns {
+            pub fn new(
+                coverage: Vec<RuleUsage>,
+                timestamp: impl Into<f64>,
+            ) -> Self {
+                Self {
+                    coverage,
+                    timestamp: timestamp.into(),
+                }
+            }
+        }
+        impl TakeCoverageDeltaReturns {
+            pub fn builder() -> TakeCoverageDeltaReturnsBuilder {
+                TakeCoverageDeltaReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct TakeCoverageDeltaReturnsBuilder {
+            coverage: Option<Vec<RuleUsage>>,
+            timestamp: Option<f64>,
+        }
+        impl TakeCoverageDeltaReturnsBuilder {
+            pub fn coverage(mut self, coverage: impl Into<RuleUsage>) -> Self {
+                let v = self.coverage.get_or_insert(Vec::new());
+                v.push(coverage.into());
+                self
+            }
+            pub fn coverages<I, S>(mut self, coverages: I) -> Self
+            where
+                I: IntoIterator<Item = S>,
+                S: Into<RuleUsage>,
+            {
+                let v = self.coverage.get_or_insert(Vec::new());
+                for val in coverages {
+                    v.push(val.into());
+                }
+                self
+            }
+            pub fn timestamp(mut self, timestamp: impl Into<f64>) -> Self {
+                self.timestamp = Some(timestamp.into());
+                self
+            }
+            pub fn build(self) -> Result<TakeCoverageDeltaReturns, String> {
+                Ok(TakeCoverageDeltaReturns {
+                    coverage: self.coverage.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(coverage)
+                        )
+                    })?,
+                    timestamp: self.timestamp.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(timestamp)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl cdp_types::Command for TakeCoverageDeltaParams {
+            type Response = TakeCoverageDeltaReturns;
+        }
+        #[doc = "Enables/disables rendering of local CSS fonts (enabled by default).\n[setLocalFontsEnabled](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setLocalFontsEnabled)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct SetLocalFontsEnabledParams {
+            #[doc = "Whether rendering of local fonts is enabled."]
+            #[serde(rename = "enabled")]
+            pub enabled: bool,
+        }
+        impl SetLocalFontsEnabledParams {
+            pub fn new(enabled: impl Into<bool>) -> Self {
+                Self {
+                    enabled: enabled.into(),
+                }
+            }
+        }
+        impl SetLocalFontsEnabledParams {
+            pub fn builder() -> SetLocalFontsEnabledParamsBuilder {
+                SetLocalFontsEnabledParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct SetLocalFontsEnabledParamsBuilder {
+            enabled: Option<bool>,
+        }
+        impl SetLocalFontsEnabledParamsBuilder {
+            pub fn enabled(mut self, enabled: impl Into<bool>) -> Self {
+                self.enabled = Some(enabled.into());
+                self
+            }
+            pub fn build(self) -> Result<SetLocalFontsEnabledParams, String> {
+                Ok(SetLocalFontsEnabledParams {
+                    enabled: self.enabled.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(enabled)
+                        )
+                    })?,
+                })
+            }
+        }
+        impl SetLocalFontsEnabledParams {
+            pub const IDENTIFIER: &'static str = "CSS.setLocalFontsEnabled";
+        }
+        impl cdp_types::Method for SetLocalFontsEnabledParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for SetLocalFontsEnabledParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Enables/disables rendering of local CSS fonts (enabled by default).\n[setLocalFontsEnabled](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#method-setLocalFontsEnabled)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct SetLocalFontsEnabledReturns {}
+        impl cdp_types::Command for SetLocalFontsEnabledParams {
+            type Response = SetLocalFontsEnabledReturns;
+        }
+        #[doc = "Fires whenever a web font is updated.  A non-empty font parameter indicates a successfully loaded\nweb font.\n[fontsUpdated](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#event-fontsUpdated)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct EventFontsUpdated {
+            #[doc = "The web font that has loaded."]
+            #[serde(rename = "font")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub font: Option<FontFace>,
+        }
+        impl EventFontsUpdated {
+            pub const IDENTIFIER: &'static str = "CSS.fontsUpdated";
+        }
+        impl cdp_types::Method for EventFontsUpdated {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventFontsUpdated {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Fires whenever a MediaQuery result changes (for example, after a browser window has been\nresized.) The current implementation considers only viewport-dependent media features.\n[mediaQueryResultChanged](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#event-mediaQueryResultChanged)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct EventMediaQueryResultChanged {}
+        impl EventMediaQueryResultChanged {
+            pub const IDENTIFIER: &'static str = "CSS.mediaQueryResultChanged";
+        }
+        impl cdp_types::Method for EventMediaQueryResultChanged {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventMediaQueryResultChanged {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Fired whenever an active document stylesheet is added.\n[styleSheetAdded](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#event-styleSheetAdded)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct EventStyleSheetAdded {
+            #[doc = "Added stylesheet metainfo."]
+            #[serde(rename = "header")]
+            pub header: CssStyleSheetHeader,
+        }
+        impl EventStyleSheetAdded {
+            pub const IDENTIFIER: &'static str = "CSS.styleSheetAdded";
+        }
+        impl cdp_types::Method for EventStyleSheetAdded {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventStyleSheetAdded {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Fired whenever a stylesheet is changed as a result of the client operation.\n[styleSheetChanged](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#event-styleSheetChanged)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct EventStyleSheetChanged {
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+        }
+        impl EventStyleSheetChanged {
+            pub const IDENTIFIER: &'static str = "CSS.styleSheetChanged";
+        }
+        impl cdp_types::Method for EventStyleSheetChanged {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventStyleSheetChanged {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Fired whenever an active document stylesheet is removed.\n[styleSheetRemoved](https://chromedevtools.github.io/devtools-protocol/tot/CSS/#event-styleSheetRemoved)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct EventStyleSheetRemoved {
+            #[doc = "Identifier of the removed stylesheet."]
+            #[serde(rename = "styleSheetId")]
+            pub style_sheet_id: super::dom::StyleSheetId,
+        }
+        impl EventStyleSheetRemoved {
+            pub const IDENTIFIER: &'static str = "CSS.styleSheetRemoved";
+        }
+        impl cdp_types::Method for EventStyleSheetRemoved {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventStyleSheetRemoved {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct EventComputedStyleUpdated {
+            #[doc = "The node id that has updated computed styles."]
+            #[serde(rename = "nodeId")]
+            pub node_id: super::dom::NodeId,
+        }
+        impl EventComputedStyleUpdated {
+            pub const IDENTIFIER: &'static str = "CSS.computedStyleUpdated";
+        }
+        impl cdp_types::Method for EventComputedStyleUpdated {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for EventComputedStyleUpdated {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+    }
     #[doc = "This domain exposes DOM read/write operations. Each DOM Node is represented with its mirror object\nthat has an `id`. This `id` can be used to get additional information on the Node, resolve it into\nthe JavaScript object wrapper, etc. It is important that client receives DOM events only for the\nnodes that are known to the client. Backend keeps track of the nodes that were sent to the client\nand never sends the same node twice. It is client's responsibility to collect information about\nthe nodes that were sent to the client. Note that `iframe` owner elements will return\ncorresponding document elements as their child nodes."]
     pub mod dom {
         use serde::{Deserialize, Serialize};
@@ -29513,8 +38965,8 @@ pub mod browser_protocol {
             }
         }
         impl SetSmallViewportHeightDifferenceOverrideParams {
-            pub fn builder()
-            -> SetSmallViewportHeightDifferenceOverrideParamsBuilder
+            pub fn builder(
+            ) -> SetSmallViewportHeightDifferenceOverrideParamsBuilder
             {
                 SetSmallViewportHeightDifferenceOverrideParamsBuilder::default()
             }
@@ -52485,7 +61937,9 @@ pub mod browser_protocol {
             EmbedderAppBannerManager,
             #[serde(rename = "EmbedderDomDistillerViewerSource")]
             EmbedderDomDistillerViewerSource,
-            #[serde(rename = "EmbedderDomDistillerSelfDeletingRequestDelegate")]
+            #[serde(
+                rename = "EmbedderDomDistillerSelfDeletingRequestDelegate"
+            )]
             EmbedderDomDistillerSelfDeletingRequestDelegate,
             #[serde(rename = "EmbedderOomInterventionTabHelper")]
             EmbedderOomInterventionTabHelper,
@@ -52515,7 +61969,9 @@ pub mod browser_protocol {
             RequestedByWebViewClient,
             #[serde(rename = "PostMessageByWebViewClient")]
             PostMessageByWebViewClient,
-            #[serde(rename = "CacheControlNoStoreDeviceBoundSessionTerminated")]
+            #[serde(
+                rename = "CacheControlNoStoreDeviceBoundSessionTerminated"
+            )]
             CacheControlNoStoreDeviceBoundSessionTerminated,
             #[serde(rename = "CacheLimitPrunedOnModerateMemoryPressure")]
             CacheLimitPrunedOnModerateMemoryPressure,
@@ -61743,7 +71199,7 @@ pub mod browser_protocol {
     }
 }
 pub mod de {
-    use serde::{Deserialize, Deserializer, de};
+    use serde::{de, Deserialize, Deserializer};
     use std::str::FromStr;
     #[doc = r" Use the `FromStr` implementation to serialize an optional value"]
     pub fn deserialize_from_str_optional<'de, D, T>(

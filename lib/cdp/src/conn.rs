@@ -1,5 +1,6 @@
 use std::io::ErrorKind;
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -20,15 +21,52 @@ use anyhow::{Context, anyhow, bail, ensure};
 use crate::error::Result;
 use crate::events::Events;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Connection {
-    next_id: usize,
-    worker_tx: mpmc::Sender<WorkerRequest>,
-    handle: thread::JoinHandle<Result<()>>,
+    inner: Arc<Mutex<ConnectionInner>>,
+    pub events: Events,
 }
 
 impl Connection {
-    pub fn connect(url: impl IntoClientRequest) -> Result<(Self, Events)> {
+    pub fn connect(url: impl IntoClientRequest) -> Result<Self> {
+        let (inner, events) = ConnectionInner::connect(url)?;
+        Ok(Connection {
+            inner: Arc::new(Mutex::new(inner)),
+            events,
+        })
+    }
+
+    pub fn send<T: Command>(
+        &self,
+        cmd: T,
+        session_id: Option<&SessionId>,
+    ) -> Result<T::Response> {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("couldn't acquire lock for inner connection");
+        inner.send(cmd, session_id)
+    }
+
+    pub fn close(&self) -> Result<()> {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("couldn't acquire lock for inner connection");
+        inner.close()
+    }
+}
+
+#[derive(Debug)]
+struct ConnectionInner {
+    next_id: usize,
+    worker_tx: mpmc::Sender<WorkerRequest>,
+    handle: Option<thread::JoinHandle<Result<()>>>,
+    closed: bool,
+}
+
+impl ConnectionInner {
+    fn connect(url: impl IntoClientRequest) -> Result<(Self, Events)> {
         let config = WebSocketConfig::default()
             .max_message_size(None)
             .max_frame_size(None);
@@ -51,7 +89,8 @@ impl Connection {
             Self {
                 next_id: 0,
                 worker_tx,
-                handle,
+                handle: Some(handle),
+                closed: false,
             },
             Events {
                 receiver: events_rx,
@@ -97,11 +136,24 @@ impl Connection {
         Ok(T::response_from_value(value)?)
     }
 
-    pub fn close(self) -> Result<()> {
-        self.worker_tx.send(WorkerRequest::Close)?;
-        self.handle
-            .join()
-            .map_err(|err| anyhow!("websocket worker panicked: {:?}", err,))?
+    pub fn close(&mut self) -> Result<()> {
+        if self.closed {
+            return Ok(());
+        }
+        self.worker_tx
+            .send(WorkerRequest::Close)
+            .expect("failed to send close command to worker");
+        if let Some(handle) = self.handle.take() {
+            handle.join().expect("websocket worker panicked")?;
+        }
+        self.closed = true;
+        Ok(())
+    }
+}
+
+impl Drop for ConnectionInner {
+    fn drop(&mut self) {
+        let _ = self.close();
     }
 }
 

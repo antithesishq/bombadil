@@ -2,19 +2,17 @@ use crate::instrumentation::js::{
     EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
 };
 use anyhow::Result;
-use chromiumoxide::{
-    Page,
-    cdp::{
-        browser_protocol::{
-            page::{self, CaptureScreenshotFormat},
-            performance,
-        },
-        js_protocol::debugger::CallFrameId,
+use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use cdp_protocol::cdp::{
+    browser_protocol::{
+        page::{self, CaptureScreenshotFormat},
+        performance,
     },
+    js_protocol::debugger::CallFrameId,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
-use std::{sync::Arc, time::SystemTime};
+use std::time::SystemTime;
 use url::Url;
 
 use crate::browser::evaluation::{
@@ -38,7 +36,8 @@ impl std::fmt::Display for Generation {
 
 #[derive(Clone, Debug)]
 pub struct BrowserState {
-    page: Arc<Page>,
+    connection: cdp::Connection,
+    session_id: SessionId,
     call_frame_id: CallFrameId,
 
     pub generation: Generation,
@@ -207,8 +206,9 @@ impl Resources {
 }
 
 impl BrowserState {
-    pub(crate) async fn current(
-        page: Arc<Page>,
+    pub(crate) fn current(
+        connection: &cdp::Connection,
+        session_id: &SessionId,
         call_frame_id: &CallFrameId,
         console_entries: Vec<ConsoleEntry>,
         exceptions: Vec<Exception>,
@@ -216,36 +216,32 @@ impl BrowserState {
         generation: Generation,
     ) -> Result<Self> {
         log::trace!("BrowserState::current: evaluating url");
-        let url = Url::parse(
-            &evaluate_expression_in_debugger::<String>(
-                &page,
-                call_frame_id,
-                "window.location.href",
-            )
-            .await?,
-        )?;
+        let url = Url::parse(&evaluate_expression_in_debugger::<String>(
+            connection,
+            session_id,
+            call_frame_id,
+            "window.location.href",
+        )?)?;
 
         log::trace!("BrowserState::current: evaluating title");
         let title: String = evaluate_expression_in_debugger(
-            &page,
+            connection,
+            session_id,
             call_frame_id,
             "document.title",
-        )
-        .await?;
+        )?;
 
         log::trace!("BrowserState::current: evaluating content_type");
         let content_type: String = evaluate_expression_in_debugger(
-            &page,
+            connection,
+            session_id,
             call_frame_id,
             "document.contentType",
-        )
-        .await?;
+        )?;
 
         log::trace!("BrowserState::current: getting navigation history");
-        let navigation_history_result = page
-            .execute(page::GetNavigationHistoryParams {})
-            .await?
-            .result;
+        let navigation_history_result = connection
+            .send(page::GetNavigationHistoryParams {}, Some(session_id))?;
 
         let navigation_entries = navigation_history_result
             .entries
@@ -276,7 +272,8 @@ impl BrowserState {
 
         log::trace!("BrowserState::current: evaluating coverage");
         let edges_new: Vec<(u32, u8)> = evaluate_expression_in_debugger(
-            &page,
+            connection,
+            session_id,
             call_frame_id,
             format!("
                 (() => {{
@@ -314,12 +311,13 @@ impl BrowserState {
                 "
             ),
         )
-        .await?;
+        ?;
 
         log::trace!("BrowserState::current: evaluating transition hash");
         let transition_hash_bigint: Option<String> =
             evaluate_expression_in_debugger(
-                &page,
+                connection,
+                session_id,
                 call_frame_id,
                 format!(
                     "
@@ -368,24 +366,24 @@ impl BrowserState {
             "
                 ),
             )
-            .await?;
+            ?;
 
         let transition_hash = match transition_hash_bigint {
             Some(string) => Some(string.parse::<u64>()?),
             None => None,
         };
 
-        let performance_metrics = &page
-            .execute(performance::GetMetricsParams {})
-            .await?
+        let performance_metrics = &connection
+            .send(performance::GetMetricsParams {}, Some(session_id))?
             .metrics;
         let resources = Resources::from_metrics(performance_metrics);
 
         log::trace!("BrowserState::current: done");
         Ok(BrowserState {
+            connection: connection.clone(),
+            session_id: session_id.clone(),
             generation,
             timestamp: SystemTime::now(),
-            page: page.clone(),
             call_frame_id: call_frame_id.clone(),
             url,
             title,
@@ -400,17 +398,17 @@ impl BrowserState {
         })
     }
 
-    pub async fn evaluate_function_call<Output: DeserializeOwned>(
+    pub fn evaluate_function_call<Output: DeserializeOwned>(
         &self,
         function_expression: impl Into<String>,
         arguments: Vec<json::Value>,
     ) -> Result<Output> {
         evaluate_function_call_in_debugger(
-            &self.page,
+            &self.connection,
+            &self.session_id,
             &self.call_frame_id,
             function_expression,
             arguments,
         )
-        .await
     }
 }

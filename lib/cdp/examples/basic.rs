@@ -29,16 +29,17 @@ fn main() -> Result<()> {
         bail!("usage: basic <ws-devtools-url>");
     };
 
-    let (mut conn, events) = Connection::connect(url.as_str())?;
+    let connection = Connection::connect(url.as_str())?;
 
-    let version = conn.send(browser::GetVersionParams::default(), None)?;
+    let version =
+        connection.send(browser::GetVersionParams::default(), None)?;
     println!("Version:  {:?}", version);
 
-    let target_id = conn
+    let target_id = connection
         .send(target::CreateTargetParams::default(), None)?
         .target_id;
 
-    let session_id = conn
+    let session_id = connection
         .send(
             target::AttachToTargetParams {
                 target_id: target_id.clone(),
@@ -48,9 +49,10 @@ fn main() -> Result<()> {
         )?
         .session_id;
 
-    let _ = conn.send(page::EnableParams::default(), Some(&session_id))?;
+    let _ =
+        connection.send(page::EnableParams::default(), Some(&session_id))?;
 
-    let _ = conn.send(
+    let _ = connection.send(
         page::NavigateParams {
             url: "https://en.wikipedia.org".into(),
             referrer: None,
@@ -61,20 +63,23 @@ fn main() -> Result<()> {
         Some(&session_id),
     )?;
 
-    let _ = events.subscribe::<page::EventLoadEventFired>().next()?;
+    let _ = connection
+        .events
+        .subscribe::<page::EventLoadEventFired>()
+        .next()?;
     log::info!("Got page load...");
 
-    let _ = conn.send(
+    let _ = connection.send(
         target::CloseTargetParams {
             target_id: target_id.clone(),
         },
         None,
     )?;
 
-    drop(conn);
+    connection.close()?;
 
     println!("Residual events:");
-    for event in events.all() {
+    for event in connection.events.all() {
         println!("${}: {}", event.method_name(), event.params);
     }
     println!("Done.");

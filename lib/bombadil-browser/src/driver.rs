@@ -220,8 +220,7 @@ fn run_browser_worker(
 
     runtime.block_on(async move {
         let mut browser =
-            match Browser::new(origin, browser_options, debugger_options).await
-            {
+            match Browser::new(origin, browser_options, debugger_options) {
                 Ok(browser) => browser,
                 Err(error) => {
                     let _ = ready_send.send(Err(error));
@@ -342,14 +341,14 @@ async fn run_extractors(
             "#,
             vec![],
         )
-        .await?;
+        ?;
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
                 "(state) => __bombadilRequire('@antithesishq/bombadil').runtime.runExtractors({ ...state, document, window })",
                 vec![state_partial.clone()]
             )
-            .await?;
+            ?;
 
     let time = Time::from_system_time(state.timestamp);
     let results: Vec<Snapshot> = partial_snapshots

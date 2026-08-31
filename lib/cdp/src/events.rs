@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 
 use cdp_types::{CdpJsonEventMessage, MethodId, MethodType};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Events {
     pub(crate) receiver: mpmc::Receiver<CdpJsonEventMessage>,
 }
@@ -56,12 +56,17 @@ pub struct Subscriber<T: DeserializeOwned> {
 }
 
 impl<T: DeserializeOwned> Subscriber<T> {
-    pub fn next(&self) -> Result<T> {
+    // Return the next even or None if there are no more events.
+    pub fn next(&self) -> Result<Option<T>> {
         loop {
-            let message = self.receiver.recv()?;
-            if message.method == self.method_id {
-                return Ok(json::from_value(message.params)?);
-            }
+            match self.receiver.recv() {
+                Ok(message) => {
+                    if message.method == self.method_id {
+                        return Ok(json::from_value(message.params)?);
+                    }
+                }
+                Err(mpmc::RecvError) => return Ok(None),
+            };
         }
     }
 }

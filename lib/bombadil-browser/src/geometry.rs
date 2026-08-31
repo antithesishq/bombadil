@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use chromiumoxide::layout;
+use cdp::layout;
 use rand::distr::uniform::SampleUniform;
 use serde::{Deserialize, Serialize};
 

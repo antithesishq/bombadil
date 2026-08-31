@@ -525,7 +525,6 @@ async fn test_browser_lifecycle() {
             },
         },
     )
-    .await
     .unwrap();
 
     browser.initiate().await.unwrap();

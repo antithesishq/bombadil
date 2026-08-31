@@ -5,6 +5,7 @@ use std::ops::Deref;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use serde_json as json;
 
 pub type MethodId = Cow<'static, str>;
 
@@ -91,6 +92,40 @@ pub struct CdpJsonEventMessage {
     pub session_id: Option<String>,
     /// Json payload of the event
     pub params: serde_json::Value,
+}
+
+impl CdpJsonEventMessage {
+    pub fn try_from_method<T: MethodType + DeserializeOwned>(
+        &self,
+    ) -> Option<T> {
+        if T::method_id() == self.method {
+            json::from_value(self.params.clone()).ok()
+        } else {
+            None
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! try_match {
+    (
+        $val:expr,
+        { $( $ty:ty $(: $binding:pat_param)? => $body:expr ),+ $(,)? }
+        $(, _ => $default:expr )? $(,)?
+    ) => {{
+        $(
+            if let ::std::option::Option::Some(
+                try_match!(@bind $($binding)?)
+            ) = $val.try_from_method::<$ty>() {
+                $body
+            } else
+        )+
+        {
+            $( $default )?
+        }
+    }};
+    (@bind) => { _ };
+    (@bind $b:pat_param) => { $b };
 }
 
 impl Method for CdpJsonEventMessage {

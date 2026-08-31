@@ -24,6 +24,7 @@ fn generated_code_is_fresh() {
         .allowed_deprecated_type("emulateNetworkConditions")
         .only_domains([
             "Browser",
+            "CSS",
             "DOM",
             "Emulation",
             "Fetch",
