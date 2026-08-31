@@ -16,12 +16,35 @@ impl Events {
         self.receiver.clone()
     }
 
+    // Creates a cheap typed subscriber which can be used to iterate
+    // over particular events.
     pub fn subscribe<T: MethodType + DeserializeOwned>(&self) -> Subscriber<T> {
         Subscriber {
             _phantom: PhantomData::<T>,
             method_id: T::method_id(),
             receiver: self.receiver.clone(),
         }
+    }
+
+    // Subscribes to typed events by creating a new channel. This enables
+    // crossbeam `select!`, at the cost of spawning a new OS thread.
+    pub fn subscribe_cloned<
+        T: MethodType + DeserializeOwned + Send + 'static,
+    >(
+        &self,
+    ) -> mpmc::Receiver<T> {
+        let (tx, rx) = mpmc::bounded(1024);
+        let events = self.receiver.clone();
+        let _ = std::thread::spawn(move || -> Result<()> {
+            loop {
+                let message = events.recv()?;
+                if message.method == T::method_id() {
+                    tx.send(json::from_value(message.params)?)
+                        .expect("failed to forward typed event");
+                }
+            }
+        });
+        rx
     }
 }
 
