@@ -187,7 +187,9 @@ fn websocket_worker(
             Err(tungstenite::error::Error::Io(ref e))
                 if e.kind() == ErrorKind::WouldBlock =>
             {
-                continue;
+                // Both worker commands and events are non-blocking, so wait in order to not
+                // busy-loop.
+                thread::sleep(Duration::from_millis(2));
             }
             Err(e) => {
                 return Err(e.into());
