@@ -14,17 +14,13 @@ base64.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
-bombadil-ltl = { path = "../bombadil-ltl" }
 chromiumoxide.workspace = true
 const_format.workspace = true
 futures.workspace = true
-html5ever.workspace = true
 log.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
-oxc_str.workspace = true
 oxc_traverse.workspace = true
 rand.workspace = true
-regex-syntax.workspace = true
 scraper.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

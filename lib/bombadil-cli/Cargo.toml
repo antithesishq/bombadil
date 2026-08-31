@@ -13,8 +13,6 @@ anyhow.workspace = true
 axum.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser = { path = "../bombadil-browser" }
-bombadil-ltl = { path = "../bombadil-ltl" }
-bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-terminal = { path = "../bombadil-terminal", optional = true }
 clap.workspace = true
@@ -24,8 +22,6 @@ include_dir.workspace = true
 log.workspace = true
 mime_guess.workspace = true
 open.workspace = true
-rand.workspace = true
-serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
