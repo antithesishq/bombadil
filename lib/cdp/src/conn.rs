@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
@@ -146,10 +147,9 @@ impl ConnectionInner {
         match result {
             Ok(value) => {
                 log::debug!(
-                    "got response for {} ({}): {}",
+                    "got response for {} ({})",
                     cmd.identifier(),
                     call_id,
-                    value
                 );
                 Ok(T::response_from_value(value)?)
             }
@@ -199,15 +199,19 @@ fn websocket_worker(
     subscribers: Arc<Mutex<Subscribers>>,
 ) -> Result<()> {
     log::debug!("starting websocket worker");
-    let mut call_current = None;
+    // TODO: clean up map periodically or using timers, as it
+    // can grow unboundedly on requests timing out or for some
+    // other reason not receiving responses
+    let mut calls_in_flight = HashMap::new();
     loop {
         match requests_rx.try_recv() {
             Ok(WorkerRequest::Send { call, reply_tx }) => {
                 ensure!(
-                    call_current.is_none(),
-                    "concurrent send() is not supported"
+                    !calls_in_flight.contains_key(&call.id),
+                    "call {} already in flight",
+                    call.id
                 );
-                call_current = Some((call.clone(), reply_tx));
+                calls_in_flight.insert(call.id, reply_tx);
                 let payload = serde_json::to_string(&call)?;
                 ws.send(WsMessage::text(payload))?;
             }
@@ -231,26 +235,22 @@ fn websocket_worker(
                     })?;
                 match parsed {
                     CdpMessage::Response(response) => {
-                        log::debug!("got response: {response:?}");
-                        if let Some((call, reply_tx)) = call_current.take() {
-                            if response.id != call.id {
-                                bail!(
-                                    "Response id {got} did not match in-flight request id {expected} (concurrent send() is not supported)",
-                                    expected = call.id,
-                                    got = response.id,
-                                );
-                            }
+                        log::debug!("got response for request {}", response.id);
+                        if let Some(reply_tx) =
+                            calls_in_flight.remove(&response.id)
+                        {
                             if let Some(err) = response.error {
-                                reply_tx.send(Err(err.into()))?;
+                                let _ = reply_tx.send(Err(err.into()));
                             } else {
                                 let result = response
                                     .result
                                     .unwrap_or(serde_json::Value::Null);
-                                reply_tx.send(Ok(result))?;
+                                let _ = reply_tx.send(Ok(result));
                             }
                         } else {
                             bail!(
-                                "Got unexpected response with no request in flight"
+                                "Got unexpected response ({}) with no corresponding request in flight",
+                                response.id
                             );
                         }
                     }
