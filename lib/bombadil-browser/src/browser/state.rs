@@ -206,6 +206,7 @@ impl Resources {
 }
 
 impl BrowserState {
+    #[hotpath::measure]
     pub(crate) fn current(
         connection: &cdp::Connection,
         session_id: &SessionId,

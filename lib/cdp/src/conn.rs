@@ -81,7 +81,7 @@ impl ConnectionInner {
             _ => bail!("unsupported stream type"),
         }
 
-        let (worker_tx, worker_rx) = mpmc::bounded(1);
+        let (worker_tx, worker_rx) = mpmc::bounded(16);
         let subscribers = Arc::new(Mutex::new(Subscribers::default()));
 
         let handle = {
@@ -110,6 +110,7 @@ impl ConnectionInner {
         id
     }
 
+    #[hotpath::measure]
     pub fn send<T: Command>(
         &mut self,
         cmd: T,

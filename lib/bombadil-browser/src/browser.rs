@@ -19,10 +19,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
-use tempfile::TempDir;
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::activity::ActivityStream;
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
@@ -65,8 +65,8 @@ enum InnerStateKind {
     Resuming(Box<BrowserAction>),
     Navigating { url: String },
     Loading,
-    Running(quiescence::QuiescenceTimer),
-    Acting(quiescence::QuiescenceSubscription),
+    Running,
+    Acting(ActivityStream),
 }
 
 impl std::fmt::Debug for InnerStateKind {
@@ -81,7 +81,7 @@ impl std::fmt::Debug for InnerStateKind {
                 f.debug_struct("Navigating").field("url", url).finish()
             }
             Self::Loading => write!(f, "Loading"),
-            Self::Running(_) => write!(f, "Running"),
+            Self::Running => write!(f, "Running"),
             Self::Acting(_) => write!(f, "Acting"),
         }
     }
@@ -204,7 +204,7 @@ impl Browser {
             DebuggerOptions::External {
                 ref remote_debugger,
             } => cdp::Connection::connect(remote_debugger.as_str())?,
-            DebuggerOptions::Managed { ref launch_options } => {
+            DebuggerOptions::Managed { .. } => {
                 todo!("managed browser unsupported for now");
                 // let browser_config = launch_options_to_config(
                 //     launch_options,
@@ -247,7 +247,7 @@ impl Browser {
         let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
             Arc::new(Mutex::new(None));
 
-        let screencast = activity::screencast_start(
+        let frames_rx = activity::screencast_start(
             &connection,
             &session_id,
             browser_options.emulation.width,
@@ -258,7 +258,7 @@ impl Browser {
         {
             let latest_frame = latest_frame.clone();
             thread::spawn(move || {
-                while let Ok(frame) = screencast.recv() {
+                while let Ok(frame) = frames_rx.recv() {
                     *latest_frame.lock().unwrap() = Some(frame);
                 }
             });
@@ -269,6 +269,7 @@ impl Browser {
         connection.send(runtime::EnableParams::default(), Some(&session_id))?;
         connection.send(dom::EnableParams::default(), Some(&session_id))?;
         connection.send(css::EnableParams::default(), Some(&session_id))?;
+        connection.send(page::EnableParams::default(), Some(&session_id))?;
         connection
             .send(debugger::EnableParams::default(), Some(&session_id))?;
         connection.send(network::EnableParams::default(), Some(&session_id))?;
@@ -372,12 +373,12 @@ impl Browser {
                     url: context.origin.clone().into(),
                 }
             } else {
-                let timer = start_quiescence_timer(
+                start_quiescence_timer(
                     &state_shared,
                     &context,
                     &context.events_tx,
                 )?;
-                InnerStateKind::Running(timer)
+                InnerStateKind::Running
             },
             shared: state_shared,
         };
@@ -395,7 +396,7 @@ impl Browser {
         })
     }
 
-    pub async fn initiate(&mut self) -> Result<()> {
+    pub fn initiate(&mut self) -> Result<()> {
         if self.go_to_origin_on_init {
             let connection = self.connection.clone();
             let session_id = self.session_id.clone();
@@ -426,7 +427,7 @@ impl Browser {
         Ok(())
     }
 
-    pub async fn terminate(mut self) -> Result<()> {
+    pub fn terminate(mut self) -> Result<()> {
         // Close the browser before waiting for the state machine. Any CDP calls
         // in-flight inside process_event will fail once the connection drops,
         // unblocking the state machine so it can exit. Without this ordering,
@@ -443,7 +444,7 @@ impl Browser {
         Ok(())
     }
 
-    pub async fn next_event(&mut self) -> Option<BrowserEvent> {
+    pub fn next_event(&mut self) -> Option<BrowserEvent> {
         self.browser_events_rx.recv().ok()
     }
 
@@ -461,7 +462,7 @@ impl Browser {
         &self.origin
     }
 
-    pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
+    pub fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
         self.connection.send(
             page::AddScriptToEvaluateOnNewDocumentParams {
                 source: script.into(),
@@ -523,9 +524,6 @@ fn forward_inner_events(
                 },
                 runtime::EventExecutionContextDestroyed: event => {
                     Some(InnerEvent::ExecutionContextDestroyed(event.execution_context_unique_id.clone()))
-                },
-                target::EventTargetDestroyed: event => {
-                    Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
                 },
                 page::EventLoadEventFired => {
                     Some(InnerEvent::Loaded)
@@ -631,6 +629,11 @@ fn forward_inner_events(
                     }))
                 },
             }, _ => None);
+
+            if let Some(event) = &inner_event {
+                log::info!("forwarding event: {event:?}");
+            }
+
             if let Some(inner_event) = inner_event
                 && let Err(err) = events_tx.send(inner_event)
             {
@@ -645,14 +648,14 @@ fn forward_inner_events(
 
 fn run_state_machine(
     context: BrowserContext,
-    events: mpmc::Receiver<InnerEvent>,
+    events_rx: mpmc::Receiver<InnerEvent>,
     mut state_current: InnerState,
     done_sender: mpmc::Sender<()>,
 ) {
     let _ = thread::spawn(move || -> Result<()> {
         let result = {
             log::info!("processing events");
-            while let Ok(event) = events.recv() {
+            while let Ok(event) = events_rx.recv() {
                 state_current = if log::log_enabled!(log::Level::Debug) {
                     let before = format!(
                         "{:?} ({})",
@@ -744,14 +747,10 @@ fn process_event(
                 debugger::ResumeParams::builder().build(),
                 Some(&context.session_id),
             )?;
-            let timer = start_quiescence_timer(
-                &state.shared,
-                context,
-                &context.events_tx,
-            )?;
+            start_quiescence_timer(&state.shared, context, &context.events_tx)?;
             capture_browser_state(
                 InnerState {
-                    kind: InnerStateKind::Running(timer),
+                    kind: InnerStateKind::Running,
                     shared: state.shared,
                 },
                 context,
@@ -780,7 +779,7 @@ fn process_event(
                 exceptions,
                 generation,
                 screenshot,
-                ..
+                execution_context_id,
             } = state.shared;
             let generation = generation.next();
 
@@ -808,7 +807,7 @@ fn process_event(
                     console_entries: vec![],
                     exceptions: vec![],
                     screenshot: None,
-                    execution_context_id: None,
+                    execution_context_id,
                 },
             }
         }
@@ -860,7 +859,7 @@ fn process_event(
         }
         (
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 mut shared,
             },
             InnerEvent::Resumed,
@@ -868,7 +867,7 @@ fn process_event(
             log::warn!("running + resumed");
             shared.console_entries.clear();
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -921,9 +920,8 @@ fn process_event(
             shared.console_entries.clear();
             let (activity_tx, activity_rx) = mpmc::bounded(1024);
             activity::all_activity(&context.connection.events, activity_tx)?;
-            let subscription = quiescence::subscribe(activity_rx);
             InnerState {
-                kind: Acting(subscription),
+                kind: Acting(activity_rx),
                 shared,
             }
         }
@@ -934,13 +932,13 @@ fn process_event(
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            let timer = start_quiescence_timer_from_subscription(
+            start_quiescence_timer_from_activity(
                 &shared,
                 &context.events_tx,
                 subscription,
             );
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -949,10 +947,9 @@ fn process_event(
             state
         }
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
-            let timer =
-                start_quiescence_timer(&shared, context, &context.events_tx)?;
+            start_quiescence_timer(&shared, context, &context.events_tx)?;
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -998,10 +995,9 @@ fn process_event(
             InnerEvent::DownloadWillBegin { frame_id, url },
         ) if frame_id == context.frame_id => {
             log::debug!("download started: {}", url);
-            let timer =
-                start_quiescence_timer(&shared, context, &context.events_tx)?;
+            start_quiescence_timer(&shared, context, &context.events_tx)?;
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -1026,7 +1022,7 @@ fn process_event(
         }
         (mut state, InnerEvent::ExceptionThrown(exception)) => {
             state.shared.exceptions.push(exception);
-            if matches!(state.kind, Running(_)) {
+            if matches!(state.kind, Running) {
                 capture_browser_state(state, context)?
             } else {
                 state
@@ -1041,12 +1037,12 @@ fn process_event(
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
                     NavigationType::BackForwardCacheRestore => {
-                        let timer = start_quiescence_timer(
+                        start_quiescence_timer(
                             &shared,
                             context,
                             &context.events_tx,
                         )?;
-                        Running(timer)
+                        Running
                     }
                 };
                 InnerState { kind, shared }
@@ -1065,7 +1061,7 @@ fn process_event(
             if state.shared.generation != generation {
                 log::debug!("ignoring stale Quiesced event");
                 state
-            } else if matches!(state.kind, Running(_)) {
+            } else if matches!(state.kind, Running) {
                 log::debug!("quiesced, requesting new state capture");
                 let _ = context.events_tx.send(InnerEvent::StateRequested(
                     StateRequestReason::Quiesced,
@@ -1101,35 +1097,29 @@ fn start_quiescence_timer(
     shared: &InnerStateShared,
     context: &BrowserContext,
     events_tx: &mpmc::Sender<InnerEvent>,
-) -> Result<quiescence::QuiescenceTimer> {
+) -> Result<()> {
     let (activity_tx, activity_rx) = mpmc::bounded(1024);
     activity::all_activity(&context.connection.events, activity_tx)?;
-    let subscription = quiescence::subscribe(activity_rx);
-    Ok(start_quiescence_timer_from_subscription(
-        shared,
-        events_tx,
-        subscription,
-    ))
+    start_quiescence_timer_from_activity(shared, events_tx, activity_rx);
+    Ok(())
 }
 
-fn start_quiescence_timer_from_subscription(
+fn start_quiescence_timer_from_activity(
     shared: &InnerStateShared,
     events_tx: &mpmc::Sender<InnerEvent>,
-    subscription: quiescence::QuiescenceSubscription,
-) -> quiescence::QuiescenceTimer {
-    let (timer, quiescent) =
-        subscription.start(QUIESCENCE_INITIAL_IDLE, QUIESCENCE_TIMEOUT);
+    activity_rx: mpmc::Receiver<Duration>,
+) {
+    let quiescent = quiescence::start(
+        activity_rx,
+        QUIESCENCE_INITIAL_IDLE,
+        QUIESCENCE_TIMEOUT,
+    );
     let generation = shared.generation;
     let sender = events_tx.clone();
     thread::spawn(move || match quiescent.recv() {
-        Ok(true) => {
+        Ok(()) => {
             log::debug!("quiescence timer fired for generation {generation}");
             let _ = sender.send(InnerEvent::Quiesced(generation));
-        }
-        Ok(false) => {
-            log::debug!(
-                "quiescence timer cancelled for generation {generation}",
-            );
         }
         Err(err) => {
             log::debug!(
@@ -1137,7 +1127,6 @@ fn start_quiescence_timer_from_subscription(
             );
         }
     });
-    timer
 }
 
 fn capture_browser_state(
@@ -1148,10 +1137,9 @@ fn capture_browser_state(
         shared: InnerStateShared,
         context: &BrowserContext,
     ) -> Result<InnerState> {
-        let timer =
-            start_quiescence_timer(&shared, context, &context.events_tx)?;
+        start_quiescence_timer(&shared, context, &context.events_tx)?;
         Ok(InnerState {
-            kind: InnerStateKind::Running(timer),
+            kind: InnerStateKind::Running,
             shared,
         })
     }

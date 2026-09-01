@@ -229,7 +229,7 @@ fn run_browser_worker(
             };
 
         if let Err(error) =
-            browser.ensure_script_evaluated(&specification_bundle).await
+            browser.ensure_script_evaluated(&specification_bundle)
         {
             let _ = ready_send.send(Err(error));
             return;
@@ -246,10 +246,10 @@ fn run_browser_worker(
         while let Some(command) = command_receive.recv().await {
             match command {
                 BrowserCommand::Initiate { reply } => {
-                    let _ = reply.send(browser.initiate().await);
+                    let _ = reply.send(browser.initiate());
                 }
                 BrowserCommand::NextEvent { reply } => {
-                    let event = match browser.next_event().await {
+                    let event = match browser.next_event() {
                         Some(BrowserEvent::StateChanged(state)) => {
                             Some(DriverEvent::StateChanged(Arc::new(state)))
                         }
@@ -284,7 +284,7 @@ fn run_browser_worker(
         }
 
         if let Some(reply) = terminate_reply {
-            let _ = reply.send(browser.terminate().await);
+            let _ = reply.send(browser.terminate());
         }
     });
 }

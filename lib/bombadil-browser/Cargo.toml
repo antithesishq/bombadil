@@ -20,6 +20,7 @@ cdp_protocol = { path = "../cdp/protocol" }
 const_format.workspace = true
 crossbeam-channel.workspace = true
 futures.workspace = true
+hotpath.workspace = true
 html5ever.workspace = true
 log.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }

@@ -73,7 +73,7 @@ pub fn screencast_start(
     width: u16,
     height: u16,
 ) -> Result<mpmc::Receiver<Arc<[u8]>>> {
-    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(16);
+    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(1024);
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     connection.send(
