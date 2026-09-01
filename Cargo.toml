@@ -26,7 +26,7 @@ anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
 bitflags = "2.12.1"
-boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4" }
+boa_engine = "0.22.0"
 bytes = "1.11.0"
 chromiumoxide = "0.9.1"
 clap = { version = "4.5.46", features = ["derive"] }
