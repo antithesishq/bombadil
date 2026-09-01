@@ -16,7 +16,7 @@ use cdp_types::{
 };
 use serde_json as json;
 
-use anyhow::{Context, anyhow, bail, ensure};
+use anyhow::{anyhow, bail, ensure};
 
 use crate::error::Result;
 use crate::events::Events;
@@ -61,7 +61,7 @@ impl Connection {
 struct ConnectionInner {
     next_id: usize,
     worker_tx: mpmc::Sender<WorkerRequest>,
-    handle: Option<thread::JoinHandle<Result<()>>>,
+    handle: Option<thread::JoinHandle<()>>,
     closed: bool,
 }
 
@@ -82,8 +82,11 @@ impl ConnectionInner {
         let (events_tx, events_rx) = mpmc::bounded(1024);
         let (worker_tx, worker_rx) = mpmc::bounded(1);
 
-        let handle =
-            thread::spawn(move || websocket_worker(ws, worker_rx, events_tx));
+        let handle = thread::spawn(move || {
+            if let Err(err) = websocket_worker(ws, worker_rx, events_tx) {
+                log::error!("websocket worker died: {err}");
+            }
+        });
 
         Ok((
             Self {
@@ -110,7 +113,7 @@ impl ConnectionInner {
         session_id: Option<&SessionId>,
     ) -> Result<T::Response> {
         let call_id = self.next_call_id();
-        log::info!("sending {} ({})", cmd.identifier(), call_id);
+        log::debug!("sending {} ({})", cmd.identifier(), call_id);
 
         let call = MethodCall {
             id: call_id,
@@ -119,32 +122,55 @@ impl ConnectionInner {
             params: serde_json::to_value(&cmd)?,
         };
         let (reply_tx, reply_rx) = mpmc::bounded(1);
-        self.worker_tx.send(WorkerRequest::Send {
-            call,
-            reply: reply_tx,
-        })?;
+        self.worker_tx
+            .send(WorkerRequest::Send { call, reply_tx })?;
 
-        let value =
-            reply_rx
-                .recv_timeout(Duration::from_secs(5))
-                .context(format!(
+        let result = match reply_rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(result) => result,
+            Err(mpmc::RecvTimeoutError::Timeout) => {
+                bail!(
                     "timed out waiting for response for {}",
-                    cmd.identifier()
-                ))?;
+                    cmd.identifier(),
+                );
+            }
+            Err(mpmc::RecvTimeoutError::Disconnected) => {
+                bail!(
+                    "channel disconnected while waiting for response for {}",
+                    cmd.identifier(),
+                )
+            }
+        };
 
-        log::info!("got response for {} ({})", cmd.identifier(), call_id);
-        Ok(T::response_from_value(value)?)
+        match result {
+            Ok(value) => {
+                log::debug!(
+                    "got response for {} ({}): {}",
+                    cmd.identifier(),
+                    call_id,
+                    value
+                );
+                Ok(T::response_from_value(value)?)
+            }
+            Err(err) => {
+                log::debug!(
+                    "got error for {} ({}): {}",
+                    cmd.identifier(),
+                    call_id,
+                    err
+                );
+                Err(err)
+            }
+        }
     }
 
     pub fn close(&mut self) -> Result<()> {
+        log::debug!("closing CDP websocket");
         if self.closed {
             return Ok(());
         }
-        self.worker_tx
-            .send(WorkerRequest::Close)
-            .expect("failed to send close command to worker");
+        let _ = self.worker_tx.send(WorkerRequest::Close);
         if let Some(handle) = self.handle.take() {
-            handle.join().expect("websocket worker panicked")?;
+            handle.join().expect("websocket worker panicked");
         }
         self.closed = true;
         Ok(())
@@ -160,7 +186,7 @@ impl Drop for ConnectionInner {
 enum WorkerRequest {
     Send {
         call: MethodCall,
-        reply: mpmc::Sender<json::Value>,
+        reply_tx: mpmc::Sender<Result<json::Value>>,
     },
     Close,
 }
@@ -170,16 +196,16 @@ fn websocket_worker(
     requests_rx: mpmc::Receiver<WorkerRequest>,
     events_tx: mpmc::Sender<CdpJsonEventMessage>,
 ) -> Result<()> {
-    log::info!("starting websocket worker");
+    log::debug!("starting websocket worker");
     let mut call_current = None;
     loop {
         match requests_rx.try_recv() {
-            Ok(WorkerRequest::Send { call, reply }) => {
+            Ok(WorkerRequest::Send { call, reply_tx }) => {
                 ensure!(
                     call_current.is_none(),
                     "concurrent send() is not supported"
                 );
-                call_current = Some((call.clone(), reply));
+                call_current = Some((call.clone(), reply_tx));
                 let payload = serde_json::to_string(&call)?;
                 ws.send(WsMessage::text(payload))?;
             }
@@ -202,21 +228,24 @@ fn websocket_worker(
                         )
                     })?;
                 match parsed {
-                    CdpMessage::Response(resp) => {
-                        if let Some((call, reply)) = call_current.take() {
-                            if resp.id != call.id {
+                    CdpMessage::Response(response) => {
+                        log::debug!("got response: {response:?}");
+                        if let Some((call, reply_tx)) = call_current.take() {
+                            if response.id != call.id {
                                 bail!(
                                     "Response id {got} did not match in-flight request id {expected} (concurrent send() is not supported)",
                                     expected = call.id,
-                                    got = resp.id,
+                                    got = response.id,
                                 );
                             }
-                            if let Some(err) = resp.error {
-                                return Err(err.into());
+                            if let Some(err) = response.error {
+                                reply_tx.send(Err(err.into()))?;
+                            } else {
+                                let result = response
+                                    .result
+                                    .unwrap_or(serde_json::Value::Null);
+                                reply_tx.send(Ok(result))?;
                             }
-                            let result =
-                                resp.result.unwrap_or(serde_json::Value::Null);
-                            reply.send(result)?;
                         } else {
                             bail!(
                                 "Got unexpected response with no request in flight"

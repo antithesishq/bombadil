@@ -238,9 +238,9 @@ impl Browser {
             find_page(&connection)?
         };
 
+        connection.send(runtime::EnableParams::default(), Some(&session_id))?;
         connection.send(dom::EnableParams::default(), Some(&session_id))?;
         connection.send(css::EnableParams::default(), Some(&session_id))?;
-        connection.send(runtime::EnableParams::default(), Some(&session_id))?;
         connection
             .send(debugger::EnableParams::default(), Some(&session_id))?;
         connection.send(network::EnableParams::default(), Some(&session_id))?;
@@ -364,7 +364,24 @@ impl Browser {
         )?;
 
         forward_inner_events(&context, events_tx.clone())?;
-        run_state_machine(context, events_rx, done_sender);
+
+        let state_shared = InnerStateShared::default();
+        let state_initial = InnerState {
+            kind: if browser_options.create_target {
+                InnerStateKind::Navigating {
+                    url: context.origin.clone().into(),
+                }
+            } else {
+                let timer = start_quiescence_timer(
+                    &state_shared,
+                    &context,
+                    &context.events_tx,
+                )?;
+                InnerStateKind::Running(timer)
+            },
+            shared: state_shared,
+        };
+        run_state_machine(context, events_rx, state_initial, done_sender);
 
         Ok(Browser {
             browser_events_rx,
@@ -494,10 +511,10 @@ fn forward_inner_events(
     events_tx: mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
     let frame_id = context.frame_id.clone();
-    let all = context.connection.events.all();
+    let events = context.connection.events.all();
 
     let _ = thread::spawn(move || {
-        while let Ok(event) = all.try_recv() {
+        for event in events {
             let inner_event = try_match!(event, {
                 runtime::EventExecutionContextCreated: event => {
                     // TODO: filter these, ignoring some?
@@ -620,6 +637,7 @@ fn forward_inner_events(
                 log::warn!("failed to send inner event: {err}");
             }
         }
+        log::debug!("forward_inner_events terminated");
     });
 
     Ok(())
@@ -628,17 +646,11 @@ fn forward_inner_events(
 fn run_state_machine(
     context: BrowserContext,
     events: mpmc::Receiver<InnerEvent>,
+    mut state_current: InnerState,
     done_sender: mpmc::Sender<()>,
 ) {
     let _ = thread::spawn(move || -> Result<()> {
         let result = {
-            let shared = InnerStateShared::default();
-            let mut state_current = InnerState {
-                kind: InnerStateKind::Navigating {
-                    url: context.origin.clone().into(),
-                },
-                shared,
-            };
             log::info!("processing events");
             while let Ok(event) = events.recv() {
                 state_current = if log::log_enabled!(log::Level::Debug) {
