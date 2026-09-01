@@ -73,6 +73,9 @@ pub fn screencast_start(
     width: u16,
     height: u16,
 ) -> Result<mpmc::Receiver<Arc<[u8]>>> {
+    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(16);
+    let frames = connection.events.subscribe::<page::EventScreencastFrame>();
+
     connection.send(
         page::StartScreencastParams::builder()
             .format(page::StartScreencastFormat::Jpeg)
@@ -82,9 +85,6 @@ pub fn screencast_start(
             .build(),
         Some(session_id),
     )?;
-
-    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(16);
-    let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     let conn = connection.clone();
     let session_id = session_id.clone();

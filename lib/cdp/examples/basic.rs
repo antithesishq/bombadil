@@ -126,7 +126,9 @@ fn main() -> Result<()> {
         .subscribe::<page::EventLoadEventFired>()
         .next()?
         .ok_or(anyhow!("no execution context"))?;
-    log::info!("Got page load...");
+    log::info!("Got page load.");
+
+    let residual = connection.events.all();
 
     if mode == Mode::Create {
         let _ = connection.send(
@@ -140,7 +142,7 @@ fn main() -> Result<()> {
     connection.close()?;
 
     println!("Residual events:");
-    for event in connection.events.all() {
+    for event in residual {
         println!("${}: {}", event.method_name(), event.params);
     }
     println!("Done.");

@@ -238,6 +238,34 @@ impl Browser {
             find_page(&connection)?
         };
 
+        let frame_id = connection
+            .send(page::GetFrameTreeParams::default(), Some(&session_id))?
+            .frame_tree
+            .frame
+            .id;
+
+        let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
+            Arc::new(Mutex::new(None));
+
+        let screencast = activity::screencast_start(
+            &connection,
+            &session_id,
+            browser_options.emulation.width,
+            browser_options.emulation.height,
+        )?;
+
+        // Background task to keep the latest screencast frame updated.
+        {
+            let latest_frame = latest_frame.clone();
+            thread::spawn(move || {
+                while let Ok(frame) = screencast.recv() {
+                    *latest_frame.lock().unwrap() = Some(frame);
+                }
+            });
+        }
+
+        forward_inner_events(&connection, frame_id.clone(), events_tx.clone())?;
+
         connection.send(runtime::EnableParams::default(), Some(&session_id))?;
         connection.send(dom::EnableParams::default(), Some(&session_id))?;
         connection.send(css::EnableParams::default(), Some(&session_id))?;
@@ -319,32 +347,6 @@ impl Browser {
 
         let (done_sender, done_receiver) = mpmc::bounded::<()>(1);
 
-        let frame_id = connection
-            .send(page::GetFrameTreeParams::default(), Some(&session_id))?
-            .frame_tree
-            .frame
-            .id;
-
-        let screencast = activity::screencast_start(
-            &connection,
-            &session_id,
-            browser_options.emulation.width,
-            browser_options.emulation.height,
-        )?;
-
-        let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
-            Arc::new(Mutex::new(None));
-
-        // Background task to keep the latest screencast frame updated.
-        {
-            let latest_frame = latest_frame.clone();
-            thread::spawn(move || {
-                while let Ok(frame) = screencast.recv() {
-                    *latest_frame.lock().unwrap() = Some(frame);
-                }
-            });
-        }
-
         let context = BrowserContext {
             sender: browser_events_tx,
             events_tx: events_tx.clone(),
@@ -362,8 +364,6 @@ impl Browser {
             &session_id,
             browser_options.instrumentation.clone(),
         )?;
-
-        forward_inner_events(&context, events_tx.clone())?;
 
         let state_shared = InnerStateShared::default();
         let state_initial = InnerState {
@@ -507,11 +507,11 @@ fn auto_accept_dialogs(
 }
 
 fn forward_inner_events(
-    context: &BrowserContext,
+    connection: &cdp::Connection,
+    frame_id: FrameId,
     events_tx: mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
-    let frame_id = context.frame_id.clone();
-    let events = context.connection.events.all();
+    let events = connection.events.all();
 
     let _ = thread::spawn(move || {
         for event in events {

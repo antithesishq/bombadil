@@ -19,7 +19,7 @@ use serde_json as json;
 use anyhow::{anyhow, bail, ensure};
 
 use crate::error::Result;
-use crate::events::Events;
+use crate::events::{Events, Subscribers};
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -49,6 +49,7 @@ impl Connection {
     }
 
     pub fn close(&self) -> Result<()> {
+        self.events.close();
         let mut inner = self
             .inner
             .lock()
@@ -79,14 +80,17 @@ impl ConnectionInner {
             _ => bail!("unsupported stream type"),
         }
 
-        let (events_tx, events_rx) = mpmc::bounded(1024);
         let (worker_tx, worker_rx) = mpmc::bounded(1);
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
 
-        let handle = thread::spawn(move || {
-            if let Err(err) = websocket_worker(ws, worker_rx, events_tx) {
-                log::error!("websocket worker died: {err}");
-            }
-        });
+        let handle = {
+            let subscribers = subscribers.clone();
+            thread::spawn(move || {
+                if let Err(err) = websocket_worker(ws, worker_rx, subscribers) {
+                    log::error!("websocket worker died: {err}");
+                }
+            })
+        };
 
         Ok((
             Self {
@@ -95,9 +99,7 @@ impl ConnectionInner {
                 handle: Some(handle),
                 closed: false,
             },
-            Events {
-                receiver: events_rx,
-            },
+            Events { subscribers },
         ))
     }
 
@@ -194,7 +196,7 @@ enum WorkerRequest {
 fn websocket_worker(
     mut ws: WebSocket<MaybeTlsStream<TcpStream>>,
     requests_rx: mpmc::Receiver<WorkerRequest>,
-    events_tx: mpmc::Sender<CdpJsonEventMessage>,
+    subscribers: Arc<Mutex<Subscribers>>,
 ) -> Result<()> {
     log::debug!("starting websocket worker");
     let mut call_current = None;
@@ -252,8 +254,13 @@ fn websocket_worker(
                             );
                         }
                     }
-                    CdpMessage::Event(ev) => {
-                        let _ = events_tx.send(ev);
+                    CdpMessage::Event(event) => {
+                        let subscribers = subscribers.lock().map_err(|_| {
+                            anyhow!("failed to acquire lock for subscribers")
+                        })?;
+                        if !subscribers.closed {
+                            subscribers.dispatch(event);
+                        }
                     }
                 }
             }

@@ -2,45 +2,106 @@ use anyhow::Result;
 use crossbeam_channel as mpmc;
 use serde::de::DeserializeOwned;
 use serde_json as json;
-use std::marker::PhantomData;
+use std::{
+    collections::HashMap,
+    marker::PhantomData,
+    sync::{Arc, Mutex},
+};
 
 use cdp_types::{CdpJsonEventMessage, MethodId, MethodType};
 
 #[derive(Debug, Clone)]
 pub struct Events {
-    pub(crate) receiver: mpmc::Receiver<CdpJsonEventMessage>,
+    pub(crate) subscribers: Arc<Mutex<Subscribers>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Subscribers {
+    pub(crate) closed: bool,
+    all: Vec<mpmc::Sender<CdpJsonEventMessage>>,
+    single: HashMap<MethodId, Vec<mpmc::Sender<CdpJsonEventMessage>>>,
+}
+
+impl Subscribers {
+    pub(crate) fn dispatch(&self, event: CdpJsonEventMessage) {
+        assert!(!self.closed, "Subscribers are closed, can't dispatch");
+        for subscriber in &self.all {
+            let _ = subscriber.send(event.clone());
+        }
+        if let Some(subscribers) = self.single.get(&event.method) {
+            for subscriber in subscribers {
+                let _ = subscriber.send(event.clone());
+            }
+        }
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.closed = true;
+        self.all.clear();
+        self.single.clear();
+    }
 }
 
 impl Events {
     pub fn all(&self) -> mpmc::Receiver<CdpJsonEventMessage> {
-        self.receiver.clone()
+        let mut subscribers = self
+            .subscribers
+            .lock()
+            .expect("failed to acquire lock for subscribers");
+        assert!(
+            !subscribers.closed,
+            "Subscribers are closed, can't subscribe with .all()"
+        );
+        let (tx, rx) = mpmc::bounded(1024);
+        subscribers.all.push(tx);
+        rx
     }
 
     // Creates a cheap typed subscriber which can be used to iterate
     // over particular events.
     pub fn subscribe<T: MethodType + DeserializeOwned>(&self) -> Subscriber<T> {
+        let mut subscribers = self
+            .subscribers
+            .lock()
+            .expect("failed to acquire lock for subscribers");
+        assert!(
+            !subscribers.closed,
+            "Subscribers are closed, can't subscribe with .subscribe()"
+        );
+        let (tx, rx) = mpmc::bounded(1024);
+        subscribers
+            .single
+            .entry(T::method_id())
+            .or_default()
+            .push(tx);
         Subscriber {
             _phantom: PhantomData::<T>,
-            method_id: T::method_id(),
-            receiver: self.receiver.clone(),
+            rx,
         }
+    }
+
+    pub fn close(&self) {
+        let mut subscribers = self
+            .subscribers
+            .lock()
+            .expect("failed to acquire lock for subscribers close");
+        subscribers.close();
     }
 }
 
 #[derive(Debug)]
 pub struct Subscriber<T: DeserializeOwned> {
     _phantom: PhantomData<T>,
-    receiver: mpmc::Receiver<CdpJsonEventMessage>,
-    method_id: MethodId,
+    rx: mpmc::Receiver<CdpJsonEventMessage>,
 }
 
-impl<T: DeserializeOwned> Subscriber<T> {
+impl<T: MethodType + DeserializeOwned> Subscriber<T> {
     // Return the next even or None if there are no more events.
     pub fn next(&self) -> Result<Option<T>> {
         loop {
-            match self.receiver.recv() {
+            match self.rx.recv() {
                 Ok(message) => {
-                    if message.method == self.method_id {
+                    if message.method == T::method_id() {
                         return Ok(json::from_value(message.params)?);
                     }
                 }
