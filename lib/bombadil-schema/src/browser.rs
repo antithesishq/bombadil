@@ -111,6 +111,23 @@ impl Fingerprint {
                 {
                     return true;
                 }
+                if let (
+                    Some(input_type_self),
+                    Some(input_type_other),
+                    Some(text_content_self),
+                    Some(text_content_other),
+                ) = (
+                    &self.input_type,
+                    &other.input_type,
+                    &self.text_content,
+                    &other.text_content,
+                ) && input_type_self == input_type_other
+                    && !text_content_self.is_empty()
+                    && text_content_self == text_content_other
+                    && self.tag == other.tag
+                {
+                    return true;
+                }
             }
             "input" | "textarea" | "select" => {
                 if let (Some(name_attr_self), Some(name_attr_other)) =
@@ -139,6 +156,69 @@ impl Fingerprint {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Fingerprint;
+
+    fn button(
+        input_type: Option<&str>,
+        text_content: Option<&str>,
+    ) -> Fingerprint {
+        Fingerprint {
+            test_id: None,
+            id: None,
+            role: None,
+            accessible_name: None,
+            tag: "button".to_owned(),
+            href: None,
+            name_attr: None,
+            placeholder: None,
+            input_type: input_type.map(str::to_owned),
+            text_content: text_content.map(str::to_owned),
+            structural_path: None,
+        }
+    }
+
+    #[test]
+    fn button_matches_same_type_and_nonempty_text() {
+        let candidate = button(Some("button"), Some("Draw"));
+        let original = button(Some("button"), Some("Draw"));
+
+        assert!(candidate.matches(&original));
+        assert!(original.matches(&candidate));
+    }
+
+    #[test]
+    fn button_fallback_rejects_different_or_incomplete_identity() {
+        let original = button(Some("button"), Some("Draw"));
+        let candidates = [
+            button(Some("button"), Some("Erase")),
+            button(Some("submit"), Some("Draw")),
+            button(None, Some("Draw")),
+            button(Some("button"), None),
+            button(Some("button"), Some("")),
+        ];
+
+        for candidate in candidates {
+            assert!(!candidate.matches(&original));
+            assert!(!original.matches(&candidate));
+        }
+    }
+
+    #[test]
+    fn button_preserves_structural_path_fallback() {
+        let mut candidate = button(Some("button"), Some("Erase"));
+        candidate.accessible_name = Some("Erase tool".to_owned());
+        candidate.structural_path = Some("html/body/button[1]".to_owned());
+        let mut original = button(Some("button"), Some("Draw"));
+        original.accessible_name = Some("Draw tool".to_owned());
+        original.structural_path = Some("html/body/button[1]".to_owned());
+
+        assert!(candidate.matches(&original));
+        assert!(original.matches(&candidate));
     }
 }
 
