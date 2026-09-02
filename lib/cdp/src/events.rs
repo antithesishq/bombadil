@@ -1,6 +1,5 @@
 use anyhow::Result;
 use crossbeam_channel as mpmc;
-use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use std::{
     collections::HashMap,
@@ -105,7 +104,9 @@ impl<T: MethodType + DeserializeOwned> Subscriber<T> {
             match self.rx.recv() {
                 Ok(message) => {
                     if message.method == T::method_id() {
-                        return Ok(Some(T::deserialize(&message.params)?));
+                        return Ok(Some(serde_json::from_str::<T>(
+                            message.params.get(),
+                        )?));
                     }
                 }
                 Err(mpmc::RecvError) => return Ok(None),

@@ -82,16 +82,17 @@ impl<T: fmt::Debug> Deref for CommandResponse<T> {
     }
 }
 
-/// A received `Event` from the websocket where the `params` is deserialized as
-/// json
-#[derive(Deserialize, Debug, PartialEq, Eq, Clone)]
+/// A received `Event` from the websocket where the `params` is left as the
+/// raw JSON bytes so downstream code can deserialize directly into a typed
+/// event struct without building an intermediate `serde_json::Value` tree.
+#[derive(Deserialize, Debug, Clone)]
 pub struct CdpJsonEventMessage {
     /// Name of the method
     pub method: MethodId,
     /// The session this event is meant for.
     pub session_id: Option<String>,
-    /// Json payload of the event
-    pub params: serde_json::Value,
+    /// Raw JSON payload of the event, parsed lazily by consumers.
+    pub params: Box<serde_json::value::RawValue>,
 }
 
 impl CdpJsonEventMessage {
@@ -99,7 +100,7 @@ impl CdpJsonEventMessage {
         &self,
     ) -> Option<T> {
         if T::method_id() == self.method {
-            T::deserialize(&self.params).ok()
+            serde_json::from_str::<T>(self.params.get()).ok()
         } else {
             None
         }
@@ -136,7 +137,7 @@ impl Method for CdpJsonEventMessage {
 
 impl EventMessage for CdpJsonEventMessage {
     fn session_id(&self) -> Option<&str> {
-        self.params.get("sessionId").and_then(|x| x.as_str())
+        self.session_id.as_deref()
     }
 }
 

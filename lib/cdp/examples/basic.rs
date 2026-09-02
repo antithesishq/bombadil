@@ -143,7 +143,7 @@ fn main() -> Result<()> {
 
     println!("Residual events:");
     for event in residual {
-        println!("${}: {}", event.method_name(), event.params);
+        println!("${}: {}", event.method_name(), event.params.get());
     }
     println!("Done.");
 

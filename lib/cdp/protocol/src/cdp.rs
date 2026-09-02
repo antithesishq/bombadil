@@ -1139,7 +1139,9 @@ pub mod events {
             Ok(cdp_types::CdpJsonEventMessage {
                 method: self.identifier(),
                 session_id: self.session_id,
-                params: self.params.into_json()?,
+                params: serde_json::value::to_raw_value(
+                    &self.params.into_json()?,
+                )?,
             })
         }
     }

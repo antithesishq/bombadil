@@ -16,9 +16,9 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message as WsMessage, WebSocket};
 
-use cdp_types::{
-    CallId, CdpJsonEventMessage, Command, Message as CdpMessage, MethodCall,
-};
+use cdp_types::{CallId, CdpJsonEventMessage, Command, MethodCall, Response};
+use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json as json;
 
 use anyhow::{anyhow, bail, ensure};
@@ -26,7 +26,7 @@ use anyhow::{anyhow, bail, ensure};
 use crate::error::Result;
 use crate::events::{Events, Subscribers};
 
-const SOCKET: Token = Token(0);
+const WEBSOCKET: Token = Token(0);
 const COMMANDS: Token = Token(1);
 
 #[derive(Debug, Clone)]
@@ -72,7 +72,7 @@ impl Connection {
 struct ConnectionInner {
     next_id: AtomicUsize,
     worker_tx: mpmc::Sender<WorkerRequest>,
-    waker: Arc<Waker>,
+    commands_waker: Arc<Waker>,
     close_state: Mutex<CloseState>,
 }
 
@@ -88,7 +88,7 @@ impl ConnectionInner {
             .max_message_size(None)
             .max_frame_size(None);
         let (mut ws, _resp) = connect_with_config(url, Some(config), 3)?;
-        let raw_fd = {
+        let fd_raw = {
             let stream = ws.get_mut();
             match stream {
                 MaybeTlsStream::Plain(stream) => {
@@ -102,11 +102,11 @@ impl ConnectionInner {
 
         let poll = Poll::new()?;
         poll.registry().register(
-            &mut SourceFd(&raw_fd),
-            SOCKET,
+            &mut SourceFd(&fd_raw),
+            WEBSOCKET,
             Interest::READABLE,
         )?;
-        let waker = Arc::new(Waker::new(poll.registry(), COMMANDS)?);
+        let commands_waker = Arc::new(Waker::new(poll.registry(), COMMANDS)?);
 
         let (worker_tx, worker_rx) = mpmc::bounded(16);
         let subscribers = Arc::new(Mutex::new(Subscribers::default()));
@@ -126,7 +126,7 @@ impl ConnectionInner {
             Self {
                 next_id: AtomicUsize::new(0),
                 worker_tx,
-                waker,
+                commands_waker,
                 close_state: Mutex::new(CloseState {
                     handle: Some(handle),
                     closed: false,
@@ -160,7 +160,7 @@ impl ConnectionInner {
             call,
             reply_tx: None,
         })?;
-        self.waker.wake()?;
+        self.commands_waker.wake()?;
         Ok(())
     }
 
@@ -184,7 +184,7 @@ impl ConnectionInner {
             call,
             reply_tx: Some(reply_tx),
         })?;
-        self.waker.wake()?;
+        self.commands_waker.wake()?;
 
         let result = match reply_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(result) => result,
@@ -241,7 +241,7 @@ impl ConnectionInner {
             return Ok(());
         }
         let _ = self.worker_tx.send(WorkerRequest::Close);
-        let _ = self.waker.wake();
+        let _ = self.commands_waker.wake();
         if let Some(handle) = state.handle.take() {
             handle.join().expect("websocket worker panicked");
         }
@@ -266,16 +266,16 @@ enum WorkerRequest {
 
 type CallsInFlight = HashMap<CallId, Option<mpmc::Sender<Result<json::Value>>>>;
 
-enum LoopStep {
+enum DrainResult {
     Continue,
     Shutdown,
 }
 
-fn drain_outgoing(
+fn calls_drain(
     ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
     requests_rx: &mpmc::Receiver<WorkerRequest>,
     calls_in_flight: &mut CallsInFlight,
-) -> Result<LoopStep> {
+) -> Result<DrainResult> {
     loop {
         match requests_rx.try_recv() {
             Ok(WorkerRequest::Send { call, reply_tx }) => {
@@ -290,10 +290,10 @@ fn drain_outgoing(
             }
             Ok(WorkerRequest::Close) => {
                 ws.close(None)?;
-                return Ok(LoopStep::Shutdown);
+                return Ok(DrainResult::Shutdown);
             }
             Err(mpmc::TryRecvError::Empty) => {
-                return Ok(LoopStep::Continue);
+                return Ok(DrainResult::Continue);
             }
             Err(mpmc::TryRecvError::Disconnected) => {
                 bail!("command mpmc closed unexpectedly");
@@ -311,47 +311,59 @@ fn handle_message(
 ) -> Result<()> {
     match msg {
         WsMessage::Text(text) => {
-            let parsed: CdpMessage<CdpJsonEventMessage> =
-                serde_json::from_str(text.as_str()).map_err(|e| {
-                    anyhow!(
-                        "Failed to parse ws text frame '{}': {e}",
-                        text.as_str()
-                    )
-                })?;
-            match parsed {
-                CdpMessage::Response(response) => {
-                    log::debug!("got response for request {}", response.id);
-                    if let Some(reply_tx) = calls_in_flight.remove(&response.id)
-                    {
-                        if let Some(reply_tx) = reply_tx {
-                            if let Some(err) = response.error {
-                                let _ = reply_tx.send(Err(err.into()));
-                            } else {
-                                let result = response
-                                    .result
-                                    .unwrap_or(serde_json::Value::Null);
-                                let _ = reply_tx.send(Ok(result));
-                            }
+            let text_str = text.as_str();
+            // We can only parse `Message` when we know that there's no `id` field, and otherwise
+            // parse as `Response`, so we do a first parsing pass with this cheap struct.
+            #[derive(Deserialize)]
+            struct Peek {
+                #[serde(default)]
+                id: Option<IgnoredAny>,
+            }
+            let peek: Peek = serde_json::from_str(text_str).map_err(|err| {
+                anyhow!("failed to parse ws text frame '{}': {err}", text_str)
+            })?;
+            if peek.id.is_some() {
+                let response: Response = serde_json::from_str(text_str)
+                    .map_err(|err| {
+                        anyhow!(
+                            "failed to parse response '{}': {err}",
+                            text_str
+                        )
+                    })?;
+                log::debug!("got response for request {}", response.id);
+                if let Some(reply_tx) = calls_in_flight.remove(&response.id) {
+                    // There's only a reply_tx if it was a `send`, not for `post`.
+                    if let Some(reply_tx) = reply_tx {
+                        if let Some(err) = response.error {
+                            let _ = reply_tx.send(Err(err.into()));
                         } else {
-                            log::debug!(
-                                "ignoring response for post {}",
-                                response.id
-                            );
+                            let result = response
+                                .result
+                                .unwrap_or(serde_json::Value::Null);
+                            let _ = reply_tx.send(Ok(result));
                         }
                     } else {
-                        bail!(
-                            "Got unexpected response ({}) with no corresponding request in flight",
+                        log::debug!(
+                            "ignoring response for post {}",
                             response.id
                         );
                     }
+                } else {
+                    bail!(
+                        "got unexpected response ({}) with no corresponding request in flight",
+                        response.id
+                    );
                 }
-                CdpMessage::Event(event) => {
-                    let subscribers = subscribers.lock().map_err(|_| {
-                        anyhow!("failed to acquire lock for subscribers")
+            } else {
+                let event: CdpJsonEventMessage = serde_json::from_str(text_str)
+                    .map_err(|err| {
+                        anyhow!("failed to parse event '{}': {err}", text_str)
                     })?;
-                    if !subscribers.closed {
-                        subscribers.dispatch(event);
-                    }
+                let subscribers = subscribers.lock().map_err(|_| {
+                    anyhow!("failed to acquire lock for subscribers")
+                })?;
+                if !subscribers.closed {
+                    subscribers.dispatch(event);
                 }
             }
         }
@@ -384,8 +396,8 @@ fn websocket_worker(
 
     loop {
         if matches!(
-            drain_outgoing(&mut ws, &requests_rx, &mut calls_in_flight)?,
-            LoopStep::Shutdown
+            calls_drain(&mut ws, &requests_rx, &mut calls_in_flight)?,
+            DrainResult::Shutdown
         ) {
             return Ok(());
         }
@@ -397,40 +409,34 @@ fn websocket_worker(
             match event.token() {
                 COMMANDS => {
                     if matches!(
-                        drain_outgoing(
+                        calls_drain(
                             &mut ws,
                             &requests_rx,
                             &mut calls_in_flight,
                         )?,
-                        LoopStep::Shutdown
+                        DrainResult::Shutdown
                     ) {
                         return Ok(());
                     }
                     ws.flush()?;
                 }
-                SOCKET => {
-                    // mio readiness is edge-triggered by default, so we
-                    // must fully drain the socket here — otherwise
-                    // messages that arrived in the same batch would sit
-                    // unread until the next unrelated readiness event.
-                    loop {
-                        match ws.read() {
-                            Ok(msg) => handle_message(
-                                msg,
-                                &mut ws,
-                                &mut calls_in_flight,
-                                &subscribers,
-                            )?,
-                            Err(tungstenite::error::Error::Io(ref e))
-                                if e.kind() == ErrorKind::WouldBlock
-                                    || e.kind() == ErrorKind::TimedOut =>
-                            {
-                                break;
-                            }
-                            Err(e) => return Err(e.into()),
+                WEBSOCKET => loop {
+                    match ws.read() {
+                        Ok(msg) => handle_message(
+                            msg,
+                            &mut ws,
+                            &mut calls_in_flight,
+                            &subscribers,
+                        )?,
+                        Err(tungstenite::error::Error::Io(ref e))
+                            if e.kind() == ErrorKind::WouldBlock
+                                || e.kind() == ErrorKind::TimedOut =>
+                        {
+                            break;
                         }
+                        Err(e) => return Err(e.into()),
                     }
-                }
+                },
                 _ => {}
             }
         }
