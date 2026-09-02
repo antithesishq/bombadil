@@ -104,13 +104,35 @@ impl Fingerprint {
                 }
             }
             "button" => {
-                if let (Some(accessible_name_self), Some(accessible_name_other)) =
-                    (&self.accessible_name, &other.accessible_name)
-                    && accessible_name_self == accessible_name_other
-                    && self.tag == other.tag
-                {
-                    return true;
+                match (&self.accessible_name, &other.accessible_name) {
+                    (
+                        Some(accessible_name_self),
+                        Some(accessible_name_other),
+                    ) => {
+                        return accessible_name_self == accessible_name_other
+                            && self.tag == other.tag;
+                    }
+                    (Some(_), None) | (None, Some(_)) => return false,
+                    (None, None) => {}
                 }
+
+                return self.tag == other.tag
+                    && matches!(
+                        (
+                            &self.input_type,
+                            &other.input_type,
+                            &self.text_content,
+                            &other.text_content,
+                        ),
+                        (
+                            Some(input_type_self),
+                            Some(input_type_other),
+                            Some(text_content_self),
+                            Some(text_content_other),
+                        ) if input_type_self == input_type_other
+                            && !text_content_self.is_empty()
+                            && text_content_self == text_content_other
+                    );
             }
             "input" | "textarea" | "select" => {
                 if let (Some(name_attr_self), Some(name_attr_other)) =
@@ -139,6 +161,101 @@ impl Fingerprint {
         }
 
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Fingerprint;
+
+    fn button(
+        input_type: Option<&str>,
+        text_content: Option<&str>,
+    ) -> Fingerprint {
+        Fingerprint {
+            test_id: None,
+            id: None,
+            role: None,
+            accessible_name: None,
+            tag: "button".to_owned(),
+            href: None,
+            name_attr: None,
+            placeholder: None,
+            input_type: input_type.map(str::to_owned),
+            text_content: text_content.map(str::to_owned),
+            structural_path: None,
+        }
+    }
+
+    #[test]
+    fn button_matches_same_type_and_nonempty_text() {
+        let candidate = button(Some("button"), Some("Draw"));
+        let original = button(Some("button"), Some("Draw"));
+
+        assert!(candidate.matches(&original));
+        assert!(original.matches(&candidate));
+    }
+
+    #[test]
+    fn button_rejects_different_text() {
+        let candidate = button(Some("button"), Some("Erase"));
+        let original = button(Some("button"), Some("Draw"));
+
+        assert!(!candidate.matches(&original));
+        assert!(!original.matches(&candidate));
+    }
+
+    #[test]
+    fn button_rejects_different_type() {
+        let candidate = button(Some("submit"), Some("Draw"));
+        let original = button(Some("button"), Some("Draw"));
+
+        assert!(!candidate.matches(&original));
+        assert!(!original.matches(&candidate));
+    }
+
+    #[test]
+    fn button_rejects_missing_or_empty_fallback_fields() {
+        let complete = button(Some("button"), Some("Draw"));
+        let incomplete = [
+            button(None, Some("Draw")),
+            button(Some("button"), None),
+            button(Some("button"), Some("")),
+        ];
+
+        for candidate in incomplete {
+            assert!(!candidate.matches(&complete));
+            assert!(!complete.matches(&candidate));
+        }
+
+        let mut missing_type = button(None, Some("Draw"));
+        missing_type.structural_path = Some("html/body/button[1]".to_owned());
+        assert!(!missing_type.matches(&missing_type));
+
+        let mut missing_text = button(Some("button"), None);
+        missing_text.structural_path = Some("html/body/button[1]".to_owned());
+        assert!(!missing_text.matches(&missing_text));
+    }
+
+    #[test]
+    fn button_rejects_one_sided_accessible_name() {
+        let mut candidate = button(Some("button"), Some("Draw"));
+        candidate.accessible_name = Some("Draw tool".to_owned());
+        let original = button(Some("button"), Some("Draw"));
+
+        assert!(!candidate.matches(&original));
+        assert!(!original.matches(&candidate));
+    }
+
+    #[test]
+    fn button_prefers_paired_accessible_name_over_fallback_fields() {
+        let mut candidate = button(Some("submit"), Some("Candidate text"));
+        candidate.accessible_name = Some("Draw tool".to_owned());
+        let mut original = button(Some("button"), Some("Original text"));
+        original.accessible_name = Some("Draw tool".to_owned());
+
+        assert!(candidate.matches(&original));
+        assert!(original.matches(&candidate));
     }
 }
 
