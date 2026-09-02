@@ -302,6 +302,7 @@ fn drain_outgoing(
     }
 }
 
+#[hotpath::measure]
 fn handle_message(
     msg: WsMessage,
     ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,

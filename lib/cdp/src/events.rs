@@ -1,7 +1,7 @@
 use anyhow::Result;
 use crossbeam_channel as mpmc;
+use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde_json as json;
 use std::{
     collections::HashMap,
     marker::PhantomData,
@@ -18,13 +18,15 @@ pub struct Events {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Subscribers {
     pub(crate) closed: bool,
-    all: Vec<mpmc::Sender<CdpJsonEventMessage>>,
-    single: HashMap<MethodId, Vec<mpmc::Sender<CdpJsonEventMessage>>>,
+    all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
+    single: HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
 }
 
 impl Subscribers {
+    #[hotpath::measure]
     pub(crate) fn dispatch(&self, event: CdpJsonEventMessage) {
         assert!(!self.closed, "Subscribers are closed, can't dispatch");
+        let event = Arc::new(event);
         for subscriber in &self.all {
             let _ = subscriber.send(event.clone());
         }
@@ -43,7 +45,7 @@ impl Subscribers {
 }
 
 impl Events {
-    pub fn all(&self) -> mpmc::Receiver<CdpJsonEventMessage> {
+    pub fn all(&self) -> mpmc::Receiver<Arc<CdpJsonEventMessage>> {
         let mut subscribers = self
             .subscribers
             .lock()
@@ -92,17 +94,18 @@ impl Events {
 #[derive(Debug)]
 pub struct Subscriber<T: DeserializeOwned> {
     _phantom: PhantomData<T>,
-    rx: mpmc::Receiver<CdpJsonEventMessage>,
+    rx: mpmc::Receiver<Arc<CdpJsonEventMessage>>,
 }
 
 impl<T: MethodType + DeserializeOwned> Subscriber<T> {
     // Return the next even or None if there are no more events.
+    #[hotpath::measure]
     pub fn next(&self) -> Result<Option<T>> {
         loop {
             match self.rx.recv() {
                 Ok(message) => {
                     if message.method == T::method_id() {
-                        return Ok(json::from_value(message.params)?);
+                        return Ok(Some(T::deserialize(&message.params)?));
                     }
                 }
                 Err(mpmc::RecvError) => return Ok(None),

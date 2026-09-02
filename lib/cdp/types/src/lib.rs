@@ -99,7 +99,7 @@ impl CdpJsonEventMessage {
         &self,
     ) -> Option<T> {
         if T::method_id() == self.method {
-            json::from_value(self.params.clone()).ok()
+            T::deserialize(&self.params).ok()
         } else {
             None
         }
