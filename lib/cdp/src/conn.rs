@@ -90,6 +90,7 @@ impl ConnectionInner {
         let stream = ws.get_mut();
         match stream {
             MaybeTlsStream::Plain(stream) => {
+                stream.set_nodelay(true)?;
                 stream.set_nonblocking(true)?;
             }
             _ => bail!("unsupported stream type"),
@@ -124,7 +125,8 @@ impl ConnectionInner {
         id
     }
 
-    pub fn post<T: Command>(
+    #[hotpath::measure]
+    pub(crate) fn post<T: Command>(
         &mut self,
         cmd: T,
         session_id: Option<&SessionId>,
@@ -147,7 +149,7 @@ impl ConnectionInner {
     }
 
     #[hotpath::measure]
-    pub fn send<T: Command>(
+    pub(crate) fn send<T: Command>(
         &mut self,
         cmd: T,
         session_id: Option<&SessionId>,
@@ -212,7 +214,7 @@ impl ConnectionInner {
         }
     }
 
-    pub fn close(&mut self) -> Result<()> {
+    pub(crate) fn close(&mut self) -> Result<()> {
         log::debug!("closing CDP websocket");
         if self.closed {
             return Ok(());
@@ -251,26 +253,31 @@ fn websocket_worker(
     // other reason not receiving responses
     let mut calls_in_flight = HashMap::new();
     loop {
-        match requests_rx.try_recv() {
-            Ok(WorkerRequest::Send { call, reply_tx }) => {
-                ensure!(
-                    !calls_in_flight.contains_key(&call.id),
-                    "call {} already in flight",
-                    call.id
-                );
-                calls_in_flight.insert(call.id, reply_tx);
-                let payload = serde_json::to_string(&call)?;
-                ws.send(WsMessage::text(payload))?;
-            }
-            Ok(WorkerRequest::Close) => {
-                ws.close(None)?;
-                return Ok(());
-            }
-            Err(mpmc::TryRecvError::Empty) => {}
-            Err(mpmc::TryRecvError::Disconnected) => {
-                bail!("command mpmc closed unexpectedly");
-            }
-        };
+        loop {
+            match requests_rx.try_recv() {
+                Ok(WorkerRequest::Send { call, reply_tx }) => {
+                    ensure!(
+                        !calls_in_flight.contains_key(&call.id),
+                        "call {} already in flight",
+                        call.id
+                    );
+                    calls_in_flight.insert(call.id, reply_tx);
+                    let payload = serde_json::to_string(&call)?;
+                    ws.send(WsMessage::text(payload))?;
+                }
+                Ok(WorkerRequest::Close) => {
+                    ws.close(None)?;
+                    return Ok(());
+                }
+                Err(mpmc::TryRecvError::Empty) => {
+                    ws.flush()?;
+                    break;
+                }
+                Err(mpmc::TryRecvError::Disconnected) => {
+                    bail!("command mpmc closed unexpectedly");
+                }
+            };
+        }
         match ws.read() {
             Ok(WsMessage::Text(text)) => {
                 let parsed: CdpMessage<CdpJsonEventMessage> =
@@ -329,11 +336,10 @@ fn websocket_worker(
                 bail!("Received unexpected ws message: {other:?}");
             }
             Err(tungstenite::error::Error::Io(ref e))
-                if e.kind() == ErrorKind::WouldBlock =>
+                if e.kind() == ErrorKind::TimedOut
+                    || e.kind() == ErrorKind::WouldBlock =>
             {
-                // Both worker commands and events are non-blocking, so wait in order to not
-                // busy-loop.
-                thread::sleep(Duration::from_millis(2));
+                thread::yield_now();
             }
             Err(e) => {
                 return Err(e.into());
