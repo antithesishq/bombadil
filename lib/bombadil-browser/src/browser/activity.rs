@@ -73,7 +73,7 @@ pub fn screencast_start(
     width: u16,
     height: u16,
 ) -> Result<mpmc::Receiver<Arc<[u8]>>> {
-    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(1024);
+    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(32);
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     connection.send(
@@ -103,11 +103,11 @@ pub fn screencast_start(
                         continue;
                     }
                 };
-            match conn.send(
+            match conn.post(
                 page::ScreencastFrameAckParams::new(event.session_id),
                 Some(&session_id),
             ) {
-                Ok(_) => log::debug!("screencast: ack sent"),
+                Ok(()) => log::debug!("screencast: ack posted"),
                 Err(e) => log::warn!("screencast: ack failed: {}", e),
             }
             let _ = tx.send(Arc::from(bytes));

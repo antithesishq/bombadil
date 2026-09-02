@@ -214,7 +214,7 @@ impl Browser {
             }
         };
 
-        let (events_tx, events_rx) = mpmc::bounded(1024);
+        let (events_tx, events_rx) = mpmc::bounded(32);
         let (browser_events_tx, browser_events_rx) =
             mpmc::bounded::<BrowserEvent>(1);
 
@@ -909,7 +909,7 @@ fn process_event(
             });
 
             shared.console_entries.clear();
-            let (activity_tx, activity_rx) = mpmc::bounded(1024);
+            let (activity_tx, activity_rx) = mpmc::bounded(32);
             activity::all_activity(&context.connection.events, activity_tx)?;
             InnerState {
                 kind: Acting(activity_rx),
@@ -1089,7 +1089,7 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     events_tx: &mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
-    let (activity_tx, activity_rx) = mpmc::bounded(1024);
+    let (activity_tx, activity_rx) = mpmc::bounded(32);
     activity::all_activity(&context.connection.events, activity_tx)?;
     start_quiescence_timer_from_activity(shared, events_tx, activity_rx);
     Ok(())

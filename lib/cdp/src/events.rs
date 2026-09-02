@@ -17,8 +17,9 @@ pub struct Events {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Subscribers {
     pub(crate) closed: bool,
-    all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
-    single: HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
+    pub(crate) all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
+    pub(crate) single:
+        HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
 }
 
 impl Subscribers {
@@ -27,8 +28,9 @@ impl Subscribers {
         assert!(!self.closed, "Subscribers are closed, can't dispatch");
         let event = Arc::new(event);
 
-        // Evict disconnected channels while dispatching (`send` returns Err in
-        // case of disconnected receiver).
+        // Evict disconnected channels while dispatching (`send` returns Err
+        // in case of disconnected receiver). Blocking send is deliberate: a
+        // slow consumer must not lose events.
         self.all.retain(|s| s.send(event.clone()).is_ok());
         if let Some(subscriptions) = self.single.get_mut(&event.method) {
             subscriptions.retain(|s| s.send(event.clone()).is_ok());

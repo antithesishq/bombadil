@@ -5,7 +5,6 @@ use std::ops::Deref;
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json as json;
 
 pub type MethodId = Cow<'static, str>;
 

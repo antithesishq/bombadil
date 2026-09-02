@@ -5,7 +5,7 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use crossbeam_channel as mpmc;
@@ -381,6 +381,30 @@ fn handle_message(
     Ok(())
 }
 
+fn log_worker_diagnostics(
+    calls_in_flight: &CallsInFlight,
+    subscribers: &Arc<Mutex<Subscribers>>,
+) {
+    let Ok(subs) = subscribers.lock() else {
+        return;
+    };
+    let all_depths: Vec<usize> = subs.all.iter().map(|s| s.len()).collect();
+    let single_summary: Vec<String> = subs
+        .single
+        .iter()
+        .map(|(method, senders)| {
+            let depths: Vec<usize> = senders.iter().map(|s| s.len()).collect();
+            format!("{}={:?}", method.as_ref(), depths)
+        })
+        .collect();
+    log::info!(
+        "cdp diag: calls_in_flight={}, all_depths={:?}, single=[{}]",
+        calls_in_flight.len(),
+        all_depths,
+        single_summary.join(", "),
+    );
+}
+
 fn websocket_worker(
     mut ws: WebSocket<MaybeTlsStream<TcpStream>>,
     mut poll: Poll,
@@ -393,6 +417,7 @@ fn websocket_worker(
     // other reason not receiving responses
     let mut calls_in_flight: CallsInFlight = HashMap::new();
     let mut mio_events = MioEvents::with_capacity(16);
+    let mut last_diag = Instant::now();
 
     loop {
         if matches!(
@@ -402,6 +427,11 @@ fn websocket_worker(
             return Ok(());
         }
         ws.flush()?;
+
+        if last_diag.elapsed() >= Duration::from_secs(1) {
+            log_worker_diagnostics(&calls_in_flight, &subscribers);
+            last_diag = Instant::now();
+        }
 
         poll.poll(&mut mio_events, None)?;
 
