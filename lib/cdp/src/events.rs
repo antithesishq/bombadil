@@ -23,15 +23,17 @@ pub(crate) struct Subscribers {
 
 impl Subscribers {
     #[hotpath::measure]
-    pub(crate) fn dispatch(&self, event: CdpJsonEventMessage) {
+    pub(crate) fn dispatch(&mut self, event: CdpJsonEventMessage) {
         assert!(!self.closed, "Subscribers are closed, can't dispatch");
         let event = Arc::new(event);
-        for subscriber in &self.all {
-            let _ = subscriber.send(event.clone());
-        }
-        if let Some(subscribers) = self.single.get(&event.method) {
-            for subscriber in subscribers {
-                let _ = subscriber.send(event.clone());
+
+        // Evict disconnected channels while dispatching (`send` returns Err in
+        // case of disconnected receiver).
+        self.all.retain(|s| s.send(event.clone()).is_ok());
+        if let Some(subscriptions) = self.single.get_mut(&event.method) {
+            subscriptions.retain(|s| s.send(event.clone()).is_ok());
+            if subscriptions.is_empty() {
+                self.single.remove(&event.method);
             }
         }
     }

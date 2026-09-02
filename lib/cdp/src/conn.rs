@@ -359,7 +359,7 @@ fn handle_message(
                     .map_err(|err| {
                         anyhow!("failed to parse event '{}': {err}", text_str)
                     })?;
-                let subscribers = subscribers.lock().map_err(|_| {
+                let mut subscribers = subscribers.lock().map_err(|_| {
                     anyhow!("failed to acquire lock for subscribers")
                 })?;
                 if !subscribers.closed {
