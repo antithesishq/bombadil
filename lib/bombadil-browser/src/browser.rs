@@ -1342,7 +1342,7 @@ fn launch_options_to_config(
                 builder.with_head()
             }
         };
-    apply_headless(apply_sandbox(BrowserConfig::builder()))
+    let builder = apply_headless(apply_sandbox(BrowserConfig::builder()))
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
         .arg((
@@ -1352,17 +1352,34 @@ fn launch_options_to_config(
                 .to_path_buf()
                 .to_str()
                 .expect("invalid tmp dir path"),
-        ))
-        .arg("enable-logging")
-        .arg(("v", "1"))
-        .arg("no-crashpad")
-        .arg("disable-background-networking")
-        .arg("disable-component-update")
-        .arg("disable-domain-reliability")
-        .arg("no-pings")
-        .arg("disable-crash-reporter")
+        ));
+
+    apply_managed_chrome_arguments(builder)
         .build()
         .map_err(|s| anyhow!(s))
+}
+
+fn apply_managed_chrome_arguments(
+    builder: BrowserConfigBuilder,
+) -> BrowserConfigBuilder {
+    const ARGUMENTS: [(&str, Option<&str>); 9] = [
+        ("enable-logging", None),
+        ("v", Some("1")),
+        ("no-crashpad", None),
+        ("disable-background-networking", None),
+        ("disable-component-update", None),
+        ("disable-domain-reliability", None),
+        ("no-pings", None),
+        ("disable-crash-reporter", None),
+        ("disable-features", Some("OptimizationHints")),
+    ];
+
+    ARGUMENTS
+        .into_iter()
+        .fold(builder, |builder, (name, value)| match value {
+            Some(value) => builder.arg((name, value)),
+            None => builder.arg(name),
+        })
 }
 
 async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
@@ -1392,4 +1409,68 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         }
     }
     bail!("coulnd't find an existing page to use");
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::apply_managed_chrome_arguments;
+    use chromiumoxide::BrowserConfig;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn managed_chrome_arguments_disable_optimization_hints_once() {
+        let directory = TempDir::new().unwrap();
+        let executable = directory.path().join("capture-argv");
+        let output = directory.path().join("argv.txt");
+        fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$BOMBADIL_TEST_ARGV\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))
+            .unwrap();
+
+        let config = apply_managed_chrome_arguments(
+            BrowserConfig::builder()
+                .chrome_executable(&executable)
+                .env("BOMBADIL_TEST_ARGV", output.to_string_lossy()),
+        )
+        .build()
+        .unwrap();
+        let mut child = config.launch().unwrap();
+        child.wait().await.unwrap();
+
+        let arguments = fs::read_to_string(output)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for expected in [
+            "--enable-logging",
+            "--v=1",
+            "--no-crashpad",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
+            "--disable-crash-reporter",
+        ] {
+            assert!(arguments.iter().any(|argument| argument == expected));
+        }
+
+        let disable_features = arguments
+            .iter()
+            .filter(|argument| {
+                argument.as_str() == "--disable-features"
+                    || argument.starts_with("--disable-features=")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(disable_features.len(), 1);
+        assert_eq!(
+            disable_features[0],
+            "--disable-features=TranslateUI,OptimizationHints"
+        );
+    }
 }
