@@ -83,6 +83,7 @@ pub fn screencast_start(
             .max_width(width)
             .max_height(height)
             .every_nth_frame(1)
+            .send_last_frame(true)
             .build(),
         Some(session_id),
     )?;

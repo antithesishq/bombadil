@@ -90,6 +90,7 @@ impl FromGeneratedAction for BrowserActionTemplate {
 }
 
 impl BrowserAction {
+    #[hotpath::measure]
     pub fn apply(
         &self,
         connection: &cdp::Connection,
@@ -108,7 +109,7 @@ impl BrowserAction {
                 let last: page::NavigationEntry = history.entries
                     [(history.current_index - 1) as usize]
                     .clone();
-                connection.send(
+                connection.post(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(last.id)
                         .build()
@@ -127,7 +128,7 @@ impl BrowserAction {
                 }
                 let next: page::NavigationEntry =
                     history.entries[next_index].clone();
-                connection.send(
+                connection.post(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(next.id)
                         .build()
@@ -137,11 +138,11 @@ impl BrowserAction {
             }
             BrowserAction::Reload => {
                 connection
-                    .send(page::ReloadParams::default(), Some(session_id))?;
+                    .post(page::ReloadParams::default(), Some(session_id))?;
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                connection.send(
+                connection.post(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -153,7 +154,7 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                connection.send(
+                connection.post(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -170,7 +171,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.send(
+                connection.post(
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
@@ -178,7 +179,7 @@ impl BrowserAction {
                     ),
                     Some(session_id),
                 )?;
-                connection.send(
+                connection.post(
                     builder
                         .clone()
                         .r#type(input::DispatchMouseEventType::MousePressed)
@@ -186,7 +187,7 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
                 )?;
-                connection.send(
+                connection.post(
                     builder
                         .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
@@ -200,6 +201,11 @@ impl BrowserAction {
                 delay_millis: _,
                 fingerprint: _,
             } => {
+                let builder = input::DispatchMouseEventParams::builder()
+                    .x(point.x)
+                    .y(point.y)
+                    .button(input::MouseButton::Left)
+                    .click_count(2);
                 connection.send(
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
@@ -208,13 +214,17 @@ impl BrowserAction {
                     ),
                     Some(session_id),
                 )?;
-                connection.send(
-                    input::DispatchMouseEventParams::builder()
+                connection.post(
+                    builder
+                        .clone()
                         .r#type(input::DispatchMouseEventType::MousePressed)
-                        .x(point.x)
-                        .y(point.y)
-                        .button(input::MouseButton::Left)
-                        .click_count(2)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
+                connection.post(
+                    builder
+                        .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
@@ -224,7 +234,7 @@ impl BrowserAction {
                 let delay = Duration::from_millis(*delay_millis);
                 for char in text.chars() {
                     thread::sleep(delay);
-                    connection.send(
+                    connection.post(
                         input::InsertTextParams::new(char),
                         Some(session_id),
                     )?;
@@ -247,7 +257,7 @@ impl BrowserAction {
                     }
                     builder.build().map_err(|err| anyhow!(err))
                 };
-                connection.send(
+                connection.post(
                     build_params(
                         input::DispatchKeyEventType::RawKeyDown,
                         None,
@@ -255,7 +265,7 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
                 if let Some(text) = text {
-                    connection.send(
+                    connection.post(
                         build_params(
                             input::DispatchKeyEventType::Char,
                             Some(text),
@@ -263,7 +273,7 @@ impl BrowserAction {
                         Some(session_id),
                     )?;
                 }
-                connection.send(
+                connection.post(
                     build_params(input::DispatchKeyEventType::KeyUp, None)?,
                     Some(session_id),
                 )?;
@@ -284,7 +294,7 @@ impl BrowserAction {
                 if node.node_id.inner() == &0 {
                     bail!("element not found for selector: {:?}", selector);
                 }
-                connection.send(
+                connection.post(
                     dom::SetFileInputFilesParams::builder()
                         .files(files.clone())
                         .node_id(node.node_id)
@@ -313,7 +323,7 @@ impl BrowserAction {
                         .build()
                         .map_err(|err| anyhow!(err))
                 };
-                connection.send(
+                connection.post(
                     dispatch(
                         input::DispatchMouseEventType::MousePressed,
                         *from,
@@ -332,7 +342,7 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    connection.send(
+                    connection.post(
                         dispatch(
                             input::DispatchMouseEventType::MouseMoved,
                             point,
@@ -341,7 +351,7 @@ impl BrowserAction {
                         Some(session_id),
                     )?;
                 }
-                connection.send(
+                connection.post(
                     dispatch(
                         input::DispatchMouseEventType::MouseReleased,
                         *to,
@@ -351,7 +361,7 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::SetViewport { width, height } => {
-                connection.send(
+                connection.post(
                     emulation::SetDeviceMetricsOverrideParams::builder()
                         .width(u32::from(*width))
                         .height(u32::from(*height))

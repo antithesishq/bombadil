@@ -444,6 +444,7 @@ impl Browser {
         Ok(())
     }
 
+    #[hotpath::measure]
     pub fn next_event(&mut self) -> Option<BrowserEvent> {
         self.browser_events_rx.recv().ok()
     }
