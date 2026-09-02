@@ -1,5 +1,7 @@
 use anyhow::ensure;
 use anyhow::{Result, anyhow, bail};
+use base64::Engine;
+use cdp::Binary;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::css;
 use cdp_protocol::cdp::browser_protocol::emulation;
@@ -140,7 +142,7 @@ struct BrowserContext {
     target_id: TargetId,
     frame_id: FrameId,
     session_id: SessionId,
-    latest_frame: Arc<Mutex<Option<Arc<[u8]>>>>,
+    latest_frame: Arc<Mutex<Option<Arc<Binary>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
@@ -244,7 +246,7 @@ impl Browser {
             .frame
             .id;
 
-        let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
+        let latest_frame: Arc<Mutex<Option<Arc<Binary>>>> =
             Arc::new(Mutex::new(None));
 
         let frames_rx = activity::screencast_start(
@@ -1152,10 +1154,13 @@ fn capture_browser_state(
         .expect("failed getting latest frame from mutex")
         .clone();
     match frame {
-        Some(data) => {
+        Some(base64) => {
+            let data = base64::prelude::BASE64_STANDARD
+                .decode(&*base64)
+                .map_err(|e| anyhow!("screencast base64 decode failed: {e}"))?;
             state.shared.screenshot = Some(Screenshot {
                 format: ScreenshotFormat::Jpeg,
-                data: data.to_vec(),
+                data,
             });
         }
         None => {

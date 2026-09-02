@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
-use base64::Engine;
+use cdp::Binary;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::network;
 use cdp_protocol::cdp::browser_protocol::page;
@@ -72,8 +72,8 @@ pub fn screencast_start(
     session_id: &SessionId,
     width: u16,
     height: u16,
-) -> Result<mpmc::Receiver<Arc<[u8]>>> {
-    let (tx, rx) = mpmc::bounded::<Arc<[u8]>>(32);
+) -> Result<mpmc::Receiver<Arc<Binary>>> {
+    let (tx, rx) = mpmc::bounded::<Arc<Binary>>(32);
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     connection.send(
@@ -95,14 +95,6 @@ pub fn screencast_start(
                 "screencast: frame received (session_id={})",
                 event.session_id
             );
-            let bytes =
-                match base64::prelude::BASE64_STANDARD.decode(&event.data) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        log::warn!("screencast: decode failed: {}", e);
-                        continue;
-                    }
-                };
             match conn.post(
                 page::ScreencastFrameAckParams::new(event.session_id),
                 Some(&session_id),
@@ -110,7 +102,7 @@ pub fn screencast_start(
                 Ok(()) => log::debug!("screencast: ack posted"),
                 Err(e) => log::warn!("screencast: ack failed: {}", e),
             }
-            let _ = tx.send(Arc::from(bytes));
+            let _ = tx.send(Arc::new(event.data));
         }
         log::debug!("screencast: listener ended");
         Ok(())
