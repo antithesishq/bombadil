@@ -180,12 +180,12 @@ pub enum DebuggerOptions {
 pub struct Browser {
     browser_events_rx: mpmc::Receiver<BrowserEvent>,
     events_tx: mpmc::Sender<InnerEvent>,
-    done_receiver: Option<mpmc::Receiver<()>>,
     connection: cdp::Connection,
+    target_id: TargetId,
     session_id: SessionId,
     frame_id: FrameId,
     origin: Url,
-    go_to_origin_on_init: bool,
+    create_target: bool,
 }
 
 impl Drop for Browser {
@@ -346,13 +346,11 @@ impl Browser {
 
         auto_accept_dialogs(connection.clone(), &session_id)?;
 
-        let (done_sender, done_receiver) = mpmc::bounded::<()>(1);
-
         let context = BrowserContext {
             sender: browser_events_tx,
             events_tx: events_tx.clone(),
             connection: connection.clone(),
-            target_id,
+            target_id: target_id.clone(),
             frame_id: frame_id.clone(),
             session_id: session_id.clone(),
             latest_frame,
@@ -382,22 +380,22 @@ impl Browser {
             },
             shared: state_shared,
         };
-        run_state_machine(context, events_rx, state_initial, done_sender);
+        run_state_machine(context, events_rx, state_initial);
 
         Ok(Browser {
             browser_events_rx,
             events_tx,
-            done_receiver: Some(done_receiver),
             connection,
+            target_id,
             session_id,
             frame_id,
             origin,
-            go_to_origin_on_init: browser_options.create_target,
+            create_target: browser_options.create_target,
         })
     }
 
     pub fn initiate(&mut self) -> Result<()> {
-        if self.go_to_origin_on_init {
+        if self.create_target {
             let connection = self.connection.clone();
             let session_id = self.session_id.clone();
             let frame_id = self.frame_id.clone();
@@ -427,19 +425,19 @@ impl Browser {
         Ok(())
     }
 
-    pub fn terminate(mut self) -> Result<()> {
+    pub fn terminate(self) -> Result<()> {
+        if self.create_target {
+            self.connection.send(
+                target::CloseTargetParams::new(self.target_id.clone()),
+                Some(&self.session_id),
+            )?;
+        }
         // Close the browser before waiting for the state machine. Any CDP calls
         // in-flight inside process_event will fail once the connection drops,
         // unblocking the state machine so it can exit. Without this ordering,
         // terminate() could deadlock: the state machine waits for a CDP response
         // and the browser never closes because we're waiting for the state machine.
         let _ = self.connection.close();
-
-        // Wait for the state machine to confirm it has exited. The done signal
-        // is always sent now (even on error), so this should resolve promptly.
-        if let Some(done_receiver) = self.done_receiver.take() {
-            let _ = done_receiver.recv();
-        }
 
         Ok(())
     }
@@ -630,10 +628,6 @@ fn forward_inner_events(
                 },
             }, _ => None);
 
-            if let Some(event) = &inner_event {
-                log::info!("forwarding event: {event:?}");
-            }
-
             if let Some(inner_event) = inner_event
                 && let Err(err) = events_tx.send(inner_event)
             {
@@ -650,7 +644,6 @@ fn run_state_machine(
     context: BrowserContext,
     events_rx: mpmc::Receiver<InnerEvent>,
     mut state_current: InnerState,
-    done_sender: mpmc::Sender<()>,
 ) {
     let _ = thread::spawn(move || -> Result<()> {
         let result = {
@@ -685,8 +678,6 @@ fn run_state_machine(
                 anyhow!("error when processing event: {:?}", error),
             )));
         }
-        // Always signal done, whether the loop exited cleanly or with an error.
-        let _ = done_sender.send(());
         Ok(())
     });
 }
@@ -1175,17 +1166,15 @@ fn capture_browser_state(
 
     let connection = context.connection.clone();
     let session_id = context.session_id.clone();
-    thread::spawn(move || {
-        let _ = connection.send(
-            runtime::EvaluateParams::builder()
-                .expression("debugger;0")
-                .unique_context_id(execution_context_id)
-                .await_promise(false)
-                .build()
-                .expect("failed to build EvaluateParams"),
-            Some(&session_id),
-        );
-    });
+    connection.post(
+        runtime::EvaluateParams::builder()
+            .expression("debugger;0")
+            .unique_context_id(execution_context_id)
+            .await_promise(false)
+            .build()
+            .expect("failed to build EvaluateParams"),
+        Some(&session_id),
+    )?;
 
     state.shared.generation = state.shared.generation.next();
     Ok(InnerState {

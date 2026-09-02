@@ -22,11 +22,12 @@ pub fn start(
                 recv(activity_rx) -> bump => {
                     match bump {
                         Ok(bump) => {
+                            log::debug!("quiescence timer bumped by {bump:?}");
                             deadline_idle = (Instant::now() + bump).min(deadline_max);
                         }
                         Err(mpmc::RecvError) => {
                             // Channel is empty and disconnected.
-                            log::debug!("quiescence waiter disconnected");
+                            log::debug!("quiescence activity channel disconnected");
                             break;
                         }
                     }
@@ -34,6 +35,8 @@ pub fn start(
                 default(deadline_next.duration_since(Instant::now())) => {
                     if let Err(err) = result_tx.send(()) {
                         log::warn!("failed to send quiescence wait result: {err}");
+                    } else {
+                        log::debug!("quiescence timer fired successfully");
                     }
                     break;
                 },

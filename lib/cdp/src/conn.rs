@@ -37,6 +37,7 @@ impl Connection {
         })
     }
 
+    /// Send a command and await its response.
     pub fn send<T: Command>(
         &self,
         cmd: T,
@@ -47,6 +48,19 @@ impl Connection {
             .lock()
             .expect("couldn't acquire lock for inner connection");
         inner.send(cmd, session_id)
+    }
+
+    /// Post a command without awaiting its response.
+    pub fn post<T: Command>(
+        &self,
+        cmd: T,
+        session_id: Option<&SessionId>,
+    ) -> Result<()> {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("couldn't acquire lock for inner connection");
+        inner.post(cmd, session_id)
     }
 
     pub fn close(&self) -> Result<()> {
@@ -110,6 +124,28 @@ impl ConnectionInner {
         id
     }
 
+    pub fn post<T: Command>(
+        &mut self,
+        cmd: T,
+        session_id: Option<&SessionId>,
+    ) -> Result<()> {
+        let call_id = self.next_call_id();
+        log::debug!("posting {} ({})", cmd.identifier(), call_id);
+
+        let call = MethodCall {
+            id: call_id,
+            method: cmd.identifier(),
+            session_id: session_id.map(|id| id.inner().into()),
+            params: serde_json::to_value(&cmd)?,
+        };
+
+        self.worker_tx.send(WorkerRequest::Send {
+            call,
+            reply_tx: None,
+        })?;
+        Ok(())
+    }
+
     #[hotpath::measure]
     pub fn send<T: Command>(
         &mut self,
@@ -126,18 +162,28 @@ impl ConnectionInner {
             params: serde_json::to_value(&cmd)?,
         };
         let (reply_tx, reply_rx) = mpmc::bounded(1);
-        self.worker_tx
-            .send(WorkerRequest::Send { call, reply_tx })?;
+        self.worker_tx.send(WorkerRequest::Send {
+            call,
+            reply_tx: Some(reply_tx),
+        })?;
 
         let result = match reply_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(result) => result,
             Err(mpmc::RecvTimeoutError::Timeout) => {
+                log::debug!(
+                    "timed out waiting for response for {}",
+                    cmd.identifier()
+                );
                 bail!(
                     "timed out waiting for response for {}",
                     cmd.identifier(),
                 );
             }
             Err(mpmc::RecvTimeoutError::Disconnected) => {
+                log::debug!(
+                    "channel disconnected while waiting for response for {}",
+                    cmd.identifier()
+                );
                 bail!(
                     "channel disconnected while waiting for response for {}",
                     cmd.identifier(),
@@ -189,7 +235,7 @@ impl Drop for ConnectionInner {
 enum WorkerRequest {
     Send {
         call: MethodCall,
-        reply_tx: mpmc::Sender<Result<json::Value>>,
+        reply_tx: Option<mpmc::Sender<Result<json::Value>>>,
     },
     Close,
 }
@@ -240,13 +286,20 @@ fn websocket_worker(
                         if let Some(reply_tx) =
                             calls_in_flight.remove(&response.id)
                         {
-                            if let Some(err) = response.error {
-                                let _ = reply_tx.send(Err(err.into()));
+                            if let Some(reply_tx) = reply_tx {
+                                if let Some(err) = response.error {
+                                    let _ = reply_tx.send(Err(err.into()));
+                                } else {
+                                    let result = response
+                                        .result
+                                        .unwrap_or(serde_json::Value::Null);
+                                    let _ = reply_tx.send(Ok(result));
+                                }
                             } else {
-                                let result = response
-                                    .result
-                                    .unwrap_or(serde_json::Value::Null);
-                                let _ = reply_tx.send(Ok(result));
+                                log::debug!(
+                                    "ignoring response for post {}",
+                                    response.id
+                                );
                             }
                         } else {
                             bail!(
