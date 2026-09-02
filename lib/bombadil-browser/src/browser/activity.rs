@@ -28,7 +28,7 @@ const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(10);
 const FRAME_BUMP_COUNT_MAX: u32 = 10;
 
 /// How long a screencast frame extends the quiescence deadline.
-const FRAME_BUMP: Duration = Duration::from_millis(32);
+const FRAME_BUMP: Duration = Duration::from_millis(8);
 
 pub type ActivityStream = mpmc::Receiver<Duration>;
 
@@ -82,6 +82,7 @@ pub fn screencast_start(
             .quality(50)
             .max_width(width)
             .max_height(height)
+            .every_nth_frame(1)
             .build(),
         Some(session_id),
     )?;
