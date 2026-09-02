@@ -165,13 +165,30 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::Click { point, .. } => {
+                let builder = input::DispatchMouseEventParams::builder()
+                    .x(point.x)
+                    .y(point.y)
+                    .button(input::MouseButton::Left)
+                    .click_count(1);
                 connection.send(
-                    input::DispatchMouseEventParams::builder()
+                    input::DispatchMouseEventParams::new(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point.x,
+                        point.y,
+                    ),
+                    Some(session_id),
+                )?;
+                connection.send(
+                    builder
+                        .clone()
                         .r#type(input::DispatchMouseEventType::MousePressed)
-                        .x(point.x)
-                        .y(point.y)
-                        .button(input::MouseButton::Left)
-                        .click_count(1)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
+                connection.send(
+                    builder
+                        .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
@@ -183,6 +200,14 @@ impl BrowserAction {
                 delay_millis: _,
                 fingerprint: _,
             } => {
+                connection.send(
+                    input::DispatchMouseEventParams::new(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point.x,
+                        point.y,
+                    ),
+                    Some(session_id),
+                )?;
                 connection.send(
                     input::DispatchMouseEventParams::builder()
                         .r#type(input::DispatchMouseEventType::MousePressed)
