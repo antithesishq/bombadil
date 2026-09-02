@@ -53,6 +53,7 @@ js-sys = "0.3"
 libghostty-vt = "0.2.0"
 log = "0.4.29"
 mime_guess = "2.0"
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 num-traits = "0.2"
 open = "5.0"
 oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
