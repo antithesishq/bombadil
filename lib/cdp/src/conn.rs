@@ -5,7 +5,7 @@ use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use crossbeam_channel as mpmc;
@@ -232,7 +232,6 @@ impl ConnectionInner {
     }
 
     pub(crate) fn close(&self) -> Result<()> {
-        log::debug!("closing CDP websocket");
         let mut state = self
             .close_state
             .lock()
@@ -240,6 +239,7 @@ impl ConnectionInner {
         if state.closed {
             return Ok(());
         }
+        log::debug!("closing CDP websocket");
         let _ = self.worker_tx.send(WorkerRequest::Close);
         let _ = self.commands_waker.wake();
         if let Some(handle) = state.handle.take() {
@@ -330,7 +330,6 @@ fn handle_message(
                             text_str
                         )
                     })?;
-                log::debug!("got response for request {}", response.id);
                 if let Some(reply_tx) = calls_in_flight.remove(&response.id) {
                     // There's only a reply_tx if it was a `send`, not for `post`.
                     if let Some(reply_tx) = reply_tx {
@@ -381,30 +380,6 @@ fn handle_message(
     Ok(())
 }
 
-fn log_worker_diagnostics(
-    calls_in_flight: &CallsInFlight,
-    subscribers: &Arc<Mutex<Subscribers>>,
-) {
-    let Ok(subs) = subscribers.lock() else {
-        return;
-    };
-    let all_depths: Vec<usize> = subs.all.iter().map(|s| s.len()).collect();
-    let single_summary: Vec<String> = subs
-        .single
-        .iter()
-        .map(|(method, senders)| {
-            let depths: Vec<usize> = senders.iter().map(|s| s.len()).collect();
-            format!("{}={:?}", method.as_ref(), depths)
-        })
-        .collect();
-    log::info!(
-        "cdp diag: calls_in_flight={}, all_depths={:?}, single=[{}]",
-        calls_in_flight.len(),
-        all_depths,
-        single_summary.join(", "),
-    );
-}
-
 fn websocket_worker(
     mut ws: WebSocket<MaybeTlsStream<TcpStream>>,
     mut poll: Poll,
@@ -417,7 +392,6 @@ fn websocket_worker(
     // other reason not receiving responses
     let mut calls_in_flight: CallsInFlight = HashMap::new();
     let mut mio_events = MioEvents::with_capacity(16);
-    let mut last_diag = Instant::now();
 
     loop {
         if matches!(
@@ -427,11 +401,6 @@ fn websocket_worker(
             return Ok(());
         }
         ws.flush()?;
-
-        if last_diag.elapsed() >= Duration::from_secs(1) {
-            log_worker_diagnostics(&calls_in_flight, &subscribers);
-            last_diag = Instant::now();
-        }
 
         poll.poll(&mut mio_events, None)?;
 
