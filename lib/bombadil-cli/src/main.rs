@@ -46,9 +46,7 @@ fn main() -> Result<()> {
     antithesis_init();
     let cli = Cli::parse();
     match cli.command {
-        Command::Browser { command } => {
-            tokio::runtime::Runtime::new()?.block_on(browser::run(command))
-        }
+        Command::Browser { command } => browser::run(command),
         #[cfg(feature = "terminal")]
         Command::Terminal { command } => {
             terminal::run(command);

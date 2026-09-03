@@ -517,7 +517,7 @@ async fn test_browser_lifecycle() {
             extra_headers: Default::default(),
             cookies: vec![],
         },
-        &chromium::Chromium::launch(LaunchOptions {
+        chromium::Chromium::launch(LaunchOptions {
             executable: chromium::locate::executable().unwrap(),
             headless: true,
             no_sandbox: true,

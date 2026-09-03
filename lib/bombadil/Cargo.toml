@@ -33,7 +33,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 supports-color.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
 url = { workspace = true, features = ["serde"] }
 willow-tree = { path = "../willow-tree" }
 

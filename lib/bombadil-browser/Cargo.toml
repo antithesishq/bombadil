@@ -33,8 +33,6 @@ scraper.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
-tokio-stream = { workspace = true, features = ["sync"] }
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]

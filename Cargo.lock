@@ -451,7 +451,6 @@ dependencies = [
  "serde_json",
  "supports-color 3.0.2",
  "tempfile",
- "tokio",
  "url",
  "willow-tree",
 ]
@@ -489,8 +488,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tokio",
- "tokio-stream",
  "url",
 ]
 
@@ -4924,7 +4921,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]

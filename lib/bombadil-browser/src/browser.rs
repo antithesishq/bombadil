@@ -28,7 +28,6 @@ use crate::browser::activity::ActivityStream;
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
-    ScreenshotFormat,
 };
 use crate::chromium::Chromium;
 use crate::cookie::{BrowserCookie, build_cookie_param};
@@ -169,6 +168,7 @@ pub struct BrowserOptions {
 }
 
 pub struct Browser {
+    chromium: Chromium,
     browser_events_rx: mpmc::Receiver<BrowserEvent>,
     events_tx: mpmc::Sender<InnerEvent>,
     connection: cdp::Connection,
@@ -189,7 +189,7 @@ impl Browser {
     pub fn new(
         origin: Url,
         browser_options: BrowserOptions,
-        chromium: &Chromium,
+        chromium: Chromium,
     ) -> Result<Self> {
         let connection = cdp::Connection::connect(
             chromium.web_socket_remote_debugger.to_string(),
@@ -364,6 +364,7 @@ impl Browser {
         run_state_machine(context, events_rx, state_initial);
 
         Ok(Browser {
+            chromium,
             browser_events_rx,
             events_tx,
             connection,

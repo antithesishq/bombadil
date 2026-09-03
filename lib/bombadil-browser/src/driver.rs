@@ -1,17 +1,13 @@
 use std::cmp::max;
 use std::sync::Arc;
-use std::sync::mpsc as std_mpsc;
 use std::time::SystemTime;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
-use tokio::sync::mpsc::{
-    UnboundedReceiver, UnboundedSender, unbounded_channel,
-};
 use url::Url;
 
 use crate::browser::actions::BrowserAction;
@@ -21,30 +17,6 @@ use crate::browser::{Browser, BrowserEvent, BrowserOptions};
 use crate::chromium;
 use crate::chromium::Chromium;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-
-/// Commands sent from the synchronous [`BrowserDriver`] to the asynchronous
-/// browser worker thread.
-enum BrowserCommand {
-    Initiate {
-        reply: std_mpsc::Sender<Result<()>>,
-    },
-    NextEvent {
-        reply: std_mpsc::Sender<Option<DriverEvent<BrowserState>>>,
-    },
-    Apply {
-        action: BrowserAction,
-        state: Arc<BrowserState>,
-        reply: std_mpsc::Sender<Result<()>>,
-    },
-    ExtractSnapshots {
-        state: Arc<BrowserState>,
-        last_action: Option<BrowserAction>,
-        reply: std_mpsc::Sender<Result<Vec<Snapshot>>>,
-    },
-    Terminate {
-        reply: std_mpsc::Sender<Result<()>>,
-    },
-}
 
 pub enum DebuggerOptions {
     External {
@@ -56,11 +28,10 @@ pub enum DebuggerOptions {
 }
 
 pub struct BrowserDriver {
-    command_send: UnboundedSender<BrowserCommand>,
-    worker: Option<std::thread::JoinHandle<()>>,
     // Heap-allocated so the 64 KB edge map doesn't blow the stack.
     edges: Vec<u8>,
     coverage_map_offset: usize,
+    browser: Browser,
 }
 
 impl BrowserDriver {
@@ -70,36 +41,26 @@ impl BrowserDriver {
         debugger_options: DebuggerOptions,
         specification_bundle: String,
     ) -> Result<Self> {
-        let (command_send, command_receive) = unbounded_channel();
-        let (ready_send, ready_receive) = std_mpsc::channel();
-
         let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
             EDGE_MAP_SIZE,
             "bombadil.tsv",
         );
 
-        let worker = std::thread::Builder::new()
-            .name("bombadil-browser-worker".to_string())
-            .spawn(move || {
-                run_browser_worker(
-                    origin,
-                    browser_options,
-                    debugger_options,
-                    specification_bundle,
-                    command_receive,
-                    ready_send,
-                );
-            })?;
-
-        ready_receive
-            .recv()
-            .map_err(|_| anyhow!("browser worker died before ready"))??;
+        let chromium = match debugger_options {
+            DebuggerOptions::External { remote_debugger } => {
+                Chromium::connect(remote_debugger)?
+            }
+            DebuggerOptions::Managed { launch_options } => {
+                Chromium::launch(launch_options)?
+            }
+        };
+        let browser = Browser::new(origin, browser_options, chromium)?;
+        browser.ensure_script_evaluated(&specification_bundle)?;
 
         Ok(Self {
-            command_send,
-            worker: Some(worker),
             edges: vec![0u8; EDGE_MAP_SIZE],
             coverage_map_offset,
+            browser,
         })
     }
 }
@@ -110,40 +71,16 @@ impl InterfaceDriver for BrowserDriver {
     type State = BrowserState;
 
     fn initiate(&mut self) -> Result<()> {
-        let (reply_send, reply_receive) = std_mpsc::channel();
-        self.command_send
-            .send(BrowserCommand::Initiate { reply: reply_send })
-            .map_err(|_| anyhow!("browser worker gone"))?;
-        reply_receive
-            .recv()
-            .map_err(|_| anyhow!("browser worker gone"))?
+        self.browser.initiate()
     }
 
-    fn terminate(mut self) -> Result<()> {
-        let (reply_send, reply_receive) = std_mpsc::channel();
-        self.command_send
-            .send(BrowserCommand::Terminate { reply: reply_send })
-            .map_err(|_| anyhow!("browser worker gone"))?;
-        let result = reply_receive
-            .recv()
-            .map_err(|_| anyhow!("browser worker gone"))?;
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-        result
+    fn terminate(self) -> Result<()> {
+        self.browser.terminate()
     }
 
     fn next_event(&mut self) -> Option<DriverEvent<BrowserState>> {
-        let (reply_send, reply_receive) = std_mpsc::channel();
-        if self
-            .command_send
-            .send(BrowserCommand::NextEvent { reply: reply_send })
-            .is_err()
-        {
-            return None;
-        }
-        match reply_receive.recv().ok().flatten() {
-            Some(DriverEvent::StateChanged(state)) => {
+        match self.browser.next_event() {
+            Some(BrowserEvent::StateChanged(state)) => {
                 for (index, bucket) in &state.coverage.edges_new {
                     let index = *index as usize;
                     // Report coverage changes to Antithesis.
@@ -163,9 +100,10 @@ impl InterfaceDriver for BrowserDriver {
                 log_coverage_stats_increment(&state.coverage);
                 log_coverage_stats_total(&self.edges);
                 // Then forward the event.
-                Some(DriverEvent::StateChanged(state))
+                Some(DriverEvent::StateChanged(Arc::new(state)))
             }
-            other => other,
+            Some(BrowserEvent::Error(error)) => Some(DriverEvent::Error(error)),
+            None => None,
         }
     }
 
@@ -174,17 +112,7 @@ impl InterfaceDriver for BrowserDriver {
         action: BrowserAction,
         state: Arc<BrowserState>,
     ) -> Result<()> {
-        let (reply_send, reply_receive) = std_mpsc::channel();
-        self.command_send
-            .send(BrowserCommand::Apply {
-                action,
-                state,
-                reply: reply_send,
-            })
-            .map_err(|_| anyhow!("browser worker gone"))?;
-        reply_receive
-            .recv()
-            .map_err(|_| anyhow!("browser worker gone"))?
+        self.browser.apply(action, state)
     }
 
     fn extract_snapshots(
@@ -192,130 +120,12 @@ impl InterfaceDriver for BrowserDriver {
         state: Arc<BrowserState>,
         last_action: Option<&BrowserAction>,
     ) -> Result<Vec<Snapshot>> {
-        let (reply_send, reply_receive) = std_mpsc::channel();
-        self.command_send
-            .send(BrowserCommand::ExtractSnapshots {
-                state,
-                last_action: last_action.cloned(),
-                reply: reply_send,
-            })
-            .map_err(|_| anyhow!("browser worker gone"))?;
-        reply_receive
-            .recv()
-            .map_err(|_| anyhow!("browser worker gone"))?
+        run_extractors(state, last_action)
     }
 
     fn state_timestamp(state: &BrowserState) -> SystemTime {
         state.timestamp
     }
-}
-
-fn run_browser_worker(
-    origin: Url,
-    browser_options: BrowserOptions,
-    debugger_options: DebuggerOptions,
-    specification_bundle: String,
-    mut command_receive: UnboundedReceiver<BrowserCommand>,
-    ready_send: std_mpsc::Sender<Result<()>>,
-) {
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            let _ = ready_send.send(Err(error.into()));
-            return;
-        }
-    };
-
-    let chromium = {
-        let result = match debugger_options {
-            DebuggerOptions::External { remote_debugger } => {
-                Chromium::connect(remote_debugger)
-            }
-            DebuggerOptions::Managed { launch_options } => {
-                Chromium::launch(launch_options)
-            }
-        };
-        match result {
-            Ok(chromium) => chromium,
-            Err(error) => {
-                let _ = ready_send.send(Err(error.into()));
-                return;
-            }
-        }
-    };
-
-    runtime.block_on(async move {
-        let mut browser = match Browser::new(origin, browser_options, &chromium)
-        {
-            Ok(browser) => browser,
-            Err(error) => {
-                let _ = ready_send.send(Err(error));
-                return;
-            }
-        };
-
-        if let Err(error) =
-            browser.ensure_script_evaluated(&specification_bundle)
-        {
-            let _ = ready_send.send(Err(error));
-            return;
-        }
-
-        if ready_send.send(Ok(())).is_err() {
-            // Driver was dropped before we finished setup.
-            return;
-        }
-
-        // `terminate` consumes the browser, so we carry the reply out of the
-        // loop and call it once afterwards.
-        let mut terminate_reply = None;
-        while let Some(command) = command_receive.recv().await {
-            match command {
-                BrowserCommand::Initiate { reply } => {
-                    let _ = reply.send(browser.initiate());
-                }
-                BrowserCommand::NextEvent { reply } => {
-                    let event = match browser.next_event() {
-                        Some(BrowserEvent::StateChanged(state)) => {
-                            Some(DriverEvent::StateChanged(Arc::new(state)))
-                        }
-                        Some(BrowserEvent::Error(error)) => {
-                            Some(DriverEvent::Error(error))
-                        }
-                        None => None,
-                    };
-                    let _ = reply.send(event);
-                }
-                BrowserCommand::Apply {
-                    action,
-                    state,
-                    reply,
-                } => {
-                    let _ = reply.send(browser.apply(action, state));
-                }
-                BrowserCommand::ExtractSnapshots {
-                    state,
-                    last_action,
-                    reply,
-                } => {
-                    let result =
-                        run_extractors(state, last_action.as_ref()).await;
-                    let _ = reply.send(result);
-                }
-                BrowserCommand::Terminate { reply } => {
-                    terminate_reply = Some(reply);
-                    break;
-                }
-            }
-        }
-
-        if let Some(reply) = terminate_reply {
-            let _ = reply.send(browser.terminate());
-        }
-    });
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -325,7 +135,7 @@ struct PartialSnapshot {
     value: json::Value,
 }
 
-async fn run_extractors(
+fn run_extractors(
     state: Arc<BrowserState>,
     last_action: Option<&BrowserAction>,
 ) -> Result<Vec<Snapshot>> {
