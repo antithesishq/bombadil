@@ -30,6 +30,7 @@ use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
     ScreenshotFormat,
 };
+use crate::chromium::Chromium;
 use crate::cookie::{BrowserCookie, build_cookie_param};
 
 pub mod actions;
@@ -149,13 +150,6 @@ struct BrowserContext {
 }
 
 #[derive(Clone)]
-pub struct LaunchOptions {
-    pub headless: bool,
-    pub user_data_directory: PathBuf,
-    pub no_sandbox: bool,
-}
-
-#[derive(Clone)]
 pub struct Emulation {
     pub width: u16,
     pub height: u16,
@@ -171,12 +165,6 @@ pub struct BrowserOptions {
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
     pub cookies: Vec<BrowserCookie>,
-}
-
-#[derive(Clone)]
-pub enum DebuggerOptions {
-    External { remote_debugger: Url },
-    Managed { launch_options: LaunchOptions },
 }
 
 pub struct Browser {
@@ -200,21 +188,11 @@ impl Browser {
     pub fn new(
         origin: Url,
         browser_options: BrowserOptions,
-        debugger_options: DebuggerOptions,
+        chromium: &Chromium,
     ) -> Result<Self> {
-        let connection = match debugger_options {
-            DebuggerOptions::External {
-                ref remote_debugger,
-            } => cdp::Connection::connect(remote_debugger.as_str())?,
-            DebuggerOptions::Managed { .. } => {
-                todo!("managed browser unsupported for now");
-                // let browser_config = launch_options_to_config(
-                //     launch_options,
-                //     &browser_options.emulation,
-                // )?;
-                // chromiumoxide::Browser::launch(browser_config)?
-            }
-        };
+        let connection = cdp::Connection::connect(
+            chromium.web_socket_remote_debugger.to_string(),
+        )?;
 
         let (events_tx, events_rx) = mpmc::bounded(32);
         let (browser_events_tx, browser_events_rx) =
@@ -1200,56 +1178,6 @@ fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
         }
     }
 }
-
-/*
-fn launch_options_to_config(
-    launch_options: &LaunchOptions,
-    emulation: &Emulation,
-) -> Result<BrowserConfig> {
-    let crash_dumps_dir = TempDir::new()?;
-
-    let apply_sandbox =
-        |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
-            if launch_options.no_sandbox {
-                builder
-                    .no_sandbox()
-                    .arg("disable-setuid-sandbox")
-                    .arg("disable-dev-shm-usage")
-            } else {
-                builder
-            }
-        };
-    let apply_headless =
-        |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
-            if launch_options.headless {
-                builder
-            } else {
-                builder.with_head()
-            }
-        };
-    apply_headless(apply_sandbox(BrowserConfig::builder()))
-        .window_size(emulation.width as u32, emulation.height as u32)
-        .user_data_dir(launch_options.user_data_directory.clone())
-        .arg((
-            "crash-dumps-dir",
-            crash_dumps_dir
-                .path()
-                .to_path_buf()
-                .to_str()
-                .expect("invalid tmp dir path"),
-        ))
-        .arg("enable-logging")
-        .arg(("v", "1"))
-        .arg("no-crashpad")
-        .arg("disable-background-networking")
-        .arg("disable-component-update")
-        .arg("disable-domain-reliability")
-        .arg("no-pings")
-        .arg("disable-crash-reporter")
-        .build()
-        .map_err(|s| anyhow!(s))
-}
-*/
 
 fn find_page(connection: &cdp::Connection) -> Result<(TargetId, SessionId)> {
     let page_targets = connection

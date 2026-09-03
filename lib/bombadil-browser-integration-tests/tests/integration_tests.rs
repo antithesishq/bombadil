@@ -22,12 +22,11 @@ use url::Url;
 
 use bombadil::{specification::verifier::Specification, styled};
 use bombadil_browser::{
-    browser::{
-        Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
-        actions::BrowserAction,
-    },
+    browser::{Browser, BrowserOptions, Emulation, actions::BrowserAction},
+    chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
+    driver::DebuggerOptions,
     runner,
     strategy::{TestStrategy, TraceWriter},
 };
@@ -264,6 +263,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
+                executable: chromium::locate::executable().unwrap(),
                 headless: true,
                 no_sandbox: true,
                 user_data_directory: user_data_directory.path().to_path_buf(),
@@ -517,19 +517,19 @@ async fn test_browser_lifecycle() {
             extra_headers: Default::default(),
             cookies: vec![],
         },
-        DebuggerOptions::Managed {
-            launch_options: LaunchOptions {
-                headless: true,
-                no_sandbox: true,
-                user_data_directory: user_data_directory.path().to_path_buf(),
-            },
-        },
+        &chromium::Chromium::launch(LaunchOptions {
+            executable: chromium::locate::executable().unwrap(),
+            headless: true,
+            no_sandbox: true,
+            user_data_directory: user_data_directory.path().to_path_buf(),
+        })
+        .unwrap(),
     )
     .unwrap();
 
-    browser.initiate().await.unwrap();
+    browser.initiate().unwrap();
 
-    let state = match browser.next_event().await.unwrap() {
+    let state = match browser.next_event().unwrap() {
         bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
             state
@@ -543,7 +543,7 @@ async fn test_browser_lifecycle() {
         .apply(BrowserAction::Reload, Arc::new(state))
         .unwrap();
 
-    match browser.next_event().await.unwrap() {
+    match browser.next_event().unwrap() {
         bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
             assert_eq!(state.title, "Console Error");
         }
@@ -553,7 +553,7 @@ async fn test_browser_lifecycle() {
     }
 
     log::info!("just changing for CI");
-    browser.terminate().await.unwrap();
+    browser.terminate().unwrap();
 }
 
 #[tokio::test]

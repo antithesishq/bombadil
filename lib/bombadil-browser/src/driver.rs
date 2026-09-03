@@ -17,7 +17,9 @@ use url::Url;
 use crate::browser::actions::BrowserAction;
 use crate::browser::actions::BrowserActionTemplate;
 use crate::browser::state::{BrowserState, Coverage};
-use crate::browser::{Browser, BrowserEvent, BrowserOptions, DebuggerOptions};
+use crate::browser::{Browser, BrowserEvent, BrowserOptions};
+use crate::chromium;
+use crate::chromium::Chromium;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 
 /// Commands sent from the synchronous [`BrowserDriver`] to the asynchronous
@@ -41,6 +43,15 @@ enum BrowserCommand {
     },
     Terminate {
         reply: std_mpsc::Sender<Result<()>>,
+    },
+}
+
+pub enum DebuggerOptions {
+    External {
+        remote_debugger: Url,
+    },
+    Managed {
+        launch_options: chromium::LaunchOptions,
     },
 }
 
@@ -218,15 +229,33 @@ fn run_browser_worker(
         }
     };
 
+    let chromium = {
+        let result = match debugger_options {
+            DebuggerOptions::External { remote_debugger } => {
+                Chromium::connect(remote_debugger)
+            }
+            DebuggerOptions::Managed { launch_options } => {
+                Chromium::launch(launch_options)
+            }
+        };
+        match result {
+            Ok(chromium) => chromium,
+            Err(error) => {
+                let _ = ready_send.send(Err(error.into()));
+                return;
+            }
+        }
+    };
+
     runtime.block_on(async move {
-        let mut browser =
-            match Browser::new(origin, browser_options, debugger_options) {
-                Ok(browser) => browser,
-                Err(error) => {
-                    let _ = ready_send.send(Err(error));
-                    return;
-                }
-            };
+        let mut browser = match Browser::new(origin, browser_options, &chromium)
+        {
+            Ok(browser) => browser,
+            Err(error) => {
+                let _ = ready_send.send(Err(error));
+                return;
+            }
+        };
 
         if let Err(error) =
             browser.ensure_script_evaluated(&specification_bundle)

@@ -2,9 +2,10 @@ use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::Result;
 use bombadil_browser::{
-    browser::LaunchOptions,
+    chromium::{self, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
+    driver::DebuggerOptions,
     strategy::TraceWriter,
     trace::writer::{FileTraceWriter, NoopTraceWriter},
 };
@@ -21,9 +22,7 @@ use tokio::{fs::File, io::BufReader};
 
 use bombadil::{antithesis, specification::verifier::Specification, styled};
 use bombadil_browser::{
-    browser::{
-        BrowserOptions, DebuggerOptions, Emulation, actions::BrowserAction,
-    },
+    browser::{BrowserOptions, Emulation, actions::BrowserAction},
     instrumentation::InstrumentationConfig,
 };
 use bombadil_schema::browser;
@@ -187,6 +186,7 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
                 browser_options_from_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
+                    executable: chromium::locate::executable()?,
                     headless,
                     user_data_directory: user_data_directory
                         .path()
