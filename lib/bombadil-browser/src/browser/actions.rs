@@ -95,6 +95,7 @@ impl BrowserAction {
         &self,
         connection: &cdp::Connection,
         session_id: &SessionId,
+        unique_context_id: Option<String>,
         options: ActionOptions,
     ) -> Result<()> {
         match self {
@@ -385,6 +386,7 @@ impl BrowserAction {
                 )
                     .argument(CallArgument::builder().value(json::json!(name)).build())
                     .argument(CallArgument::builder().value(options.clone()).build())
+                    .unique_context_id(unique_context_id.ok_or(anyhow!("no unique_context_id available, can't apply custom action"))?)
                 .build().map_err(|err| anyhow!(err))?;
                 connection.send(call, Some(session_id))?;
             }

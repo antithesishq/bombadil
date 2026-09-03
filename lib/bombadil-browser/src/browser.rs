@@ -853,6 +853,7 @@ fn process_event(
         ) => {
             let connection = context.connection.clone();
             let session_id = context.session_id.clone();
+            let execution_context_id = shared.execution_context_id.clone();
             let events_tx = context.events_tx.clone();
             let action_options = ActionOptions {
                 device_scale_factor: context
@@ -870,6 +871,7 @@ fn process_event(
                 match browser_action.apply(
                     &connection,
                     &session_id,
+                    execution_context_id,
                     action_options,
                 ) {
                     Ok(_) => {
