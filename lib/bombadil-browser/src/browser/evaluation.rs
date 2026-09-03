@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail, ensure};
 use cdp_protocol::cdp::{
     browser_protocol::target::SessionId,
     js_protocol::{
@@ -64,6 +64,37 @@ pub fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
             }
         }
     }
+}
+
+pub fn evaluate_script_in_debugger(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    call_frame_id: &debugger::CallFrameId,
+    script: impl Into<String>,
+) -> Result<()> {
+    let returns: debugger::EvaluateOnCallFrameReturns = connection
+        .send(
+            debugger::EvaluateOnCallFrameParams::builder()
+                .call_frame_id(call_frame_id.clone())
+                .expression(format!("(() => {{ {} }})()", script.into()))
+                .throw_on_side_effect(false)
+                .return_by_value(true)
+                .build()
+                .map_err(|err| anyhow!(err))?,
+            Some(session_id),
+        )
+        .map_err(|err| anyhow!(err))?;
+    if let Some(exception) = returns.exception_details {
+        bail!(
+            "evaluate_function failed: {}",
+            format_exception_details(&exception)
+        )
+    }
+    ensure!(
+        returns.result.value.is_none(),
+        "evaluated script shouldn't return a value"
+    );
+    Ok(())
 }
 
 fn format_exception_details(details: &runtime::ExceptionDetails) -> String {

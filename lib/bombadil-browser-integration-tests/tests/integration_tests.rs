@@ -305,7 +305,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 match self {
                     Outcome::Success => write!(f, "success"),
                     Outcome::Error(error) => {
-                        write!(f, "error: {}", error)
+                        write!(f, "error: {:#}", error)
                     }
                 }
             }

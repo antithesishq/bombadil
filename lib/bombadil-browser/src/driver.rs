@@ -37,6 +37,7 @@ pub struct BrowserDriver {
     edges: Vec<u8>,
     coverage_map_offset: usize,
     browser: Browser,
+    specification_bundle: String,
 }
 
 impl BrowserDriver {
@@ -67,6 +68,7 @@ impl BrowserDriver {
             edges: vec![0u8; EDGE_MAP_SIZE],
             coverage_map_offset,
             browser,
+            specification_bundle,
         })
     }
 }
@@ -126,6 +128,10 @@ impl InterfaceDriver for BrowserDriver {
         state: Arc<BrowserState>,
         last_action: Option<&BrowserAction>,
     ) -> Result<Vec<Snapshot>> {
+        if !await_bundle_defined(&state).context("failed to run extractors")? {
+            log::warn!("specification bundle not defined, reevaluating...");
+            state.evaluate_script(&self.specification_bundle)?;
+        }
         run_extractors(state, last_action)
     }
 
@@ -145,8 +151,6 @@ fn run_extractors(
     state: Arc<BrowserState>,
     last_action: Option<&BrowserAction>,
 ) -> Result<Vec<Snapshot>> {
-    await_bundle_defined(&state).context("failed to run extractors")?;
-
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
@@ -192,20 +196,19 @@ fn run_extractors(
 
 /// Ensure __bombadilRequire is available (wait for bundle script to execute
 /// after reload/navigation).
-fn await_bundle_defined(state: &BrowserState) -> Result<()> {
+fn await_bundle_defined(state: &BrowserState) -> Result<bool> {
     for n in 0..5 {
         let defined = state.evaluate_function_call::<bool>(
             r#"() => typeof globalThis.__bombadilRequire === 'function'"#,
             vec![],
         )?;
-        dbg!(defined);
         if defined {
-            return Ok(());
+            return Ok(true);
         } else {
             thread::sleep(Duration::from_millis(200 * n as u64));
         }
     }
-    bail!("__bombadilRequire is not defined");
+    Ok(false)
 }
 
 fn log_coverage_stats_increment(coverage: &Coverage) {

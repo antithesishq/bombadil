@@ -17,6 +17,7 @@ use url::Url;
 
 use crate::browser::evaluation::{
     evaluate_expression_in_debugger, evaluate_function_call_in_debugger,
+    evaluate_script_in_debugger,
 };
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -403,6 +404,15 @@ impl BrowserState {
             screenshot,
             resources,
         })
+    }
+
+    pub fn evaluate_script(&self, script: impl Into<String>) -> Result<()> {
+        evaluate_script_in_debugger(
+            &self.connection,
+            &self.session_id,
+            &self.call_frame_id,
+            script,
+        )
     }
 
     pub fn evaluate_function_call<Output: DeserializeOwned>(
