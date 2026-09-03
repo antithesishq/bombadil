@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow, bail};
 use serde::Deserialize;
 use std::{
+    net::{SocketAddr, TcpListener},
     path::PathBuf,
     process::{self, Stdio},
     str::FromStr,
@@ -88,7 +89,7 @@ impl Chromium {
         command.arg("--no-pings");
         command.arg("--disable-crash-reporter");
 
-        let remote_debugging_port: u16 = 9222; // TODO: find available port
+        let remote_debugging_port: u16 = available_port().ok_or(anyhow!("failed to find available port for remote debugging server in chromium"))?;
         command
             .arg(format!("--remote-debugging-port={}", remote_debugging_port));
 
@@ -172,4 +173,11 @@ fn web_socket_remote_debugger_get(remote_debugger: &Url) -> Result<Url> {
 
     log::debug!("got /json/version response: {:?}", response);
     Ok(response.web_socket_remote_debugger)
+}
+
+fn available_port() -> Option<u16> {
+    TcpListener::bind("127.0.0.1:0")
+        .ok()
+        .and_then(|listener| listener.local_addr().ok())
+        .map(|addr: SocketAddr| addr.port())
 }
