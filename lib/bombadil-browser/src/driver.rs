@@ -1,8 +1,9 @@
 use std::cmp::max;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::thread;
+use std::time::{Duration, SystemTime};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
@@ -166,26 +167,7 @@ fn run_extractors(
         "resources": &state.resources,
     });
 
-    // Ensure __bombadilRequire is available (wait for bundle script to execute
-    // after reload/navigation). Use async/await to avoid blocking the event loop.
-    state
-        .evaluate_function_call::<json::Value>(
-            r#"
-            async () => {
-                const start = Date.now();
-                const timeout = 5000;
-                while (typeof globalThis.__bombadilRequire !== 'function') {
-                    if (Date.now() - start > timeout) {
-                        throw new Error('__bombadilRequire not available after ' + timeout + 'ms');
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 10));
-                }
-                return true;
-            }
-            "#,
-            vec![],
-        )
-        ?;
+    await_bundle_defined(&state)?;
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
@@ -206,6 +188,24 @@ fn run_extractors(
         .collect();
 
     Ok(results)
+}
+
+/// Ensure __bombadilRequire is available (wait for bundle script to execute
+/// after reload/navigation).
+fn await_bundle_defined(state: &BrowserState) -> Result<()> {
+    for n in 0..5 {
+        let defined = state.evaluate_function_call::<bool>(
+            r#"() => typeof globalThis.__bombadilRequire === 'function'"#,
+            vec![],
+        )?;
+        dbg!(defined);
+        if defined {
+            return Ok(());
+        } else {
+            thread::sleep(Duration::from_millis(200 * n as u64));
+        }
+    }
+    bail!("__bombadilRequire is not defined");
 }
 
 fn log_coverage_stats_increment(coverage: &Coverage) {
