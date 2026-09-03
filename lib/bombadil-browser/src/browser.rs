@@ -38,6 +38,7 @@ pub mod activity;
 pub mod evaluation;
 pub mod instrumentation;
 pub mod quiescence;
+pub mod screenshots;
 pub mod state;
 
 #[derive(Debug, Clone)]
@@ -227,7 +228,7 @@ impl Browser {
         let latest_frame: Arc<Mutex<Option<Arc<Binary>>>> =
             Arc::new(Mutex::new(None));
 
-        let frames_rx = activity::screencast_start(
+        let frames_rx = screenshots::screencast_start(
             &connection,
             &session_id,
             browser_options.emulation.width,
@@ -1138,26 +1139,29 @@ fn capture_browser_state(
                 .decode(&*base64)
                 .map_err(|e| anyhow!("screencast base64 decode failed: {e}"))?;
             state.shared.screenshot = Some(Screenshot {
-                format: ScreenshotFormat::Jpeg,
+                format: screenshots::SCREENSHOT_FORMAT,
                 data,
             });
         }
         None => {
-            log::warn!("no screencast frame available, skipping state capture");
-            return retry_with_timer(state.shared, context);
+            log::warn!("no screencast frame available, forcing screen capture");
+            state.shared.screenshot = Some(screenshots::screenshot_capture(
+                &context.connection,
+                &context.session_id,
+                context.browser_options.emulation.width,
+                context.browser_options.emulation.height,
+            )?)
         }
     }
 
-    let connection = context.connection.clone();
-    let session_id = context.session_id.clone();
-    connection.post(
+    context.connection.post(
         runtime::EvaluateParams::builder()
             .expression("debugger;0")
             .unique_context_id(execution_context_id)
             .await_promise(false)
             .build()
             .expect("failed to build EvaluateParams"),
-        Some(&session_id),
+        Some(&context.session_id),
     )?;
 
     state.shared.generation = state.shared.generation.next();

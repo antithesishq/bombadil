@@ -120,7 +120,6 @@ pub enum ConsoleEntryLevel {
 
 #[derive(Copy, Clone, Debug)]
 pub enum ScreenshotFormat {
-    Webp,
     Png,
     Jpeg,
 }
@@ -128,7 +127,6 @@ pub enum ScreenshotFormat {
 impl ScreenshotFormat {
     pub fn extension(&self) -> &str {
         match self {
-            ScreenshotFormat::Webp => "webp",
             ScreenshotFormat::Png => "png",
             ScreenshotFormat::Jpeg => "jpeg",
         }
@@ -138,9 +136,17 @@ impl ScreenshotFormat {
 impl From<ScreenshotFormat> for CaptureScreenshotFormat {
     fn from(val: ScreenshotFormat) -> Self {
         match val {
-            ScreenshotFormat::Webp => CaptureScreenshotFormat::Webp,
             ScreenshotFormat::Png => CaptureScreenshotFormat::Png,
             ScreenshotFormat::Jpeg => CaptureScreenshotFormat::Jpeg,
+        }
+    }
+}
+
+impl From<ScreenshotFormat> for page::StartScreencastFormat {
+    fn from(val: ScreenshotFormat) -> page::StartScreencastFormat {
+        match val {
+            ScreenshotFormat::Jpeg => page::StartScreencastFormat::Jpeg,
+            ScreenshotFormat::Png => page::StartScreencastFormat::Png,
         }
     }
 }

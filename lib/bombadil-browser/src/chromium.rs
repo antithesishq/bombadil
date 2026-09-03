@@ -126,6 +126,8 @@ impl Drop for Chromium {
             && let Err(error) = child.kill()
         {
             log::error!("failed to kill chromium/chrome process: {}", error);
+        } else {
+            log::info!("killed chromium/chrome process");
         }
     }
 }
