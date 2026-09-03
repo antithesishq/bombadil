@@ -3,7 +3,6 @@ use anyhow::{Result, anyhow, bail};
 use base64::Engine;
 use cdp::Binary;
 use cdp::types::try_match;
-use cdp_protocol::cdp::browser_protocol::css;
 use cdp_protocol::cdp::browser_protocol::emulation;
 use cdp_protocol::cdp::browser_protocol::network;
 use cdp_protocol::cdp::browser_protocol::page::{
@@ -11,6 +10,7 @@ use cdp_protocol::cdp::browser_protocol::page::{
 };
 use cdp_protocol::cdp::browser_protocol::target::{self, SessionId, TargetId};
 use cdp_protocol::cdp::browser_protocol::{browser, dom};
+use cdp_protocol::cdp::browser_protocol::{css, performance};
 use cdp_protocol::cdp::js_protocol::debugger::{self, CallFrameId};
 use cdp_protocol::cdp::js_protocol::runtime::{self};
 use crossbeam_channel as mpmc;
@@ -253,6 +253,8 @@ impl Browser {
         connection
             .send(debugger::EnableParams::default(), Some(&session_id))?;
         connection.send(network::EnableParams::default(), Some(&session_id))?;
+        connection
+            .send(performance::EnableParams::default(), Some(&session_id))?;
 
         if !browser_options.extra_headers.is_empty() {
             connection.send(
@@ -1144,12 +1146,13 @@ fn capture_browser_state(
         }
         None => {
             log::warn!("no screencast frame available, forcing screen capture");
-            state.shared.screenshot = Some(screenshots::screenshot_capture(
-                &context.connection,
-                &context.session_id,
-                context.browser_options.emulation.width,
-                context.browser_options.emulation.height,
-            )?)
+            return retry_with_timer(state.shared, context);
+            // state.shared.screenshot = Some(screenshots::screenshot_capture(
+            //     &context.connection,
+            //     &context.session_id,
+            //     context.browser_options.emulation.width,
+            //     context.browser_options.emulation.height,
+            // )?)
         }
     }
 
