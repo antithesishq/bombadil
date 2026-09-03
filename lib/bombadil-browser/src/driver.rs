@@ -28,6 +28,10 @@ pub enum DebuggerOptions {
 }
 
 pub struct BrowserDriver {
+    // We need to own this throughout the lifecycle, becausing
+    // dropping a managed Chromium value terminates the spawned
+    // browser process.
+    _chromium: Chromium,
     // Heap-allocated so the 64 KB edge map doesn't blow the stack.
     edges: Vec<u8>,
     coverage_map_offset: usize,
@@ -54,10 +58,11 @@ impl BrowserDriver {
                 Chromium::launch(launch_options)?
             }
         };
-        let browser = Browser::new(origin, browser_options, chromium)?;
+        let browser = Browser::new(origin, browser_options, &chromium)?;
         browser.ensure_script_evaluated(&specification_bundle)?;
 
         Ok(Self {
+            _chromium: chromium,
             edges: vec![0u8; EDGE_MAP_SIZE],
             coverage_map_offset,
             browser,
