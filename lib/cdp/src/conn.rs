@@ -312,8 +312,8 @@ fn handle_message(
     match msg {
         WsMessage::Text(text) => {
             let text_str = text.as_str();
-            // We can only parse `Message` when we know that there's no `id` field, and otherwise
-            // parse as `Response`, so we do a first parsing pass with this cheap struct.
+            // We only parse `Message` when we know that there's no `id` field, and otherwise
+            // parse as `Response`. Hence, we need do a first parsing pass with this cheap struct.
             #[derive(Deserialize)]
             struct Peek {
                 #[serde(default)]

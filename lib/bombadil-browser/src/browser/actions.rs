@@ -309,9 +309,6 @@ impl BrowserAction {
                 steps,
                 delay_millis,
             } => {
-                // `buttons: 1` (left held) must be set on every event during
-                // the drag so JS sees the held button on mousemove. Chrome
-                // doesn't track button state across CDP events.
                 let dispatch = |event_type, point: Point, buttons: i64| {
                     input::DispatchMouseEventParams::builder()
                         .r#type(event_type)
