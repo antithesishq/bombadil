@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
@@ -145,6 +145,8 @@ fn run_extractors(
     state: Arc<BrowserState>,
     last_action: Option<&BrowserAction>,
 ) -> Result<Vec<Snapshot>> {
+    await_bundle_defined(&state).context("failed to run extractors")?;
+
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
@@ -166,8 +168,6 @@ fn run_extractors(
         "lastAction": json::to_value(last_action)?,
         "resources": &state.resources,
     });
-
-    await_bundle_defined(&state)?;
 
     let partial_snapshots: Vec<PartialSnapshot> = state
             .evaluate_function_call(
