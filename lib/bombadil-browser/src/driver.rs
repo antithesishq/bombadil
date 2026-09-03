@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use bombadil::driver::{DriverEvent, InterfaceDriver};
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;

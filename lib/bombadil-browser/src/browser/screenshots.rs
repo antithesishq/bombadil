@@ -34,7 +34,7 @@ pub fn screenshot_capture(
             capture_beyond_viewport: Some(false),
             optimize_for_speed: Some(true),
         },
-        Some(&session_id),
+        Some(session_id),
     )?;
 
     let data = base64::prelude::BASE64_STANDARD

@@ -501,6 +501,7 @@ dependencies = [
  "bombadil-browser",
  "bombadil-ltl",
  "bombadil-schema",
+ "crossbeam-channel",
  "env_logger",
  "hegeltest",
  "indoc",

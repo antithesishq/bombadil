@@ -382,19 +382,18 @@ impl Browser {
             let session_id = self.session_id.clone();
             let frame_id = self.frame_id.clone();
             let origin = self.origin.to_string();
-            thread::spawn(move || {
-                log::info!("going to origin");
-                let _ = connection.send(
-                    page::NavigateParams {
-                        url: origin,
-                        referrer: None,
-                        transition_type: None,
-                        frame_id: Some(frame_id),
-                        referrer_policy: None,
-                    },
-                    Some(&session_id),
-                );
-            });
+
+            log::info!("going to origin");
+            connection.post(
+                page::NavigateParams {
+                    url: origin,
+                    referrer: None,
+                    transition_type: None,
+                    frame_id: Some(frame_id),
+                    referrer_policy: None,
+                },
+                Some(&session_id),
+            )?;
         } else {
             let _ = self.events_tx.send(InnerEvent::StateRequested(
                 StateRequestReason::Start,
@@ -475,13 +474,13 @@ fn auto_accept_dialogs(
                 event.r#type,
                 event.message
             );
-            let _ = connection.send(
+            connection.post(
                 page::HandleJavaScriptDialogParams::builder()
                     .accept(true)
                     .build()
                     .expect("build HandleJavaScriptDialogParams"),
                 Some(&session_id),
-            );
+            )?;
         }
         Ok(())
     });

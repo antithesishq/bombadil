@@ -132,6 +132,7 @@ impl Drop for Chromium {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ChromiumVersionResponse {
     #[serde(rename = "Browser")]

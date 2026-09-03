@@ -5,7 +5,8 @@ use std::{
 };
 
 /// Start the countdown. Returns channel with a single value
-/// when quiescent.
+/// when quiescent. If `activity_rx` disconnects, so does the
+/// returned channel receiver.
 pub fn start(
     activity_rx: mpmc::Receiver<Duration>,
     timeout_idle: Duration,
@@ -124,12 +125,13 @@ mod tests {
     #[test]
     fn drop_handle_cancels() {
         init();
-        let (_empty_tx, empty_rx) = mpmc::unbounded();
+        let (empty_tx, empty_rx) = mpmc::unbounded();
         let wait =
             start(empty_rx, Duration::from_secs(10), Duration::from_secs(10));
-        let t = Instant::now();
-        wait.recv().unwrap();
-        assert!(t.elapsed() < Duration::from_millis(100));
+        let start = Instant::now();
+        drop(empty_tx);
+        assert_eq!(wait.recv(), Err(mpmc::RecvError {}));
+        assert!(start.elapsed() < Duration::from_millis(100));
     }
 
     fn unfold<T: Send + 'static>(

@@ -6,15 +6,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
 use rand::SeedableRng;
 use std::collections::HashMap;
-use std::io::Write;
 use std::{
     fmt::Display,
     sync::Once,
     time::{Duration, SystemTime},
 };
+use std::{io::Write, sync::OnceLock};
 use tempfile::{NamedTempFile, TempDir};
 use tower_http::services::ServeDir;
 use url::Url;
@@ -31,6 +32,11 @@ use bombadil_browser::{
 };
 
 static INIT: Once = Once::new();
+static TEST_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+
+fn acquire<'a>() -> SemaphoreGuard<'a> {
+    TEST_SEMAPHORE.get_or_init(|| Semaphore::new(4)).acquire()
+}
 
 fn setup() {
     INIT.call_once(|| {
@@ -145,6 +151,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             cookies,
         } = self;
         setup();
+        let _guard = acquire();
         log::info!("starting browser test");
         let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
 
