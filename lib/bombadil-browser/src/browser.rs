@@ -1146,14 +1146,13 @@ fn capture_browser_state(
             });
         }
         None => {
-            log::warn!("no screencast frame available, forcing screen capture");
-            return retry_with_timer(state.shared, context);
-            // state.shared.screenshot = Some(screenshots::screenshot_capture(
-            //     &context.connection,
-            //     &context.session_id,
-            //     context.browser_options.emulation.width,
-            //     context.browser_options.emulation.height,
-            // )?)
+            log::info!("no screencast frame available, forcing screen capture");
+            state.shared.screenshot = Some(screenshots::screenshot_capture(
+                &context.connection,
+                &context.session_id,
+                context.browser_options.emulation.width,
+                context.browser_options.emulation.height,
+            )?)
         }
     }
 
