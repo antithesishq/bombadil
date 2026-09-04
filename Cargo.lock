@@ -436,7 +436,6 @@ dependencies = [
  "insta",
  "log",
  "num-traits",
- "oneshot",
  "owo-colors",
  "oxc",
  "oxc_resolver",
