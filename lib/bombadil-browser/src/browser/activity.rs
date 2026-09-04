@@ -45,7 +45,7 @@ pub fn network_activity(
     let all = events.all();
     thread::spawn(move || -> Result<()> {
         let mut hit_counts: HashMap<String, u32> = HashMap::new();
-        while let Ok(event) = all.try_recv() {
+        while let Ok(event) = all.recv() {
             let result = try_match!(event, {
                 network::EventRequestWillBeSent: event => Some((event.request.url.clone(), NETWORK_BUMP_REQUEST)),
                 network::EventResponseReceived: event => Some((event.response.url.clone(), NETWORK_BUMP_RESPONSE)),
