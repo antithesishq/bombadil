@@ -15,6 +15,7 @@ use cdp_protocol::cdp::js_protocol::debugger::{self, CallFrameId};
 use cdp_protocol::cdp::js_protocol::runtime::{self};
 use crossbeam_channel as mpmc;
 use log;
+use serde::Deserialize;
 use serde_json as json;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -111,7 +112,7 @@ enum InnerEvent {
         frame_id: FrameId,
         url: String,
     },
-    ExecutionContextCreated(String),
+    ExecutionContextCreated(String, FrameId),
     ExecutionContextDestroyed(String),
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
@@ -500,7 +501,16 @@ fn forward_inner_events(
                 runtime::EventExecutionContextCreated: event => {
                     // TODO: filter these, ignoring some?
                     log::debug!("got execution context created event: {:?}", event.context);
-                    Some(InnerEvent::ExecutionContextCreated(event.context.unique_id.clone()))
+                    #[derive(Deserialize)]
+                    struct AuxData {
+                        #[serde(rename = "frameId")]
+                        frame_id: Option<FrameId>,
+                    }
+                    if let Some(aux) = event.context.aux_data && let Ok(aux) = json::from_value::<AuxData>(aux) && let Some(frame_id) = aux.frame_id {
+                        Some(InnerEvent::ExecutionContextCreated(event.context.unique_id.clone(), frame_id))
+                    } else {
+                        None
+                    }
                 },
                 runtime::EventExecutionContextDestroyed: event => {
                     Some(InnerEvent::ExecutionContextDestroyed(event.execution_context_unique_id.clone()))
@@ -671,9 +681,13 @@ fn process_event(
 ) -> Result<InnerState> {
     use InnerStateKind::*;
     Ok(match (state_current, event) {
-        (mut state, InnerEvent::ExecutionContextCreated(id)) => {
-            log::debug!("execution context id created: {id}");
-            state.shared.execution_context_id = Some(id);
+        (mut state, InnerEvent::ExecutionContextCreated(id, frame_id)) => {
+            if context.frame_id == frame_id {
+                log::debug!(
+                    "execution context id created for main frame: {id}"
+                );
+                state.shared.execution_context_id = Some(id);
+            }
             state
         }
         (mut state, InnerEvent::ExecutionContextDestroyed(id)) => {
