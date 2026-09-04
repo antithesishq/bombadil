@@ -10,4 +10,3 @@ pub use crate::events::{Events, Subscriber};
 pub mod conn;
 pub mod error;
 pub mod events;
-pub mod layout;

@@ -1,7 +1,0 @@
-/target
-/download
-Cargo.lock
-.idea/
-.cache/
-/.cargo/
-/vendor/

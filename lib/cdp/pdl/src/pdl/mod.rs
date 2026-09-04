@@ -1,5 +1,4 @@
 mod dep;
-mod error;
 pub mod parser;
 pub mod resolver;
 
@@ -10,8 +9,6 @@ use serde::{Deserialize, Serialize};
 mod ser;
 
 use std::borrow::Cow;
-
-pub use self::error::Error;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

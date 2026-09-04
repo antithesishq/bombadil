@@ -1,6 +1,5 @@
 use std::ops::RangeInclusive;
 
-use cdp::layout;
 use rand::distr::uniform::SampleUniform;
 use serde::{Deserialize, Serialize};
 
@@ -8,18 +7,6 @@ use serde::{Deserialize, Serialize};
 pub struct Point<N = f64> {
     pub x: N,
     pub y: N,
-}
-
-impl From<layout::Point> for Point {
-    fn from(val: layout::Point) -> Self {
-        Point { x: val.x, y: val.y }
-    }
-}
-
-impl From<Point> for layout::Point {
-    fn from(val: Point) -> Self {
-        layout::Point { x: val.x, y: val.y }
-    }
 }
 
 impl Point {

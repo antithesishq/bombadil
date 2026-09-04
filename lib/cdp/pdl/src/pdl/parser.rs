@@ -2,9 +2,18 @@
 //!
 //! All regexp's are copied from pdl.py in the chromium source tree.
 use crate::pdl::dep::is_circular_dep;
-use crate::pdl::error::*;
 use crate::pdl::*;
+use anyhow::{Result, anyhow, bail};
 use std::borrow::Cow;
+
+macro_rules! borrowed {
+    ($m:expr) => {
+        $m.map(|x|x.as_str()).map(std::borrow::Cow::Borrowed)
+    };
+    ($m:expr, $($tt:tt)*) => {
+         borrowed!($m).ok_or_else(||anyhow!($($tt)*))
+    };
+}
 
 /// Helper macro to create `&'static Regex`
 macro_rules! regex {
@@ -21,7 +30,7 @@ macro_rules! regex {
 /// Rewrite of the Python script from the Chromium source tree.
 ///
 ///  See: https://chromium.googlesource.com/deps/inspector_protocol/+/refs/heads/master/pdl.py
-pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
+pub fn parse_pdl(input: &str) -> Result<Protocol<'_>> {
     let mut protocol = Protocol::default();
     let mut description: Option<String> = None;
     let mut version = None;
@@ -93,7 +102,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 .domains
                 .last_mut()
                 .ok_or_else(|| {
-                    format_err!("line {}: missing domain declaration", line_num)
+                    anyhow!("line {}: missing domain declaration", line_num)
                 })?
                 .dependencies
                 .push(borrowed!(caps.get(1)).unwrap());
@@ -108,7 +117,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
             let domain = protocol
                 .domains
                 .last_mut()
-                .ok_or_else(|| format_err!("line {}: missing domain declaration", line_num))?;
+                .ok_or_else(|| anyhow!("line {}: missing domain declaration", line_num))?;
 
             if let Some(mut el) = element.take() {
                 if let Some(member) = member.take() {
@@ -137,7 +146,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 .captures(line)
         {
             let domain = protocol.domains.last_mut().ok_or_else(|| {
-                format_err!("line {}: missing domain declaration", line_num)
+                anyhow!("line {}: missing domain declaration", line_num)
             })?;
             if let Some(mut el) = element.take() {
                 if let Some(member) = member.take() {
@@ -189,7 +198,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
             let domain = protocol
                 .domains
                 .last_mut()
-                .ok_or_else(|| format_err!("line {}: missing domain declaration", line_num))?;
+                .ok_or_else(|| anyhow!("line {}: missing domain declaration", line_num))?;
             let name = borrowed!(caps.get(6)).unwrap();
             let param = Param {
                 description: description.take().map(Cow::Owned),
@@ -202,7 +211,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 r#type: Type::new(caps.get(5).unwrap().as_str(), caps.get(4).is_some()),
             };
             match member.as_mut().ok_or_else(|| {
-                format_err!(
+                anyhow!(
                     "line {}: parameter {} has no declared member section",
                     line_num,
                     param.name
@@ -226,10 +235,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 element
                     .as_mut()
                     .ok_or_else(|| {
-                        format_err!(
-                            "line {}: member has no parent item",
-                            line_num
-                        )
+                        anyhow!("line {}: member has no parent item", line_num)
                     })?
                     .add_member(member)?;
             }
@@ -266,7 +272,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
 
         if let Some(caps) = regex!("^  major (\\d+)").captures(line) {
             let v = version.as_mut().ok_or_else(|| {
-                format_err!("line {}: version must be declared first", line_num)
+                anyhow!("line {}: version must be declared first", line_num)
             })?;
             v.major = caps.get(1).unwrap().as_str().parse().unwrap();
             continue;
@@ -274,7 +280,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
 
         if let Some(caps) = regex!("^  minor (\\d+)").captures(line) {
             let v = version.as_mut().ok_or_else(|| {
-                format_err!("line {}: missing version declaration", line_num)
+                anyhow!("line {}: missing version declaration", line_num)
             })?;
             v.minor = caps.get(1).unwrap().as_str().parse().unwrap();
             continue;
@@ -296,7 +302,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                     name.rsplit('.').next().map(str::to_string).map(Cow::Owned);
             }
             match element.as_mut().ok_or_else(|| {
-                format_err!("line {}: missing item declaration", line_num)
+                anyhow!("line {}: missing item declaration", line_num)
             })? {
                 Element::Commnad(cmd) => {
                     cmd.redirect = Some(redirect);
@@ -310,17 +316,14 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
         if regex!("^      (  )?[^\\n\\t]+$").is_match(line) {
             if member_enum {
                 let param = match member.as_mut().ok_or_else(|| {
-                    format_err!("line {}: missing member declaration", line_num)
+                    anyhow!("line {}: missing member declaration", line_num)
                 })? {
                     Member::Parameters(params) => params.last_mut(),
                     Member::Returns(params) => params.last_mut(),
                     Member::Properties(params) => params.last_mut(),
                 }
                 .ok_or_else(|| {
-                    format_err!(
-                        "line {}: missing parameter declaration",
-                        line_num
-                    )
+                    anyhow!("line {}: missing parameter declaration", line_num)
                 })?;
 
                 if let Type::Enum(ref mut vars) = param.r#type {
@@ -333,7 +336,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
                 }
             } else {
                 match element.as_mut().ok_or_else(|| {
-                    format_err!("line {}: missing item declaration", line_num)
+                    anyhow!("line {}: missing item declaration", line_num)
                 })? {
                     Element::Type(ty) => {
                         if let Some(Item::Enum(vars)) = ty.item.as_mut() {
@@ -362,7 +365,7 @@ pub fn parse_pdl(input: &str) -> Result<Protocol<'_>, Error> {
         element.consume(domain);
     }
 
-    protocol.version = version.ok_or_else(|| format_err!("Missing version"))?;
+    protocol.version = version.ok_or_else(|| anyhow!("Missing version"))?;
     Ok(protocol)
 }
 
@@ -388,7 +391,7 @@ impl<'a> Element<'a> {
         }
     }
 
-    fn add_member(&mut self, member: Member<'a>) -> Result<(), Error> {
+    fn add_member(&mut self, member: Member<'a>) -> Result<()> {
         match member {
             Member::Parameters(params) => match self {
                 Element::Commnad(cmd) => {
@@ -422,7 +425,7 @@ impl<'a> Element<'a> {
             }
         }
 
-        Err(format_err!("Invalid member"))
+        Err(anyhow!("Invalid member"))
     }
 }
 

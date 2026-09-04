@@ -29,7 +29,7 @@ impl Subscribers {
         let event = Arc::new(event);
 
         // Evict disconnected channels while dispatching (`send` returns Err
-        // in case of disconnected receiver). Blocking send is deliberate: a
+        // in case of disconnected receiver). Blocking send is crucial, as a
         // slow consumer must not lose events.
         self.all.retain(|s| s.send(event.clone()).is_ok());
         if let Some(subscriptions) = self.single.get_mut(&event.method) {
@@ -57,7 +57,7 @@ impl Events {
             !subscribers.closed,
             "Subscribers are closed, can't subscribe with .all()"
         );
-        let (tx, rx) = mpmc::bounded(1024);
+        let (tx, rx) = mpmc::bounded(32);
         subscribers.all.push(tx);
         rx
     }
@@ -73,7 +73,7 @@ impl Events {
             !subscribers.closed,
             "Subscribers are closed, can't subscribe with .subscribe()"
         );
-        let (tx, rx) = mpmc::bounded(1024);
+        let (tx, rx) = mpmc::bounded(32);
         subscribers
             .single
             .entry(T::method_id())

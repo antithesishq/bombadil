@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use either::Either;
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use proc_macro2::{Ident, TokenStream};
@@ -198,25 +198,21 @@ impl Generator {
         for path in pdls {
             let path = path.as_ref();
             let file_name = path.file_stem().ok_or_else(|| {
-                Error::other(format!(
-                    "Failed to read file name for {}",
-                    path.display()
-                ))
+                anyhow!("Failed to read file name for {}", path.display())
             })?;
             let mod_name = file_name.to_string_lossy().to_string();
             self.protocol_mods.push(mod_name);
 
             let input = fs::read_to_string(path)
                 .context(format!("read file failed: {}", path.display()))?;
-            let resolved = resolve_pdl(path, &input)
-                .map_err(|e| Error::other(e.message))?;
+            let resolved = resolve_pdl(path, &input)?;
             inputs.push(resolved);
         }
 
         let mut protocols = vec![];
 
         for input in inputs.iter() {
-            let pdl = parse_pdl(input).map_err(|e| Error::other(e.message))?;
+            let pdl = parse_pdl(input)?;
             protocols.push(pdl);
         }
 
