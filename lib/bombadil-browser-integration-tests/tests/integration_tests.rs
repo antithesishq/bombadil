@@ -163,6 +163,29 @@ fn download_directory_snapshot(path: &FsPath) -> Vec<String> {
     snapshot
 }
 
+fn download_directory_contents(
+    path: &FsPath,
+) -> std::io::Result<Vec<Vec<u8>>> {
+    let entries = std::fs::read_dir(path)?
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let mut contents = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "download output is not a regular file: {}",
+                    entry.path().display()
+                ),
+            ));
+        }
+        contents.push(std::fs::read(entry.path())?);
+    }
+    contents.sort();
+    Ok(contents)
+}
+
 fn optimization_guide_profile_snapshot(path: &FsPath) -> Vec<String> {
     let mut snapshot = Vec::new();
     for relative_root in OPTIMIZATION_GUIDE_ARTIFACT_ROOTS {
@@ -775,6 +798,18 @@ impl<'a> BrowserIntegrationTest<'a> {
                 "managed Chrome created transient or retained Optimization Guide profile entries: {profile_observations:#?}"
             ));
         }
+        if let Some(ref mut expected) = expected_download_contents {
+            expected.sort();
+            match download_directory_contents(downloads_directory.path()) {
+                Ok(actual) if actual != *expected => failures.push(format!(
+                    "download contents differ: expected {expected:?}, got {actual:?}"
+                )),
+                Ok(_) => {}
+                Err(error) => failures.push(format!(
+                    "could not verify terminal download contents: {error}"
+                )),
+            }
+        }
         if !failures.is_empty() {
             let failure = failures.join("\n\n");
             if expect_empty_downloads {
@@ -787,26 +822,6 @@ impl<'a> BrowserIntegrationTest<'a> {
                 );
             }
             panic!("{failure}");
-        }
-
-        if let Some(ref mut expected) = expected_download_contents {
-            let entries = std::fs::read_dir(downloads_directory.path())
-                .unwrap()
-                .collect::<std::io::Result<Vec<_>>>()
-                .unwrap();
-            let mut actual = Vec::with_capacity(entries.len());
-            for entry in entries {
-                let metadata = entry.metadata().unwrap();
-                assert!(
-                    metadata.is_file(),
-                    "download output is not a regular file: {}",
-                    entry.path().display()
-                );
-                actual.push(std::fs::read(entry.path()).unwrap());
-            }
-            actual.sort();
-            expected.sort();
-            assert_eq!(&actual, expected);
         }
     }
 }
@@ -1333,6 +1348,7 @@ async fn test_file_download_deny() {
             "download request denied by configured browser policy",
             &["/test-file", "http://localhost:"],
         )
+        .expect_empty_downloads()
         .expect_no_downloads()
         .run()
         .await;
