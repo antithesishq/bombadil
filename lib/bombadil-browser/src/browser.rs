@@ -123,8 +123,7 @@ enum InnerEvent {
     NavigationTimedOut(Generation),
 }
 
-type InnerEventStream =
-    Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
+type InnerEventStream = Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StateRequestReason {

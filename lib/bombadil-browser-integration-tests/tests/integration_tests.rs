@@ -163,11 +163,9 @@ fn download_directory_snapshot(path: &FsPath) -> Vec<String> {
     snapshot
 }
 
-fn download_directory_contents(
-    path: &FsPath,
-) -> std::io::Result<Vec<Vec<u8>>> {
-    let entries = std::fs::read_dir(path)?
-        .collect::<std::io::Result<Vec<_>>>()?;
+fn download_directory_contents(path: &FsPath) -> std::io::Result<Vec<Vec<u8>>> {
+    let entries =
+        std::fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
     let mut contents = Vec::with_capacity(entries.len());
     for entry in entries {
         let metadata = entry.metadata()?;
