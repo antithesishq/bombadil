@@ -9,11 +9,17 @@ use axum::{
 use bombadil_schema::{Time, markup};
 use rand::SeedableRng;
 use std::io::Write;
-use std::{collections::HashMap, sync::Arc};
 use std::{
+    collections::HashMap,
     fmt::Display,
-    sync::Once,
-    time::{Duration, SystemTime},
+    path::Path as FsPath,
+    sync::{
+        Arc, Mutex, Once,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread,
+    time::{Duration, Instant, SystemTime},
 };
 use tempfile::{NamedTempFile, TempDir};
 use tokio::sync::Semaphore;
@@ -23,8 +29,8 @@ use url::Url;
 use bombadil::{specification::verifier::Specification, styled};
 use bombadil_browser::{
     browser::{
-        Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
-        actions::BrowserAction,
+        Browser, BrowserOptions, DebuggerOptions, DownloadBehavior, Emulation,
+        LaunchOptions, actions::BrowserAction,
     },
     convert::ToSchema,
     cookie::BrowserCookie,
@@ -36,8 +42,310 @@ use bombadil_browser::{
 /// causing a test to hang, so we limit parallelism.
 static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(16);
 const TEST_TIMEOUT_SECONDS: u64 = 120;
+const ARTIFACT_OBSERVATION_INTERVAL: Duration = Duration::from_millis(5);
+// Chromium's chrome_browser_main_extra_parts_optimization_guide.cc places the
+// active model store under DIR_USER_DATA, optimization_guide_constants.cc
+// retains the old downloads/metadata/hint stores under the profile, and
+// optimization_guide_on_device_model_installer.cc installs the on-device model
+// component under OptGuideOnDeviceModel.
+const OPTIMIZATION_GUIDE_ARTIFACT_ROOTS: [&str; 5] = [
+    "optimization_guide_model_store",
+    "OptGuideOnDeviceModel",
+    "Default/optimization_guide_prediction_model_downloads",
+    "Default/optimization_guide_model_metadata_store",
+    "Default/optimization_guide_hint_cache_store",
+];
 
 static INIT: Once = Once::new();
+
+struct ArtifactMonitor {
+    handle: thread::JoinHandle<()>,
+    observations: Arc<Mutex<Vec<Vec<String>>>>,
+    stop: Arc<AtomicBool>,
+}
+
+impl ArtifactMonitor {
+    fn start(snapshot: impl Fn() -> Vec<String> + Send + 'static) -> Self {
+        let observations = Arc::new(Mutex::new(Vec::new()));
+        let observations_for_thread = Arc::clone(&observations);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_thread = Arc::clone(&stop);
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(0);
+        let handle = thread::spawn(move || {
+            let mut ready_sender = Some(ready_sender);
+            loop {
+                let current_snapshot = snapshot();
+                if !current_snapshot.is_empty() {
+                    let mut observations =
+                        observations_for_thread.lock().unwrap();
+                    if observations.last() != Some(&current_snapshot) {
+                        observations.push(current_snapshot);
+                    }
+                }
+
+                if let Some(ready_sender) = ready_sender.take() {
+                    let _ = ready_sender.send(());
+                }
+                if stop_for_thread.load(Ordering::Acquire) {
+                    break;
+                }
+                thread::sleep(ARTIFACT_OBSERVATION_INTERVAL);
+            }
+        });
+        ready_receiver.recv().unwrap();
+
+        Self {
+            handle,
+            observations,
+            stop,
+        }
+    }
+
+    fn finish(self) -> Vec<Vec<String>> {
+        self.stop.store(true, Ordering::Release);
+        let thread_panicked = self.handle.join().is_err();
+        let mut observations = self.observations.lock().unwrap().clone();
+        if thread_panicked {
+            observations.push(vec!["<artifact observer panicked>".to_string()]);
+        }
+        observations
+    }
+
+    fn wait_for_observation(&self, fragment: &str, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self
+                .observations
+                .lock()
+                .unwrap()
+                .iter()
+                .flatten()
+                .any(|entry| entry.contains(fragment))
+            {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::sleep(ARTIFACT_OBSERVATION_INTERVAL);
+        }
+    }
+}
+
+fn download_directory_snapshot(path: &FsPath) -> Vec<String> {
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            return vec![format!("<could not read directory: {error}>")];
+        }
+    };
+    let mut snapshot = entries
+        .map(|entry| match entry {
+            Ok(entry) => {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                match std::fs::symlink_metadata(entry.path()) {
+                    Ok(metadata) => format!(
+                        "{name}: {} bytes, file={}, directory={}, symlink={}",
+                        metadata.len(),
+                        metadata.is_file(),
+                        metadata.is_dir(),
+                        metadata.file_type().is_symlink()
+                    ),
+                    Err(error) => {
+                        format!("{name}: disappeared before metadata: {error}")
+                    }
+                }
+            }
+            Err(error) => format!("<could not read entry: {error}>"),
+        })
+        .collect::<Vec<_>>();
+    snapshot.sort();
+    snapshot
+}
+
+fn download_directory_contents(path: &FsPath) -> std::io::Result<Vec<Vec<u8>>> {
+    let entries =
+        std::fs::read_dir(path)?.collect::<std::io::Result<Vec<_>>>()?;
+    let mut contents = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let metadata = entry.metadata()?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "download output is not a regular file: {}",
+                    entry.path().display()
+                ),
+            ));
+        }
+        contents.push(std::fs::read(entry.path())?);
+    }
+    contents.sort();
+    Ok(contents)
+}
+
+fn optimization_guide_profile_snapshot(path: &FsPath) -> Vec<String> {
+    let mut snapshot = Vec::new();
+    for relative_root in OPTIMIZATION_GUIDE_ARTIFACT_ROOTS {
+        append_artifact_tree(path, &path.join(relative_root), &mut snapshot);
+    }
+    snapshot.sort();
+    snapshot
+}
+
+#[test]
+fn artifact_monitor_records_transient_entries_across_boundaries() {
+    const OBSERVATION_TIMEOUT: Duration = Duration::from_secs(1);
+
+    let downloads_directory = TempDir::new().unwrap();
+    let downloads_path = downloads_directory.path().to_path_buf();
+    let download_monitor = ArtifactMonitor::start(move || {
+        download_directory_snapshot(&downloads_path)
+    });
+    let transient_download = downloads_directory.path().join("transient.crx3");
+    std::fs::write(&transient_download, b"synthetic download").unwrap();
+    assert!(
+        download_monitor
+            .wait_for_observation("transient.crx3", OBSERVATION_TIMEOUT)
+    );
+    std::fs::remove_file(transient_download).unwrap();
+    assert!(download_directory_snapshot(downloads_directory.path()).is_empty());
+    let download_observations = download_monitor.finish();
+    assert!(
+        download_observations
+            .iter()
+            .flatten()
+            .any(|entry| entry.contains("transient.crx3"))
+    );
+
+    let profile_directory = TempDir::new().unwrap();
+    let profile_path = profile_directory.path().to_path_buf();
+    let profile_monitor = ArtifactMonitor::start(move || {
+        optimization_guide_profile_snapshot(&profile_path)
+    });
+    for (index, relative_root) in
+        OPTIMIZATION_GUIDE_ARTIFACT_ROOTS.into_iter().enumerate()
+    {
+        let artifact_directory = profile_directory
+            .path()
+            .join(relative_root)
+            .join(format!("00000000-0000-4000-8000-{index:012}"));
+        std::fs::create_dir_all(&artifact_directory).unwrap();
+        let artifact_name = if relative_root.contains("downloads") {
+            "payload.crx3"
+        } else {
+            "model.tflite"
+        };
+        let artifact = artifact_directory.join(artifact_name);
+        std::fs::write(&artifact, b"synthetic Optimization Guide artifact")
+            .unwrap();
+        let artifact_fragment = artifact
+            .strip_prefix(profile_directory.path())
+            .unwrap()
+            .display()
+            .to_string();
+        assert!(
+            profile_monitor
+                .wait_for_observation(&artifact_fragment, OBSERVATION_TIMEOUT)
+        );
+        std::fs::remove_dir_all(profile_directory.path().join(relative_root))
+            .unwrap();
+    }
+    assert!(
+        optimization_guide_profile_snapshot(profile_directory.path())
+            .is_empty()
+    );
+    let profile_observations = profile_monitor.finish();
+    for relative_root in OPTIMIZATION_GUIDE_ARTIFACT_ROOTS {
+        assert!(
+            profile_observations
+                .iter()
+                .flatten()
+                .any(|entry| entry.contains(relative_root)),
+            "missing transient observation for {relative_root}"
+        );
+    }
+}
+
+fn append_artifact_tree(
+    profile_root: &FsPath,
+    path: &FsPath,
+    snapshot: &mut Vec<String>,
+) {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+        Err(error) => {
+            snapshot.push(format!(
+                "{}: could not read metadata: {error}",
+                path.strip_prefix(profile_root).unwrap_or(path).display()
+            ));
+            return;
+        }
+    };
+    let relative_path = path.strip_prefix(profile_root).unwrap_or(path);
+    snapshot.push(format!(
+        "{}: {} bytes, file={}, directory={}, symlink={}",
+        relative_path.display(),
+        metadata.len(),
+        metadata.is_file(),
+        metadata.is_dir(),
+        metadata.file_type().is_symlink()
+    ));
+
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return;
+    }
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) => {
+            snapshot.push(format!(
+                "{}: could not read directory: {error}",
+                relative_path.display()
+            ));
+            return;
+        }
+    };
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                append_artifact_tree(profile_root, &entry.path(), snapshot);
+            }
+            Err(error) => snapshot.push(format!(
+                "{}: could not read entry: {error}",
+                relative_path.display()
+            )),
+        }
+    }
+}
+
+fn panic_with_artifact_evidence(
+    downloads_directory: TempDir,
+    user_data_directory: TempDir,
+    failure: &str,
+    download_observations: &[Vec<String>],
+    profile_observations: &[Vec<String>],
+) -> ! {
+    let ledger_path = downloads_directory.path().join("observations.txt");
+    let ledger = format!(
+        "failure:\n{failure}\n\nobserved download directory states:\n{download_observations:#?}\n\nobserved Optimization Guide profile states:\n{profile_observations:#?}\n"
+    );
+    let ledger_error = std::fs::write(&ledger_path, ledger).err();
+    let downloads_evidence_path = downloads_directory.keep();
+    let profile_evidence_path = user_data_directory.keep();
+    match ledger_error {
+        Some(error) => panic!(
+            "{failure}\n\ndownload evidence preserved at {}; Chrome profile evidence preserved at {}; could not write observation ledger: {error}",
+            downloads_evidence_path.display(),
+            profile_evidence_path.display()
+        ),
+        None => panic!(
+            "{failure}\n\ndownload evidence preserved at {}; Chrome profile evidence preserved at {}",
+            downloads_evidence_path.display(),
+            profile_evidence_path.display()
+        ),
+    }
+}
 
 fn setup() {
     INIT.call_once(|| {
@@ -54,14 +362,17 @@ fn setup() {
 }
 
 enum Expect {
-    Error { substring: &'static str },
+    Error {
+        substring: &'static str,
+        forbidden_substrings: Vec<&'static str>,
+    },
     Success,
 }
 
 impl Display for Expect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expect::Error { substring } => {
+            Expect::Error { substring, .. } => {
                 write!(f, "expecting an error with substring {:?}", substring)
             }
             Expect::Success => write!(f, "expecting success"),
@@ -73,11 +384,14 @@ struct BrowserIntegrationTest<'a> {
     seed: u64,
     name: &'a str,
     expect: Expect,
+    expect_empty_downloads: bool,
     time_limit: Option<Duration>,
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
     cookies: Vec<BrowserCookie>,
+    download_behavior: DownloadBehavior,
+    expected_download_contents: Option<Vec<Vec<u8>>>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -86,11 +400,14 @@ impl<'a> BrowserIntegrationTest<'a> {
             seed: rand::random(),
             name,
             expect: Expect::Success,
+            expect_empty_downloads: false,
             time_limit: None,
             specification: None,
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
             cookies: vec![],
+            download_behavior: DownloadBehavior::AllowAndName,
+            expected_download_contents: None,
         }
     }
 
@@ -101,7 +418,27 @@ impl<'a> BrowserIntegrationTest<'a> {
     }
 
     fn expect_error(mut self, substring: &'static str) -> Self {
-        self.expect = Expect::Error { substring };
+        self.expect = Expect::Error {
+            substring,
+            forbidden_substrings: vec![],
+        };
+        self
+    }
+
+    fn expect_error_without(
+        mut self,
+        substring: &'static str,
+        forbidden_substrings: &[&'static str],
+    ) -> Self {
+        self.expect = Expect::Error {
+            substring,
+            forbidden_substrings: forbidden_substrings.to_vec(),
+        };
+        self
+    }
+
+    fn expect_empty_downloads(mut self) -> Self {
+        self.expect_empty_downloads = true;
         self
     }
 
@@ -130,6 +467,21 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn download_behavior(mut self, behavior: DownloadBehavior) -> Self {
+        self.download_behavior = behavior;
+        self
+    }
+
+    fn expect_download_contents(mut self, contents: &[u8]) -> Self {
+        self.expected_download_contents = Some(vec![contents.to_vec()]);
+        self
+    }
+
+    fn expect_no_downloads(mut self) -> Self {
+        self.expected_download_contents = Some(vec![]);
+        self
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -145,11 +497,14 @@ impl<'a> BrowserIntegrationTest<'a> {
             seed,
             name,
             expect,
+            expect_empty_downloads,
             time_limit,
             specification,
             grant_permissions,
             extra_headers,
             cookies,
+            download_behavior,
+            mut expected_download_contents,
         } = self;
         setup();
         let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -249,6 +604,16 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
 
         let downloads_directory = TempDir::new().unwrap();
+        let download_monitor = expect_empty_downloads.then(|| {
+            let path = downloads_directory.path().to_path_buf();
+            ArtifactMonitor::start(move || download_directory_snapshot(&path))
+        });
+        let profile_monitor = expect_empty_downloads.then(|| {
+            let path = user_data_directory.path().to_path_buf();
+            ArtifactMonitor::start(move || {
+                optimization_guide_profile_snapshot(&path)
+            })
+        });
         let browser_options = BrowserOptions {
             create_target: true,
             emulation: Emulation {
@@ -257,6 +622,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
+            download_behavior,
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions,
             extra_headers,
@@ -269,9 +635,6 @@ impl<'a> BrowserIntegrationTest<'a> {
                 user_data_directory: user_data_directory.path().to_path_buf(),
             },
         };
-
-        let test_start = SystemTime::now();
-        let deadline = time_limit.map(|d| test_start + d);
 
         #[derive(Default)]
         struct ViolationsCollectingWriter {
@@ -323,6 +686,9 @@ impl<'a> BrowserIntegrationTest<'a> {
             )
             .expect("run_test failed");
 
+            let test_start = SystemTime::now();
+            let deadline = time_limit.map(|duration| test_start + duration);
+
             let mut strategy = TestStrategy {
                 rng: rand::prelude::StdRng::seed_from_u64(seed),
                 test_start: Some(Time::from_system_time(test_start)),
@@ -368,33 +734,92 @@ impl<'a> BrowserIntegrationTest<'a> {
         )
         .await
         {
-            Ok(Ok(outcome)) => outcome,
+            Ok(Ok(outcome)) => Ok(outcome),
             Ok(Err(join_error)) => {
-                panic!("runner task panicked: {join_error}")
+                Err(format!("runner task panicked: {join_error}"))
             }
-            Err(_elapsed) => panic!(
+            Err(_elapsed) => Err(format!(
                 "test infrastructure timeout — test hung for {}s",
                 TEST_TIMEOUT_SECONDS
-            ),
+            )),
         };
+        let download_observations = download_monitor
+            .map(ArtifactMonitor::finish)
+            .unwrap_or_default();
+        let profile_observations = profile_monitor
+            .map(ArtifactMonitor::finish)
+            .unwrap_or_default();
 
         log::info!("checking outcome");
-        match (outcome, expect) {
-            (Outcome::Error(error), Expect::Error { substring }) => {
-                if !error.to_string().contains(substring) {
-                    panic!(
+        let outcome_failure = match (outcome, expect) {
+            (Err(failure), _) => Some(failure),
+            (
+                Ok(Outcome::Error(error)),
+                Expect::Error {
+                    substring,
+                    forbidden_substrings,
+                },
+            ) => {
+                let message = error.to_string();
+                if !message.contains(substring) {
+                    Some(format!(
                         "expected error message {:?} not found in:\n\n{}\n\ntry reproducing by adding .seed({})",
                         substring, error, seed
-                    );
+                    ))
+                } else if let Some(forbidden) = forbidden_substrings
+                    .iter()
+                    .find(|forbidden| message.contains(**forbidden))
+                {
+                    Some(format!(
+                        "error message exposed forbidden download detail {:?}: {}",
+                        forbidden, message
+                    ))
+                } else {
+                    None
                 }
             }
-            (Outcome::Success, Expect::Success) => {}
-            (outcome, expect) => {
-                panic!(
-                    "{} but got {}\n\ntry reproducing by adding .seed({})",
-                    expect, outcome, seed
+            (Ok(Outcome::Success), Expect::Success) => None,
+            (Ok(outcome), expect) => Some(format!(
+                "{} but got {}\n\ntry reproducing by adding .seed({})",
+                expect, outcome, seed
+            )),
+        };
+
+        let mut failures = outcome_failure.into_iter().collect::<Vec<_>>();
+        if !download_observations.is_empty() {
+            failures.push(format!(
+                "managed Chrome created transient or retained download entries: {download_observations:#?}"
+            ));
+        }
+        if !profile_observations.is_empty() {
+            failures.push(format!(
+                "managed Chrome created transient or retained Optimization Guide profile entries: {profile_observations:#?}"
+            ));
+        }
+        if let Some(ref mut expected) = expected_download_contents {
+            expected.sort();
+            match download_directory_contents(downloads_directory.path()) {
+                Ok(actual) if actual != *expected => failures.push(format!(
+                    "download contents differ: expected {expected:?}, got {actual:?}"
+                )),
+                Ok(_) => {}
+                Err(error) => failures.push(format!(
+                    "could not verify terminal download contents: {error}"
+                )),
+            }
+        }
+        if !failures.is_empty() {
+            let failure = failures.join("\n\n");
+            if expect_empty_downloads {
+                panic_with_artifact_evidence(
+                    downloads_directory,
+                    user_data_directory,
+                    &failure,
+                    &download_observations,
+                    &profile_observations,
                 );
             }
+            panic!("{failure}");
         }
     }
 }
@@ -512,6 +937,7 @@ async fn test_browser_lifecycle() {
                 device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
+            download_behavior: DownloadBehavior::AllowAndName,
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions: vec![],
             extra_headers: Default::default(),
@@ -726,6 +1152,24 @@ export const counterNeverChanges = always(() => counterValue.current === 0);
 }
 
 #[tokio::test]
+async fn test_managed_chrome_avoids_background_optimization_hints_download() {
+    BrowserIntegrationTest::new("wait-action")
+        .time_limit(Duration::from_secs(60))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions } from "@antithesishq/bombadil/browser";
+
+export const waits = actions(() => ["Wait"]);
+export const staysRunning = always(() => true);
+"#,
+        )
+        .expect_empty_downloads()
+        .run()
+        .await;
+}
+
+#[tokio::test]
 async fn test_double_click() {
     BrowserIntegrationTest::new("double-click")
         .time_limit(Duration::from_secs(5))
@@ -872,6 +1316,7 @@ export const neverDone = always(() => true);
 async fn test_file_download() {
     BrowserIntegrationTest::new("file-download")
         .time_limit(Duration::from_secs(10))
+        .expect_download_contents(b"test file contents")
         .specification(
             r#"
 import { eventually } from "@antithesishq/bombadil";
@@ -888,6 +1333,21 @@ export const downloadCompletes = eventually(
 );
 "#,
         )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_file_download_deny() {
+    BrowserIntegrationTest::new("file-download-deny")
+        .time_limit(Duration::from_secs(10))
+        .download_behavior(DownloadBehavior::Deny)
+        .expect_error_without(
+            "download request denied by configured browser policy",
+            &["/test-file", "http://localhost:"],
+        )
+        .expect_empty_downloads()
+        .expect_no_downloads()
         .run()
         .await;
 }

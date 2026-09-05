@@ -113,6 +113,7 @@ enum InnerEvent {
         frame_id: FrameId,
         url: String,
     },
+    DownloadDenied,
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Generation),
@@ -121,6 +122,8 @@ enum InnerEvent {
     Quiesced(Generation),
     NavigationTimedOut(Generation),
 }
+
+type InnerEventStream = Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StateRequestReason {
@@ -165,11 +168,19 @@ pub struct Emulation {
     pub device_scale_factor: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DownloadBehavior {
+    #[default]
+    AllowAndName,
+    Deny,
+}
+
 #[derive(Clone)]
 pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
+    pub download_behavior: DownloadBehavior,
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
@@ -247,6 +258,36 @@ impl Browser {
             Arc::new(find_page(&mut browser).await?)
         };
 
+        let frame_id = page
+            .mainframe()
+            .await?
+            .ok_or(anyhow!("no main frame available"))?;
+        let download_frame_id = frame_id.clone();
+        let download_behavior = browser_options.download_behavior;
+        let events_download = Box::pin(
+            page.event_listener::<browser::EventDownloadWillBegin>()
+                .await?
+                .filter_map(move |event| {
+                    let download_frame_id = download_frame_id.clone();
+                    async move {
+                        match download_behavior {
+                            DownloadBehavior::Deny => {
+                                Some(InnerEvent::DownloadDenied)
+                            }
+                            DownloadBehavior::AllowAndName
+                                if event.frame_id == download_frame_id =>
+                            {
+                                Some(InnerEvent::DownloadWillBegin {
+                                    frame_id: event.frame_id.clone(),
+                                    url: event.url.clone(),
+                                })
+                            }
+                            DownloadBehavior::AllowAndName => None,
+                        }
+                    }
+                }),
+        ) as InnerEventStream;
+
         page.enable_dom().await?;
         page.enable_css().await?;
         page.enable_runtime().await?;
@@ -276,20 +317,31 @@ impl Browser {
                 .await?;
         }
 
-        // Prevent file downloads to avoid getting stuck
-        page.execute(
-            browser::SetDownloadBehaviorParams::builder()
-                .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
-                .events_enabled(true)
-                .download_path(
-                    browser_options.downloads_directory.to_string_lossy(),
-                )
-                .build()
-                .map_err(|s| {
-                    anyhow!(s).context("build SetDownloadBehaviorParams failed")
-                })?,
-        )
-        .await?;
+        let download_behavior = match browser_options.download_behavior {
+            DownloadBehavior::AllowAndName => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(
+                        browser::SetDownloadBehaviorBehavior::AllowAndName,
+                    )
+                    .events_enabled(true)
+                    .download_path(
+                        browser_options.downloads_directory.to_string_lossy(),
+                    )
+                    .build()
+            }
+            DownloadBehavior::Deny => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(browser::SetDownloadBehaviorBehavior::Deny)
+                    .events_enabled(true)
+                    .build()
+            }
+        }
+        .map_err(|s| {
+            anyhow!(s).context("build SetDownloadBehaviorParams failed")
+        })?;
+        page.execute(download_behavior)
+            .await
+            .context("could not set browser download behavior")?;
 
         for permission in &browser_options.grant_permissions {
             page.execute(
@@ -328,11 +380,6 @@ impl Browser {
 
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
         let (done_sender, done_receiver) = oneshot::channel::<()>();
-
-        let frame_id = page
-            .mainframe()
-            .await?
-            .ok_or(anyhow!("no main frame available"))?;
 
         let network_activity =
             activity::NetworkActivity::subscribe(&page).await?;
@@ -402,7 +449,7 @@ impl Browser {
             .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone()));
 
         let events_all = stream::select_all(vec![
-            inner_events(&context).await?,
+            inner_events(&context, events_download).await?,
             Box::pin(browser_events),
             receiver_to_stream(inner_events_receiver),
         ]);
@@ -545,10 +592,8 @@ async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
 
 async fn inner_events(
     context: &BrowserContext,
+    events_download: InnerEventStream,
 ) -> Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
-    type InnerEventStream =
-        Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
-
     let events_loaded = Box::pin(
         context
             .page
@@ -669,27 +714,6 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let frame_id = context.frame_id.clone();
-    let events_download_will_begin = Box::pin(
-        context
-            .page
-            .event_listener::<browser::EventDownloadWillBegin>()
-            .await?
-            .filter_map(move |event| {
-                let frame_id = frame_id.clone();
-                async move {
-                    if event.frame_id == frame_id {
-                        Some(InnerEvent::DownloadWillBegin {
-                            frame_id: event.frame_id.clone(),
-                            url: event.url.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
-
     let events_target_destroyed = Box::pin(
         context
             .page
@@ -739,7 +763,7 @@ async fn inner_events(
         events_exception_thrown,
         events_frame_requested_navigation,
         events_frame_navigated,
-        events_download_will_begin,
+        events_download,
         events_target_destroyed,
         events_console,
         events_action_accepted,
@@ -1084,6 +1108,9 @@ async fn process_event(
                 InnerState { shared, kind }
             }
         }
+        (_, InnerEvent::DownloadDenied) => {
+            bail!("download request denied by configured browser policy")
+        }
         (
             InnerState {
                 kind: Navigating { .. },
@@ -1342,7 +1369,7 @@ fn launch_options_to_config(
                 builder.with_head()
             }
         };
-    apply_headless(apply_sandbox(BrowserConfig::builder()))
+    let builder = apply_headless(apply_sandbox(BrowserConfig::builder()))
         .window_size(emulation.width as u32, emulation.height as u32)
         .user_data_dir(launch_options.user_data_directory.clone())
         .arg((
@@ -1352,17 +1379,34 @@ fn launch_options_to_config(
                 .to_path_buf()
                 .to_str()
                 .expect("invalid tmp dir path"),
-        ))
-        .arg("enable-logging")
-        .arg(("v", "1"))
-        .arg("no-crashpad")
-        .arg("disable-background-networking")
-        .arg("disable-component-update")
-        .arg("disable-domain-reliability")
-        .arg("no-pings")
-        .arg("disable-crash-reporter")
+        ));
+
+    apply_managed_chrome_arguments(builder)
         .build()
         .map_err(|s| anyhow!(s))
+}
+
+fn apply_managed_chrome_arguments(
+    builder: BrowserConfigBuilder,
+) -> BrowserConfigBuilder {
+    const ARGUMENTS: [(&str, Option<&str>); 9] = [
+        ("enable-logging", None),
+        ("v", Some("1")),
+        ("no-crashpad", None),
+        ("disable-background-networking", None),
+        ("disable-component-update", None),
+        ("disable-domain-reliability", None),
+        ("no-pings", None),
+        ("disable-crash-reporter", None),
+        ("disable-features", Some("OptimizationHints")),
+    ];
+
+    ARGUMENTS
+        .into_iter()
+        .fold(builder, |builder, (name, value)| match value {
+            Some(value) => builder.arg((name, value)),
+            None => builder.arg(name),
+        })
 }
 
 async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
@@ -1392,4 +1436,68 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         }
     }
     bail!("coulnd't find an existing page to use");
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::apply_managed_chrome_arguments;
+    use chromiumoxide::BrowserConfig;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn managed_chrome_arguments_disable_optimization_hints_once() {
+        let directory = TempDir::new().unwrap();
+        let executable = directory.path().join("capture-argv");
+        let output = directory.path().join("argv.txt");
+        fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$BOMBADIL_TEST_ARGV\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700))
+            .unwrap();
+
+        let config = apply_managed_chrome_arguments(
+            BrowserConfig::builder()
+                .chrome_executable(&executable)
+                .env("BOMBADIL_TEST_ARGV", output.to_string_lossy()),
+        )
+        .build()
+        .unwrap();
+        let mut child = config.launch().unwrap();
+        child.wait().await.unwrap();
+
+        let arguments = fs::read_to_string(output)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for expected in [
+            "--enable-logging",
+            "--v=1",
+            "--no-crashpad",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
+            "--disable-crash-reporter",
+        ] {
+            assert!(arguments.iter().any(|argument| argument == expected));
+        }
+
+        let disable_features = arguments
+            .iter()
+            .filter(|argument| {
+                argument.as_str() == "--disable-features"
+                    || argument.starts_with("--disable-features=")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(disable_features.len(), 1);
+        assert_eq!(
+            disable_features[0],
+            "--disable-features=TranslateUI,OptimizationHints"
+        );
+    }
 }

@@ -2,13 +2,13 @@ use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::Result;
 use bombadil_browser::{
-    browser::LaunchOptions,
+    browser::{DownloadBehavior, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
     strategy::TraceWriter,
     trace::writer::{FileTraceWriter, NoopTraceWriter},
 };
-use clap::Args;
+use clap::{Args, ValueEnum};
 use serde_json as json;
 use std::{
     path::{Path, PathBuf},
@@ -37,6 +37,22 @@ use crate::{duration, inspect_server, output_path};
 const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
 const DEFAULT_DEVICE_SCALE_FACTOR: f64 = 1.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
+pub enum CliDownloadBehavior {
+    #[default]
+    AllowAndName,
+    Deny,
+}
+
+impl From<CliDownloadBehavior> for DownloadBehavior {
+    fn from(value: CliDownloadBehavior) -> Self {
+        match value {
+            CliDownloadBehavior::AllowAndName => Self::AllowAndName,
+            CliDownloadBehavior::Deny => Self::Deny,
+        }
+    }
+}
 
 #[derive(clap::Subcommand)]
 pub enum BrowserCommand {
@@ -120,6 +136,9 @@ pub struct TestSharedOptions {
         default_value = "local-network-access,local-network,loopback-network"
     )]
     pub chrome_grant_permissions: String,
+    /// How Bombadil handles browser download requests.
+    #[arg(long, value_enum, default_value = "allow-and-name")]
+    pub download_behavior: CliDownloadBehavior,
     /// Extra HTTP header to send with all browser requests, in KEY=VALUE format.
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
@@ -297,6 +316,7 @@ fn browser_options_from_shared(
             device_scale_factor: shared.device_scale_factor,
         },
         instrumentation: shared.instrument_javascript.clone(),
+        download_behavior: shared.download_behavior.into(),
         downloads_directory: output_path.join("downloads"),
         grant_permissions: shared
             .chrome_grant_permissions
@@ -336,6 +356,9 @@ fn reproduce_command_args(
     }
     for cookie in &shared.cookies {
         args.push(format!("--cookie {cookie}"));
+    }
+    if shared.download_behavior == CliDownloadBehavior::Deny {
+        args.push("--download-behavior deny".into());
     }
     args
 }
@@ -534,4 +557,75 @@ fn run_with_writer(
     };
 
     runner.run(&mut strategy)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared_options(
+        download_behavior: CliDownloadBehavior,
+    ) -> TestSharedOptions {
+        TestSharedOptions {
+            origin: Origin {
+                url: Url::parse("https://example.com").unwrap(),
+            },
+            specification_file: None,
+            output_path: None,
+            output_path_overwrite: false,
+            exit_on_violation: false,
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+            device_scale_factor: DEFAULT_DEVICE_SCALE_FACTOR,
+            instrument_javascript: InstrumentationConfig::default(),
+            time_limit: None,
+            chrome_grant_permissions: String::new(),
+            download_behavior,
+            headers: vec![],
+            cookies: vec![],
+            reproduce: None,
+        }
+    }
+
+    #[test]
+    fn download_behavior_values_are_strict() {
+        assert_eq!(
+            <CliDownloadBehavior as ValueEnum>::from_str(
+                "allow-and-name",
+                false,
+            ),
+            Ok(CliDownloadBehavior::AllowAndName)
+        );
+        assert_eq!(
+            <CliDownloadBehavior as ValueEnum>::from_str("deny", false),
+            Ok(CliDownloadBehavior::Deny)
+        );
+        assert!(
+            <CliDownloadBehavior as ValueEnum>::from_str("allow", false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn reproduction_omits_default_download_behavior() {
+        let args = reproduce_command_args(
+            "browser test",
+            &shared_options(CliDownloadBehavior::AllowAndName),
+        );
+        assert!(!args.iter().any(|arg| arg.contains("download-behavior")));
+    }
+
+    #[test]
+    fn reproduction_preserves_denied_download_behavior() {
+        let args = reproduce_command_args(
+            "browser test",
+            &shared_options(CliDownloadBehavior::Deny),
+        );
+        assert_eq!(
+            args.iter()
+                .filter(|arg| arg.as_str() == "--download-behavior deny")
+                .count(),
+            1
+        );
+    }
 }
