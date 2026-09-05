@@ -113,6 +113,7 @@ enum InnerEvent {
         frame_id: FrameId,
         url: String,
     },
+    DownloadDenied,
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Generation),
@@ -121,6 +122,9 @@ enum InnerEvent {
     Quiesced(Generation),
     NavigationTimedOut(Generation),
 }
+
+type InnerEventStream =
+    Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum StateRequestReason {
@@ -165,11 +169,19 @@ pub struct Emulation {
     pub device_scale_factor: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DownloadBehavior {
+    #[default]
+    AllowAndName,
+    Deny,
+}
+
 #[derive(Clone)]
 pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
+    pub download_behavior: DownloadBehavior,
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
@@ -247,6 +259,36 @@ impl Browser {
             Arc::new(find_page(&mut browser).await?)
         };
 
+        let frame_id = page
+            .mainframe()
+            .await?
+            .ok_or(anyhow!("no main frame available"))?;
+        let download_frame_id = frame_id.clone();
+        let download_behavior = browser_options.download_behavior;
+        let events_download = Box::pin(
+            page.event_listener::<browser::EventDownloadWillBegin>()
+                .await?
+                .filter_map(move |event| {
+                    let download_frame_id = download_frame_id.clone();
+                    async move {
+                        match download_behavior {
+                            DownloadBehavior::Deny => {
+                                Some(InnerEvent::DownloadDenied)
+                            }
+                            DownloadBehavior::AllowAndName
+                                if event.frame_id == download_frame_id =>
+                            {
+                                Some(InnerEvent::DownloadWillBegin {
+                                    frame_id: event.frame_id.clone(),
+                                    url: event.url.clone(),
+                                })
+                            }
+                            DownloadBehavior::AllowAndName => None,
+                        }
+                    }
+                }),
+        ) as InnerEventStream;
+
         page.enable_dom().await?;
         page.enable_css().await?;
         page.enable_runtime().await?;
@@ -276,20 +318,31 @@ impl Browser {
                 .await?;
         }
 
-        // Prevent file downloads to avoid getting stuck
-        page.execute(
-            browser::SetDownloadBehaviorParams::builder()
-                .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
-                .events_enabled(true)
-                .download_path(
-                    browser_options.downloads_directory.to_string_lossy(),
-                )
-                .build()
-                .map_err(|s| {
-                    anyhow!(s).context("build SetDownloadBehaviorParams failed")
-                })?,
-        )
-        .await?;
+        let download_behavior = match browser_options.download_behavior {
+            DownloadBehavior::AllowAndName => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(
+                        browser::SetDownloadBehaviorBehavior::AllowAndName,
+                    )
+                    .events_enabled(true)
+                    .download_path(
+                        browser_options.downloads_directory.to_string_lossy(),
+                    )
+                    .build()
+            }
+            DownloadBehavior::Deny => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(browser::SetDownloadBehaviorBehavior::Deny)
+                    .events_enabled(true)
+                    .build()
+            }
+        }
+        .map_err(|s| {
+            anyhow!(s).context("build SetDownloadBehaviorParams failed")
+        })?;
+        page.execute(download_behavior)
+            .await
+            .context("could not set browser download behavior")?;
 
         for permission in &browser_options.grant_permissions {
             page.execute(
@@ -328,11 +381,6 @@ impl Browser {
 
         let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
         let (done_sender, done_receiver) = oneshot::channel::<()>();
-
-        let frame_id = page
-            .mainframe()
-            .await?
-            .ok_or(anyhow!("no main frame available"))?;
 
         let network_activity =
             activity::NetworkActivity::subscribe(&page).await?;
@@ -402,7 +450,7 @@ impl Browser {
             .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone()));
 
         let events_all = stream::select_all(vec![
-            inner_events(&context).await?,
+            inner_events(&context, events_download).await?,
             Box::pin(browser_events),
             receiver_to_stream(inner_events_receiver),
         ]);
@@ -545,10 +593,8 @@ async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
 
 async fn inner_events(
     context: &BrowserContext,
+    events_download: InnerEventStream,
 ) -> Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
-    type InnerEventStream =
-        Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
-
     let events_loaded = Box::pin(
         context
             .page
@@ -669,27 +715,6 @@ async fn inner_events(
             }),
     ) as InnerEventStream;
 
-    let frame_id = context.frame_id.clone();
-    let events_download_will_begin = Box::pin(
-        context
-            .page
-            .event_listener::<browser::EventDownloadWillBegin>()
-            .await?
-            .filter_map(move |event| {
-                let frame_id = frame_id.clone();
-                async move {
-                    if event.frame_id == frame_id {
-                        Some(InnerEvent::DownloadWillBegin {
-                            frame_id: event.frame_id.clone(),
-                            url: event.url.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
-
     let events_target_destroyed = Box::pin(
         context
             .page
@@ -739,7 +764,7 @@ async fn inner_events(
         events_exception_thrown,
         events_frame_requested_navigation,
         events_frame_navigated,
-        events_download_will_begin,
+        events_download,
         events_target_destroyed,
         events_console,
         events_action_accepted,
@@ -1083,6 +1108,9 @@ async fn process_event(
             } else {
                 InnerState { shared, kind }
             }
+        }
+        (_, InnerEvent::DownloadDenied) => {
+            bail!("download request denied by configured browser policy")
         }
         (
             InnerState {

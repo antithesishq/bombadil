@@ -23,8 +23,8 @@ use url::Url;
 use bombadil::{specification::verifier::Specification, styled};
 use bombadil_browser::{
     browser::{
-        Browser, BrowserOptions, DebuggerOptions, Emulation, LaunchOptions,
-        actions::BrowserAction,
+        Browser, BrowserOptions, DebuggerOptions, DownloadBehavior, Emulation,
+        LaunchOptions, actions::BrowserAction,
     },
     convert::ToSchema,
     cookie::BrowserCookie,
@@ -54,14 +54,17 @@ fn setup() {
 }
 
 enum Expect {
-    Error { substring: &'static str },
+    Error {
+        substring: &'static str,
+        forbidden_substrings: Vec<&'static str>,
+    },
     Success,
 }
 
 impl Display for Expect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expect::Error { substring } => {
+            Expect::Error { substring, .. } => {
                 write!(f, "expecting an error with substring {:?}", substring)
             }
             Expect::Success => write!(f, "expecting success"),
@@ -78,6 +81,8 @@ struct BrowserIntegrationTest<'a> {
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
     cookies: Vec<BrowserCookie>,
+    download_behavior: DownloadBehavior,
+    expected_download_contents: Option<Vec<Vec<u8>>>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -91,6 +96,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
             cookies: vec![],
+            download_behavior: DownloadBehavior::AllowAndName,
+            expected_download_contents: None,
         }
     }
 
@@ -101,7 +108,22 @@ impl<'a> BrowserIntegrationTest<'a> {
     }
 
     fn expect_error(mut self, substring: &'static str) -> Self {
-        self.expect = Expect::Error { substring };
+        self.expect = Expect::Error {
+            substring,
+            forbidden_substrings: vec![],
+        };
+        self
+    }
+
+    fn expect_error_without(
+        mut self,
+        substring: &'static str,
+        forbidden_substrings: &[&'static str],
+    ) -> Self {
+        self.expect = Expect::Error {
+            substring,
+            forbidden_substrings: forbidden_substrings.to_vec(),
+        };
         self
     }
 
@@ -130,6 +152,21 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn download_behavior(mut self, behavior: DownloadBehavior) -> Self {
+        self.download_behavior = behavior;
+        self
+    }
+
+    fn expect_download_contents(mut self, contents: &[u8]) -> Self {
+        self.expected_download_contents = Some(vec![contents.to_vec()]);
+        self
+    }
+
+    fn expect_no_downloads(mut self) -> Self {
+        self.expected_download_contents = Some(vec![]);
+        self
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -150,6 +187,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
+            download_behavior,
+            mut expected_download_contents,
         } = self;
         setup();
         let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
@@ -257,6 +296,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
+            download_behavior,
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions,
             extra_headers,
@@ -380,11 +420,26 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         log::info!("checking outcome");
         match (outcome, expect) {
-            (Outcome::Error(error), Expect::Error { substring }) => {
-                if !error.to_string().contains(substring) {
+            (
+                Outcome::Error(error),
+                Expect::Error {
+                    substring,
+                    forbidden_substrings,
+                },
+            ) => {
+                let message = error.to_string();
+                if !message.contains(substring) {
                     panic!(
                         "expected error message {:?} not found in:\n\n{}\n\ntry reproducing by adding .seed({})",
                         substring, error, seed
+                    );
+                }
+                for forbidden in forbidden_substrings {
+                    assert!(
+                        !message.contains(forbidden),
+                        "error message exposed forbidden download detail {:?}: {}",
+                        forbidden,
+                        message
                     );
                 }
             }
@@ -395,6 +450,26 @@ impl<'a> BrowserIntegrationTest<'a> {
                     expect, outcome, seed
                 );
             }
+        }
+
+        if let Some(ref mut expected) = expected_download_contents {
+            let entries = std::fs::read_dir(downloads_directory.path())
+                .unwrap()
+                .collect::<std::io::Result<Vec<_>>>()
+                .unwrap();
+            let mut actual = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let metadata = entry.metadata().unwrap();
+                assert!(
+                    metadata.is_file(),
+                    "download output is not a regular file: {}",
+                    entry.path().display()
+                );
+                actual.push(std::fs::read(entry.path()).unwrap());
+            }
+            actual.sort();
+            expected.sort();
+            assert_eq!(&actual, expected);
         }
     }
 }
@@ -512,6 +587,7 @@ async fn test_browser_lifecycle() {
                 device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
+            download_behavior: DownloadBehavior::AllowAndName,
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions: vec![],
             extra_headers: Default::default(),
@@ -872,6 +948,7 @@ export const neverDone = always(() => true);
 async fn test_file_download() {
     BrowserIntegrationTest::new("file-download")
         .time_limit(Duration::from_secs(10))
+        .expect_download_contents(b"test file contents")
         .specification(
             r#"
 import { eventually } from "@antithesishq/bombadil";
@@ -888,6 +965,20 @@ export const downloadCompletes = eventually(
 );
 "#,
         )
+        .run()
+        .await;
+}
+
+#[tokio::test]
+async fn test_file_download_deny() {
+    BrowserIntegrationTest::new("file-download-deny")
+        .time_limit(Duration::from_secs(10))
+        .download_behavior(DownloadBehavior::Deny)
+        .expect_error_without(
+            "download request denied by configured browser policy",
+            &["/test-file", "http://localhost:"],
+        )
+        .expect_no_downloads()
         .run()
         .await;
 }

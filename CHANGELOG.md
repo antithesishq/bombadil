@@ -1,5 +1,13 @@
 # The Bombadil Changelog
 
+## 0.7.3
+
+Minor updates:
+
+* Add an opt-in browser download-denial policy. The existing `allow-and-name`
+  behavior remains the default; denied download attempts terminate with a
+  URL-free error and produce no download file.
+
 ## 0.7.2
 
 Bug fixes:
