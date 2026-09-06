@@ -6,7 +6,7 @@ use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::emulation;
 use cdp_protocol::cdp::browser_protocol::network;
 use cdp_protocol::cdp::browser_protocol::page::{
-    self, ClientNavigationReason, FrameId, NavigationType,
+    self, FrameId, NavigationType,
 };
 use cdp_protocol::cdp::browser_protocol::target::{self, SessionId, TargetId};
 use cdp_protocol::cdp::browser_protocol::{browser, dom};
@@ -102,9 +102,10 @@ enum InnerEvent {
         call_frame_id: Option<CallFrameId>,
     },
     Resumed,
-    FrameRequestedNavigation {
+    FrameNavigating {
         frame_id: FrameId,
-        reason: ClientNavigationReason,
+        // Only available after EventFrameRequestedNavigation.
+        reason: Option<page::ClientNavigationReason>,
         url: String,
     },
     FrameNavigated(FrameId, NavigationType),
@@ -575,9 +576,9 @@ fn forward_inner_events(
                 },
                 page::EventFrameRequestedNavigation: nav => {
                     if nav.frame_id == frame_id {
-                        Some(InnerEvent::FrameRequestedNavigation {
+                        Some(InnerEvent::FrameNavigating {
                             frame_id: nav.frame_id.clone(),
-                            reason: nav.reason.clone(),
+                            reason: Some(nav.reason.clone()),
                             url: nav.url.clone(),
                         })
                     } else { None }
@@ -589,6 +590,17 @@ fn forward_inner_events(
                                 nav.r#type.clone(),
                         ))
                     } else { None }
+                },
+                page::EventFrameStartedNavigating: nav => {
+                    if nav.frame_id == frame_id {
+                        Some (InnerEvent::FrameNavigated(
+                                nav.frame_id.clone(),
+                                NavigationType::Navigation,
+                        ))
+                    } else { None }
+                },
+                page::EventFrameStoppedLoading: _ => {
+                    Some(InnerEvent::Loaded)
                 },
                 browser::EventDownloadWillBegin: event => {
                     if event.frame_id == frame_id {
@@ -953,7 +965,7 @@ fn process_event(
         }
         (
             InnerState { shared, kind },
-            InnerEvent::FrameRequestedNavigation {
+            InnerEvent::FrameNavigating {
                 frame_id,
                 reason,
                 url,
@@ -961,7 +973,7 @@ fn process_event(
         ) => {
             if frame_id == context.frame_id {
                 log::debug!(
-                    "navigating to {} due to {:?} (current state is {:?}, {})",
+                    "navigating to {} (reason = {:?}, current state = {:?}, {})",
                     url,
                     reason,
                     kind,
