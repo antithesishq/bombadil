@@ -1,0 +1,171 @@
+# Copyright 2017 The Chromium Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+#
+# Contributing to Chrome DevTools Protocol: https://goo.gle/devtools-contribution-guide-cdp
+
+experimental domain ServiceWorker
+  depends on Target
+
+  type RegistrationID extends string
+
+  # ServiceWorker registration.
+  type ServiceWorkerRegistration extends object
+    properties
+      RegistrationID registrationId
+      string scopeURL
+      boolean isDeleted
+
+  type ServiceWorkerVersionRunningStatus extends string
+    enum
+      stopped
+      starting
+      running
+      stopping
+
+  type ServiceWorkerVersionStatus extends string
+    enum
+      new
+      installing
+      installed
+      activating
+      activated
+      redundant
+
+  # Mostly corresponds to `RouterCondition` in ServiceWorker spec
+  # (https://www.w3.org/TR/service-workers/#dictdef-routercondition) while this
+  # currently lacks support for the nested conditions ("or" and "not").
+  # TODO(crbug.com/540469610): Support recursive conditions.
+  type ServiceWorkerRouterCondition extends object
+    properties
+      # Plain text, or JSON serialization of URLPatternInit or URLPattern
+      optional string urlPattern
+      optional string requestMethod
+      optional string requestMode
+      optional string requestDestination
+      optional ServiceWorkerVersionRunningStatus runningStatus
+
+  type ServiceWorkerRouterSourceType extends string
+    enum
+      # https://www.w3.org/TR/service-workers/#enumdef-routersourceenum
+      cache
+      fetchEvent
+      network
+      raceNetworkAndFetchHandler
+      raceNetworkAndCache
+      # Tag for https://www.w3.org/TR/service-workers/#dictdef-routersourcedict
+      sourceDict
+
+  # https://www.w3.org/TR/service-workers/#dictdef-routersourcedict
+  type ServiceWorkerRouterSourceDict extends object
+    properties
+      string cacheName
+
+  # Corresponds to `RouterSource` in the spec while the representation is different as follows.
+  # (https://www.w3.org/TR/service-workers/#typedefdef-routersource)
+  # - `RouterSourceEnum`: `type` equals `cache`, `sourceDict` is null.
+  # - `RouterSourceDict`: `type` equals `sourceDict`, `sourceDict` has valid value.
+  type ServiceWorkerRouterSource extends object
+    properties
+      ServiceWorkerRouterSourceType type
+      # Non-empty iff `type` equals "sourceDict".
+      optional ServiceWorkerRouterSourceDict sourceDict
+
+  type ServiceWorkerRouterRule extends object
+    properties
+      ServiceWorkerRouterCondition condition
+      ServiceWorkerRouterSource source
+      # Rule ID assigned by the browser. Unique within each ServiceWorkerVersion.
+      integer id
+
+  # ServiceWorker version.
+  type ServiceWorkerVersion extends object
+    properties
+      string versionId
+      RegistrationID registrationId
+      string scriptURL
+      ServiceWorkerVersionRunningStatus runningStatus
+      ServiceWorkerVersionStatus status
+      # The Last-Modified header value of the main script.
+      optional number scriptLastModified
+      # The time at which the response headers of the main script were received from the server.
+      # For cached script it is the last time the cache entry was validated.
+      optional number scriptResponseTime
+      optional array of Target.TargetID controlledClients
+      optional Target.TargetID targetId
+      # Migration to `typedRouterRules` is in progress. The browser sends either
+      # `routerRules` or `typedRouterRules`.
+      # TODO(crbug.com/540469610): Remove `routerRules` after the migration.
+      optional string routerRules
+      optional array of ServiceWorkerRouterRule typedRouterRules
+
+  # ServiceWorker error message.
+  type ServiceWorkerErrorMessage extends object
+    properties
+      string errorMessage
+      RegistrationID registrationId
+      string versionId
+      string sourceURL
+      integer lineNumber
+      integer columnNumber
+
+  command deliverPushMessage
+    parameters
+      string origin
+      RegistrationID registrationId
+      string data
+
+  command disable
+
+  command dispatchSyncEvent
+    parameters
+      string origin
+      RegistrationID registrationId
+      string tag
+      boolean lastChance
+
+  command dispatchPeriodicSyncEvent
+    parameters
+      string origin
+      RegistrationID registrationId
+      string tag
+
+  command enable
+
+  command setForceUpdateOnPageLoad
+    parameters
+      boolean forceUpdateOnPageLoad
+
+  command skipWaiting
+    parameters
+      string scopeURL
+
+  command startWorker
+    parameters
+      string scopeURL
+
+  command stopAllWorkers
+
+  command stopWorker
+    parameters
+      string versionId
+
+  command unregister
+    parameters
+      string scopeURL
+
+  command updateRegistration
+    parameters
+      string scopeURL
+
+  event workerErrorReported
+    parameters
+      ServiceWorkerErrorMessage errorMessage
+
+  event workerRegistrationUpdated
+    parameters
+      array of ServiceWorkerRegistration registrations
+
+  event workerVersionUpdated
+    parameters
+      array of ServiceWorkerVersion versions

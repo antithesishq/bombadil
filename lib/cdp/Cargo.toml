@@ -1,0 +1,20 @@
+# This is a fork off https://github.com/mattsse/chromiumoxide.
+[package]
+name = "cdp"
+version.workspace = true
+edition.workspace = true
+authors = ["Matthias Seitz <matthias.seitz@outlook.de>", "Oskar Wickström <oskar.wickstrom@antithesis.com>"]
+license = "MIT"
+
+[dependencies]
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+cdp_protocol = { path = "protocol" }
+cdp_types = { path = "types" }
+env_logger.workspace = true
+hotpath.workspace = true
+log.workspace = true
+mio.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+tungstenite.workspace = true

@@ -71,7 +71,6 @@ dockerTools.buildLayeredImage {
     ];
     Env = [
       "FONTCONFIG_FILE=${fontConfig}"
-      "RUST_LOG=chromiumoxide=error"
     ];
   };
 }

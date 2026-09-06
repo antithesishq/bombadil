@@ -1,18 +1,18 @@
 use std::ops::RangeInclusive;
+use std::thread;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::FromGeneratedAction;
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
-use chromiumoxide::Page;
-use chromiumoxide::cdp::browser_protocol::{dom, emulation, input, page};
-use chromiumoxide::cdp::js_protocol::runtime::{
+use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use cdp_protocol::cdp::browser_protocol::{dom, emulation, input, page};
+use cdp_protocol::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParamsBuilder,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
-use tokio::time::sleep;
 
 use crate::geometry::Point;
 use crate::js_action::JsAction;
@@ -90,52 +90,60 @@ impl FromGeneratedAction for BrowserActionTemplate {
 }
 
 impl BrowserAction {
-    pub async fn apply(
+    #[hotpath::measure]
+    pub fn apply(
         &self,
-        page: &Page,
+        connection: &cdp::Connection,
+        session_id: &SessionId,
+        unique_context_id: Option<String>,
         options: ActionOptions,
     ) -> Result<()> {
         match self {
             BrowserAction::Back => {
-                let history =
-                    page.execute(page::GetNavigationHistoryParams {}).await?;
+                let history = connection.send(
+                    page::GetNavigationHistoryParams {},
+                    Some(session_id),
+                )?;
                 if history.current_index == 0 {
                     bail!("can't go back from first navigation entry");
                 }
                 let last: page::NavigationEntry = history.entries
                     [(history.current_index - 1) as usize]
                     .clone();
-                page.execute(
+                connection.post(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(last.id)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
             BrowserAction::Forward => {
-                let history =
-                    page.execute(page::GetNavigationHistoryParams {}).await?;
+                let history = connection.send(
+                    page::GetNavigationHistoryParams {},
+                    Some(session_id),
+                )?;
                 let next_index = (history.current_index + 1) as usize;
                 if next_index >= history.entries.len() {
                     bail!("can't go forward from last navigation entry");
                 }
                 let next: page::NavigationEntry =
                     history.entries[next_index].clone();
-                page.execute(
+                connection.post(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(next.id)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
             BrowserAction::Reload => {
-                page.reload().await?;
+                connection
+                    .post(page::ReloadParams::default(), Some(session_id))?;
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                page.execute(
+                connection.post(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -143,11 +151,11 @@ impl BrowserAction {
                         .speed((distance.abs() * 10.0) as i64)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                page.execute(
+                connection.post(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -155,28 +163,81 @@ impl BrowserAction {
                         .speed((distance.abs() * 10.0) as i64)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
-            BrowserAction::Click {
-                point: position, ..
-            } => {
-                page.click((*position).into()).await?;
+            BrowserAction::Click { point, .. } => {
+                let builder = input::DispatchMouseEventParams::builder()
+                    .x(point.x)
+                    .y(point.y)
+                    .button(input::MouseButton::Left)
+                    .click_count(1);
+                connection.post(
+                    input::DispatchMouseEventParams::new(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point.x,
+                        point.y,
+                    ),
+                    Some(session_id),
+                )?;
+                connection.post(
+                    builder
+                        .clone()
+                        .r#type(input::DispatchMouseEventType::MousePressed)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
+                connection.post(
+                    builder
+                        .r#type(input::DispatchMouseEventType::MouseReleased)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
             }
             BrowserAction::DoubleClick {
                 point,
-                delay_millis,
-                ..
+                delay_millis: _,
+                fingerprint: _,
             } => {
-                page.click((*point).into()).await?;
-                sleep(Duration::from_millis(*delay_millis)).await;
-                page.click((*point).into()).await?;
+                let builder = input::DispatchMouseEventParams::builder()
+                    .x(point.x)
+                    .y(point.y)
+                    .button(input::MouseButton::Left)
+                    .click_count(2);
+                connection.send(
+                    input::DispatchMouseEventParams::new(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point.x,
+                        point.y,
+                    ),
+                    Some(session_id),
+                )?;
+                connection.post(
+                    builder
+                        .clone()
+                        .r#type(input::DispatchMouseEventType::MousePressed)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
+                connection.post(
+                    builder
+                        .r#type(input::DispatchMouseEventType::MouseReleased)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
             }
             BrowserAction::TypeText { text, delay_millis } => {
                 let delay = Duration::from_millis(*delay_millis);
                 for char in text.chars() {
-                    sleep(delay).await;
-                    page.execute(input::InsertTextParams::new(char)).await?;
+                    thread::sleep(delay);
+                    connection.post(
+                        input::InsertTextParams::new(char),
+                        Some(session_id),
+                    )?;
                 }
             }
             BrowserAction::PressKey { code } => {
@@ -196,47 +257,51 @@ impl BrowserAction {
                     }
                     builder.build().map_err(|err| anyhow!(err))
                 };
-                page.execute(build_params(
-                    input::DispatchKeyEventType::RawKeyDown,
-                    None,
-                )?)
-                .await?;
+                connection.post(
+                    build_params(
+                        input::DispatchKeyEventType::RawKeyDown,
+                        None,
+                    )?,
+                    Some(session_id),
+                )?;
                 if let Some(text) = text {
-                    page.execute(build_params(
-                        input::DispatchKeyEventType::Char,
-                        Some(text),
-                    )?)
-                    .await?;
+                    connection.post(
+                        build_params(
+                            input::DispatchKeyEventType::Char,
+                            Some(text),
+                        )?,
+                        Some(session_id),
+                    )?;
                 }
-                page.execute(build_params(
-                    input::DispatchKeyEventType::KeyUp,
-                    None,
-                )?)
-                .await?;
+                connection.post(
+                    build_params(input::DispatchKeyEventType::KeyUp, None)?,
+                    Some(session_id),
+                )?;
             }
             BrowserAction::SetFileInputFiles { selector, files } => {
-                let document =
-                    page.execute(dom::GetDocumentParams::default()).await?;
-                let node = page
-                    .execute(
-                        dom::QuerySelectorParams::builder()
-                            .node_id(document.root.node_id)
-                            .selector(selector)
-                            .build()
-                            .map_err(|err| anyhow!(err))?,
-                    )
-                    .await?;
+                let document = connection.send(
+                    dom::GetDocumentParams::default(),
+                    Some(session_id),
+                )?;
+                let node = connection.send(
+                    dom::QuerySelectorParams::builder()
+                        .node_id(document.root.node_id)
+                        .selector(selector)
+                        .build()
+                        .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
                 if node.node_id.inner() == &0 {
                     bail!("element not found for selector: {:?}", selector);
                 }
-                page.execute(
+                connection.post(
                     dom::SetFileInputFilesParams::builder()
                         .files(files.clone())
                         .node_id(node.node_id)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
             BrowserAction::MouseDrag {
                 from,
@@ -244,9 +309,6 @@ impl BrowserAction {
                 steps,
                 delay_millis,
             } => {
-                // `buttons: 1` (left held) must be set on every event during
-                // the drag so JS sees the held button on mousemove. Chrome
-                // doesn't track button state across CDP events.
                 let dispatch = |event_type, point: Point, buttons: i64| {
                     input::DispatchMouseEventParams::builder()
                         .r#type(event_type)
@@ -258,12 +320,14 @@ impl BrowserAction {
                         .build()
                         .map_err(|err| anyhow!(err))
                 };
-                page.execute(dispatch(
-                    input::DispatchMouseEventType::MousePressed,
-                    *from,
-                    1,
-                )?)
-                .await?;
+                connection.post(
+                    dispatch(
+                        input::DispatchMouseEventType::MousePressed,
+                        *from,
+                        1,
+                    )?,
+                    Some(session_id),
+                )?;
                 let delay = Duration::from_millis(*delay_millis);
                 let steps = (*steps).max(1);
                 for step in 1..=steps {
@@ -273,24 +337,28 @@ impl BrowserAction {
                         y: from.y + (to.y - from.y) * progress,
                     };
                     if !delay.is_zero() {
-                        sleep(delay).await;
+                        thread::sleep(delay);
                     }
-                    page.execute(dispatch(
-                        input::DispatchMouseEventType::MouseMoved,
-                        point,
-                        1,
-                    )?)
-                    .await?;
+                    connection.post(
+                        dispatch(
+                            input::DispatchMouseEventType::MouseMoved,
+                            point,
+                            1,
+                        )?,
+                        Some(session_id),
+                    )?;
                 }
-                page.execute(dispatch(
-                    input::DispatchMouseEventType::MouseReleased,
-                    *to,
-                    0,
-                )?)
-                .await?;
+                connection.post(
+                    dispatch(
+                        input::DispatchMouseEventType::MouseReleased,
+                        *to,
+                        0,
+                    )?,
+                    Some(session_id),
+                )?;
             }
             BrowserAction::SetViewport { width, height } => {
-                page.execute(
+                connection.post(
                     emulation::SetDeviceMetricsOverrideParams::builder()
                         .width(u32::from(*width))
                         .height(u32::from(*height))
@@ -299,8 +367,8 @@ impl BrowserAction {
                         .scale(1)
                         .build()
                         .map_err(|err| anyhow!(err))?,
-                )
-                .await?;
+                    Some(session_id),
+                )?;
             }
             BrowserAction::Custom {
                 name,
@@ -317,8 +385,9 @@ impl BrowserAction {
                 )
                     .argument(CallArgument::builder().value(json::json!(name)).build())
                     .argument(CallArgument::builder().value(options.clone()).build())
+                    .unique_context_id(unique_context_id.ok_or(anyhow!("no unique_context_id available, can't apply custom action"))?)
                 .build().map_err(|err| anyhow!(err))?;
-                page.evaluate_function(call).await?;
+                connection.send(call, Some(session_id))?;
             }
         };
         Ok(())

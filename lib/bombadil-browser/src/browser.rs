@@ -1,39 +1,36 @@
 use anyhow::ensure;
-use anyhow::{Context, Result, anyhow, bail};
-use chromiumoxide::browser::BrowserConfigBuilder;
-use chromiumoxide::cdp::browser_protocol::browser;
-use chromiumoxide::cdp::browser_protocol::emulation;
-use chromiumoxide::cdp::browser_protocol::network;
-use chromiumoxide::cdp::browser_protocol::page::{
+use anyhow::{Result, anyhow, bail};
+use base64::Engine;
+use cdp::Binary;
+use cdp::types::try_match;
+use cdp_protocol::cdp::browser_protocol::emulation;
+use cdp_protocol::cdp::browser_protocol::network;
+use cdp_protocol::cdp::browser_protocol::page::{
     self, ClientNavigationReason, FrameId, NavigationType,
 };
-use chromiumoxide::cdp::browser_protocol::target::{self, TargetId};
-use chromiumoxide::cdp::js_protocol::debugger::{self, CallFrameId};
-use chromiumoxide::cdp::js_protocol::runtime::{self};
-use chromiumoxide::{BrowserConfig, Page};
-use futures::{StreamExt, stream};
+use cdp_protocol::cdp::browser_protocol::target::{self, SessionId, TargetId};
+use cdp_protocol::cdp::browser_protocol::{browser, dom};
+use cdp_protocol::cdp::browser_protocol::{css, performance};
+use cdp_protocol::cdp::js_protocol::debugger::{self, CallFrameId};
+use cdp_protocol::cdp::js_protocol::runtime::{self};
+use crossbeam_channel as mpmc;
 use log;
+use serde::Deserialize;
 use serde_json as json;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
-use tempfile::TempDir;
-use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::broadcast::{Receiver, Sender, channel};
-use tokio::sync::oneshot;
-use tokio::time::sleep;
-use tokio::{select, spawn};
-use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::activity::ActivityStream;
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
-    ScreenshotFormat,
 };
+use crate::chromium::Chromium;
 use crate::cookie::{BrowserCookie, build_cookie_param};
 
 pub mod actions;
@@ -41,6 +38,7 @@ pub mod activity;
 pub mod evaluation;
 pub mod instrumentation;
 pub mod quiescence;
+pub mod screenshots;
 pub mod state;
 
 #[derive(Debug, Clone)]
@@ -56,6 +54,7 @@ struct InnerStateShared {
     console_entries: Vec<ConsoleEntry>,
     exceptions: Vec<Exception>,
     screenshot: Option<Screenshot>,
+    execution_context_id: Option<String>,
 }
 
 #[derive(Debug)]
@@ -70,8 +69,8 @@ enum InnerStateKind {
     Resuming(Box<BrowserAction>),
     Navigating { url: String },
     Loading,
-    Running(quiescence::QuiescenceTimer),
-    Acting(quiescence::QuiescenceSubscription),
+    Running,
+    Acting(ActivityStream),
 }
 
 impl std::fmt::Debug for InnerStateKind {
@@ -86,7 +85,7 @@ impl std::fmt::Debug for InnerStateKind {
                 f.debug_struct("Navigating").field("url", url).finish()
             }
             Self::Loading => write!(f, "Loading"),
-            Self::Running(_) => write!(f, "Running"),
+            Self::Running => write!(f, "Running"),
             Self::Acting(_) => write!(f, "Acting"),
         }
     }
@@ -113,6 +112,8 @@ enum InnerEvent {
         frame_id: FrameId,
         url: String,
     },
+    ExecutionContextCreated(String, FrameId),
+    ExecutionContextDestroyed(String),
     TargetDestroyed(TargetId),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Generation),
@@ -137,25 +138,16 @@ const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
-    sender: Sender<BrowserEvent>,
-    actions_sender: Sender<(BrowserAction, Generation)>,
-    inner_events_sender: Sender<InnerEvent>,
-    shutdown_receiver: oneshot::Receiver<()>,
-    page: Arc<Page>,
+    sender: mpmc::Sender<BrowserEvent>,
+    events_tx: mpmc::Sender<InnerEvent>,
+    connection: cdp::Connection,
+    target_id: TargetId,
     frame_id: FrameId,
-    network_activity: activity::NetworkActivity,
-    screencast_activity: activity::ScreencastActivity,
-    latest_frame: Arc<Mutex<Option<Arc<[u8]>>>>,
+    session_id: SessionId,
+    latest_frame: Arc<Mutex<Option<Arc<Binary>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
-}
-
-#[derive(Clone)]
-pub struct LaunchOptions {
-    pub headless: bool,
-    pub user_data_directory: PathBuf,
-    pub no_sandbox: bool,
 }
 
 #[derive(Clone)]
@@ -176,90 +168,102 @@ pub struct BrowserOptions {
     pub cookies: Vec<BrowserCookie>,
 }
 
-#[derive(Clone)]
-pub enum DebuggerOptions {
-    External { remote_debugger: Url },
-    Managed { launch_options: LaunchOptions },
-}
-
 pub struct Browser {
-    receiver: Receiver<BrowserEvent>,
-    inner_events_sender: Sender<InnerEvent>,
-    actions_sender: Sender<(BrowserAction, Generation)>,
-    shutdown_sender: Option<oneshot::Sender<()>>,
-    done_receiver: Option<oneshot::Receiver<()>>,
-    browser: Option<chromiumoxide::Browser>,
-    page: Arc<Page>,
+    browser_events_rx: mpmc::Receiver<BrowserEvent>,
+    events_tx: mpmc::Sender<InnerEvent>,
+    connection: cdp::Connection,
+    target_id: TargetId,
+    session_id: SessionId,
+    frame_id: FrameId,
     origin: Url,
-    go_to_origin_on_init: bool,
+    create_target: bool,
 }
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        if let Some(sender) = self.shutdown_sender.take() {
-            let _else = sender.send(());
-        }
-        if let Some(browser) = self.browser.take() {
-            // Drop should already have been called by an explicit browser.close() in
-            // terminate(), but we do this as a last resort.
-            drop(browser);
-        }
+        let _ = self.connection.close();
     }
 }
 
 impl Browser {
-    pub async fn new(
+    pub fn new(
         origin: Url,
         browser_options: BrowserOptions,
-        debugger_options: DebuggerOptions,
+        chromium: &Chromium,
     ) -> Result<Self> {
-        let (mut browser, mut handler) = match debugger_options {
-            DebuggerOptions::External {
-                ref remote_debugger,
-            } => {
-                chromiumoxide::Browser::connect(remote_debugger.as_str())
-                    .await?
-            }
-            DebuggerOptions::Managed { ref launch_options } => {
-                let browser_config = launch_options_to_config(
-                    launch_options,
-                    &browser_options.emulation,
-                )?;
-                chromiumoxide::Browser::launch(browser_config).await?
-            }
-        };
+        let connection = cdp::Connection::connect(
+            chromium.web_socket_remote_debugger.to_string(),
+        )?;
 
-        let _handle = tokio::spawn(async move {
-            loop {
-                let _ = handler.next().await;
-            }
-        });
+        let (events_tx, events_rx) = mpmc::bounded(32);
+        let (browser_events_tx, browser_events_rx) =
+            mpmc::bounded::<BrowserEvent>(1);
 
-        let (sender, receiver) = channel::<BrowserEvent>(1);
+        let (target_id, session_id) = if browser_options.create_target {
+            let target_id = connection
+                .send(target::CreateTargetParams::default(), None)?
+                .target_id;
 
-        let (actions_sender, _) = channel::<(BrowserAction, Generation)>(1);
+            let session_id = connection
+                .send(
+                    target::AttachToTargetParams {
+                        target_id: target_id.clone(),
+                        flatten: Some(true),
+                    },
+                    None,
+                )?
+                .session_id;
 
-        let page = if browser_options.create_target {
-            Arc::new(browser.new_page("about:blank").await.context(
-                "could not create target (is this supported by the CDP host?)",
-            )?)
+            (target_id, session_id)
         } else {
-            Arc::new(find_page(&mut browser).await?)
+            find_page(&connection)?
         };
 
-        page.enable_dom().await?;
-        page.enable_css().await?;
-        page.enable_runtime().await?;
-        page.enable_debugger().await?;
-        page.execute(network::EnableParams::default()).await?;
+        let frame_id = connection
+            .send(page::GetFrameTreeParams::default(), Some(&session_id))?
+            .frame_tree
+            .frame
+            .id;
+
+        let latest_frame: Arc<Mutex<Option<Arc<Binary>>>> =
+            Arc::new(Mutex::new(None));
+
+        let frames_rx = screenshots::screencast_start(
+            &connection,
+            &session_id,
+            browser_options.emulation.width,
+            browser_options.emulation.height,
+        )?;
+
+        // Background task to keep the latest screencast frame updated.
+        {
+            let latest_frame = latest_frame.clone();
+            thread::spawn(move || {
+                while let Ok(frame) = frames_rx.recv() {
+                    *latest_frame.lock().unwrap() = Some(frame);
+                }
+            });
+        }
+
+        forward_inner_events(&connection, frame_id.clone(), events_tx.clone());
+
+        connection.send(runtime::EnableParams::default(), Some(&session_id))?;
+        connection.send(dom::EnableParams::default(), Some(&session_id))?;
+        connection.send(css::EnableParams::default(), Some(&session_id))?;
+        connection.send(page::EnableParams::default(), Some(&session_id))?;
+        connection
+            .send(debugger::EnableParams::default(), Some(&session_id))?;
+        connection.send(network::EnableParams::default(), Some(&session_id))?;
+        connection
+            .send(performance::EnableParams::default(), Some(&session_id))?;
 
         if !browser_options.extra_headers.is_empty() {
-            page.execute(network::SetExtraHttpHeadersParams::new(
-                network::Headers::new(json::to_value(
-                    &browser_options.extra_headers,
-                )?),
-            ))
-            .await?;
+            connection.send(
+                network::SetExtraHttpHeadersParams::new(network::Headers::new(
+                    json::to_value(&browser_options.extra_headers)?,
+                )),
+                Some(&session_id),
+            )?;
         }
 
         if !browser_options.cookies.is_empty() {
@@ -272,12 +276,14 @@ impl Browser {
                 .iter()
                 .map(|cookie| build_cookie_param(cookie, &origin))
                 .collect::<Result<Vec<_>>>()?;
-            page.execute(network::SetCookiesParams::new(cookies))
-                .await?;
+            connection.send(
+                network::SetCookiesParams::new(cookies),
+                Some(&session_id),
+            )?;
         }
 
         // Prevent file downloads to avoid getting stuck
-        page.execute(
+        connection.send(
             browser::SetDownloadBehaviorParams::builder()
                 .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
                 .events_enabled(true)
@@ -288,11 +294,11 @@ impl Browser {
                 .map_err(|s| {
                     anyhow!(s).context("build SetDownloadBehaviorParams failed")
                 })?,
-        )
-        .await?;
+            Some(&session_id),
+        )?;
 
         for permission in &browser_options.grant_permissions {
-            page.execute(
+            connection.send(
                 browser::SetPermissionParams::builder()
                     .permission(browser::PermissionDescriptor::new(permission))
                     .setting(browser::PermissionSetting::Granted)
@@ -300,11 +306,11 @@ impl Browser {
                     .map_err(|s| {
                         anyhow!(s).context("build SetPermissionParams failed")
                     })?,
-            )
-            .await?;
+                Some(&session_id),
+            )?;
         }
 
-        page.execute(
+        connection.send(
             emulation::SetDeviceMetricsOverrideParams::builder()
                 .width(browser_options.emulation.width)
                 .height(browser_options.emulation.height)
@@ -318,119 +324,79 @@ impl Browser {
                     anyhow!(err)
                         .context("build SetDeviceMetricsOverrideParams failed")
                 })?,
-        )
-        .await?;
+            Some(&session_id),
+        )?;
 
-        auto_accept_dialogs(page.clone()).await?;
-
-        let (inner_events_sender, inner_events_receiver) =
-            channel::<InnerEvent>(1024);
-
-        let (shutdown_sender, shutdown_receiver) = oneshot::channel::<()>();
-        let (done_sender, done_receiver) = oneshot::channel::<()>();
-
-        let frame_id = page
-            .mainframe()
-            .await?
-            .ok_or(anyhow!("no main frame available"))?;
-
-        let network_activity =
-            activity::NetworkActivity::subscribe(&page).await?;
-        let screencast = Arc::new(
-            activity::Screencast::start(
-                &page,
-                browser_options.emulation.width,
-                browser_options.emulation.height,
-            )
-            .await?,
-        );
-        let screencast_activity =
-            activity::ScreencastActivity::new(screencast.clone());
-
-        let latest_frame: Arc<Mutex<Option<Arc<[u8]>>>> =
-            Arc::new(Mutex::new(None));
-
-        // Background task to keep the latest screencast frame updated.
-        {
-            let latest_frame = latest_frame.clone();
-            let mut receiver = screencast.subscribe();
-            spawn(async move {
-                loop {
-                    match receiver.recv().await {
-                        Ok(frame) => {
-                            *latest_frame.lock().unwrap() = Some(frame);
-                        }
-                        Err(
-                            tokio::sync::broadcast::error::RecvError::Lagged(n),
-                        ) => {
-                            log::debug!(
-                                "screencast frame receiver lagged by {}",
-                                n
-                            );
-                        }
-                        Err(
-                            tokio::sync::broadcast::error::RecvError::Closed,
-                        ) => break,
-                    }
-                }
-            });
-        }
+        auto_accept_dialogs(connection.clone(), &session_id)?;
 
         let context = BrowserContext {
-            sender,
-            actions_sender: actions_sender.clone(),
-            inner_events_sender: inner_events_sender.clone(),
-            shutdown_receiver,
-            page: page.clone(),
-            frame_id,
-            network_activity,
-            screencast_activity,
+            sender: browser_events_tx,
+            events_tx: events_tx.clone(),
+            connection: connection.clone(),
+            target_id: target_id.clone(),
+            frame_id: frame_id.clone(),
+            session_id: session_id.clone(),
             latest_frame,
             origin: origin.clone(),
             browser_options: browser_options.clone(),
         };
 
         instrumentation::instrument_js_coverage(
-            page.clone(),
+            connection.clone(),
+            &session_id,
             browser_options.instrumentation.clone(),
-        )
-        .await?;
+        )?;
 
-        let browser_events = browser
-            .event_listener::<target::EventTargetDestroyed>()
-            .await?
-            .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone()));
-
-        let events_all = stream::select_all(vec![
-            inner_events(&context).await?,
-            Box::pin(browser_events),
-            receiver_to_stream(inner_events_receiver),
-        ]);
-        run_state_machine(context, events_all, done_sender);
+        let state_shared = InnerStateShared::default();
+        let state_initial = InnerState {
+            kind: if browser_options.create_target {
+                InnerStateKind::Navigating {
+                    url: context.origin.clone().into(),
+                }
+            } else {
+                start_quiescence_timer(
+                    &state_shared,
+                    &context,
+                    &context.events_tx,
+                )?;
+                InnerStateKind::Running
+            },
+            shared: state_shared,
+        };
+        run_state_machine(context, events_rx, state_initial);
 
         Ok(Browser {
-            browser: Some(browser),
-            receiver,
-            inner_events_sender,
-            actions_sender,
-            shutdown_sender: Some(shutdown_sender),
-            done_receiver: Some(done_receiver),
-            page,
+            browser_events_rx,
+            events_tx,
+            connection,
+            target_id,
+            session_id,
+            frame_id,
             origin,
-            go_to_origin_on_init: browser_options.create_target,
+            create_target: browser_options.create_target,
         })
     }
 
-    pub async fn initiate(&mut self) -> Result<()> {
-        if self.go_to_origin_on_init {
-            let page = self.page.clone();
+    pub fn initiate(&mut self) -> Result<()> {
+        if self.create_target {
+            let connection = self.connection.clone();
+            let session_id = self.session_id.clone();
+            let frame_id = self.frame_id.clone();
             let origin = self.origin.to_string();
-            spawn(async move {
-                log::info!("going to origin");
-                let _ = page.goto(origin).await;
-            });
+
+            log::info!("going to origin");
+            connection.post(
+                page::NavigateParams {
+                    url: origin,
+                    referrer: None,
+                    transition_type: None,
+                    frame_id: Some(frame_id),
+                    referrer_policy: None,
+                },
+                Some(&session_id),
+            )?;
         } else {
-            let _ = self.inner_events_sender.send(InnerEvent::StateRequested(
+            let _ = self.events_tx.send(InnerEvent::StateRequested(
                 StateRequestReason::Start,
                 Generation::default(),
             ));
@@ -441,43 +407,26 @@ impl Browser {
         Ok(())
     }
 
-    pub async fn terminate(mut self) -> Result<()> {
-        // Send the shutdown signal first so the state machine can exit cleanly
-        // if it is between events.
-        if let Some(sender) = self.shutdown_sender.take() {
-            let _ = sender.send(());
+    pub fn terminate(self) -> Result<()> {
+        if self.create_target {
+            self.connection.send(
+                target::CloseTargetParams::new(self.target_id.clone()),
+                Some(&self.session_id),
+            )?;
         }
-
         // Close the browser before waiting for the state machine. Any CDP calls
         // in-flight inside process_event will fail once the connection drops,
         // unblocking the state machine so it can exit. Without this ordering,
         // terminate() could deadlock: the state machine waits for a CDP response
         // and the browser never closes because we're waiting for the state machine.
-        if let Some(mut browser) = self.browser.take() {
-            if let Err(error) = browser.close().await {
-                log::warn!("browser close error: {:?}", error);
-            }
-            // Drop explicitly; browser.close() may log a websocket error but
-            // the process is cleaned up here.
-            // Reported: https://github.com/mattsse/chromiumoxide/issues/287
-            drop(browser);
-        }
-
-        // Wait for the state machine to confirm it has exited. The done signal
-        // is always sent now (even on error), so this should resolve promptly.
-        if let Some(done_receiver) = self.done_receiver.take() {
-            let _ = done_receiver.await;
-        }
+        let _ = self.connection.close();
 
         Ok(())
     }
 
-    pub async fn next_event(&mut self) -> Option<BrowserEvent> {
-        match self.receiver.recv().await {
-            Ok(event) => Some(event),
-            Err(RecvError::Closed) => None,
-            Err(error) => Some(BrowserEvent::Error(Arc::new(anyhow!(error)))),
-        }
+    #[hotpath::measure]
+    pub fn next_event(&mut self) -> Option<BrowserEvent> {
+        self.browser_events_rx.recv().ok()
     }
 
     pub fn apply(
@@ -485,7 +434,8 @@ impl Browser {
         action: BrowserAction,
         state: Arc<BrowserState>,
     ) -> Result<()> {
-        self.actions_sender.send((action, state.generation))?;
+        self.events_tx
+            .send(InnerEvent::ActionAccepted(action, state.generation))?;
         Ok(())
     }
 
@@ -493,317 +443,269 @@ impl Browser {
         &self.origin
     }
 
-    pub async fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
-        let _ = self.page.evaluate_on_new_document(script).await?;
-
-        let main_execution_context_id = self
-            .page
-            .execution_context()
-            .await?
-            .ok_or(anyhow!("no execution context available"))?;
-        let _ = self
-            .page
-            .execute(
-                runtime::EvaluateParams::builder()
-                    .expression(script)
-                    .context_id(main_execution_context_id)
-                    .await_promise(true)
-                    .build()
-                    .expect("failed to build EvaluateParams"),
-            )
-            .await;
+    pub fn ensure_script_evaluated(&self, script: &str) -> Result<()> {
+        self.connection.send(
+            page::AddScriptToEvaluateOnNewDocumentParams {
+                source: script.into(),
+                world_name: None,
+                include_command_line_api: Some(false),
+                run_immediately: Some(true),
+            },
+            Some(&self.session_id),
+        )?;
         Ok(())
     }
 }
 
 /// Auto-accept JavaScript dialogs (alert, confirm, prompt, beforeunload)
 /// so they never block the test run.
-async fn auto_accept_dialogs(page: Arc<Page>) -> Result<()> {
-    let mut events = page
-        .event_listener::<page::EventJavascriptDialogOpening>()
-        .await?;
-    spawn(async move {
-        while let Some(event) = events.next().await {
+fn auto_accept_dialogs(
+    connection: cdp::Connection,
+    session_id: &SessionId,
+) -> Result<()> {
+    let events = connection
+        .events
+        .subscribe::<page::EventJavascriptDialogOpening>();
+    let session_id = session_id.clone();
+    thread::spawn(move || -> Result<()> {
+        while let Some(event) = events.next()? {
             log::debug!(
                 "auto-accepting JavaScript dialog: \
                  type={:?} message={:?}",
                 event.r#type,
                 event.message
             );
-            let _ = page
-                .execute(
-                    page::HandleJavaScriptDialogParams::builder()
-                        .accept(true)
-                        .build()
-                        .expect("build HandleJavaScriptDialogParams"),
-                )
-                .await;
+            connection.post(
+                page::HandleJavaScriptDialogParams::builder()
+                    .accept(true)
+                    .build()
+                    .expect("build HandleJavaScriptDialogParams"),
+                Some(&session_id),
+            )?;
         }
+        Ok(())
     });
     Ok(())
 }
 
-async fn inner_events(
-    context: &BrowserContext,
-) -> Result<Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>> {
-    type InnerEventStream =
-        Pin<Box<dyn stream::Stream<Item = InnerEvent> + Send>>;
+fn forward_inner_events(
+    connection: &cdp::Connection,
+    frame_id: FrameId,
+    events_tx: mpmc::Sender<InnerEvent>,
+) {
+    let events = connection.events.all();
 
-    let events_loaded = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventLoadEventFired>()
-            .await?
-            .map(|_| InnerEvent::Loaded),
-    ) as InnerEventStream;
-
-    let events_paused = Box::pin(
-        context
-            .page
-            .event_listener::<debugger::EventPaused>()
-            .await?
-            .map(|event| InnerEvent::Paused {
-                reason: event.reason.clone(),
-                exception: event.data.clone(),
-                call_frame_id: event
-                    .call_frames
-                    .first()
-                    .map(|f| f.call_frame_id.clone()),
-            }),
-    ) as InnerEventStream;
-
-    let events_resumed = Box::pin(
-        context
-            .page
-            .event_listener::<debugger::EventResumed>()
-            .await?
-            .map(|_| InnerEvent::Resumed),
-    ) as InnerEventStream;
-
-    let events_exception_thrown = Box::pin(
-        context
-            .page
-            .event_listener::<runtime::EventExceptionThrown>()
-            .await?
-            .map(|e| {
-                InnerEvent::ExceptionThrown(Exception {
-                    exception_id: e.exception_details.exception_id as u32,
-                    timestamp: UNIX_EPOCH
-                        + Duration::from_secs_f64(
-                            *e.timestamp.inner() / 1000.0,
-                        ),
-                    text: e.exception_details.text.clone(),
-                    line: e.exception_details.line_number as u32,
-                    column: e.exception_details.column_number as u32,
-                    url: e.exception_details.url.clone(),
-                    remote_object: e.exception_details.exception.as_ref().map(
-                        |obj| state::ExceptionRemoteObject {
-                            type_name: format!("{:?}", obj.r#type),
-                            subtype: obj
-                                .subtype
-                                .as_ref()
-                                .map(|st| format!("{:?}", st)),
-                            class_name: obj.class_name.clone(),
-                            description: obj.description.clone(),
-                            value: obj.value.clone(),
-                        },
-                    ),
-                    stacktrace: e.exception_details.stack_trace.as_ref().map(
-                        |stack_trace| {
-                            stack_trace
-                                .call_frames
-                                .iter()
-                                .map(|frame| CallFrame {
-                                    name: frame.function_name.clone(),
-                                    line: frame.line_number as u32,
-                                    column: frame.column_number as u32,
-                                    url: frame.url.clone(),
-                                })
-                                .collect()
-                        },
-                    ),
-                })
-            }),
-    ) as InnerEventStream;
-
-    let frame_id = context.frame_id.clone();
-    let events_frame_requested_navigation = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventFrameRequestedNavigation>()
-            .await?
-            .filter_map(move |nav| {
-                let frame_id = frame_id.clone();
-                async move {
+    let _ = thread::spawn(move || {
+        for event in events {
+            let inner_event = try_match!(event, {
+                runtime::EventExecutionContextCreated: event => {
+                    #[derive(Deserialize)]
+                    struct AuxData {
+                        #[serde(rename = "frameId")]
+                        frame_id: Option<FrameId>,
+                        #[serde(rename = "isDefault")]
+                        is_default: bool
+                    }
+                    if let Some(aux) = event.context.aux_data 
+                        && let Ok(aux) = json::from_value::<AuxData>(aux) 
+                            && let Some(frame_id) = aux.frame_id 
+                            && aux.is_default {
+                        Some(InnerEvent::ExecutionContextCreated(event.context.unique_id.clone(), frame_id))
+                    } else {
+                        None
+                    }
+                },
+                runtime::EventExecutionContextDestroyed: event => {
+                    Some(InnerEvent::ExecutionContextDestroyed(event.execution_context_unique_id.clone()))
+                },
+                page::EventLoadEventFired => {
+                    Some(InnerEvent::Loaded)
+                },
+                debugger::EventPaused: event => {
+                    Some(InnerEvent::Paused {
+                        reason: event.reason.clone(),
+                        exception: event.data.clone(),
+                        call_frame_id: event
+                            .call_frames
+                            .first()
+                            .map(|f| f.call_frame_id.clone()),
+                    })
+                },
+                debugger::EventResumed => {
+                    Some(InnerEvent::Resumed)
+                },
+                runtime::EventExceptionThrown: e => {
+                    Some(InnerEvent::ExceptionThrown(Exception {
+                        exception_id: e.exception_details.exception_id as u32,
+                        timestamp: UNIX_EPOCH
+                            + Duration::from_secs_f64(
+                                *e.timestamp.inner() / 1000.0,
+                            ),
+                            text: e.exception_details.text.clone(),
+                            line: e.exception_details.line_number as u32,
+                            column: e.exception_details.column_number as u32,
+                            url: e.exception_details.url.clone(),
+                            remote_object: e.exception_details.exception.as_ref().map(
+                                |obj| state::ExceptionRemoteObject {
+                                    type_name: format!("{:?}", obj.r#type),
+                                    subtype: obj
+                                        .subtype
+                                        .as_ref()
+                                        .map(|st| format!("{:?}", st)),
+                                        class_name: obj.class_name.clone(),
+                                        description: obj.description.clone(),
+                                        value: obj.value.clone(),
+                                },
+                            ),
+                            stacktrace: e.exception_details.stack_trace.as_ref().map(
+                                |stack_trace| {
+                                    stack_trace
+                                        .call_frames
+                                        .iter()
+                                        .map(|frame| CallFrame {
+                                            name: frame.function_name.clone(),
+                                            line: frame.line_number as u32,
+                                            column: frame.column_number as u32,
+                                            url: frame.url.clone(),
+                                        })
+                                    .collect()
+                                },
+                            ),
+                    }))
+                },
+                page::EventFrameRequestedNavigation: nav => {
                     if nav.frame_id == frame_id {
                         Some(InnerEvent::FrameRequestedNavigation {
                             frame_id: nav.frame_id.clone(),
                             reason: nav.reason.clone(),
                             url: nav.url.clone(),
                         })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
-
-    let frame_id = context.frame_id.clone();
-    let events_frame_navigated = Box::pin(
-        context
-            .page
-            .event_listener::<page::EventFrameNavigated>()
-            .await?
-            .filter_map(move |nav| {
-                let frame_id = frame_id.clone();
-                async move {
+                    } else { None }
+                },
+                page::EventFrameNavigated: nav => {
                     if nav.frame.id == frame_id {
-                        Some(InnerEvent::FrameNavigated(
-                            nav.frame.id.clone(),
-                            nav.r#type.clone(),
+                        Some (InnerEvent::FrameNavigated(
+                                nav.frame.id.clone(),
+                                nav.r#type.clone(),
                         ))
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
-
-    let frame_id = context.frame_id.clone();
-    let events_download_will_begin = Box::pin(
-        context
-            .page
-            .event_listener::<browser::EventDownloadWillBegin>()
-            .await?
-            .filter_map(move |event| {
-                let frame_id = frame_id.clone();
-                async move {
+                    } else { None }
+                },
+                browser::EventDownloadWillBegin: event => {
                     if event.frame_id == frame_id {
                         Some(InnerEvent::DownloadWillBegin {
                             frame_id: event.frame_id.clone(),
                             url: event.url.clone(),
                         })
-                    } else {
-                        None
-                    }
-                }
-            }),
-    ) as InnerEventStream;
-
-    let events_target_destroyed = Box::pin(
-        context
-            .page
-            .event_listener::<target::EventTargetDestroyed>()
-            .await?
-            .map(|event| InnerEvent::TargetDestroyed(event.target_id.clone())),
-    ) as InnerEventStream;
-
-    let events_console = Box::pin(
-        context
-            .page
-            .event_listener::<runtime::EventConsoleApiCalled>()
-            .await?
-            .filter_map(async |call| {
-                let level = match call.r#type {
-                    runtime::ConsoleApiCalledType::Error => {
-                        state::ConsoleEntryLevel::Error
-                    }
-                    runtime::ConsoleApiCalledType::Warning => {
-                        state::ConsoleEntryLevel::Warning
-                    }
-                    _ => return None,
-                };
-
-                Some(InnerEvent::ConsoleEntry(ConsoleEntry {
-                    timestamp: UNIX_EPOCH
-                        + Duration::from_secs_f64(
-                            *call.timestamp.inner() / 1000.0,
-                        ),
-                    level,
-                    args: call.args.iter().map(remote_object_to_json).collect(),
-                }))
-            }),
-    ) as InnerEventStream;
-
-    let events_action_accepted =
-        Box::pin(receiver_to_stream(context.actions_sender.subscribe()).map(
-            |(action, generation)| {
-                InnerEvent::ActionAccepted(action, generation)
-            },
-        ));
-
-    Ok(Box::pin(stream::select_all(vec![
-        events_loaded,
-        events_paused,
-        events_resumed,
-        events_exception_thrown,
-        events_frame_requested_navigation,
-        events_frame_navigated,
-        events_download_will_begin,
-        events_target_destroyed,
-        events_console,
-        events_action_accepted,
-    ])))
-}
-
-fn run_state_machine(
-    mut context: BrowserContext,
-    mut events: impl stream::Stream<Item = InnerEvent> + Send + Unpin + 'static,
-    done_sender: oneshot::Sender<()>,
-) {
-    spawn(async move {
-        let result = async {
-            let shared = InnerStateShared::default();
-            let mut state_current = InnerState {
-                kind: InnerStateKind::Navigating { url: context.origin.clone().into() },
-                shared,
-            };
-            log::info!("processing events");
-            loop {
-                select! {
-                    _ = &mut context.shutdown_receiver => {
-                        log::debug!("shutting down browser state machine");
-                        break;
-                    },
-                    event = events.next() => match event {
-                        Some(event) => {
-                            state_current = if log::log_enabled!(log::Level::Debug) {
-                                let before = format!("{:?} ({})", state_current.kind, state_current.shared.generation);
-                                let event_formatted = format!("{:?}", event);
-                                let state_new = Box::pin(process_event(&context, state_current, event)).await?;
-                                log::debug!("{} + {} -> {:?} ({})", before, event_formatted, state_new.kind, state_new.shared.generation);
-                                state_new
-                            } else {
-                                Box::pin(process_event(&context, state_current, event)).await?
-                            }
+                    } else { None }
+                },
+                target::EventTargetDestroyed: event => {
+                    Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
+                },
+                runtime::EventConsoleApiCalled: call => {
+                    let level = match call.r#type {
+                        runtime::ConsoleApiCalledType::Error => {
+                            state::ConsoleEntryLevel::Error
                         }
-                        None => {
-                            log::debug!("no more events, shutting down state machine loop");
-                            break;
+                        runtime::ConsoleApiCalledType::Warning => {
+                            state::ConsoleEntryLevel::Warning
                         }
-                    }
-                }
+                        _ => continue,
+                    };
+
+                    Some(InnerEvent::ConsoleEntry(ConsoleEntry {
+                        timestamp: UNIX_EPOCH
+                            + Duration::from_secs_f64(
+                                *call.timestamp.inner() / 1000.0,
+                            ),
+                        level,
+                        args: call.args.iter().map(remote_object_to_json).collect(),
+                    }))
+                },
+            }, _ => None);
+
+            if let Some(inner_event) = inner_event
+                && let Err(err) = events_tx.send(inner_event)
+            {
+                log::warn!("failed to send inner event: {err}");
             }
-            Ok::<(), anyhow::Error>(())
-        }.await;
-        if let Err(error) = result {
-            log::error!("state machine error: {:?}", error);
-            let _ = context.sender.send(BrowserEvent::Error(Arc::new(
-                anyhow!("error when processing event: {:?}", error),
-            )));
         }
-        // Always signal done, whether the loop exited cleanly or with an error.
-        let _ = done_sender.send(());
+        log::debug!("forward_inner_events terminated");
     });
 }
 
-async fn process_event(
+fn run_state_machine(
+    context: BrowserContext,
+    events_rx: mpmc::Receiver<InnerEvent>,
+    state_current: InnerState,
+) {
+    let _ = thread::spawn(move || {
+        fn run(
+            context: &BrowserContext,
+            events_rx: mpmc::Receiver<InnerEvent>,
+            mut state_current: InnerState,
+        ) -> Result<()> {
+            log::info!("processing events");
+            while let Ok(event) = events_rx.recv() {
+                state_current = if log::log_enabled!(log::Level::Debug) {
+                    let before = format!(
+                        "{:?} ({})",
+                        state_current.kind, state_current.shared.generation
+                    );
+                    let event_formatted = format!("{:?}", event);
+                    let state_new =
+                        process_event(context, state_current, event)?;
+                    log::debug!(
+                        "{} + {} -> {:?} ({})",
+                        before,
+                        event_formatted,
+                        state_new.kind,
+                        state_new.shared.generation
+                    );
+                    state_new
+                } else {
+                    process_event(context, state_current, event)?
+                }
+            }
+            log::debug!("shutting down browser state machine");
+            Ok(())
+        }
+
+        if let Err(error) = run(&context, events_rx, state_current) {
+            log::error!("state machine error: {:#}", error);
+            if let Err(error) = context.sender.send(BrowserEvent::Error(
+                Arc::new(anyhow!("error when processing event: {:#}", error)),
+            )) {
+                log::error!("failed to send browse revent: {:#}", error);
+            }
+        }
+    });
+}
+
+fn process_event(
     context: &BrowserContext,
     state_current: InnerState,
     event: InnerEvent,
 ) -> Result<InnerState> {
     use InnerStateKind::*;
     Ok(match (state_current, event) {
+        (mut state, InnerEvent::ExecutionContextCreated(id, frame_id)) => {
+            if context.frame_id == frame_id {
+                log::debug!(
+                    "execution context id created for main frame: {id}"
+                );
+                state.shared.execution_context_id = Some(id);
+            } else {
+                log::debug!("ignoring execution context id: {id}");
+            }
+            state
+        }
+        (mut state, InnerEvent::ExecutionContextDestroyed(id)) => {
+            log::debug!("execution context id destroyed: {id}");
+            if state.shared.execution_context_id == Some(id) {
+                state.shared.execution_context_id = None;
+            }
+            state
+        }
         (state, InnerEvent::StateRequested(reason, generation)) => {
             if state.shared.generation != generation {
                 log::debug!("ignoring stale state request");
@@ -824,7 +726,7 @@ async fn process_event(
                     state,
                     reason
                 );
-                capture_browser_state(state, context).await?
+                capture_browser_state(state, context)?
             }
         }
         (
@@ -837,23 +739,18 @@ async fn process_event(
             log::debug!(
                 "paused without call frame, resuming and retrying capture"
             );
-            context
-                .page
-                .execute(debugger::ResumeParams::builder().build())
-                .await?;
-            let timer = start_quiescence_timer(
-                &state.shared,
-                context,
-                &context.inner_events_sender,
-            );
+            context.connection.send(
+                debugger::ResumeParams::builder().build(),
+                Some(&context.session_id),
+            )?;
+            start_quiescence_timer(&state.shared, context, &context.events_tx)?;
             capture_browser_state(
                 InnerState {
-                    kind: InnerStateKind::Running(timer),
+                    kind: InnerStateKind::Running,
                     shared: state.shared,
                 },
                 context,
-            )
-            .await?
+            )?
         }
         (
             state,
@@ -878,7 +775,7 @@ async fn process_event(
                 exceptions,
                 generation,
                 screenshot,
-                ..
+                execution_context_id,
             } = state.shared;
             let generation = generation.next();
 
@@ -886,14 +783,14 @@ async fn process_event(
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
 
             let browser_state = BrowserState::current(
-                context.page.clone(),
+                &context.connection,
+                &context.session_id,
                 &call_frame_id,
                 console_entries,
                 exceptions,
                 screenshot,
                 generation,
-            )
-            .await?;
+            )?;
 
             context
                 .sender
@@ -906,6 +803,7 @@ async fn process_event(
                     console_entries: vec![],
                     exceptions: vec![],
                     screenshot: None,
+                    execution_context_id,
                 },
             }
         }
@@ -920,10 +818,10 @@ async fn process_event(
                 shared.generation == generation,
                 "cannot accept action from stale generation {generation}"
             );
-            context
-                .page
-                .execute(debugger::ResumeParams::builder().build())
-                .await?;
+            context.connection.send(
+                debugger::ResumeParams::builder().build(),
+                Some(&context.session_id),
+            )?;
             InnerState {
                 kind: Resuming(Box::new(browser_action)),
                 shared,
@@ -957,7 +855,7 @@ async fn process_event(
         }
         (
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 mut shared,
             },
             InnerEvent::Resumed,
@@ -965,7 +863,7 @@ async fn process_event(
             log::warn!("running + resumed");
             shared.console_entries.clear();
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -976,8 +874,10 @@ async fn process_event(
             },
             InnerEvent::Resumed,
         ) => {
-            let page = context.page.clone();
-            let sender = context.inner_events_sender.clone();
+            let connection = context.connection.clone();
+            let session_id = context.session_id.clone();
+            let execution_context_id = shared.execution_context_id.clone();
+            let events_tx = context.events_tx.clone();
             let action_options = ActionOptions {
                 device_scale_factor: context
                     .browser_options
@@ -989,9 +889,14 @@ async fn process_event(
             // evaluation indefinitely. This gives us a chance to
             // receive the "Debugger.paused" event and resume
             // (extracting the uncaught exception information).
-            spawn(async move {
+            thread::spawn(move || {
                 log::debug!("applying: {:?}", browser_action);
-                match browser_action.apply(&page, action_options).await {
+                match browser_action.apply(
+                    &connection,
+                    &session_id,
+                    execution_context_id,
+                    action_options,
+                ) {
                     Ok(_) => {
                         log::debug!("applied: {:?}", browser_action);
                     }
@@ -1004,20 +909,17 @@ async fn process_event(
                     }
                 }
                 if let Err(error) =
-                    sender.send(InnerEvent::ActionApplied(shared.generation))
+                    events_tx.send(InnerEvent::ActionApplied(shared.generation))
                 {
                     log::error!("failed to send ActionApplied: {}", error);
                 }
             });
 
             shared.console_entries.clear();
-            let activity = Box::pin(stream::select(
-                context.network_activity.stream(),
-                context.screencast_activity.stream(),
-            )) as activity::ActivityStream;
-            let subscription = quiescence::subscribe(activity);
+            let (activity_tx, activity_rx) = mpmc::bounded(32);
+            activity::all_activity(&context.connection.events, activity_tx)?;
             InnerState {
-                kind: Acting(subscription),
+                kind: Acting(activity_rx),
                 shared,
             }
         }
@@ -1028,13 +930,13 @@ async fn process_event(
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            let timer = start_quiescence_timer_from_subscription(
+            start_quiescence_timer_from_activity(
                 &shared,
-                &context.inner_events_sender,
+                &context.events_tx,
                 subscription,
             );
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -1043,13 +945,9 @@ async fn process_event(
             state
         }
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
-            let timer = start_quiescence_timer(
-                &shared,
-                context,
-                &context.inner_events_sender,
-            );
+            start_quiescence_timer(&shared, context, &context.events_tx)?;
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -1070,11 +968,14 @@ async fn process_event(
                     shared.generation,
                 );
                 let generation = shared.generation;
-                let sender = context.inner_events_sender.clone();
-                spawn(async move {
-                    sleep(NAVIGATION_TIMEOUT).await;
-                    let _ =
-                        sender.send(InnerEvent::NavigationTimedOut(generation));
+                let sender = context.events_tx.clone();
+                thread::spawn(move || {
+                    thread::sleep(NAVIGATION_TIMEOUT);
+                    if let Err(err) =
+                        sender.send(InnerEvent::NavigationTimedOut(generation))
+                    {
+                        log::warn!("failed to send NavigationTimedOut: {err}");
+                    }
                 });
                 InnerState {
                     kind: Navigating { url },
@@ -1092,13 +993,9 @@ async fn process_event(
             InnerEvent::DownloadWillBegin { frame_id, url },
         ) if frame_id == context.frame_id => {
             log::debug!("download started: {}", url);
-            let timer = start_quiescence_timer(
-                &shared,
-                context,
-                &context.inner_events_sender,
-            );
+            start_quiescence_timer(&shared, context, &context.events_tx)?;
             InnerState {
-                kind: Running(timer),
+                kind: Running,
                 shared,
             }
         }
@@ -1123,8 +1020,8 @@ async fn process_event(
         }
         (mut state, InnerEvent::ExceptionThrown(exception)) => {
             state.shared.exceptions.push(exception);
-            if matches!(state.kind, Running(_)) {
-                capture_browser_state(state, context).await?
+            if matches!(state.kind, Running) {
+                capture_browser_state(state, context)?
             } else {
                 state
             }
@@ -1138,12 +1035,12 @@ async fn process_event(
                 let kind = match navigation_type {
                     NavigationType::Navigation => Loading,
                     NavigationType::BackForwardCacheRestore => {
-                        let timer = start_quiescence_timer(
+                        start_quiescence_timer(
                             &shared,
                             context,
-                            &context.inner_events_sender,
-                        );
-                        Running(timer)
+                            &context.events_tx,
+                        )?;
+                        Running
                     }
                 };
                 InnerState { kind, shared }
@@ -1152,7 +1049,7 @@ async fn process_event(
             }
         }
         (state, InnerEvent::TargetDestroyed(target_id)) => {
-            if target_id == *context.page.target_id() {
+            if target_id == context.target_id {
                 bail!("page target {:?} was destroyed", target_id);
             } else {
                 state
@@ -1162,14 +1059,12 @@ async fn process_event(
             if state.shared.generation != generation {
                 log::debug!("ignoring stale Quiesced event");
                 state
-            } else if matches!(state.kind, Running(_)) {
+            } else if matches!(state.kind, Running) {
                 log::debug!("quiesced, requesting new state capture");
-                let _ = context.inner_events_sender.send(
-                    InnerEvent::StateRequested(
-                        StateRequestReason::Quiesced,
-                        state.shared.generation,
-                    ),
-                );
+                let _ = context.events_tx.send(InnerEvent::StateRequested(
+                    StateRequestReason::Quiesced,
+                    state.shared.generation,
+                ));
                 state
             } else {
                 log::debug!("ignoring Quiesced during {:?}", state.kind,);
@@ -1199,64 +1094,62 @@ async fn process_event(
 fn start_quiescence_timer(
     shared: &InnerStateShared,
     context: &BrowserContext,
-    inner_events_sender: &Sender<InnerEvent>,
-) -> quiescence::QuiescenceTimer {
-    let activity = Box::pin(stream::select(
-        context.network_activity.stream(),
-        context.screencast_activity.stream(),
-    )) as activity::ActivityStream;
-    let subscription = quiescence::subscribe(activity);
-    start_quiescence_timer_from_subscription(
-        shared,
-        inner_events_sender,
-        subscription,
-    )
+    events_tx: &mpmc::Sender<InnerEvent>,
+) -> Result<()> {
+    let (activity_tx, activity_rx) = mpmc::bounded(32);
+    activity::all_activity(&context.connection.events, activity_tx)?;
+    start_quiescence_timer_from_activity(shared, events_tx, activity_rx);
+    Ok(())
 }
 
-fn start_quiescence_timer_from_subscription(
+fn start_quiescence_timer_from_activity(
     shared: &InnerStateShared,
-    inner_events_sender: &Sender<InnerEvent>,
-    subscription: quiescence::QuiescenceSubscription,
-) -> quiescence::QuiescenceTimer {
-    let (timer, quiescent) =
-        subscription.start(QUIESCENCE_INITIAL_IDLE, QUIESCENCE_TIMEOUT);
+    events_tx: &mpmc::Sender<InnerEvent>,
+    activity_rx: mpmc::Receiver<Duration>,
+) {
+    let quiescent = quiescence::start(
+        activity_rx,
+        QUIESCENCE_INITIAL_IDLE,
+        QUIESCENCE_TIMEOUT,
+    );
     let generation = shared.generation;
-    let sender = inner_events_sender.clone();
-    spawn(async move {
-        if quiescent.await {
-            log::debug!("quiescence timer fired for generation {}", generation);
+    let sender = events_tx.clone();
+    thread::spawn(move || match quiescent.recv() {
+        Ok(()) => {
+            log::debug!("quiescence timer fired for generation {generation}");
             let _ = sender.send(InnerEvent::Quiesced(generation));
         }
+        Err(err) => {
+            log::debug!(
+                "quiescence timer failed for generation {generation} on recv: {err}",
+            );
+        }
     });
-    timer
 }
 
-async fn capture_browser_state(
+fn capture_browser_state(
     mut state: InnerState,
     context: &BrowserContext,
 ) -> Result<InnerState> {
     fn retry_with_timer(
         shared: InnerStateShared,
         context: &BrowserContext,
-    ) -> InnerState {
-        let timer = start_quiescence_timer(
-            &shared,
-            context,
-            &context.inner_events_sender,
-        );
-        InnerState {
-            kind: InnerStateKind::Running(timer),
+    ) -> Result<InnerState> {
+        start_quiescence_timer(&shared, context, &context.events_tx)?;
+        Ok(InnerState {
+            kind: InnerStateKind::Running,
             shared,
-        }
+        })
     }
     log::debug!("pausing, going into next generation...");
 
-    let page = context.page.clone();
-    let main_execution_context_id = match page.execution_context().await? {
-        Some(ctx) => ctx,
+    let execution_context_id = match state.shared.execution_context_id {
+        Some(ref id) => id.clone(),
         None => {
-            log::debug!("no execution context, skipping state capture");
-            return Ok(retry_with_timer(state.shared, context));
+            log::debug!(
+                "no execution context id available, skipping state capture"
+            );
+            return retry_with_timer(state.shared, context);
         }
     };
 
@@ -1266,43 +1159,41 @@ async fn capture_browser_state(
         .expect("failed getting latest frame from mutex")
         .clone();
     match frame {
-        Some(data) => {
+        Some(base64) => {
+            let data = base64::prelude::BASE64_STANDARD
+                .decode(&*base64)
+                .map_err(|e| anyhow!("screencast base64 decode failed: {e}"))?;
             state.shared.screenshot = Some(Screenshot {
-                format: ScreenshotFormat::Jpeg,
-                data: data.to_vec(),
+                format: screenshots::SCREENSHOT_FORMAT,
+                data,
             });
         }
         None => {
-            log::warn!("no screencast frame available, skipping state capture");
-            return Ok(retry_with_timer(state.shared, context));
+            log::info!("no screencast frame available, forcing screen capture");
+            state.shared.screenshot = Some(screenshots::screenshot_capture(
+                &context.connection,
+                &context.session_id,
+                context.browser_options.emulation.width,
+                context.browser_options.emulation.height,
+            )?)
         }
     }
 
-    let page = context.page.clone();
-    spawn(async move {
-        let _ = page
-            .execute(
-                runtime::EvaluateParams::builder()
-                    .expression("debugger;0")
-                    .context_id(main_execution_context_id)
-                    .await_promise(false)
-                    .build()
-                    .expect("failed to build EvaluateParams"),
-            )
-            .await;
-    });
+    context.connection.post(
+        runtime::EvaluateParams::builder()
+            .expression("debugger;0")
+            .unique_context_id(execution_context_id)
+            .await_promise(false)
+            .build()
+            .expect("failed to build EvaluateParams"),
+        Some(&context.session_id),
+    )?;
 
     state.shared.generation = state.shared.generation.next();
     Ok(InnerState {
         kind: InnerStateKind::Pausing,
         shared: state.shared,
     })
-}
-
-fn receiver_to_stream<T: Clone + Send + 'static>(
-    receiver: Receiver<T>,
-) -> Pin<Box<dyn stream::Stream<Item = T> + Send>> {
-    Box::pin(BroadcastStream::new(receiver).filter_map(async |r| r.ok()))
 }
 
 fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
@@ -1317,60 +1208,20 @@ fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
     }
 }
 
-fn launch_options_to_config(
-    launch_options: &LaunchOptions,
-    emulation: &Emulation,
-) -> Result<BrowserConfig> {
-    let crash_dumps_dir = TempDir::new()?;
-
-    let apply_sandbox =
-        |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
-            if launch_options.no_sandbox {
-                builder
-                    .no_sandbox()
-                    .arg("disable-setuid-sandbox")
-                    .arg("disable-dev-shm-usage")
-            } else {
-                builder
-            }
-        };
-    let apply_headless =
-        |builder: BrowserConfigBuilder| -> BrowserConfigBuilder {
-            if launch_options.headless {
-                builder
-            } else {
-                builder.with_head()
-            }
-        };
-    apply_headless(apply_sandbox(BrowserConfig::builder()))
-        .window_size(emulation.width as u32, emulation.height as u32)
-        .user_data_dir(launch_options.user_data_directory.clone())
-        .arg((
-            "crash-dumps-dir",
-            crash_dumps_dir
-                .path()
-                .to_path_buf()
-                .to_str()
-                .expect("invalid tmp dir path"),
-        ))
-        .arg("enable-logging")
-        .arg(("v", "1"))
-        .arg("no-crashpad")
-        .arg("disable-background-networking")
-        .arg("disable-component-update")
-        .arg("disable-domain-reliability")
-        .arg("no-pings")
-        .arg("disable-crash-reporter")
-        .build()
-        .map_err(|s| anyhow!(s))
-}
-
-async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
-    let targets = browser.fetch_targets().await.unwrap();
-    let page_targets = targets
-        .iter()
-        .filter(|t| t.r#type == "page")
-        .collect::<Vec<_>>();
+fn find_page(connection: &cdp::Connection) -> Result<(TargetId, SessionId)> {
+    let page_targets = connection
+        .send(
+            target::GetTargetsParams {
+                filter: Some(target::TargetFilter::new(vec![
+                    target::FilterEntry {
+                        r#type: Some("page".into()),
+                        ..Default::default()
+                    },
+                ])),
+            },
+            None,
+        )?
+        .target_infos;
 
     log::debug!("targets: {:?}", page_targets);
 
@@ -1378,7 +1229,7 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
         .first()
         .ok_or(anyhow!("no page target available"))?;
 
-    if page_targets.len() > 2 {
+    if page_targets.len() >= 2 {
         log::warn!(
             "there are multiple open page targets, picking the first one: {}",
             target.url
@@ -1386,9 +1237,15 @@ async fn find_page(browser: &mut chromiumoxide::Browser) -> Result<Page> {
     }
     for attempt in 1..=5 {
         log::debug!("attempt {attempt} at finding existing page");
-        sleep(Duration::from_millis(100 * attempt)).await;
-        if let Ok(page) = browser.get_page(target.target_id.clone()).await {
-            return Ok(page);
+        thread::sleep(Duration::from_millis(100 * attempt));
+        if let Ok(attachment) = connection.send(
+            target::AttachToTargetParams {
+                target_id: target.target_id.clone(),
+                flatten: Some(true),
+            },
+            None,
+        ) {
+            return Ok((target.target_id.clone(), attachment.session_id));
         }
     }
     bail!("coulnd't find an existing page to use");

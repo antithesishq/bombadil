@@ -15,9 +15,12 @@ bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-ltl = { path = "../bombadil-ltl" }
-chromiumoxide.workspace = true
+cdp = { path = "../cdp" }
+cdp_protocol = { path = "../cdp/protocol" }
 const_format.workspace = true
+crossbeam-channel.workspace = true
 futures.workspace = true
+hotpath.workspace = true
 html5ever.workspace = true
 log.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
@@ -25,15 +28,15 @@ oxc_str.workspace = true
 oxc_traverse.workspace = true
 rand.workspace = true
 regex-syntax.workspace = true
+reqwest.workspace = true
 scraper.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
-tokio-stream = { workspace = true, features = ["sync"] }
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
 hegeltest.workspace = true

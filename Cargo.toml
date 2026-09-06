@@ -10,6 +10,10 @@ members = [
     "lib/bombadil-inspect",
     "lib/bombadil-schema",
     "lib/bombadil-terminal",
+    "lib/cdp",
+    "lib/cdp/types",
+    "lib/cdp/pdl",
+    "lib/cdp/protocol",
     "lib/small-string",
     "lib/typescript-reference",
     "lib/willow-tree",
@@ -28,9 +32,9 @@ base64 = "0.22.1"
 bitflags = "2.12.1"
 boa_engine = { git = "https://github.com/boa-dev/boa", rev = "8a3ca7d0978ffadf165989ad0a9a93a6cafd61b4" }
 bytes = "1.11.0"
-chromiumoxide = "0.9.1"
 clap = { version = "4.5.46", features = ["derive"] }
 const_format = "0.2.35"
+crossbeam-channel = "0.5" # for mpmc, could probably be dropped when this goes into stable std
 env_logger = "0.11.8"
 futures = "0.3.31"
 glob = "0.3.3"
@@ -49,6 +53,7 @@ js-sys = "0.3"
 libghostty-vt = "0.2.0"
 log = "0.4.29"
 mime_guess = "2.0"
+mio = { version = "1", features = ["os-poll", "os-ext"] }
 num-traits = "0.2"
 open = "5.0"
 oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
@@ -64,15 +69,17 @@ rand_distr = "0.6"
 rand_regex = "0.19"
 regex = "1.12"
 regex-syntax = "0.8"
+reqwest = { version = "0.13.4", features = ["blocking", "json"] }
 scraper = "0.27.0"
 serde = "1.0.228"
-serde_json = "1.0.145"
+serde_json = { version = "1.0.145", features = ["raw_value"] }
 supports-color = "3.0.2"
 tempfile = "3.22.0"
 tokio = "1.48.0"
 tokio-stream = "0.1.17"
 tower = "0.5.2"
 tower-http = "0.6.8"
+tungstenite = "0.30.0"
 url = "2.5.7"
 wasm-bindgen = "=0.2.121"
 wasm-bindgen-futures = "0.4"
