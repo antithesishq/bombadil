@@ -4,6 +4,7 @@ use base64::prelude::BASE64_STANDARD;
 use cdp_protocol::cdp::browser_protocol::fetch;
 use cdp_protocol::cdp::browser_protocol::network;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use crossbeam_channel as mpmc;
 use log;
 use oxc::span::SourceType;
 use serde_json as json;
@@ -18,7 +19,7 @@ pub fn instrument_js_coverage(
     connection: cdp::Connection,
     session_id: &SessionId,
     config: InstrumentationConfig,
-) -> Result<()> {
+) -> Result<mpmc::Receiver<anyhow::Error>> {
     connection
         .send(
             fetch::EnableParams::builder()
@@ -42,7 +43,10 @@ pub fn instrument_js_coverage(
     let events = connection.events.subscribe::<fetch::EventRequestPaused>();
 
     let session_id = session_id.clone();
-    let _handle = thread::spawn(move || -> Result<()> {
+    let cleanup_connection = connection.clone();
+    let cleanup_session_id = session_id.clone();
+    let (error_tx, error_rx) = mpmc::bounded(1);
+    let worker = thread::spawn(move || -> Result<()> {
         let intercept = |event: &fetch::EventRequestPaused| -> Result<()> {
             // Any non-200 upstream response is forwarded as-is.
             if let Some(status) = event.response_status_code
@@ -234,7 +238,29 @@ pub fn instrument_js_coverage(
         Ok(())
     });
 
-    Ok(())
+    thread::spawn(move || {
+        let error = match worker.join() {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => format!("{error:#}"),
+            Err(_) => "worker panicked".to_string(),
+        };
+        log::error!("Fetch instrumentation worker failed: {error}");
+        let cleanup_error = cleanup_connection
+            .send(fetch::DisableParams::default(), Some(&cleanup_session_id))
+            .err()
+            .map(|error| {
+                log::error!(
+                    "disabling Fetch after worker failure failed: {error:#}"
+                );
+                format!("; disabling Fetch also failed: {error:#}")
+            })
+            .unwrap_or_default();
+        let _ = error_tx.send(anyhow!(
+            "Fetch instrumentation worker failed: {error}{cleanup_error}"
+        ));
+    });
+
+    Ok(error_rx)
 }
 
 /// Calculate source ID from etag or body.

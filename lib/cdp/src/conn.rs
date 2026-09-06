@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::net::TcpStream;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -28,6 +28,9 @@ use crate::events::{Events, Subscribers};
 
 const WEBSOCKET: Token = Token(0);
 const COMMANDS: Token = Token(1);
+
+#[cfg(test)]
+static RETRYABLE_WRITE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -114,11 +117,9 @@ impl ConnectionInner {
         let handle = {
             let subscribers = subscribers.clone();
             thread::spawn(move || {
-                if let Err(err) =
-                    websocket_worker(ws, poll, worker_rx, subscribers)
-                {
-                    log::error!("websocket worker died: {err}");
-                }
+                supervise_worker(&subscribers, || {
+                    websocket_worker(ws, poll, worker_rx, subscribers.clone())
+                });
             })
         };
 
@@ -147,7 +148,12 @@ impl ConnectionInner {
         session_id: Option<&SessionId>,
     ) -> Result<()> {
         let call_id = self.next_call_id();
-        log::debug!("posting {} ({})", cmd.identifier(), call_id);
+        log::debug!(
+            "posting {} ({}), session={:?}",
+            cmd.identifier(),
+            call_id,
+            session_id
+        );
 
         let call = MethodCall {
             id: call_id,
@@ -171,7 +177,12 @@ impl ConnectionInner {
         session_id: Option<&SessionId>,
     ) -> Result<T::Response> {
         let call_id = self.next_call_id();
-        log::debug!("sending {} ({})", cmd.identifier(), call_id);
+        log::debug!(
+            "sending {} ({}), session={:?}",
+            cmd.identifier(),
+            call_id,
+            session_id
+        );
 
         let call = MethodCall {
             id: call_id,
@@ -260,6 +271,26 @@ impl Drop for ConnectionInner {
     }
 }
 
+fn supervise_worker(
+    subscribers: &Arc<Mutex<Subscribers>>,
+    worker: impl FnOnce() -> Result<()>,
+) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(worker));
+    let error = match result {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(format!("{error:#}")),
+        Err(_) => Some("websocket worker panicked".to_string()),
+    };
+    subscribers
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .close(error.clone());
+    subscribers.clear_poison();
+    if let Some(error) = error {
+        log::error!("websocket worker died: {error}");
+    }
+}
+
 enum WorkerRequest {
     Send {
         call: MethodCall,
@@ -279,59 +310,133 @@ fn calls_drain(
     ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
     requests_rx: &mpmc::Receiver<WorkerRequest>,
     calls_in_flight: &mut CallsInFlight,
-) -> DrainResult {
+) -> Result<DrainResult> {
     loop {
         match requests_rx.try_recv() {
             Ok(WorkerRequest::Send { call, reply_tx }) => {
-                let reply_err =
+                let reply_error =
                     |reply_tx: &Option<mpmc::Sender<Result<json::Value>>>,
-                     err| {
-                        if let Some(tx) = reply_tx
-                            && let Err(err) = tx.send(Err(err))
-                        {
-                            log::error!("failed to send error: {err:#}");
+                     error| {
+                        if let Some(tx) = reply_tx {
+                            if let Err(error) = tx.send(Err(error)) {
+                                log::error!(
+                                    "failed sending command error: {error:#}"
+                                );
+                            }
+                        } else {
+                            log::error!("posted command failed: {error:#}");
                         }
                     };
 
                 if calls_in_flight.contains_key(&call.id) {
-                    reply_err(
+                    reply_error(
                         &reply_tx,
-                        anyhow!("call {} already in flight", call.id,),
+                        anyhow!("call {} already in flight", call.id),
                     );
                     continue;
                 }
 
-                match serde_json::to_string(&call) {
-                    Ok(payload) => {
-                        if let Err(err) = ws.send(WsMessage::text(payload)) {
-                            reply_err(&reply_tx, err.into());
-                        } else {
-                            calls_in_flight.insert(call.id, reply_tx);
-                        }
+                let payload = match serde_json::to_string(&call) {
+                    Ok(payload) => payload,
+                    Err(error) => {
+                        reply_error(&reply_tx, error.into());
+                        continue;
                     }
-                    Err(_) => todo!(),
+                };
+                if let Err(error) =
+                    write_nonblocking(ws, WsMessage::text(payload))
+                {
+                    let message = format!("{error:#}");
+                    reply_error(&reply_tx, anyhow!(message.clone()));
+                    bail!("failed writing call {}: {message}", call.id);
                 }
+                calls_in_flight.insert(call.id, reply_tx);
             }
             Ok(WorkerRequest::Close) => {
-                if let Err(err) = ws.close(None) {
-                    log::error!("failed to send error: {err:#}");
+                match ws.close(None) {
+                    Ok(()) => {}
+                    Err(error) if is_retryable(&error) => {}
+                    Err(error) => return Err(error.into()),
                 }
-                return DrainResult::Shutdown;
+                return Ok(DrainResult::Shutdown);
             }
             Err(mpmc::TryRecvError::Empty) => {
-                return DrainResult::Continue;
+                return Ok(DrainResult::Continue);
             }
             Err(mpmc::TryRecvError::Disconnected) => {
-                panic!("command mpmc closed unexpectedly");
+                bail!("command mpmc closed unexpectedly");
             }
         }
     }
 }
 
+fn is_retryable(error: &tungstenite::Error) -> bool {
+    matches!(
+        error,
+        tungstenite::Error::Io(error)
+            if error.kind() == ErrorKind::WouldBlock
+                || error.kind() == ErrorKind::TimedOut
+    )
+}
+
+fn record_retryable_write() {
+    #[cfg(test)]
+    RETRYABLE_WRITE_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+fn write_nonblocking(
+    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    message: WsMessage,
+) -> Result<()> {
+    match ws.write(message) {
+        Ok(()) => Ok(()),
+        // Tungstenite retains the frame after an I/O failure. Writable
+        // readiness will drive `flush` again.
+        Err(error) if is_retryable(&error) => {
+            record_retryable_write();
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn flush_nonblocking(
+    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+) -> Result<bool> {
+    match ws.flush() {
+        Ok(()) => Ok(false),
+        Err(error) if is_retryable(&error) => {
+            record_retryable_write();
+            Ok(true)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn set_write_interest(
+    poll: &Poll,
+    fd_raw: RawFd,
+    registered: &mut bool,
+    write_pending: bool,
+) -> Result<()> {
+    if *registered == write_pending {
+        return Ok(());
+    }
+
+    let interest = if write_pending {
+        Interest::READABLE.add(Interest::WRITABLE)
+    } else {
+        Interest::READABLE
+    };
+    poll.registry()
+        .reregister(&mut SourceFd(&fd_raw), WEBSOCKET, interest)?;
+    *registered = write_pending;
+    Ok(())
+}
+
 #[hotpath::measure]
 fn handle_message(
     msg: WsMessage,
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
     calls_in_flight: &mut CallsInFlight,
     subscribers: &Arc<Mutex<Subscribers>>,
 ) -> Result<()> {
@@ -356,6 +461,13 @@ fn handle_message(
                             text_str
                         )
                     })?;
+                if let Some(error) = &response.error {
+                    log::debug!(
+                        "received command error from websocket: call={}, error={}",
+                        response.id,
+                        error,
+                    );
+                }
                 if let Some(reply_tx) = calls_in_flight.remove(&response.id) {
                     // There's only a reply_tx if it was a `send`, not for `post`.
                     if let Some(reply_tx) = reply_tx {
@@ -368,10 +480,15 @@ fn handle_message(
                             let _ = reply_tx.send(Ok(result));
                         }
                     } else {
-                        log::debug!(
-                            "ignoring response for post {}",
-                            response.id
-                        );
+                        if response.error.is_none() {
+                            log::debug!(
+                                "received response for post {}: exception_details={:?}",
+                                response.id,
+                                response.result.as_ref().and_then(|result| {
+                                    result.get("exceptionDetails")
+                                }),
+                            );
+                        }
                     }
                 } else {
                     bail!(
@@ -384,6 +501,43 @@ fn handle_message(
                     .map_err(|err| {
                         anyhow!("failed to parse event '{}': {err}", text_str)
                     })?;
+                if matches!(
+                    event.method.as_ref(),
+                    "Debugger.paused" | "Debugger.resumed"
+                ) {
+                    log::debug!(
+                        "received {} from websocket: session={:?}",
+                        event.method,
+                        event.session_id,
+                    );
+                }
+                // Observe lifecycle changes before dispatch: the browser state
+                // machine may be blocked waiting for an evaluation response.
+                if matches!(
+                    event.method.as_ref(),
+                    "Page.frameStartedNavigating"
+                        | "Page.frameRequestedNavigation"
+                        | "Page.frameStartedLoading"
+                        | "Page.frameStoppedLoading"
+                        | "Page.frameNavigated"
+                        | "Page.navigatedWithinDocument"
+                        | "Page.frameDetached"
+                        | "Runtime.executionContextCreated"
+                        | "Runtime.executionContextDestroyed"
+                        | "Runtime.executionContextsCleared"
+                        | "Target.targetCreated"
+                        | "Target.attachedToTarget"
+                        | "Target.targetInfoChanged"
+                        | "Target.targetDestroyed"
+                        | "Target.detachedFromTarget"
+                ) {
+                    log::debug!(
+                        "received {} from websocket: session={:?}, params={}",
+                        event.method,
+                        event.session_id,
+                        event.params.get(),
+                    );
+                }
                 let mut subscribers = subscribers.lock().map_err(|_| {
                     anyhow!("failed to acquire lock for subscribers")
                 })?;
@@ -392,9 +546,8 @@ fn handle_message(
                 }
             }
         }
-        WsMessage::Ping(payload) => {
-            ws.send(WsMessage::Pong(payload))?;
-        }
+        // Tungstenite queues Pong replies automatically while reading.
+        WsMessage::Ping(_) => {}
         WsMessage::Pong(_) => {}
         WsMessage::Close(_) => {
             bail!("The websocket connection was closed by the peer.");
@@ -418,15 +571,26 @@ fn websocket_worker(
     // other reason not receiving responses
     let mut calls_in_flight: CallsInFlight = HashMap::new();
     let mut mio_events = MioEvents::with_capacity(16);
+    let fd_raw = match ws.get_ref() {
+        MaybeTlsStream::Plain(stream) => stream.as_raw_fd(),
+        _ => bail!("unsupported stream type"),
+    };
+    let mut write_interest_registered = false;
 
     loop {
         if matches!(
-            calls_drain(&mut ws, &requests_rx, &mut calls_in_flight),
+            calls_drain(&mut ws, &requests_rx, &mut calls_in_flight)?,
             DrainResult::Shutdown
         ) {
             return Ok(());
         }
-        ws.flush()?;
+        let mut write_pending = flush_nonblocking(&mut ws)?;
+        set_write_interest(
+            &poll,
+            fd_raw,
+            &mut write_interest_registered,
+            write_pending,
+        )?;
 
         poll.poll(&mut mio_events, None)?;
 
@@ -438,32 +602,195 @@ fn websocket_worker(
                             &mut ws,
                             &requests_rx,
                             &mut calls_in_flight,
-                        ),
+                        )?,
                         DrainResult::Shutdown
                     ) {
                         return Ok(());
                     }
-                    ws.flush()?;
+                    write_pending = flush_nonblocking(&mut ws)?;
                 }
-                WEBSOCKET => loop {
-                    match ws.read() {
-                        Ok(msg) => handle_message(
-                            msg,
-                            &mut ws,
-                            &mut calls_in_flight,
-                            &subscribers,
-                        )?,
-                        Err(tungstenite::error::Error::Io(ref e))
-                            if e.kind() == ErrorKind::WouldBlock
-                                || e.kind() == ErrorKind::TimedOut =>
-                        {
-                            break;
-                        }
-                        Err(e) => return Err(e.into()),
+                WEBSOCKET => {
+                    if event.is_writable() {
+                        write_pending = flush_nonblocking(&mut ws)?;
                     }
-                },
+                    if event.is_readable() {
+                        loop {
+                            match ws.read() {
+                                Ok(msg) => handle_message(
+                                    msg,
+                                    &mut calls_in_flight,
+                                    &subscribers,
+                                )?,
+                                Err(error) if is_retryable(&error) => break,
+                                Err(error) => return Err(error.into()),
+                            }
+                        }
+                        write_pending = flush_nonblocking(&mut ws)?;
+                    }
+                }
                 _ => {}
             }
+
+            set_write_interest(
+                &poll,
+                fd_raw,
+                &mut write_interest_registered,
+                write_pending,
+            )?;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+    use std::net::TcpListener;
+    use std::time::Duration;
+
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+    use cdp_types::{Command, Method, MethodId};
+
+    #[derive(Debug, Serialize)]
+    struct TestCommand {
+        payload: String,
+    }
+
+    impl Method for TestCommand {
+        fn identifier(&self) -> MethodId {
+            Cow::Borrowed("Test.command")
+        }
+    }
+
+    impl Command for TestCommand {
+        type Response = TestResponse;
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct TestResponse {
+        received: bool,
+    }
+
+    fn websocket_server(
+        pause_before_reading: Duration,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let config = WebSocketConfig::default()
+                .max_message_size(None)
+                .max_frame_size(None);
+            let mut websocket =
+                tungstenite::accept_with_config(stream, Some(config)).unwrap();
+            thread::sleep(pause_before_reading);
+
+            loop {
+                match websocket.read() {
+                    Ok(WsMessage::Text(text)) => {
+                        let message: json::Value =
+                            serde_json::from_str(text.as_str()).unwrap();
+                        websocket
+                            .send(WsMessage::text(
+                                json::json!({
+                                    "id": message["id"],
+                                    "result": {"received": true},
+                                })
+                                .to_string(),
+                            ))
+                            .unwrap();
+                    }
+                    Ok(WsMessage::Close(_))
+                    | Err(tungstenite::Error::ConnectionClosed)
+                    | Err(tungstenite::Error::AlreadyClosed) => break,
+                    Ok(_) => {}
+                    Err(error) => {
+                        panic!("test WebSocket server failed: {error}")
+                    }
+                }
+            }
+        });
+        (format!("ws://{address}"), handle)
+    }
+
+    #[test]
+    fn large_write_survives_socket_backpressure() {
+        RETRYABLE_WRITE_COUNT.store(0, Ordering::Relaxed);
+        let (url, server) = websocket_server(Duration::from_millis(250));
+        let connection = Connection::connect(url).unwrap();
+
+        connection
+            .post(
+                TestCommand {
+                    payload: "x".repeat(16 * 1024 * 1024),
+                },
+                None,
+            )
+            .unwrap();
+        let response = connection
+            .send(
+                TestCommand {
+                    payload: "small".into(),
+                },
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(response, TestResponse { received: true });
+        assert!(RETRYABLE_WRITE_COUNT.load(Ordering::Relaxed) > 0);
+        connection.close().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn worker_panic_wakes_subscribers() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let events = Events {
+            subscribers: subscribers.clone(),
+        };
+        let receiver = events.subscribe::<TestEvent>();
+        supervise_worker(&subscribers, || panic!("injected worker panic"));
+        assert_eq!(
+            receiver.next().unwrap_err().to_string(),
+            "websocket worker panicked"
+        );
+    }
+
+    #[test]
+    fn worker_failure_disconnects_event_subscribers_with_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let websocket = tungstenite::accept(stream).unwrap();
+            drop(websocket);
+        });
+        let connection =
+            Connection::connect(format!("ws://{address}")).unwrap();
+        let subscriber = connection.events.subscribe::<TestEvent>();
+        let (result_tx, result_rx) = mpmc::bounded(1);
+
+        thread::spawn(move || {
+            result_tx.send(subscriber.next()).unwrap();
+        });
+
+        let result = result_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("subscriber remained blocked after worker failure");
+        assert!(result.is_err());
+        server.join().unwrap();
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct TestEvent;
+
+    impl cdp_types::MethodType for TestEvent {
+        fn method_id() -> MethodId {
+            Cow::Borrowed("Test.event")
         }
     }
 }

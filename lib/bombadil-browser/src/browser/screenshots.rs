@@ -51,8 +51,8 @@ pub fn screencast_start(
     session_id: &SessionId,
     width: u16,
     height: u16,
-) -> Result<mpmc::Receiver<Arc<Binary>>> {
-    let (tx, rx) = mpmc::bounded::<Arc<Binary>>(32);
+) -> Result<mpmc::Receiver<Result<Arc<Binary>>>> {
+    let (tx, rx) = mpmc::bounded::<Result<Arc<Binary>>>(32);
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     connection.send(
@@ -69,24 +69,34 @@ pub fn screencast_start(
 
     let connection = connection.clone();
     let session_id = session_id.clone();
-    thread::spawn(move || -> Result<()> {
-        log::debug!("screencast: listener started");
-        while let Some(event) = frames.next()? {
-            log::debug!(
-                "screencast: frame received (session_id={})",
-                event.session_id
-            );
-            match connection.post(
-                page::ScreencastFrameAckParams::new(event.session_id),
-                Some(&session_id),
-            ) {
-                Ok(()) => log::debug!("screencast: ack posted"),
-                Err(e) => log::warn!("screencast: ack failed: {}", e),
-            }
-            let _ = tx.send(Arc::new(event.data));
-        }
-        log::debug!("screencast: listener ended");
-        Ok(())
+    thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<()> {
+                log::debug!("screencast: listener started");
+                while let Some(event) = frames.next()? {
+                    log::debug!(
+                        "screencast: frame received (session_id={})",
+                        event.session_id
+                    );
+                    connection.post(
+                        page::ScreencastFrameAckParams::new(event.session_id),
+                        Some(&session_id),
+                    )?;
+                    if tx.send(Ok(Arc::new(event.data))).is_err() {
+                        return Ok(());
+                    }
+                }
+                log::debug!("screencast: listener ended");
+                Ok(())
+            },
+        ));
+        let error = match result {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => error,
+            Err(_) => anyhow!("screencast worker panicked"),
+        };
+        log::error!("screencast worker failed: {error:#}");
+        let _ = tx.send(Err(error));
     });
 
     Ok(rx)
