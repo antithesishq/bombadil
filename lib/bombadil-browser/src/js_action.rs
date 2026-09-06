@@ -25,7 +25,8 @@ pub enum JsAction {
     DoubleClick {
         fingerprint: JsFingerprint,
         point: JsPoint,
-        delay_millis: JsRange,
+        #[deprecated]
+        delay_millis: Option<JsRange>,
     },
     #[serde(rename_all = "camelCase")]
     TypeText {
@@ -89,20 +90,17 @@ impl TryInto<BrowserActionTemplate> for JsAction {
             JsAction::DoubleClick {
                 fingerprint,
                 point,
+                #[allow(deprecated)]
                 delay_millis,
             } => {
-                let delay_millis: RangeInclusive<u64> =
-                    delay_millis.try_into()?;
-                if *delay_millis.end() > 1000 {
-                    bail!(
-                        "delayMillis end must be at most 1000, got {:?}",
-                        delay_millis
+                if delay_millis.is_some() {
+                    log::warn!(
+                        "`delay_millis` on a `DoubleClick` action is deprecated and has no effect, and will be removed in a future version"
                     );
                 }
                 BrowserAction::DoubleClick {
                     fingerprint: fingerprint.try_into()?,
                     point: point.try_into()?,
-                    delay_millis,
                 }
             }
             JsAction::TypeText { text, delay_millis } => {

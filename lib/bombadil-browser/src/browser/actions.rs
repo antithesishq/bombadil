@@ -35,7 +35,6 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     DoubleClick {
         fingerprint: Fingerprint,
         point: Point<F64>,
-        delay_millis: U64,
     },
     TypeText {
         text: Text,
@@ -198,7 +197,6 @@ impl BrowserAction {
             }
             BrowserAction::DoubleClick {
                 point,
-                delay_millis: _,
                 fingerprint: _,
             } => {
                 let builder = input::DispatchMouseEventParams::builder()
@@ -408,15 +406,12 @@ impl BrowserActionTemplate {
                     point: point.generate(rng),
                 }
             }
-            BrowserAction::DoubleClick {
-                fingerprint,
-                point,
-                delay_millis,
-            } => BrowserAction::DoubleClick {
-                fingerprint: fingerprint.clone(),
-                point: point.generate(rng),
-                delay_millis: rng.random_range(delay_millis.clone()),
-            },
+            BrowserAction::DoubleClick { fingerprint, point } => {
+                BrowserAction::DoubleClick {
+                    fingerprint: fingerprint.clone(),
+                    point: point.generate(rng),
+                }
+            }
             BrowserAction::TypeText { text, delay_millis } => {
                 BrowserAction::TypeText {
                     text: text.generate(rng),

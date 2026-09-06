@@ -87,9 +87,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     ]),
                 ),
                 BrowserAction::DoubleClick {
-                    point,
-                    delay_millis,
-                    fingerprint,
+                    point, fingerprint, ..
                 } => (
                     html!(
                         <>
@@ -101,7 +99,6 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     ),
                     Some(vec![
                         ("Position", format_point(point)),
-                        ("Delay", format!("{}ms", delay_millis)),
                         (
                             "Content",
                             format!(
