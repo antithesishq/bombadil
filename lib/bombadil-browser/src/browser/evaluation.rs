@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow, bail};
-use chromiumoxide::{
-    Page,
-    cdp::js_protocol::{
+use anyhow::{Result, anyhow, bail, ensure};
+use cdp_protocol::cdp::{
+    browser_protocol::target::SessionId,
+    js_protocol::{
         debugger,
         runtime::{self, RemoteObjectType},
     },
@@ -9,13 +9,14 @@ use chromiumoxide::{
 use serde::de::DeserializeOwned;
 use serde_json as json;
 
-pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
-    page: &Page,
+pub fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
     call_frame_id: &debugger::CallFrameId,
     expression: impl Into<String>,
 ) -> Result<Output> {
-    let returns: debugger::EvaluateOnCallFrameReturns = page
-        .execute(
+    let returns: debugger::EvaluateOnCallFrameReturns = connection
+        .send(
             debugger::EvaluateOnCallFrameParams::builder()
                 .call_frame_id(call_frame_id.clone())
                 .expression(expression)
@@ -23,10 +24,9 @@ pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
                 .return_by_value(true)
                 .build()
                 .map_err(|err| anyhow!(err))?,
+            Some(session_id),
         )
-        .await
-        .map_err(|err| anyhow!(err))?
-        .result;
+        .map_err(|err| anyhow!(err))?;
     if let Some(exception) = returns.exception_details {
         bail!(
             "evaluate_function failed: {}",
@@ -64,6 +64,37 @@ pub async fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
             }
         }
     }
+}
+
+pub fn evaluate_script_in_debugger(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    call_frame_id: &debugger::CallFrameId,
+    script: impl Into<String>,
+) -> Result<()> {
+    let returns: debugger::EvaluateOnCallFrameReturns = connection
+        .send(
+            debugger::EvaluateOnCallFrameParams::builder()
+                .call_frame_id(call_frame_id.clone())
+                .expression(format!("(() => {{ {} }})()", script.into()))
+                .throw_on_side_effect(false)
+                .return_by_value(true)
+                .build()
+                .map_err(|err| anyhow!(err))?,
+            Some(session_id),
+        )
+        .map_err(|err| anyhow!(err))?;
+    if let Some(exception) = returns.exception_details {
+        bail!(
+            "evaluate_function failed: {}",
+            format_exception_details(&exception)
+        )
+    }
+    ensure!(
+        returns.result.value.is_none(),
+        "evaluated script shouldn't return a value"
+    );
+    Ok(())
 }
 
 fn format_exception_details(details: &runtime::ExceptionDetails) -> String {
@@ -108,8 +139,9 @@ fn format_exception_details(details: &runtime::ExceptionDetails) -> String {
     )
 }
 
-pub async fn evaluate_function_call_in_debugger<Output: DeserializeOwned>(
-    page: &Page,
+pub fn evaluate_function_call_in_debugger<Output: DeserializeOwned>(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
     call_frame_id: &debugger::CallFrameId,
     function_expression: impl Into<String>,
     arguments: Vec<json::Value>,
@@ -124,5 +156,10 @@ pub async fn evaluate_function_call_in_debugger<Output: DeserializeOwned>(
         arguments_json.join(", ")
     );
 
-    evaluate_expression_in_debugger(page, call_frame_id, expression).await
+    evaluate_expression_in_debugger(
+        connection,
+        session_id,
+        call_frame_id,
+        expression,
+    )
 }

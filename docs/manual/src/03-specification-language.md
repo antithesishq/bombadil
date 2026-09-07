@@ -378,35 +378,15 @@ const canvas = extract((state) => {
 
 
 export const clickCanvas = actions(() => {
-    return canvas.current ? [{ Click: canvasClick.current }] : [];
+    return canvas.current ? [{ Click: canvas.current }] : [];
 });
 ```
 
-For double-click actions, specify the delay between clicks in milliseconds (0-1000ms):
+Or for double-click actions:
 
 ```typescript
 export const doubleClickCanvas = actions(() => {
-    return canvas.current ? [{
-        DoubleClick: {
-            ...canvas,
-            delayMillis: 100,
-        }
-    }] : [];
-});
-```
-
-Most action parameters can also be specified as ranges, where Bombadil picks a
-random value within the range:
-
-
-```typescript
-export const doubleClickCanvas = actions(() => {
-    return canvas.current ? [{
-        DoubleClick: {
-            ...canvas,
-            delayMillis: [50, 500],
-        }
-    }] : [];
+    return canvas.current ? [{ DoubleClick: canvas.current }] : [];
 });
 ```
 

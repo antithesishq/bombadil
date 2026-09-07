@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use anyhow::{Result, anyhow};
-use chromiumoxide::cdp::browser_protocol::network;
+use cdp_protocol::cdp::browser_protocol::network;
 use url::Url;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
