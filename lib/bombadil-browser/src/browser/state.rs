@@ -182,10 +182,13 @@ pub struct Resources {
 
 impl Resources {
     pub fn from_metrics(metrics: &[performance::Metric]) -> Self {
-        use std::collections::BTreeMap;
-        let map: BTreeMap<&str, f64> =
-            metrics.iter().map(|m| (m.name.as_str(), m.value)).collect();
-        let get = |name: &str| -> f64 { map.get(name).copied().unwrap_or(0.0) };
+        let get = |name: &str| -> f64 {
+            metrics
+                .iter()
+                .rev()
+                .find(|m| m.name == name)
+                .map_or(0.0, |m| m.value)
+        };
         Self {
             js_heap_used: get("JSHeapUsedSize") as u64,
             js_heap_total: get("JSHeapTotalSize") as u64,
