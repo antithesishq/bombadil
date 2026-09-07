@@ -1,6 +1,4 @@
-use crate::instrumentation::js::{
-    EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
-};
+use crate::instrumentation::js::{EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE};
 use anyhow::{Context, Result};
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::{
@@ -10,6 +8,7 @@ use cdp_protocol::cdp::{
     },
     js_protocol::debugger::CallFrameId,
 };
+use const_format::formatcp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
 use std::time::SystemTime;
@@ -237,7 +236,7 @@ impl BrowserState {
             connection,
             session_id,
             call_frame_id,
-            format!(
+            formatcp!(
                 "
                 (() => {{
                     const snapshot = (edgesNew, transitionHash) => ({{
@@ -292,8 +291,12 @@ impl BrowserState {
                         }}
                     }}
 
+                    // Reuse the previous buffer for the next capture. Clear it
+                    // here even when the transition hash will return null.
+                    const reusable = coverage.{EDGES_PREVIOUS};
                     coverage.{EDGES_PREVIOUS} = coverage.{EDGES_CURRENT};
-                    coverage.{EDGES_CURRENT} = new Uint8Array({EDGE_MAP_SIZE});
+                    reusable.fill(0);
+                    coverage.{EDGES_CURRENT} = reusable;
 
                     if (similarityWeights.every(weight => weight === 0)) {{
                         return snapshot(differences, null);
@@ -330,31 +333,31 @@ impl BrowserState {
 
         let url = Url::parse(&runtime_state.url)?;
 
-        let navigation_entries = navigation_history_result
+        let index = navigation_history_result.current_index as usize;
+        let mut navigation_entries = navigation_history_result
             .entries
-            .iter()
+            .into_iter()
             .map(|entry| NavigationEntry {
                 id: entry.id as u32,
-                title: entry.title.clone(),
+                title: entry.title,
                 url: Url::parse(&entry.url)
                     .expect("url from getNavigationHistory doesn't parse"),
-            })
-            .collect::<Vec<_>>();
-        let index = navigation_history_result.current_index as usize;
+            });
         let is_real_entry =
-            |entry: &&NavigationEntry| entry.url.as_str() != "about:blank";
+            |entry: &NavigationEntry| entry.url.as_str() != "about:blank";
+        let back = navigation_entries
+            .by_ref()
+            .take(index)
+            .filter(is_real_entry)
+            .collect();
+        let current = navigation_entries
+            .next()
+            .expect("current navigation entry missing from history");
+        let forward = navigation_entries.filter(is_real_entry).collect();
         let navigation_history = NavigationHistory {
-            back: navigation_entries[0..index]
-                .iter()
-                .filter(is_real_entry)
-                .cloned()
-                .collect(),
-            current: navigation_entries[index].clone(),
-            forward: navigation_entries[index + 1..]
-                .iter()
-                .filter(is_real_entry)
-                .cloned()
-                .collect(),
+            back,
+            current,
+            forward,
         };
 
         let transition_hash = match runtime_state.transition_hash {
