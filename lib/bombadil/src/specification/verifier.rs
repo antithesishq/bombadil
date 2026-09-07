@@ -11,7 +11,7 @@ use boa_engine::{
     Context, JsString, NativeFunction, Source, context::ContextBuilder,
     js_string, object::builtins::JsArray, property::PropertyKey,
 };
-use boa_engine::{JsObject, JsValue};
+use boa_engine::{JsObject, JsValue, value::TryFromJs};
 use bombadil_ltl::eval::{self, Evaluator, Residual};
 use bombadil_ltl::formula::Formula;
 use bombadil_ltl::syntax::Syntax;
@@ -268,11 +268,19 @@ impl Verifier {
                         .map_err(Into::into)
                 },
             )?;
-            let accessed_snapshots: UniqueSnapshots = indices
-                .into_iter()
-                .filter_map(|index| snapshots.get(index).cloned())
-                .map(|snapshot| ((snapshot.index, snapshot.time), snapshot))
-                .collect();
+            let accessed_snapshots: UniqueSnapshots = (0..indices
+                .length(context)?)
+                .map(|i| {
+                    let index = usize::try_from_js(
+                        &indices.at(i as i64, context)?,
+                        context,
+                    )?;
+                    Ok(snapshots.get(index).cloned().map(|snapshot| {
+                        ((snapshot.index, snapshot.time), snapshot)
+                    }))
+                })
+                .filter_map(|result: Result<Option<_>>| result.transpose())
+                .collect::<Result<_>>()?;
             let syntax =
                 syntax_from_value(&value, &self.bombadil_exports, context)?;
             Ok((

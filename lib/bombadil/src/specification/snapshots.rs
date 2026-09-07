@@ -1,4 +1,6 @@
-use boa_engine::{Context, JsValue, js_string};
+use boa_engine::{
+    Context, JsValue, js_string, object::builtins::JsArray, value::TryFromJs,
+};
 
 use crate::specification::js::BombadilExports;
 use crate::specification::result::{Result, SpecificationError};
@@ -7,7 +9,7 @@ pub fn with_snapshot_tracking<R>(
     context: &mut Context,
     bombadil_exports: &BombadilExports,
     f: impl FnOnce(&mut Context) -> Result<R>,
-) -> Result<(Vec<usize>, R)> {
+) -> Result<(JsArray, R)> {
     let runtime = bombadil_exports.runtime.clone();
 
     let start = runtime
@@ -28,15 +30,7 @@ pub fn with_snapshot_tracking<R>(
     let result = f(context);
     let accesses_js =
         stop.call(&JsValue::from(runtime.clone()), &[], context)?;
-    let indices = serde_json::from_value(
-        accesses_js.to_json(context)?.unwrap_or_default(),
-    )
-    .map_err(|error| {
-        SpecificationError::OtherError(format!(
-            "failed to deserialize extractor indices: {}",
-            error
-        ))
-    })?;
+    let indices = JsArray::try_from_js(&accesses_js, context)?;
 
     Ok((indices, result?))
 }
