@@ -54,7 +54,7 @@ pub fn parse_expression_response<Output: DeserializeOwned>(
             format_exception_details(&exception)
         )
     } else {
-        match returns.result.value.clone() {
+        match returns.result.value {
             Some(value) => json::from_value(value).map_err(|err| anyhow!(err)),
             None => {
                 if let Some(runtime::RemoteObjectSubtype::Null) =
