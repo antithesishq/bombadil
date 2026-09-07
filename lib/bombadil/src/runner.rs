@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use antithesis_sdk::assert::{AssertType, assert_raw};
 use anyhow::Result;
 use bombadil_ltl::eval;
@@ -90,6 +88,7 @@ impl<D: InterfaceDriver> Runner<D> {
         strategy: &mut S,
     ) -> Result<S::StopValue> {
         let mut last_action: Option<D::Action> = None;
+        let mut violations = Vec::new();
 
         loop {
             let event = driver.next_event();
@@ -102,9 +101,10 @@ impl<D: InterfaceDriver> Runner<D> {
 
             match event {
                 Some(DriverEvent::StateChanged(state)) => {
-                    let snapshots: Arc<[Snapshot]> = driver
-                        .extract_snapshots(state.clone(), last_action.as_ref())?
-                        .into();
+                    let snapshots = driver.extract_snapshots(
+                        state.clone(),
+                        last_action.as_ref(),
+                    )?;
                     for value in snapshots.iter() {
                         log::debug!(
                             "snapshot {}: {}",
@@ -118,8 +118,7 @@ impl<D: InterfaceDriver> Runner<D> {
                         Time::from_system_time(D::state_timestamp(&state)),
                     )?;
 
-                    let mut violations =
-                        Vec::with_capacity(step_result.properties.len());
+                    violations.clear();
                     for (name, value) in step_result.properties {
                         let (condition, hit, details) = match value {
                             eval::Value::False(violation, _) => {
