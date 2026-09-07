@@ -131,18 +131,18 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 let (formula, state) =
                     (self.evaluate_thunk)(function, *negated)?;
                 let mut value = self.evaluate(&formula, time)?;
-                attach_state(&mut value, &state);
+                attach_state(&mut value, state);
                 Ok(value)
             }
             Formula::And(left, right) => {
                 let left = self.evaluate(left.as_ref(), time)?;
                 let right = self.evaluate(right.as_ref(), time)?;
-                Ok(self.evaluate_and(&left, &right))
+                Ok(self.evaluate_and(left, right))
             }
             Formula::Or(left, right) => {
                 let left = self.evaluate(left.as_ref(), time)?;
                 let right = self.evaluate(right.as_ref(), time)?;
-                Ok(self.evaluate_or(&left, &right))
+                Ok(self.evaluate_or(left, right))
             }
             Formula::Implies(left_formula, right) => {
                 let left = self.evaluate(left_formula.as_ref(), time)?;
@@ -167,7 +167,7 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         }
     }
 
-    fn evaluate_and(&mut self, left: &Value<D>, right: &Value<D>) -> Value<D> {
+    fn evaluate_and(&mut self, left: Value<D>, right: Value<D>) -> Value<D> {
         fn combine_and<D: Domain>(
             left: Residual<D>,
             right: Residual<D>,
@@ -180,29 +180,25 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
 
         match (left, right) {
             (Value::True(left_state), Value::True(right_state)) => {
-                Value::True(left_state.merge(right_state))
+                Value::True(left_state.merge(&right_state))
             }
-            (Value::True(state), Value::Residual(residual)) => Value::Residual(
-                combine_and(Residual::True(state.clone()), residual.clone()),
-            ),
-            (Value::Residual(residual), Value::True(state)) => Value::Residual(
-                combine_and(residual.clone(), Residual::True(state.clone())),
-            ),
-            (Value::True(_), right) => right.clone(),
-            (left, Value::True(_)) => left.clone(),
+            (Value::True(state), Value::Residual(residual)) => {
+                Value::Residual(combine_and(Residual::True(state), residual))
+            }
+            (Value::Residual(residual), Value::True(state)) => {
+                Value::Residual(combine_and(residual, Residual::True(state)))
+            }
+            (Value::True(_), right) => right,
+            (left, Value::True(_)) => left,
             (
                 Value::False(violation_left, residual_left),
                 Value::False(violation_right, residual_right),
             ) => Value::False(
                 Violation::And {
-                    left: Box::new(violation_left.clone()),
-                    right: Box::new(violation_right.clone()),
+                    left: Box::new(violation_left),
+                    right: Box::new(violation_right),
                 },
-                combine_options(
-                    residual_left.clone(),
-                    residual_right.clone(),
-                    combine_and,
-                ),
+                combine_options(residual_left, residual_right, combine_and),
             ),
             (
                 Value::Residual(residual),
@@ -213,32 +209,30 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 Value::Residual(residual),
             ) => {
                 let continuation = match continuation {
-                    Some(continuation) => {
-                        combine_and(residual.clone(), continuation.clone())
-                    }
-                    None => residual.clone(),
+                    Some(continuation) => combine_and(residual, continuation),
+                    None => residual,
                 };
-                Value::False(violation.clone(), Some(continuation))
+                Value::False(violation, Some(continuation))
             }
             (Value::Residual(left), Value::Residual(right)) => {
-                Value::Residual(combine_and(left.clone(), right.clone()))
+                Value::Residual(combine_and(left, right))
             }
         }
     }
 
-    fn evaluate_or(&mut self, left: &Value<D>, right: &Value<D>) -> Value<D> {
+    fn evaluate_or(&mut self, left: Value<D>, right: Value<D>) -> Value<D> {
         match (left, right) {
             (
                 Value::False(violation_left, residual_left),
                 Value::False(violation_right, residual_right),
             ) => Value::False(
                 Violation::Or {
-                    left: Box::new(violation_left.clone()),
-                    right: Box::new(violation_right.clone()),
+                    left: Box::new(violation_left),
+                    right: Box::new(violation_right),
                 },
                 combine_options(
-                    residual_left.clone(),
-                    residual_right.clone(),
+                    residual_left,
+                    residual_right,
                     |left, right| Residual::Or {
                         left: Box::new(left),
                         right: Box::new(right),
@@ -246,16 +240,16 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 ),
             ),
             (Value::True(left_state), Value::True(right_state)) => {
-                Value::True(left_state.merge(right_state))
+                Value::True(left_state.merge(&right_state))
             }
-            (Value::True(state), _) => Value::True(state.clone()),
-            (_, Value::True(state)) => Value::True(state.clone()),
-            (left, Value::False(_, _)) => left.clone(),
-            (Value::False(_, _), right) => right.clone(),
+            (Value::True(state), _) => Value::True(state),
+            (_, Value::True(state)) => Value::True(state),
+            (left, Value::False(_, _)) => left,
+            (Value::False(_, _), right) => right,
             (Value::Residual(left), Value::Residual(right)) => {
                 Value::Residual(Residual::Or {
-                    left: Box::new(left.clone()),
-                    right: Box::new(right.clone()),
+                    left: Box::new(left),
+                    right: Box::new(right),
                 })
             }
         }
@@ -664,12 +658,12 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
             Residual::And { left, right } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-                self.evaluate_and(&left, &right)
+                self.evaluate_and(left, right)
             }
             Residual::Or { left, right } => {
                 let left = self.step(left, time)?;
                 let right = self.step(right, time)?;
-                self.evaluate_or(&left, &right)
+                self.evaluate_or(left, right)
             }
             Residual::Implies {
                 left_formula,
@@ -748,19 +742,23 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
     }
 }
 
-fn attach_state<D: Domain>(value: &mut Value<D>, resolved: &D::State) {
+fn attach_state<D: Domain>(value: &mut Value<D>, resolved: D::State) {
     if resolved.is_empty() {
         return;
     }
     match value {
         Value::True(state) => {
-            *state = state.merge(resolved);
+            *state = if state.is_empty() {
+                resolved
+            } else {
+                state.merge(&resolved)
+            };
         }
         Value::False(violation, _) => {
-            attach_to_violation(violation, resolved);
+            attach_to_violation(violation, &resolved);
         }
         Value::Residual(residual) => {
-            attach_to_residual(residual, resolved);
+            attach_to_residual(residual, &resolved);
         }
     }
 }
