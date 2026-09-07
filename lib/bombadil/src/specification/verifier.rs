@@ -20,8 +20,9 @@ use serde_json as json;
 use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
 
 #[derive(Clone)]
-pub struct StepResult<A> {
-    pub properties: Vec<(String, eval::Value<BombadilDomain<RuntimeFunction>>)>,
+pub struct StepResult<'a, A> {
+    pub properties:
+        &'a [(String, eval::Value<BombadilDomain<RuntimeFunction>>)],
     pub actions: Tree<A>,
     pub all_definite: bool,
 }
@@ -30,6 +31,8 @@ pub struct Verifier {
     context: Context,
     bombadil_exports: BombadilExports,
     properties: HashMap<String, Property>,
+    result_properties:
+        Vec<(String, eval::Value<BombadilDomain<RuntimeFunction>>)>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
 }
@@ -229,6 +232,7 @@ impl Verifier {
 
         Ok(Verifier {
             context,
+            result_properties: Vec::with_capacity(properties.len()),
             properties,
             action_generators,
             bombadil_exports,
@@ -245,10 +249,10 @@ impl Verifier {
         &mut self,
         snapshots: &[Snapshot],
         time: bombadil_schema::Time,
-    ) -> Result<StepResult<A>> {
+    ) -> Result<StepResult<'_, A>> {
         self.extractors
             .update_from_snapshots(snapshots, &mut self.context)?;
-        let mut result_properties = Vec::with_capacity(self.properties.len());
+        self.result_properties.clear();
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
         let context = &mut self.context;
@@ -306,7 +310,7 @@ impl Verifier {
                 PropertyState::DefinitelyTrue
                 | PropertyState::DefinitelyFalse => continue,
             };
-            result_properties.push((
+            self.result_properties.push((
                 property.name.clone(),
                 match value {
                     eval::Value::True(_) => {
@@ -346,7 +350,7 @@ impl Verifier {
         });
 
         Ok(StepResult {
-            properties: result_properties,
+            properties: &self.result_properties,
             actions: action_tree,
             all_definite,
         })
@@ -487,7 +491,7 @@ mod tests {
 
         let time = time_from_millis(0);
 
-        let result: StepResult<Snapshot> = verifier
+        let result: StepResult<'_, Snapshot> = verifier
             .step(
                 &[Snapshot {
                     index: 0,

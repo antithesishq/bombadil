@@ -124,7 +124,7 @@ impl<D: InterfaceDriver> Runner<D> {
                         let (condition, hit, details) = match value {
                             eval::Value::False(violation, _) => {
                                 let violation =
-                                    violation_with_pretty_functions(&violation)
+                                    violation_with_pretty_functions(violation)
                                         .to_schema();
                                 violations.push(PropertyViolation {
                                     name: name.clone(),
