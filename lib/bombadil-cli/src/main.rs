@@ -39,16 +39,12 @@ fn main() -> Result<()> {
     env_logger::Builder::from_env(env)
         .format_timestamp_millis()
         .format_target(true)
-        // Until we hav a fix for https://github.com/mattsse/chromiumoxide/issues/287
-        .filter_module("chromiumoxide::browser", log::LevelFilter::Error)
         .filter_module("html5ever", log::LevelFilter::Info)
         .init();
     antithesis_init();
     let cli = Cli::parse();
     match cli.command {
-        Command::Browser { command } => {
-            tokio::runtime::Runtime::new()?.block_on(browser::run(command))
-        }
+        Command::Browser { command } => browser::run(command),
         #[cfg(feature = "terminal")]
         Command::Terminal { command } => {
             terminal::run(command);

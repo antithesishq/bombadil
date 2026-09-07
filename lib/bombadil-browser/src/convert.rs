@@ -48,11 +48,10 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
             BrowserAction::DoubleClick {
                 fingerprint,
                 point: position,
-                delay_millis,
             } => browser::BrowserAction::DoubleClick {
                 fingerprint: fingerprint.clone(),
                 point: position.to_schema(),
-                delay_millis: *delay_millis,
+                delay_millis: None,
             },
             BrowserAction::TypeText { text, delay_millis } => {
                 browser::BrowserAction::TypeText {
@@ -122,13 +121,10 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                 }
             }
             browser::BrowserAction::DoubleClick {
-                fingerprint,
-                point,
-                delay_millis,
+                fingerprint, point, ..
             } => BrowserAction::DoubleClick {
                 fingerprint: fingerprint.clone(),
                 point: point.to_internal(),
-                delay_millis: *delay_millis,
             },
             browser::BrowserAction::TypeText { text, delay_millis } => {
                 BrowserAction::TypeText {

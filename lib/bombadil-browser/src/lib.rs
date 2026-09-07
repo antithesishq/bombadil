@@ -1,4 +1,5 @@
 pub mod browser;
+pub mod chromium;
 pub mod convert;
 pub mod cookie;
 pub mod driver;

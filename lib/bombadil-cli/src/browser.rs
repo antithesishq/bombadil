@@ -1,29 +1,28 @@
 use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bombadil_browser::{
-    browser::LaunchOptions,
+    chromium::{self, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
+    driver::DebuggerOptions,
     strategy::TraceWriter,
     trace::writer::{FileTraceWriter, NoopTraceWriter},
 };
 use clap::Args;
 use serde_json as json;
 use std::{
+    fs::File,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
-use tokio::io::AsyncBufReadExt;
-use tokio::{fs::File, io::BufReader};
 
 use bombadil::{antithesis, specification::verifier::Specification, styled};
 use bombadil_browser::{
-    browser::{
-        BrowserOptions, DebuggerOptions, Emulation, actions::BrowserAction,
-    },
+    browser::{BrowserOptions, Emulation, actions::BrowserAction},
     instrumentation::InstrumentationConfig,
 };
 use bombadil_schema::browser;
@@ -157,14 +156,14 @@ impl FromStr for Origin {
     }
 }
 
-pub async fn run(command: BrowserCommand) -> Result<()> {
+pub fn run(command: BrowserCommand) -> Result<()> {
     match command {
         BrowserCommand::Test {
             shared,
             headless,
             no_sandbox,
         } => {
-            let mode = resolve_test_mode(&shared).await?;
+            let mode = resolve_test_mode(&shared)?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             log::info!(
                 "storing chromium/chrome user data in {}",
@@ -187,6 +186,7 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
                 browser_options_from_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
+                    executable: chromium::locate::executable()?,
                     headless,
                     user_data_directory: user_data_directory
                         .path()
@@ -202,14 +202,13 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
                 browser_options,
                 debugger_options,
             )
-            .await
         }
         BrowserCommand::TestExternal {
             shared,
             remote_debugger,
             create_target,
         } => {
-            let mode = resolve_test_mode(&shared).await?;
+            let mode = resolve_test_mode(&shared)?;
             let output_path =
                 output_path::resolve_output_path(&shared.output_path)?;
 
@@ -234,13 +233,18 @@ pub async fn run(command: BrowserCommand) -> Result<()> {
                 browser_options,
                 debugger_options,
             )
-            .await
         }
         BrowserCommand::Inspect {
             trace_path,
             port,
             no_open,
-        } => inspect_server::serve(trace_path, port, !no_open).await,
+        } => {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()?;
+
+            runtime.block_on(inspect_server::serve(trace_path, port, !no_open))
+        }
     }
 }
 
@@ -340,18 +344,16 @@ fn reproduce_command_args(
     args
 }
 
-async fn resolve_test_mode(
-    shared_options: &TestSharedOptions,
-) -> Result<TestMode> {
+fn resolve_test_mode(shared_options: &TestSharedOptions) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
             let trace_file_path =
                 output_path::resolve_trace_directory(path).join("trace.jsonl");
-            let trace_file = File::open(&trace_file_path).await?;
-            let mut lines = BufReader::new(trace_file).lines();
+            let trace_file = File::open(&trace_file_path)?;
             let mut actions: Vec<BrowserAction> = vec![];
-            while let Some(line) = lines.next_line().await? {
+            for line in BufReader::new(trace_file).lines() {
+                let line = line.context("failed to read line from trace")?;
                 let entry: browser::BrowserTraceEntry = json::from_str(&line)?;
                 if let Some(action) = entry.action {
                     actions.push(action.to_internal());
@@ -362,7 +364,7 @@ async fn resolve_test_mode(
     }
 }
 
-async fn browser_test(
+fn browser_test(
     mode: TestMode,
     reproduce_args: Vec<String>,
     output_path: PathBuf,
@@ -409,23 +411,17 @@ async fn browser_test(
         output_path: output_path.clone(),
     };
 
-    // The driver and runner are synchronous (the browser runs on its own
-    // worker thread/runtime), so run them on a blocking thread to avoid
-    // blocking the async runtime.
-    let test_result = tokio::task::spawn_blocking(move || -> Result<_> {
-        if antithesis::is_in_guest() {
-            run_with_writer(NoopTraceWriter, run_options)
-        } else {
-            run_with_writer(
-                FileTraceWriter::initialize(
-                    run_options.output_path.clone(),
-                    shared_options.output_path_overwrite,
-                )?,
-                run_options,
-            )
-        }
-    })
-    .await??;
+    let test_result = if antithesis::is_in_guest() {
+        run_with_writer(NoopTraceWriter, run_options)?
+    } else {
+        run_with_writer(
+            FileTraceWriter::initialize(
+                run_options.output_path.clone(),
+                shared_options.output_path_overwrite,
+            )?,
+            run_options,
+        )?
+    };
 
     let heading = {
         let TestResult {

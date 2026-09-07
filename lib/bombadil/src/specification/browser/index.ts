@@ -24,7 +24,10 @@ export type Action<Number = number, String = string> =
       DoubleClick: {
         fingerprint: Fingerprint;
         point: Point<Number>;
-        delayMillis: Range;
+        /**
+         * @deprecated has no effect
+         */
+        delayMillis?: Range;
       };
     }
   | { TypeText: { text: String; delayMillis: Range } }

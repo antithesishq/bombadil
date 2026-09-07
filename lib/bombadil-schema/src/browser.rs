@@ -233,7 +233,8 @@ pub enum BrowserAction {
     DoubleClick {
         fingerprint: Fingerprint,
         point: Point,
-        delay_millis: u64,
+        #[deprecated]
+        delay_millis: Option<u64>,
     },
     TypeText {
         text: String,

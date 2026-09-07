@@ -1,5 +1,6 @@
 /target
 lib/bombadil/target
+lib/cdp/target
 .direnv
 /result
 .envrc.local
