@@ -3,6 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
+use cdp::MethodType;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::{network, page};
 use crossbeam_channel as mpmc;
@@ -61,7 +62,11 @@ impl Drop for ActivityStream {
 }
 
 pub fn all_activity(events: &cdp::Events) -> Result<ActivityStream> {
-    let all = events.all();
+    let all = events.methods([
+        network::EventRequestWillBeSent::method_id(),
+        network::EventResponseReceived::method_id(),
+        page::EventScreencastFrame::method_id(),
+    ]);
     let (activity_tx, activity_rx) = mpmc::unbounded();
     let (cancel_tx, cancel_rx) = mpmc::bounded(1);
 

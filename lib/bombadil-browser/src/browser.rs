@@ -2,6 +2,7 @@ use anyhow::{Context, ensure};
 use anyhow::{Result, anyhow, bail};
 use base64::Engine;
 use cdp::Binary;
+use cdp::MethodType;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::emulation;
 use cdp_protocol::cdp::browser_protocol::network;
@@ -542,7 +543,21 @@ fn forward_inner_events(
     events_tx: mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
     let event_source = connection.events.clone();
-    let events = connection.events.all();
+    let events = connection.events.methods([
+        runtime::EventExecutionContextCreated::method_id(),
+        runtime::EventExecutionContextDestroyed::method_id(),
+        page::EventLoadEventFired::method_id(),
+        debugger::EventPaused::method_id(),
+        debugger::EventResumed::method_id(),
+        runtime::EventExceptionThrown::method_id(),
+        page::EventFrameRequestedNavigation::method_id(),
+        page::EventFrameStartedNavigating::method_id(),
+        page::EventFrameNavigated::method_id(),
+        page::EventFrameStoppedLoading::method_id(),
+        browser::EventDownloadWillBegin::method_id(),
+        target::EventTargetDestroyed::method_id(),
+        runtime::EventConsoleApiCalled::method_id(),
+    ]);
 
     let _ = thread::spawn(move || {
         let error_tx = events_tx.clone();

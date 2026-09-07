@@ -1,7 +1,9 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::net::TcpStream;
+use std::ops::Range;
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -15,14 +17,13 @@ use mio::{Events as MioEvents, Interest, Poll, Token, Waker};
 use tungstenite::client::{IntoClientRequest, connect_with_config};
 use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
-use tungstenite::{Message as WsMessage, WebSocket};
+use tungstenite::{Message as WsMessage, Utf8Bytes, WebSocket};
 
-use cdp_types::{
-    CallId, CdpJsonEventMessage, Command, MethodCall, MethodId, Response,
-};
+use cdp_types::{CallId, CdpJsonEventMessage, Command, MethodCall, MethodId};
 use serde::Deserialize;
-use serde::de::IgnoredAny;
+#[cfg(test)]
 use serde_json as json;
+use serde_json::value::RawValue;
 
 use anyhow::{Context, anyhow, bail};
 
@@ -128,12 +129,48 @@ impl<T: Command> PendingResponse<T> {
         let value = result
             .with_context(|| format!("send failed for {}", self.method))?;
         log::debug!("got response for {} ({})", self.method, self.call_id);
-        T::response_from_value(value)
+        serde_json::from_str(value.get())
             .with_context(|| format!("decoding response for {}", self.method))
     }
 }
 
-type Reply = (Instant, Result<json::Value>);
+type Reply = (Instant, Result<ResponsePayload>);
+
+/// Keep the received buffer alive until the caller decodes its result.
+#[derive(Debug)]
+struct ResponsePayload {
+    text: Utf8Bytes,
+    range: Range<usize>,
+}
+
+impl ResponsePayload {
+    // Locate the borrowed payload before moving its backing frame into the reply.
+    fn range_in_frame(
+        text: &str,
+        result: Option<&RawValue>,
+    ) -> Option<Range<usize>> {
+        result.map(|result| {
+            // Borrowed RawValue is a subslice of this frame, so these are
+            // UTF-8 byte offsets, including any original JSON escapes.
+            let start = result.get().as_ptr() as usize - text.as_ptr() as usize;
+            start..start + result.get().len()
+        })
+    }
+
+    fn from_frame(text: Utf8Bytes, range: Option<Range<usize>>) -> Self {
+        match range {
+            Some(range) => Self { text, range },
+            None => Self {
+                text: Utf8Bytes::from_static("null"),
+                range: 0..4,
+            },
+        }
+    }
+
+    fn get(&self) -> &str {
+        &self.text.as_str()[self.range.clone()]
+    }
+}
 
 #[derive(Debug)]
 struct ConnectionInner {
@@ -467,61 +504,86 @@ fn handle_message(
     match msg {
         WsMessage::Text(text) => {
             let text_str = text.as_str();
-            // We only parse `Message` when we know that there's no `id` field, and otherwise
-            // parse as `Response`. Hence, we need do a first parsing pass with this cheap struct.
+            // Borrow payloads until routing decides whether a consumer needs them.
+            // RawValue validates JSON without allocating a Value tree.
             #[derive(Deserialize)]
-            struct Peek {
-                #[serde(default)]
-                id: Option<IgnoredAny>,
+            struct Envelope<'a> {
+                id: Option<CallId>,
+                #[serde(default, borrow)]
+                method: Cow<'a, str>,
+                #[serde(borrow)]
+                result: Option<&'a RawValue>,
+                error: Option<cdp_types::Error>,
             }
-            let peek: Peek = serde_json::from_str(text_str).map_err(|err| {
-                anyhow!("failed to parse ws text frame '{}': {err}", text_str)
-            })?;
-            if peek.id.is_some() {
-                let response: Response = serde_json::from_str(text_str)
-                    .map_err(|err| {
-                        anyhow!(
-                            "failed to parse response '{}': {err}",
-                            text_str
-                        )
-                    })?;
+            let response: Envelope<'_> = serde_json::from_str(text_str)
+                .map_err(|err| {
+                    anyhow!(
+                        "failed to parse ws text frame '{}': {err}",
+                        text_str
+                    )
+                })?;
+            if let Some(id) = response.id {
                 if let Some(error) = &response.error {
                     log::debug!(
                         "received command error from websocket: call={}, error={}",
-                        response.id,
+                        id,
                         error,
                     );
                 }
-                if let Some(reply_tx) = calls_in_flight.remove(&response.id) {
+                if let Some(reply_tx) = calls_in_flight.remove(&id) {
                     // Requests expect a response; posts discard it.
                     if let Some(reply_tx) = reply_tx {
                         if let Some(err) = response.error {
                             let _ = reply_tx
                                 .send((Instant::now(), Err(err.into())));
                         } else {
-                            let result = response
-                                .result
-                                .unwrap_or(serde_json::Value::Null);
+                            let range = ResponsePayload::range_in_frame(
+                                text_str,
+                                response.result,
+                            );
+                            let result =
+                                ResponsePayload::from_frame(text, range);
                             let _ = reply_tx.send((Instant::now(), Ok(result)));
                         }
-                    } else {
-                        if response.error.is_none() {
-                            log::debug!(
-                                "received response for post {}: exception_details={:?}",
-                                response.id,
-                                response.result.as_ref().and_then(|result| {
-                                    result.get("exceptionDetails")
-                                }),
-                            );
+                    } else if response.error.is_none()
+                        && log::log_enabled!(log::Level::Debug)
+                    {
+                        #[derive(Deserialize)]
+                        struct PostResult<'a> {
+                            #[serde(rename = "exceptionDetails", borrow)]
+                            exception_details: Option<&'a RawValue>,
                         }
+                        let exception_details =
+                            response.result.and_then(|result| {
+                                serde_json::from_str::<PostResult<'_>>(
+                                    result.get(),
+                                )
+                                .ok()
+                                .and_then(|result| result.exception_details)
+                            });
+                        log::debug!(
+                            "received response for post {}: exception_details={:?}",
+                            id,
+                            exception_details.map(RawValue::get),
+                        );
                     }
                 } else {
                     bail!(
                         "got unexpected response ({}) with no corresponding request in flight",
-                        response.id
+                        id
                     );
                 }
             } else {
+                let method = response.method.as_ref();
+                if method.is_empty() {
+                    bail!("event is missing its method");
+                }
+                let mut subscribers = subscribers.lock().map_err(|_| {
+                    anyhow!("failed to acquire lock for subscribers")
+                })?;
+                if !subscribers.is_interested_in(method) {
+                    return Ok(());
+                }
                 let event: CdpJsonEventMessage = serde_json::from_str(text_str)
                     .map_err(|err| {
                         anyhow!("failed to parse event '{}': {err}", text_str)
@@ -563,12 +625,7 @@ fn handle_message(
                         event.params.get(),
                     );
                 }
-                let mut subscribers = subscribers.lock().map_err(|_| {
-                    anyhow!("failed to acquire lock for subscribers")
-                })?;
-                if !subscribers.closed {
-                    subscribers.dispatch(event);
-                }
+                subscribers.dispatch(event);
             }
         }
         // Tungstenite queues Pong replies automatically while reading.
@@ -796,6 +853,144 @@ mod tests {
 
     impl Command for NumberCommand {
         type Response = u64;
+    }
+
+    #[test]
+    fn response_payload_stays_raw_until_typed_wait() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let (tx, rx) = mpmc::bounded(1);
+        let id = CallId::new(7);
+        let mut calls = HashMap::from([(id, Some(tx))]);
+        // This unused number cannot be represented by Value, but typed decoding
+        // can skip it. Preserve the original payload through the worker queue.
+        let payload = r#"{ "received": true, "unused": 1e999 }"#;
+        let text = format!(r#"{{"result":{payload},"id":7}}"#);
+        let payload_ptr = text[10..].as_ptr();
+        handle_message(WsMessage::text(text), &mut calls, &subscribers)
+            .unwrap();
+        assert!(calls.is_empty());
+        let reply = rx.recv().unwrap();
+        assert_eq!(reply.1.as_ref().unwrap().get(), payload);
+        assert_eq!(reply.1.as_ref().unwrap().get().as_ptr(), payload_ptr);
+        let (tx, rx) = mpmc::bounded(1);
+        tx.send(reply).unwrap();
+        let pending = PendingResponse::<TestCommand> {
+            call_id: id,
+            method: Cow::Borrowed("Test.command"),
+            deadline: Instant::now() + Duration::from_secs(1),
+            reply_rx: rx,
+            command: PhantomData,
+        };
+        assert_eq!(pending.wait().unwrap(), TestResponse { received: true });
+    }
+
+    #[test]
+    fn response_ranges_preserve_unicode_escapes_and_null_defaults() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        for (text, expected) in [
+            (
+                r#"{"sessionId":"ø","id":7,"result":{"data":"é\n\""}}"#,
+                r#"{"data":"é\n\""}"#,
+            ),
+            (r#"{"result":"é","id":7}"#, r#""é""#),
+            (r#"{"id":7,"result":null}"#, "null"),
+            (r#"{"id":7}"#, "null"),
+        ] {
+            let (tx, rx) = mpmc::bounded(1);
+            let mut calls = HashMap::from([(CallId::new(7), Some(tx))]);
+            handle_message(WsMessage::text(text), &mut calls, &subscribers)
+                .unwrap();
+            let response = rx.recv().unwrap().1.unwrap();
+            assert_eq!(response.get(), expected);
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(response.get())
+                    .unwrap(),
+                serde_json::from_str::<serde_json::Value>(expected).unwrap(),
+            );
+        }
+    }
+
+    #[test]
+    fn post_response_skips_unused_payload() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let mut calls = HashMap::from([(CallId::new(7), None)]);
+        handle_message(
+            WsMessage::text(r#"{"result":{"unused":1e999},"id":7}"#),
+            &mut calls,
+            &subscribers,
+        )
+        .unwrap();
+        assert!(calls.is_empty());
+        assert!(
+            handle_message(
+                WsMessage::text(r#"{"result":{},"id":8}"#),
+                &mut calls,
+                &subscribers,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("no corresponding request")
+        );
+    }
+
+    #[test]
+    fn selected_events_keep_order_session_and_raw_params() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let events = Events {
+            subscribers: subscribers.clone(),
+        };
+        let selected = events.methods([
+            Cow::Borrowed("Test.first"),
+            Cow::Borrowed("Test.second"),
+            Cow::Borrowed("Test.first"),
+        ]);
+        let all = events.all();
+        let mut calls = HashMap::new();
+        for method in ["Test.first", "Test.ignored", "Test.second"] {
+            handle_message(
+                WsMessage::text(format!(
+                    r#"{{"params":{{"unused":1e999}},"sessionId":"session","method":"{method}"}}"#
+                )),
+                &mut calls,
+                &subscribers,
+            ).unwrap();
+        }
+        assert_eq!(all.len(), 3);
+        assert_eq!(selected.len(), 2);
+        for method in ["Test.first", "Test.second"] {
+            let event = selected.recv().unwrap();
+            assert_eq!(event.method, method);
+            assert_eq!(event.session_id.as_deref(), Some("session"));
+            assert_eq!(event.params.get(), r#"{"unused":1e999}"#);
+        }
+        events.close();
+        assert!(matches!(
+            selected.try_recv(),
+            Err(mpmc::TryRecvError::Disconnected)
+        ));
+    }
+
+    #[test]
+    fn uninterested_events_skip_payload_decoding() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let mut calls = HashMap::new();
+        // The envelope is valid JSON but has no typed event payload.
+        handle_message(
+            WsMessage::text(r#"{"method":"Test.ignored"}"#),
+            &mut calls,
+            &subscribers,
+        )
+        .unwrap();
+        assert!(
+            handle_message(
+                WsMessage::text(
+                    r#"{"method":"Test.ignored","params":invalid}"#
+                ),
+                &mut calls,
+                &subscribers,
+            )
+            .is_err()
+        );
     }
 
     #[test]

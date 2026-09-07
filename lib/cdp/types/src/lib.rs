@@ -47,13 +47,6 @@ impl CallId {
 pub trait Command: serde::ser::Serialize + Method {
     /// The type of the response this request triggers on the chromium server
     type Response: serde::de::DeserializeOwned + fmt::Debug;
-
-    /// deserialize the response from json
-    fn response_from_value(
-        response: serde_json::Value,
-    ) -> serde_json::Result<Self::Response> {
-        serde_json::from_value(response)
-    }
 }
 
 /// A generic, successful,  response of a request where the `result` has been

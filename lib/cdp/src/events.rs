@@ -16,14 +16,18 @@ pub struct Events {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Subscribers {
-    pub(crate) closed: bool,
-    pub(crate) close_error: Option<String>,
-    pub(crate) all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
-    pub(crate) single:
-        HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
+    closed: bool,
+    close_error: Option<String>,
+    all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
+    single: HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
 }
 
 impl Subscribers {
+    pub(crate) fn is_interested_in(&self, method: &str) -> bool {
+        !self.closed
+            && (!self.all.is_empty() || self.single.contains_key(method))
+    }
+
     #[hotpath::measure]
     pub(crate) fn dispatch(&mut self, event: CdpJsonEventMessage) {
         assert!(!self.closed, "Subscribers are closed, can't dispatch");
@@ -60,6 +64,31 @@ impl Events {
         let (tx, rx) = mpmc::unbounded();
         if !subscribers.closed {
             subscribers.all.push(tx);
+        }
+        rx
+    }
+
+    /// Receive only the selected methods, preserving their arrival order.
+    pub fn methods(
+        &self,
+        methods: impl IntoIterator<Item = MethodId>,
+    ) -> mpmc::Receiver<Arc<CdpJsonEventMessage>> {
+        let mut subscribers = self
+            .subscribers
+            .lock()
+            .expect("failed to acquire lock for subscribers");
+        let (tx, rx) = mpmc::unbounded();
+        if !subscribers.closed {
+            let mut unique = std::collections::HashSet::new();
+            for method in methods {
+                if unique.insert(method.clone()) {
+                    subscribers
+                        .single
+                        .entry(method)
+                        .or_default()
+                        .push(tx.clone());
+                }
+            }
         }
         rx
     }
