@@ -16,8 +16,8 @@ use std::time::SystemTime;
 use url::Url;
 
 use crate::browser::evaluation::{
-    evaluate_expression_in_debugger, evaluate_function_call_in_debugger,
-    evaluate_script_in_debugger,
+    evaluate_function_call_in_debugger, evaluate_script_in_debugger,
+    parse_expression_response, request_expression_in_debugger,
 };
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -233,7 +233,7 @@ impl BrowserState {
         generation: Generation,
     ) -> Result<Self> {
         log::trace!("BrowserState::current: requesting CDP state");
-        let runtime_state: RuntimeStateSnapshot = evaluate_expression_in_debugger(
+        let runtime_state = request_expression_in_debugger(
             connection,
             session_id,
             call_frame_id,
@@ -308,9 +308,21 @@ impl BrowserState {
                 }})()
                 "
             ),
-        ).context("evaluating capture runtime state")?;
-        let navigation_history_result = connection
-            .send(page::GetNavigationHistoryParams {}, Some(session_id))
+        ).context("requesting capture runtime state")?;
+        let navigation_history = connection
+            .request(page::GetNavigationHistoryParams {}, Some(session_id))
+            .context("requesting capture navigation history")?;
+
+        // Navigation history is independent of runtime evaluation. Metrics must
+        // follow the coverage and transition-hash work in the runtime snapshot.
+        let runtime_state: RuntimeStateSnapshot = parse_expression_response(
+            runtime_state
+                .wait()
+                .context("evaluating capture runtime state")?,
+        )
+        .context("parsing capture runtime state")?;
+        let navigation_history_result = navigation_history
+            .wait()
             .context("reading capture navigation history")?;
         let performance_metrics_result = connection
             .send(performance::GetMetricsParams {}, Some(session_id))

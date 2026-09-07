@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::io::ErrorKind;
+use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::os::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use crossbeam_channel as mpmc;
@@ -16,7 +17,9 @@ use tungstenite::protocol::WebSocketConfig;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message as WsMessage, WebSocket};
 
-use cdp_types::{CallId, CdpJsonEventMessage, Command, MethodCall, Response};
+use cdp_types::{
+    CallId, CdpJsonEventMessage, Command, MethodCall, MethodId, Response,
+};
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json as json;
@@ -48,12 +51,26 @@ impl Connection {
     }
 
     /// Send a command and await its response.
+    #[hotpath::measure]
     pub fn send<T: Command>(
         &self,
         cmd: T,
         session_id: Option<&SessionId>,
     ) -> Result<T::Response> {
-        self.inner.send(cmd, session_id)
+        self.request(cmd, session_id)?.wait()
+    }
+
+    /// Submit a command without waiting for its response.
+    ///
+    /// The five-second response deadline starts at submission. Submit independent
+    /// commands before calling [`PendingResponse::wait`] to overlap their waits.
+    /// Submission may block on the bounded worker queue, within that deadline.
+    pub fn request<T: Command>(
+        &self,
+        cmd: T,
+        session_id: Option<&SessionId>,
+    ) -> Result<PendingResponse<T>> {
+        self.inner.request(cmd, session_id)
     }
 
     /// Post a command without awaiting its response.
@@ -70,6 +87,53 @@ impl Connection {
         self.inner.close()
     }
 }
+
+/// A submitted command's typed response. Waiting consumes the handle.
+///
+/// Dropping this handle discards the response; it does not cancel the command.
+/// Keep the connection alive until the outstanding responses have been collected.
+#[derive(Debug)]
+#[must_use = "wait for the response, or explicitly drop it to discard the result"]
+pub struct PendingResponse<T: Command> {
+    call_id: CallId,
+    method: MethodId,
+    deadline: Instant,
+    reply_rx: mpmc::Receiver<Reply>,
+    command: PhantomData<fn() -> T>,
+}
+
+impl<T: Command> PendingResponse<T> {
+    /// Wait until the original submission deadline, then decode the response.
+    /// A response received before the deadline can be collected after it expires.
+    #[hotpath::measure]
+    pub fn wait(self) -> Result<T::Response> {
+        let (received_at, result) = match self
+            .reply_rx
+            .recv_deadline(self.deadline)
+        {
+            Ok(reply) => reply,
+            Err(mpmc::RecvTimeoutError::Timeout) => {
+                bail!("timed out waiting for response for {}", self.method);
+            }
+            Err(mpmc::RecvTimeoutError::Disconnected) => {
+                bail!(
+                    "channel disconnected while waiting for response for {}",
+                    self.method
+                );
+            }
+        };
+        if received_at > self.deadline {
+            bail!("timed out waiting for response for {}", self.method);
+        }
+        let value = result
+            .with_context(|| format!("send failed for {}", self.method))?;
+        log::debug!("got response for {} ({})", self.method, self.call_id);
+        T::response_from_value(value)
+            .with_context(|| format!("decoding response for {}", self.method))
+    }
+}
+
+type Reply = (Instant, Result<json::Value>);
 
 #[derive(Debug)]
 struct ConnectionInner {
@@ -171,79 +235,44 @@ impl ConnectionInner {
     }
 
     #[hotpath::measure]
-    pub(crate) fn send<T: Command>(
+    fn request<T: Command>(
         &self,
         cmd: T,
         session_id: Option<&SessionId>,
-    ) -> Result<T::Response> {
+    ) -> Result<PendingResponse<T>> {
+        let deadline = Instant::now() + Duration::from_secs(5);
         let call_id = self.next_call_id();
+        let method = cmd.identifier();
         log::debug!(
             "sending {} ({}), session={:?}",
-            cmd.identifier(),
+            method,
             call_id,
             session_id
         );
-
         let call = MethodCall {
             id: call_id,
-            method: cmd.identifier(),
+            method: method.clone(),
             session_id: session_id.map(|id| id.inner().into()),
             params: serde_json::to_value(&cmd)?,
         };
         let (reply_tx, reply_rx) = mpmc::bounded(1);
         self.worker_tx
-            .send(WorkerRequest::Send {
-                call,
-                reply_tx: Some(reply_tx),
-            })
-            .context(format!("send failed for {}", cmd.identifier()))?;
+            .send_deadline(
+                WorkerRequest::Send {
+                    call,
+                    reply_tx: Some(reply_tx),
+                },
+                deadline,
+            )
+            .with_context(|| format!("send failed for {method}"))?;
         self.commands_waker.wake()?;
-
-        let result = match reply_rx.recv_timeout(Duration::from_secs(5)) {
-            Ok(result) => {
-                result.context(format!("send failed for {}", cmd.identifier()))
-            }
-            Err(mpmc::RecvTimeoutError::Timeout) => {
-                log::debug!(
-                    "timed out waiting for response for {}",
-                    cmd.identifier()
-                );
-                bail!(
-                    "timed out waiting for response for {}",
-                    cmd.identifier(),
-                );
-            }
-            Err(mpmc::RecvTimeoutError::Disconnected) => {
-                log::debug!(
-                    "channel disconnected while waiting for response for {}",
-                    cmd.identifier()
-                );
-                bail!(
-                    "channel disconnected while waiting for response for {}",
-                    cmd.identifier(),
-                )
-            }
-        };
-
-        match result {
-            Ok(value) => {
-                log::debug!(
-                    "got response for {} ({})",
-                    cmd.identifier(),
-                    call_id,
-                );
-                Ok(T::response_from_value(value)?)
-            }
-            Err(err) => {
-                log::debug!(
-                    "got error for {} ({}): {}",
-                    cmd.identifier(),
-                    call_id,
-                    err
-                );
-                Err(err)
-            }
-        }
+        Ok(PendingResponse {
+            call_id,
+            method,
+            deadline,
+            reply_rx,
+            command: PhantomData,
+        })
     }
 
     pub(crate) fn close(&self) -> Result<()> {
@@ -294,12 +323,12 @@ fn supervise_worker(
 enum WorkerRequest {
     Send {
         call: MethodCall,
-        reply_tx: Option<mpmc::Sender<Result<json::Value>>>,
+        reply_tx: Option<mpmc::Sender<Reply>>,
     },
     Close,
 }
 
-type CallsInFlight = HashMap<CallId, Option<mpmc::Sender<Result<json::Value>>>>;
+type CallsInFlight = HashMap<CallId, Option<mpmc::Sender<Reply>>>;
 
 enum DrainResult {
     Continue,
@@ -314,19 +343,14 @@ fn calls_drain(
     loop {
         match requests_rx.try_recv() {
             Ok(WorkerRequest::Send { call, reply_tx }) => {
-                let reply_error =
-                    |reply_tx: &Option<mpmc::Sender<Result<json::Value>>>,
-                     error| {
-                        if let Some(tx) = reply_tx {
-                            if let Err(error) = tx.send(Err(error)) {
-                                log::error!(
-                                    "failed sending command error: {error:#}"
-                                );
-                            }
-                        } else {
-                            log::error!("posted command failed: {error:#}");
-                        }
-                    };
+                let reply_error = |reply_tx: &Option<mpmc::Sender<Reply>>,
+                                   error| {
+                    if let Some(tx) = reply_tx {
+                        let _ = tx.send((Instant::now(), Err(error)));
+                    } else {
+                        log::error!("posted command failed: {error:#}");
+                    }
+                };
 
                 if calls_in_flight.contains_key(&call.id) {
                     reply_error(
@@ -469,15 +493,16 @@ fn handle_message(
                     );
                 }
                 if let Some(reply_tx) = calls_in_flight.remove(&response.id) {
-                    // There's only a reply_tx if it was a `send`, not for `post`.
+                    // Requests expect a response; posts discard it.
                     if let Some(reply_tx) = reply_tx {
                         if let Some(err) = response.error {
-                            let _ = reply_tx.send(Err(err.into()));
+                            let _ = reply_tx
+                                .send((Instant::now(), Err(err.into())));
                         } else {
                             let result = response
                                 .result
                                 .unwrap_or(serde_json::Value::Null);
-                            let _ = reply_tx.send(Ok(result));
+                            let _ = reply_tx.send((Instant::now(), Ok(result)));
                         }
                     } else {
                         if response.error.is_none() {
@@ -645,7 +670,7 @@ fn websocket_worker(
 mod tests {
     use std::borrow::Cow;
     use std::net::TcpListener;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use serde::{Deserialize, Serialize};
 
@@ -715,6 +740,184 @@ mod tests {
             }
         });
         (format!("ws://{address}"), handle)
+    }
+
+    fn scripted_server(
+        script: impl FnOnce(&mut WebSocket<TcpStream>) + Send + 'static,
+    ) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let mut ws = tungstenite::accept(stream).unwrap();
+            script(&mut ws);
+            while let Ok(message) = ws.read() {
+                if matches!(message, WsMessage::Close(_)) {
+                    break;
+                }
+            }
+        });
+        (format!("ws://{address}"), server)
+    }
+
+    fn read_command(ws: &mut WebSocket<TcpStream>) -> json::Value {
+        let message = ws.read().unwrap();
+        json::from_str(message.to_text().unwrap()).unwrap()
+    }
+
+    fn respond(
+        ws: &mut WebSocket<TcpStream>,
+        command: &json::Value,
+        result: json::Value,
+    ) {
+        ws.send(WsMessage::text(
+            json::json!({"id": command["id"], "result": result}).to_string(),
+        ))
+        .unwrap();
+    }
+
+    fn test_command() -> TestCommand {
+        TestCommand {
+            payload: "small".into(),
+        }
+    }
+
+    #[derive(Debug, Serialize)]
+    struct NumberCommand {}
+
+    impl Method for NumberCommand {
+        fn identifier(&self) -> MethodId {
+            Cow::Borrowed("Test.number")
+        }
+    }
+
+    impl Command for NumberCommand {
+        type Response = u64;
+    }
+
+    #[test]
+    fn pending_requests_route_out_of_order_heterogeneous_responses() {
+        let (url, server) = scripted_server(|ws| {
+            // No response is sent until all requests arrive. A serialized
+            // implementation cannot make progress through this barrier.
+            let first = read_command(ws);
+            let second = read_command(ws);
+            assert_eq!(first["method"], "Test.command");
+            assert_eq!(second["method"], "Test.number");
+            assert_eq!(first["sessionId"], "test-session");
+            assert_eq!(second["sessionId"], "test-session");
+            respond(ws, &second, json::json!(42));
+            respond(ws, &first, json::json!({"received": true}));
+        });
+        let connection = Connection::connect(url).unwrap();
+        let session = SessionId::from("test-session".to_owned());
+        let first = connection.request(test_command(), Some(&session)).unwrap();
+        let second = connection
+            .request(NumberCommand {}, Some(&session))
+            .unwrap();
+        let responses = (first.wait().unwrap(), second.wait().unwrap());
+        assert_eq!(responses, (TestResponse { received: true }, 42));
+        connection.close().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn dropped_and_failed_requests_do_not_disrupt_other_responses() {
+        let (url, server) =
+            scripted_server(|ws| {
+                let dropped = read_command(ws);
+                let failed = read_command(ws);
+                let survivor = read_command(ws);
+                respond(ws, &dropped, json::json!({"received": true}));
+                ws.send(WsMessage::text(json::json!({
+                "id": failed["id"],
+                "error": {"code": -32000, "message": "injected failure"},
+            }).to_string())).unwrap();
+                respond(ws, &survivor, json::json!(42));
+                let subsequent = read_command(ws);
+                respond(ws, &subsequent, json::json!({"received": true}));
+            });
+        let connection = Connection::connect(url).unwrap();
+        drop(connection.request(test_command(), None).unwrap());
+        let failed = connection.request(test_command(), None).unwrap();
+        let survivor = connection.request(NumberCommand {}, None).unwrap();
+        let error = format!("{:#}", failed.wait().unwrap_err());
+        assert!(error.contains("Test.command"));
+        assert!(error.contains("injected failure"));
+        assert_eq!(survivor.wait().unwrap(), 42);
+        assert_eq!(
+            connection.send(test_command(), None).unwrap(),
+            TestResponse { received: true }
+        );
+        connection.close().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn response_deadlines_start_at_submission_not_collection() {
+        let (release_tx, release_rx) = mpmc::bounded(1);
+        let (url, server) = scripted_server(move |ws| {
+            let early = read_command(ws);
+            let late = read_command(ws);
+            let _unanswered = read_command(ws);
+            respond(ws, &early, json::json!({"received": true}));
+            let barrier = read_command(ws);
+            respond(ws, &barrier, json::json!(1));
+            release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            respond(ws, &late, json::json!({"received": true}));
+            let barrier = read_command(ws);
+            respond(ws, &barrier, json::json!(2));
+        });
+        let connection = Connection::connect(url).unwrap();
+        let early = connection.request(test_command(), None).unwrap();
+        let late = connection.request(test_command(), None).unwrap();
+        let unanswered = connection.request(test_command(), None).unwrap();
+        // Receiving this response proves the worker delivered the early reply.
+        assert_eq!(connection.send(NumberCommand {}, None).unwrap(), 1);
+        thread::sleep(Duration::from_millis(5100));
+        release_tx.send(()).unwrap();
+        // Likewise, ensure the late reply is queued before collecting it.
+        assert_eq!(connection.send(NumberCommand {}, None).unwrap(), 2);
+        assert_eq!(early.wait().unwrap(), TestResponse { received: true });
+        let start = Instant::now();
+        assert!(late.wait().unwrap_err().to_string().contains("timed out"));
+        assert!(
+            unanswered
+                .wait()
+                .unwrap_err()
+                .to_string()
+                .contains("timed out")
+        );
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "wait restarted the timeout"
+        );
+        connection.close().unwrap();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn closing_connection_wakes_pending_responses() {
+        let (received_tx, received_rx) = mpmc::bounded(1);
+        let (url, server) = scripted_server(move |ws| {
+            read_command(ws);
+            received_tx.send(()).unwrap();
+        });
+        let connection = Connection::connect(url).unwrap();
+        let pending = connection.request(test_command(), None).unwrap();
+        received_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        connection.close().unwrap();
+        assert!(
+            pending
+                .wait()
+                .unwrap_err()
+                .to_string()
+                .contains("disconnected")
+        );
+        server.join().unwrap();
     }
 
     #[test]

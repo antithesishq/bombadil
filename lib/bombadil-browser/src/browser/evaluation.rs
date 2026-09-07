@@ -15,8 +15,24 @@ pub fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
     call_frame_id: &debugger::CallFrameId,
     expression: impl Into<String>,
 ) -> Result<Output> {
-    let returns: debugger::EvaluateOnCallFrameReturns = connection
-        .send(
+    let response = request_expression_in_debugger(
+        connection,
+        session_id,
+        call_frame_id,
+        expression,
+    )?
+    .wait()?;
+    parse_expression_response(response)
+}
+
+pub fn request_expression_in_debugger(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    call_frame_id: &debugger::CallFrameId,
+    expression: impl Into<String>,
+) -> Result<cdp::PendingResponse<debugger::EvaluateOnCallFrameParams>> {
+    connection
+        .request(
             debugger::EvaluateOnCallFrameParams::builder()
                 .call_frame_id(call_frame_id.clone())
                 .expression(expression)
@@ -26,7 +42,12 @@ pub fn evaluate_expression_in_debugger<Output: DeserializeOwned>(
                 .map_err(|err| anyhow!(err))?,
             Some(session_id),
         )
-        .map_err(|err| anyhow!(err))?;
+        .map_err(|err| anyhow!(err))
+}
+
+pub fn parse_expression_response<Output: DeserializeOwned>(
+    returns: debugger::EvaluateOnCallFrameReturns,
+) -> Result<Output> {
     if let Some(exception) = returns.exception_details {
         bail!(
             "evaluate_function failed: {}",
