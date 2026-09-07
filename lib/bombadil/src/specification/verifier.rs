@@ -12,7 +12,7 @@ use boa_engine::{
     js_string, object::builtins::JsArray, property::PropertyKey,
 };
 use boa_engine::{JsObject, JsValue, value::TryFromJs};
-use bombadil_ltl::eval::{self, Evaluator, Residual};
+use bombadil_ltl::eval::{self, Evaluator};
 use bombadil_ltl::formula::Formula;
 use bombadil_ltl::syntax::Syntax;
 use serde_json as json;
@@ -21,18 +21,31 @@ use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
 
 #[derive(Clone)]
 pub struct StepResult<'a, A> {
-    pub properties:
-        &'a [(String, eval::Value<BombadilDomain<RuntimeFunction>>)],
+    properties: &'a HashMap<String, Property>,
     pub actions: Tree<A>,
     pub all_definite: bool,
+}
+
+impl<A> StepResult<'_, A> {
+    pub fn properties(
+        &self,
+    ) -> impl Iterator<Item = (&String, &eval::Value<BombadilDomain<RuntimeFunction>>)>
+    {
+        self.properties
+            .values()
+            .filter_map(|property| match &property.state {
+                PropertyState::Evaluated(value) => {
+                    Some((&property.name, value))
+                }
+                _ => None,
+            })
+    }
 }
 
 pub struct Verifier {
     context: Context,
     bombadil_exports: BombadilExports,
     properties: HashMap<String, Property>,
-    result_properties:
-        Vec<(String, eval::Value<BombadilDomain<RuntimeFunction>>)>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
 }
@@ -232,7 +245,6 @@ impl Verifier {
 
         Ok(Verifier {
             context,
-            result_properties: Vec::with_capacity(properties.len()),
             properties,
             action_generators,
             bombadil_exports,
@@ -252,7 +264,6 @@ impl Verifier {
     ) -> Result<StepResult<'_, A>> {
         self.extractors
             .update_from_snapshots(snapshots, &mut self.context)?;
-        self.result_properties.clear();
         let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
         let context = &mut self.context;
@@ -304,33 +315,21 @@ impl Verifier {
                 PropertyState::Initial(formula) => {
                     evaluator.evaluate(formula, time)?
                 }
-                PropertyState::Residual(residual) => {
-                    evaluator.step(residual, time)?
+                PropertyState::Evaluated(
+                    eval::Value::Residual(residual)
+                    | eval::Value::False(_, Some(residual)),
+                ) => evaluator.step(residual, time)?,
+                PropertyState::Evaluated(_) | PropertyState::Settled => {
+                    property.state = PropertyState::Settled;
+                    continue;
                 }
-                PropertyState::DefinitelyTrue
-                | PropertyState::DefinitelyFalse => continue,
             };
-            self.result_properties.push((
-                property.name.clone(),
-                match value {
-                    eval::Value::True(_) => {
-                        property.state = PropertyState::DefinitelyTrue;
-                        eval::Value::True(UniqueSnapshots::default())
-                    }
-                    eval::Value::False(violation, continuation) => {
-                        property.state = match continuation {
-                            Some(residual) => PropertyState::Residual(residual),
-                            None => PropertyState::DefinitelyFalse,
-                        };
-                        eval::Value::False(violation, None)
-                    }
-                    eval::Value::Residual(residual) => {
-                        property.state =
-                            PropertyState::Residual(residual.clone());
-                        eval::Value::Residual(residual)
-                    }
-                },
-            ));
+            property.state = PropertyState::Evaluated(match value {
+                eval::Value::True(_) => {
+                    eval::Value::True(UniqueSnapshots::default())
+                }
+                value => value,
+            });
         }
 
         for action_generator in self.action_generators.values() {
@@ -345,12 +344,15 @@ impl Verifier {
         let all_definite = self.properties.values().all(|p| {
             matches!(
                 &p.state,
-                PropertyState::DefinitelyTrue | PropertyState::DefinitelyFalse
+                PropertyState::Settled
+                    | PropertyState::Evaluated(
+                        eval::Value::True(_) | eval::Value::False(_, None)
+                    )
             )
         });
 
         Ok(StepResult {
-            properties: &self.result_properties,
+            properties: &self.properties,
             actions: action_tree,
             all_definite,
         })
@@ -369,9 +371,8 @@ pub struct Property {
 #[derive(Debug, Clone)]
 enum PropertyState {
     Initial(Formula<BombadilDomain<RuntimeFunction>>),
-    Residual(Residual<BombadilDomain<RuntimeFunction>>),
-    DefinitelyTrue,
-    DefinitelyFalse,
+    Evaluated(eval::Value<BombadilDomain<RuntimeFunction>>),
+    Settled,
 }
 
 #[derive(Debug, Clone)]
@@ -503,7 +504,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, eval::Value::True(_)));
     }
@@ -544,7 +545,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, eval::Value::True(_)));
     }
@@ -585,7 +586,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, eval::Value::True(_)));
     }
@@ -626,7 +627,7 @@ mod tests {
             )
             .unwrap();
 
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(matches!(value, eval::Value::True(_)));
     }
@@ -658,7 +659,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let (name, value) = result.properties.first().unwrap();
+            let (name, value) = result.properties().next().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 1 {
@@ -704,7 +705,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let (name, value) = result.properties.first().unwrap();
+            let (name, value) = result.properties().next().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 100 {
@@ -742,7 +743,7 @@ mod tests {
                 time,
             )
             .unwrap();
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(
             matches!(value, eval::Value::Residual(_)),
@@ -778,7 +779,7 @@ mod tests {
                 )
                 .unwrap();
 
-            if let Some((name, value)) = result.properties.first() {
+            if let Some((name, value)) = result.properties().next() {
                 assert_eq!(*name, "my_prop");
 
                 if i < 4 {
@@ -831,7 +832,7 @@ mod tests {
                 )
                 .unwrap();
 
-            let (name, value) = result.properties.first().unwrap();
+            let (name, value) = result.properties().next().unwrap();
             assert_eq!(*name, "my_prop");
 
             if i == 9 {
@@ -896,7 +897,7 @@ mod tests {
                 )
                 .unwrap();
 
-            if let Some((name, value)) = result.properties.first() {
+            if let Some((name, value)) = result.properties().next() {
                 assert_eq!(*name, "my_prop");
 
                 if i < 4 {
@@ -948,7 +949,7 @@ mod tests {
                     time_from_millis(0),
                 )
                 .unwrap();
-            let (_, value) = result.properties.first().unwrap();
+            let (_, value) = result.properties().next().unwrap();
             assert!(
                 matches!(value, eval::Value::Residual(_)),
                 "expected Residual at i={}, got: {:?}",
@@ -969,7 +970,7 @@ mod tests {
                 time_from_millis(0),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::False(_, _)),
             "expected False at value=5, got: {:?}",
@@ -988,7 +989,7 @@ mod tests {
                 time_from_millis(0),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::Residual(_)),
             "expected Residual after reset, got: {:?}",
@@ -1007,7 +1008,7 @@ mod tests {
                 time_from_millis(0),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::False(_, _)),
             "expected new False at value=5, got: {:?}",
@@ -1042,7 +1043,7 @@ mod tests {
                 time,
             )
             .unwrap();
-        let (name, value) = result.properties.first().unwrap();
+        let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
         assert!(
             matches!(value, eval::Value::False(_, None)),
@@ -1063,7 +1064,7 @@ mod tests {
             )
             .unwrap();
         assert!(
-            result.properties.is_empty(),
+            result.properties().next().is_none(),
             "expected no properties after terminal False, got: {:?}",
             result.properties,
         );
@@ -1095,7 +1096,7 @@ mod tests {
                 time_from_millis(0),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(matches!(value, eval::Value::Residual(_)));
 
         // At time 3ms, value 10: fails the always, but has continuation
@@ -1110,12 +1111,13 @@ mod tests {
                 time_from_millis(3),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::False(_, _)),
             "expected False at time 3ms, got: {:?}",
             value,
         );
+        assert!(!result.all_definite);
 
         // At time 4ms, value 0: should be Residual (reset via continuation)
         let result: StepResult<Snapshot> = verifier
@@ -1129,7 +1131,7 @@ mod tests {
                 time_from_millis(4),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::Residual(_)),
             "expected Residual at time 4ms after reset, got: {:?}",
@@ -1148,11 +1150,12 @@ mod tests {
                 time_from_millis(6),
             )
             .unwrap();
-        let (_, value) = result.properties.first().unwrap();
+        let (_, value) = result.properties().next().unwrap();
         assert!(
             matches!(value, eval::Value::True(_)),
             "expected True past the bound, got: {:?}",
             value,
         );
+        assert!(result.all_definite);
     }
 }

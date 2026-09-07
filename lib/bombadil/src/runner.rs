@@ -119,7 +119,7 @@ impl<D: InterfaceDriver> Runner<D> {
                     )?;
 
                     violations.clear();
-                    for (name, value) in step_result.properties {
+                    for (name, value) in step_result.properties() {
                         let (condition, hit, details) = match value {
                             eval::Value::False(violation, _) => {
                                 let violation =
