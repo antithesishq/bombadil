@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "antithesis-fuzzer"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "cc",
  "log",
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "antithesis-fuzzer",
  "antithesis_sdk",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "antithesis-fuzzer",
  "anyhow",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -523,11 +523,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.7.2"
+version = "0.7.3"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -575,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "hegeltest",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "bitflags 2.13.1",
  "insta",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -708,7 +708,7 @@ dependencies = [
 
 [[package]]
 name = "cdp"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "cdp_protocol",
@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_pdl"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "cdp_types",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_protocol"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "cdp_pdl",
  "cdp_types",
@@ -752,7 +752,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_types"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "serde",
@@ -4530,7 +4530,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hegeltest",
  "serde",
@@ -5220,7 +5220,7 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
 name = "typescript-reference"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -5523,7 +5523,7 @@ dependencies = [
 
 [[package]]
 name = "willow-tree"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "hegeltest",
 ]

@@ -113,6 +113,7 @@ enum InnerEvent {
         frame_id: FrameId,
         url: String,
     },
+    DownloadDenied,
     ExecutionContextCreated(String, FrameId),
     ExecutionContextDestroyed(String),
     TargetDestroyed(TargetId),
@@ -159,11 +160,19 @@ pub struct Emulation {
     pub device_scale_factor: f64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DownloadBehavior {
+    #[default]
+    AllowAndName,
+    Deny,
+}
+
 #[derive(Clone)]
 pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
+    pub download_behavior: DownloadBehavior,
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
@@ -258,7 +267,12 @@ impl Browser {
             });
         }
 
-        forward_inner_events(&connection, frame_id.clone(), events_tx.clone())?;
+        forward_inner_events(
+            &connection,
+            frame_id.clone(),
+            browser_options.download_behavior,
+            events_tx.clone(),
+        )?;
         // Observe new tabs and their opener IDs without attaching to them.
         connection.send(target::SetDiscoverTargetsParams::new(true), None)?;
         log::debug!(
@@ -303,20 +317,31 @@ impl Browser {
             )?;
         }
 
-        // Prevent file downloads to avoid getting stuck
-        connection.send(
-            browser::SetDownloadBehaviorParams::builder()
-                .behavior(browser::SetDownloadBehaviorBehavior::AllowAndName)
-                .events_enabled(true)
-                .download_path(
-                    browser_options.downloads_directory.to_string_lossy(),
-                )
-                .build()
-                .map_err(|s| {
-                    anyhow!(s).context("build SetDownloadBehaviorParams failed")
-                })?,
-            Some(&session_id),
-        )?;
+        let download_behavior = match browser_options.download_behavior {
+            DownloadBehavior::AllowAndName => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(
+                        browser::SetDownloadBehaviorBehavior::AllowAndName,
+                    )
+                    .events_enabled(true)
+                    .download_path(
+                        browser_options.downloads_directory.to_string_lossy(),
+                    )
+                    .build()
+            }
+            DownloadBehavior::Deny => {
+                browser::SetDownloadBehaviorParams::builder()
+                    .behavior(browser::SetDownloadBehaviorBehavior::Deny)
+                    .events_enabled(true)
+                    .build()
+            }
+        }
+        .map_err(|s| {
+            anyhow!(s).context("build SetDownloadBehaviorParams failed")
+        })?;
+        connection
+            .send(download_behavior, Some(&session_id))
+            .context("could not set browser download behavior")?;
 
         for permission in &browser_options.grant_permissions {
             connection.send(
@@ -539,6 +564,7 @@ fn auto_accept_dialogs(
 fn forward_inner_events(
     connection: &cdp::Connection,
     frame_id: FrameId,
+    download_behavior: DownloadBehavior,
     events_tx: mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
     let event_source = connection.events.clone();
@@ -653,8 +679,8 @@ fn forward_inner_events(
                     page::EventFrameStartedNavigating: nav => {
                         if nav.frame_id == frame_id {
                             Some (InnerEvent::FrameNavigating{
-                                frame_id:nav.frame_id.clone(), 
-                                reason: None, 
+                                frame_id:nav.frame_id.clone(),
+                                reason: None,
                                 url: nav.url.clone(),
                             })
                         } else { None }
@@ -671,12 +697,16 @@ fn forward_inner_events(
                         Some(InnerEvent::Loaded)
                     },
                     browser::EventDownloadWillBegin: event => {
-                        if event.frame_id == frame_id {
-                            Some(InnerEvent::DownloadWillBegin {
-                                frame_id: event.frame_id.clone(),
-                                url: event.url.clone(),
-                            })
-                        } else { None }
+                        match download_behavior {
+                            DownloadBehavior::Deny => Some(InnerEvent::DownloadDenied),
+                            DownloadBehavior::AllowAndName if event.frame_id == frame_id => {
+                                Some(InnerEvent::DownloadWillBegin {
+                                    frame_id: event.frame_id.clone(),
+                                    url: event.url.clone(),
+                                })
+                            }
+                            DownloadBehavior::AllowAndName => None,
+                        }
                     },
                     target::EventTargetDestroyed: event => {
                         Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
@@ -847,6 +877,9 @@ fn process_event(
 ) -> Result<InnerState> {
     use InnerStateKind::*;
     Ok(match (state_current, event) {
+        (_, InnerEvent::DownloadDenied) => {
+            bail!("download request denied by configured browser policy")
+        }
         (_, InnerEvent::Fatal(error)) => bail!("{error}"),
         (mut state, InnerEvent::ExecutionContextCreated(id, frame_id)) => {
             if context.frame_id == frame_id {

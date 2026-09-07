@@ -80,14 +80,7 @@ impl Chromium {
                 .expect("invalid tmp dir path"),
         ));
 
-        command.arg("--enable-logging");
-        command.arg("--v=1");
-        command.arg("--no-crashpad");
-        command.arg("--disable-background-networking");
-        command.arg("--disable-component-update");
-        command.arg("--disable-domain-reliability");
-        command.arg("--no-pings");
-        command.arg("--disable-crash-reporter");
+        apply_managed_chrome_arguments(&mut command);
 
         let remote_debugging_port: u16 = available_port().ok_or(anyhow!("failed to find available port for remote debugging server in chromium"))?;
         command
@@ -118,6 +111,20 @@ impl Chromium {
             process_child: Some(child),
         })
     }
+}
+
+fn apply_managed_chrome_arguments(command: &mut process::Command) {
+    command.args([
+        "--enable-logging",
+        "--v=1",
+        "--no-crashpad",
+        "--disable-background-networking",
+        "--disable-component-update",
+        "--disable-domain-reliability",
+        "--no-pings",
+        "--disable-crash-reporter",
+        "--disable-features=OptimizationHints",
+    ]);
 }
 
 impl Drop for Chromium {
@@ -183,4 +190,41 @@ fn available_port() -> Option<u16> {
         .ok()
         .and_then(|listener| listener.local_addr().ok())
         .map(|addr: SocketAddr| addr.port())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_managed_chrome_arguments;
+    use std::process::Command;
+
+    #[test]
+    fn managed_chrome_arguments_disable_optimization_hints_once() {
+        let mut command = Command::new("chromium");
+        apply_managed_chrome_arguments(&mut command);
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_str().unwrap())
+            .collect::<Vec<_>>();
+        for expected in [
+            "--enable-logging",
+            "--v=1",
+            "--no-crashpad",
+            "--disable-background-networking",
+            "--disable-component-update",
+            "--disable-domain-reliability",
+            "--no-pings",
+            "--disable-crash-reporter",
+        ] {
+            assert!(arguments.contains(&expected));
+        }
+        let disable_features = arguments
+            .iter()
+            .filter(|argument| {
+                **argument == "--disable-features"
+                    || argument.starts_with("--disable-features=")
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(disable_features, ["--disable-features=OptimizationHints"]);
+    }
 }

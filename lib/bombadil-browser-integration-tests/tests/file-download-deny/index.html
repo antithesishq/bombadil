@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Denied File Download Test</title>
+  </head>
+  <body>
+    <a href="/test-file" id="download-link">Download File</a>
+
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("download-link").click();
+      });
+    </script>
+  </body>
+</html>

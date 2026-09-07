@@ -39,6 +39,7 @@ The general exit code semantics of the CLI is:
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
 | `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
+| `--download-behavior <DOWNLOAD_BEHAVIOR>` | How Bombadil handles browser download requests. Supported values: `allow-and-name`, `deny`. | allow-and-name |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <SET-COOKIE>` | Cookie to set in the browser before testing. Plain `NAME=VALUE` scopes to the origin; Set-Cookie attributes (`Domain`, `Path`, `Secure`, `HttpOnly`) are supported. Unlike `--header`, these become real browser cookies. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
@@ -70,6 +71,7 @@ The general exit code semantics of the CLI is:
 | `--device-scale-factor <DEVICE_SCALE_FACTOR>` | Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed mode | 2 |
 | `--instrument-javascript <INSTRUMENT_JAVASCRIPT>` | What types of JavaScript to instrument for coverage tracking. Comma-separated list of: "files", "inline" | files,inline |
 | `--chrome-grant-permissions <CHROME_GRANT_PERMISSIONS>` | Comma-separated list of Chrome permissions to grant. Examples: local-network-access, geolocation, notifications. | local-network-access,local-network,loopback-network |
+| `--download-behavior <DOWNLOAD_BEHAVIOR>` | How Bombadil handles browser download requests. Supported values: `allow-and-name`, `deny`. | allow-and-name |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <SET-COOKIE>` | Cookie to set in the browser before testing. Plain `NAME=VALUE` scopes to the origin; Set-Cookie attributes (`Domain`, `Path`, `Secure`, `HttpOnly`) are supported. Unlike `--header`, these become real browser cookies. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
