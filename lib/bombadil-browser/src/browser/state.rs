@@ -1,7 +1,7 @@
 use crate::instrumentation::js::{
     EDGE_MAP_SIZE, EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::{
     browser_protocol::{
@@ -224,12 +224,15 @@ impl BrowserState {
         generation: Generation,
     ) -> Result<Self> {
         log::trace!("BrowserState::current: evaluating url");
-        let url = Url::parse(&evaluate_expression_in_debugger::<String>(
-            connection,
-            session_id,
-            call_frame_id,
-            "window.location.href",
-        )?)?;
+        let url = Url::parse(
+            &evaluate_expression_in_debugger::<String>(
+                connection,
+                session_id,
+                call_frame_id,
+                "window.location.href",
+            )
+            .context("evaluating capture URL")?,
+        )?;
 
         log::trace!("BrowserState::current: evaluating title");
         let title: String = evaluate_expression_in_debugger(
@@ -237,7 +240,8 @@ impl BrowserState {
             session_id,
             call_frame_id,
             "document.title",
-        )?;
+        )
+        .context("evaluating capture title")?;
 
         log::trace!("BrowserState::current: evaluating content_type");
         let content_type: String = evaluate_expression_in_debugger(
@@ -245,11 +249,13 @@ impl BrowserState {
             session_id,
             call_frame_id,
             "document.contentType",
-        )?;
+        )
+        .context("evaluating capture content type")?;
 
         log::trace!("BrowserState::current: getting navigation history");
         let navigation_history_result = connection
-            .send(page::GetNavigationHistoryParams {}, Some(session_id))?;
+            .send(page::GetNavigationHistoryParams {}, Some(session_id))
+            .context("reading capture navigation history")?;
 
         let navigation_entries = navigation_history_result
             .entries
@@ -318,8 +324,7 @@ impl BrowserState {
                 }})()
                 "
             ),
-        )
-        ?;
+        ).context("evaluating capture coverage")?;
 
         log::trace!("BrowserState::current: evaluating transition hash");
         let transition_hash_bigint: Option<String> =
@@ -373,8 +378,7 @@ impl BrowserState {
                 }})()
             "
                 ),
-            )
-            ?;
+            ).context("evaluating capture transition hash")?;
 
         let transition_hash = match transition_hash_bigint {
             Some(string) => Some(string.parse::<u64>()?),
@@ -382,7 +386,8 @@ impl BrowserState {
         };
 
         let performance_metrics = &connection
-            .send(performance::GetMetricsParams {}, Some(session_id))?
+            .send(performance::GetMetricsParams {}, Some(session_id))
+            .context("reading capture performance metrics")?
             .metrics;
         let resources = Resources::from_metrics(performance_metrics);
 

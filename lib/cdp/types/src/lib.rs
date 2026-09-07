@@ -89,6 +89,7 @@ pub struct CdpJsonEventMessage {
     /// Name of the method
     pub method: MethodId,
     /// The session this event is meant for.
+    #[serde(rename = "sessionId")]
     pub session_id: Option<String>,
     /// Raw JSON payload of the event, parsed lazily by consumers.
     pub params: Box<serde_json::value::RawValue>,
@@ -97,11 +98,11 @@ pub struct CdpJsonEventMessage {
 impl CdpJsonEventMessage {
     pub fn try_from_method<T: MethodType + DeserializeOwned>(
         &self,
-    ) -> Option<T> {
+    ) -> serde_json::Result<Option<T>> {
         if T::method_id() == self.method {
-            serde_json::from_str::<T>(self.params.get()).ok()
+            serde_json::from_str::<T>(self.params.get()).map(Some)
         } else {
-            None
+            Ok(None)
         }
     }
 }
@@ -116,7 +117,7 @@ macro_rules! try_match {
         $(
             if let ::std::option::Option::Some(
                 try_match!(@bind $($binding)?)
-            ) = $val.try_from_method::<$ty>() {
+            ) = $val.try_from_method::<$ty>()? {
                 $body
             } else
         )+
@@ -301,5 +302,70 @@ impl From<Binary> for String {
 impl From<String> for Binary {
     fn from(expr: String) -> Self {
         Self(expr)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct TestEvent {
+        value: usize,
+    }
+
+    impl MethodType for TestEvent {
+        fn method_id() -> MethodId {
+            Cow::Borrowed("Test.event")
+        }
+    }
+
+    fn event(method: MethodId, params: &str) -> CdpJsonEventMessage {
+        CdpJsonEventMessage {
+            method,
+            session_id: None,
+            params: serde_json::value::RawValue::from_string(params.into())
+                .unwrap(),
+        }
+    }
+
+    fn match_test_event(
+        event: &CdpJsonEventMessage,
+    ) -> serde_json::Result<Option<usize>> {
+        Ok(crate::try_match!(event, {
+            TestEvent: event => Some(event.value),
+        }, _ => None))
+    }
+
+    #[test]
+    fn event_deserialization_preserves_session_id() {
+        let event: CdpJsonEventMessage = serde_json::from_str(
+            r#"{"method":"Debugger.resumed","sessionId":"page-session","params":{}}"#,
+        ).unwrap();
+
+        assert_eq!(event.session_id(), Some("page-session"));
+    }
+
+    #[test]
+    fn event_deserialization_accepts_browser_events_without_session() {
+        let event: CdpJsonEventMessage = serde_json::from_str(
+            r#"{"method":"Target.targetDestroyed","params":{"targetId":"page"}}"#,
+        ).unwrap();
+
+        assert_eq!(event.session_id(), None);
+    }
+
+    #[test]
+    fn matching_event_parse_error_is_returned() {
+        let event = event(TestEvent::method_id(), r#"{"value":"wrong"}"#);
+
+        assert!(match_test_event(&event).is_err());
+    }
+
+    #[test]
+    fn unrelated_event_does_not_parse_params() {
+        let event = event(Cow::Borrowed("Other.event"), r#""wrong shape""#);
+
+        assert_eq!(match_test_event(&event).unwrap(), None);
     }
 }

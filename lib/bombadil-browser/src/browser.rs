@@ -1,4 +1,4 @@
-use anyhow::ensure;
+use anyhow::{Context, ensure};
 use anyhow::{Result, anyhow, bail};
 use base64::Engine;
 use cdp::Binary;
@@ -121,6 +121,7 @@ enum InnerEvent {
     ExceptionThrown(Exception),
     Quiesced(Generation),
     NavigationTimedOut(Generation),
+    Fatal(String),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -238,14 +239,33 @@ impl Browser {
         // Background task to keep the latest screencast frame updated.
         {
             let latest_frame = latest_frame.clone();
+            let events_tx = events_tx.clone();
             thread::spawn(move || {
                 while let Ok(frame) = frames_rx.recv() {
-                    *latest_frame.lock().unwrap() = Some(frame);
+                    match frame {
+                        Ok(frame) => {
+                            *latest_frame.lock().unwrap() = Some(frame)
+                        }
+                        Err(error) => {
+                            let _ = events_tx.send(InnerEvent::Fatal(format!(
+                                "screencast worker failed: {error:#}"
+                            )));
+                            break;
+                        }
+                    }
                 }
             });
         }
 
-        forward_inner_events(&connection, frame_id.clone(), events_tx.clone());
+        forward_inner_events(&connection, frame_id.clone(), events_tx.clone())?;
+        // Observe new tabs and their opener IDs without attaching to them.
+        connection.send(target::SetDiscoverTargetsParams::new(true), None)?;
+        log::debug!(
+            "browser debugger session={:?}, target={:?}, frame={:?}",
+            session_id,
+            target_id,
+            frame_id,
+        );
 
         connection.send(runtime::EnableParams::default(), Some(&session_id))?;
         connection.send(dom::EnableParams::default(), Some(&session_id))?;
@@ -327,7 +347,11 @@ impl Browser {
             Some(&session_id),
         )?;
 
-        auto_accept_dialogs(connection.clone(), &session_id)?;
+        auto_accept_dialogs(
+            connection.clone(),
+            &session_id,
+            events_tx.clone(),
+        )?;
 
         let context = BrowserContext {
             sender: browser_events_tx,
@@ -341,11 +365,20 @@ impl Browser {
             browser_options: browser_options.clone(),
         };
 
-        instrumentation::instrument_js_coverage(
+        let instrumentation_errors = instrumentation::instrument_js_coverage(
             connection.clone(),
             &session_id,
             browser_options.instrumentation.clone(),
         )?;
+        {
+            let events_tx = events_tx.clone();
+            thread::spawn(move || {
+                if let Ok(error) = instrumentation_errors.recv() {
+                    let _ =
+                        events_tx.send(InnerEvent::Fatal(format!("{error:#}")));
+                }
+            });
+        }
 
         let state_shared = InnerStateShared::default();
         let state_initial = InnerState {
@@ -462,28 +495,42 @@ impl Browser {
 fn auto_accept_dialogs(
     connection: cdp::Connection,
     session_id: &SessionId,
+    events_tx: mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
     let events = connection
         .events
         .subscribe::<page::EventJavascriptDialogOpening>();
     let session_id = session_id.clone();
-    thread::spawn(move || -> Result<()> {
-        while let Some(event) = events.next()? {
-            log::debug!(
-                "auto-accepting JavaScript dialog: \
-                 type={:?} message={:?}",
-                event.r#type,
-                event.message
-            );
-            connection.post(
-                page::HandleJavaScriptDialogParams::builder()
-                    .accept(true)
-                    .build()
-                    .expect("build HandleJavaScriptDialogParams"),
-                Some(&session_id),
-            )?;
-        }
-        Ok(())
+    thread::spawn(move || {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<()> {
+                while let Some(event) = events.next()? {
+                    log::debug!(
+                        "auto-accepting JavaScript dialog: \
+                     type={:?} message={:?}",
+                        event.r#type,
+                        event.message
+                    );
+                    connection.post(
+                        page::HandleJavaScriptDialogParams::builder()
+                            .accept(true)
+                            .build()
+                            .expect("build HandleJavaScriptDialogParams"),
+                        Some(&session_id),
+                    )?;
+                }
+                Ok(())
+            },
+        ));
+        let error = match result {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => format!("{error:#}"),
+            Err(_) => "worker panicked".to_string(),
+        };
+        log::error!("JavaScript dialog worker failed: {error}");
+        let _ = events_tx.send(InnerEvent::Fatal(format!(
+            "JavaScript dialog worker failed: {error}"
+        )));
     });
     Ok(())
 }
@@ -492,191 +539,290 @@ fn forward_inner_events(
     connection: &cdp::Connection,
     frame_id: FrameId,
     events_tx: mpmc::Sender<InnerEvent>,
-) {
+) -> Result<()> {
+    let event_source = connection.events.clone();
     let events = connection.events.all();
 
     let _ = thread::spawn(move || {
-        for event in events {
-            let inner_event = try_match!(event, {
-                runtime::EventExecutionContextCreated: event => {
-                    #[derive(Deserialize)]
-                    struct AuxData {
-                        #[serde(rename = "frameId")]
-                        frame_id: Option<FrameId>,
-                        #[serde(rename = "isDefault")]
-                        is_default: bool
-                    }
-                    if let Some(aux) = event.context.aux_data 
-                        && let Ok(aux) = json::from_value::<AuxData>(aux) 
-                            && let Some(frame_id) = aux.frame_id 
-                            && aux.is_default {
-                        Some(InnerEvent::ExecutionContextCreated(event.context.unique_id.clone(), frame_id))
-                    } else {
-                        None
-                    }
-                },
-                runtime::EventExecutionContextDestroyed: event => {
-                    Some(InnerEvent::ExecutionContextDestroyed(event.execution_context_unique_id.clone()))
-                },
-                page::EventLoadEventFired => {
-                    Some(InnerEvent::Loaded)
-                },
-                debugger::EventPaused: event => {
-                    Some(InnerEvent::Paused {
-                        reason: event.reason.clone(),
-                        exception: event.data.clone(),
-                        call_frame_id: event
-                            .call_frames
-                            .first()
-                            .map(|f| f.call_frame_id.clone()),
-                    })
-                },
-                debugger::EventResumed => {
-                    Some(InnerEvent::Resumed)
-                },
-                runtime::EventExceptionThrown: e => {
-                    Some(InnerEvent::ExceptionThrown(Exception {
-                        exception_id: e.exception_details.exception_id as u32,
-                        timestamp: UNIX_EPOCH
-                            + Duration::from_secs_f64(
-                                *e.timestamp.inner() / 1000.0,
-                            ),
-                            text: e.exception_details.text.clone(),
-                            line: e.exception_details.line_number as u32,
-                            column: e.exception_details.column_number as u32,
-                            url: e.exception_details.url.clone(),
-                            remote_object: e.exception_details.exception.as_ref().map(
-                                |obj| state::ExceptionRemoteObject {
-                                    type_name: format!("{:?}", obj.r#type),
-                                    subtype: obj
-                                        .subtype
-                                        .as_ref()
-                                        .map(|st| format!("{:?}", st)),
-                                        class_name: obj.class_name.clone(),
-                                        description: obj.description.clone(),
-                                        value: obj.value.clone(),
-                                },
-                            ),
-                            stacktrace: e.exception_details.stack_trace.as_ref().map(
-                                |stack_trace| {
-                                    stack_trace
-                                        .call_frames
-                                        .iter()
-                                        .map(|frame| CallFrame {
-                                            name: frame.function_name.clone(),
-                                            line: frame.line_number as u32,
-                                            column: frame.column_number as u32,
-                                            url: frame.url.clone(),
-                                        })
-                                    .collect()
-                                },
-                            ),
-                    }))
-                },
-                page::EventFrameRequestedNavigation: nav => {
-                    if nav.frame_id == frame_id {
-                        Some(InnerEvent::FrameRequestedNavigation {
-                            frame_id: nav.frame_id.clone(),
-                            reason: nav.reason.clone(),
-                            url: nav.url.clone(),
-                        })
-                    } else { None }
-                },
-                page::EventFrameNavigated: nav => {
-                    if nav.frame.id == frame_id {
-                        Some (InnerEvent::FrameNavigated(
-                                nav.frame.id.clone(),
-                                nav.r#type.clone(),
-                        ))
-                    } else { None }
-                },
-                browser::EventDownloadWillBegin: event => {
-                    if event.frame_id == frame_id {
-                        Some(InnerEvent::DownloadWillBegin {
-                            frame_id: event.frame_id.clone(),
-                            url: event.url.clone(),
-                        })
-                    } else { None }
-                },
-                target::EventTargetDestroyed: event => {
-                    Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
-                },
-                runtime::EventConsoleApiCalled: call => {
-                    let level = match call.r#type {
-                        runtime::ConsoleApiCalledType::Error => {
-                            state::ConsoleEntryLevel::Error
+        let error_tx = events_tx.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<()> {
+                for event in events {
+                    let event_session_id = &event.session_id;
+                    let inner_event = try_match!(event, {
+                    runtime::EventExecutionContextCreated: event => {
+                        #[derive(Deserialize)]
+                        struct AuxData {
+                            #[serde(rename = "frameId")]
+                            frame_id: Option<FrameId>,
+                            #[serde(rename = "isDefault")]
+                            is_default: bool,
                         }
-                        runtime::ConsoleApiCalledType::Warning => {
-                            state::ConsoleEntryLevel::Warning
+                        if let Some(aux) = event.context.aux_data {
+                            let aux = json::from_value::<AuxData>(aux)?;
+                            if aux.is_default {
+                                aux.frame_id.map(|frame_id| {
+                                    InnerEvent::ExecutionContextCreated(
+                                        event.context.unique_id.clone(),
+                                        frame_id,
+                                    )
+                                })
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
                         }
-                        _ => continue,
-                    };
+                    },
+                    runtime::EventExecutionContextDestroyed: event => {
+                        Some(InnerEvent::ExecutionContextDestroyed(event.execution_context_unique_id.clone()))
+                    },
+                    page::EventLoadEventFired => {
+                        Some(InnerEvent::Loaded)
+                    },
+                    debugger::EventPaused: event => {
+                        log::debug!(
+                            "forwarding Debugger.paused: session={:?}, reason={:?}, call_frame={:?}, location={:?}",
+                            event_session_id,
+                            event.reason,
+                            event.call_frames.first().map(|frame| &frame.call_frame_id),
+                            event.call_frames.first().map(|frame| &frame.location),
+                        );
+                        Some(InnerEvent::Paused {
+                            reason: event.reason.clone(),
+                            exception: event.data.clone(),
+                            call_frame_id: event
+                                .call_frames
+                                .first()
+                                .map(|f| f.call_frame_id.clone()),
+                        })
+                    },
+                    debugger::EventResumed => {
+                        log::debug!("forwarding Debugger.resumed: session={:?}", event_session_id);
+                        Some(InnerEvent::Resumed)
+                    },
+                    runtime::EventExceptionThrown: e => {
+                        Some(InnerEvent::ExceptionThrown(Exception {
+                            exception_id: e.exception_details.exception_id as u32,
+                            timestamp: UNIX_EPOCH
+                                + Duration::from_secs_f64(
+                                    *e.timestamp.inner() / 1000.0,
+                                ),
+                                text: e.exception_details.text.clone(),
+                                line: e.exception_details.line_number as u32,
+                                column: e.exception_details.column_number as u32,
+                                url: e.exception_details.url.clone(),
+                                remote_object: e.exception_details.exception.as_ref().map(
+                                    |obj| state::ExceptionRemoteObject {
+                                        type_name: format!("{:?}", obj.r#type),
+                                        subtype: obj
+                                            .subtype
+                                            .as_ref()
+                                            .map(|st| format!("{:?}", st)),
+                                            class_name: obj.class_name.clone(),
+                                            description: obj.description.clone(),
+                                            value: obj.value.clone(),
+                                    },
+                                ),
+                                stacktrace: e.exception_details.stack_trace.as_ref().map(
+                                    |stack_trace| {
+                                        stack_trace
+                                            .call_frames
+                                            .iter()
+                                            .map(|frame| CallFrame {
+                                                name: frame.function_name.clone(),
+                                                line: frame.line_number as u32,
+                                                column: frame.column_number as u32,
+                                                url: frame.url.clone(),
+                                            })
+                                        .collect()
+                                    },
+                                ),
+                        }))
+                    },
+                    page::EventFrameRequestedNavigation: nav => {
+                        if nav.frame_id == frame_id {
+                            Some(InnerEvent::FrameRequestedNavigation {
+                                frame_id: nav.frame_id.clone(),
+                                reason: nav.reason.clone(),
+                                url: nav.url.clone(),
+                            })
+                        } else { None }
+                    },
+                    page::EventFrameNavigated: nav => {
+                        if nav.frame.id == frame_id {
+                            Some (InnerEvent::FrameNavigated(
+                                    nav.frame.id.clone(),
+                                    nav.r#type.clone(),
+                            ))
+                        } else { None }
+                    },
+                    browser::EventDownloadWillBegin: event => {
+                        if event.frame_id == frame_id {
+                            Some(InnerEvent::DownloadWillBegin {
+                                frame_id: event.frame_id.clone(),
+                                url: event.url.clone(),
+                            })
+                        } else { None }
+                    },
+                    target::EventTargetDestroyed: event => {
+                        Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
+                    },
+                    runtime::EventConsoleApiCalled: call => {
+                        let level = match call.r#type {
+                            runtime::ConsoleApiCalledType::Error => {
+                                state::ConsoleEntryLevel::Error
+                            }
+                            runtime::ConsoleApiCalledType::Warning => {
+                                state::ConsoleEntryLevel::Warning
+                            }
+                            _ => continue,
+                        };
 
-                    Some(InnerEvent::ConsoleEntry(ConsoleEntry {
-                        timestamp: UNIX_EPOCH
-                            + Duration::from_secs_f64(
-                                *call.timestamp.inner() / 1000.0,
-                            ),
-                        level,
-                        args: call.args.iter().map(remote_object_to_json).collect(),
-                    }))
-                },
-            }, _ => None);
+                        Some(InnerEvent::ConsoleEntry(ConsoleEntry {
+                            timestamp: UNIX_EPOCH
+                                + Duration::from_secs_f64(
+                                    *call.timestamp.inner() / 1000.0,
+                                ),
+                            level,
+                            args: call.args.iter().map(remote_object_to_json).collect(),
+                        }))
+                    },
+                    }, _ => None);
 
-            if let Some(inner_event) = inner_event
-                && let Err(err) = events_tx.send(inner_event)
-            {
-                log::warn!("failed to send inner event: {err}");
-            }
+                    if let Some(inner_event) = inner_event
+                        && events_tx.send(inner_event).is_err()
+                    {
+                        return Ok(());
+                    }
+                }
+
+                if let Some(error) = event_source.close_error() {
+                    bail!("CDP connection closed: {error}");
+                }
+                Ok(())
+            },
+        ));
+        let error = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(format!("{error:#}")),
+            Err(_) => Some("worker panicked".to_string()),
+        };
+        if let Some(error) = error {
+            log::error!("failed forwarding CDP events: {error}");
+            let _ = error_tx.send(InnerEvent::Fatal(format!(
+                "failed forwarding CDP events: {error}"
+            )));
         }
         log::debug!("forward_inner_events terminated");
     });
+    Ok(())
 }
 
 fn run_state_machine(
     context: BrowserContext,
     events_rx: mpmc::Receiver<InnerEvent>,
-    state_current: InnerState,
+    mut state_current: InnerState,
 ) {
+    let error_tx = context.sender.clone();
     let _ = thread::spawn(move || {
-        fn run(
-            context: &BrowserContext,
-            events_rx: mpmc::Receiver<InnerEvent>,
-            mut state_current: InnerState,
-        ) -> Result<()> {
-            log::info!("processing events");
-            while let Ok(event) = events_rx.recv() {
-                state_current = if log::log_enabled!(log::Level::Debug) {
-                    let before = format!(
-                        "{:?} ({})",
-                        state_current.kind, state_current.shared.generation
-                    );
-                    let event_formatted = format!("{:?}", event);
-                    let state_new =
-                        process_event(context, state_current, event)?;
-                    log::debug!(
-                        "{} + {} -> {:?} ({})",
-                        before,
-                        event_formatted,
-                        state_new.kind,
-                        state_new.shared.generation
-                    );
-                    state_new
-                } else {
-                    process_event(context, state_current, event)?
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || -> Result<()> {
+                log::info!("processing events");
+                while let Ok(event) = events_rx.recv() {
+                    state_current = if log::log_enabled!(log::Level::Debug) {
+                        let before = format!(
+                            "{:?} ({})",
+                            state_current.kind, state_current.shared.generation
+                        );
+                        let event_formatted = format!("{:?}", event);
+                        if matches!(
+                            event,
+                            InnerEvent::Paused { .. } | InnerEvent::Resumed
+                        ) {
+                            log::debug!(
+                                "processing {} + {}",
+                                before,
+                                event_formatted
+                            );
+                        }
+                        let state_new =
+                            process_event(&context, state_current, event)?;
+                        log::debug!(
+                            "{} + {} -> {:?} ({})",
+                            before,
+                            event_formatted,
+                            state_new.kind,
+                            state_new.shared.generation
+                        );
+                        state_new
+                    } else {
+                        process_event(&context, state_current, event)?
+                    }
                 }
-            }
-            log::debug!("shutting down browser state machine");
-            Ok(())
+                log::debug!("shutting down browser state machine");
+                Ok(())
+            },
+        ));
+        let error = match result {
+            Ok(Ok(())) => return,
+            Ok(Err(error)) => format!("{error:#}"),
+            Err(_) => "state machine panicked".to_string(),
+        };
+        log::error!("state machine error: {error}");
+        if let Err(error) = error_tx.send(BrowserEvent::Error(Arc::new(
+            anyhow!("error when processing event: {error}"),
+        ))) {
+            log::error!("failed to send browser event: {error:#}");
         }
+    });
+}
 
-        if let Err(error) = run(&context, events_rx, state_current) {
-            log::error!("state machine error: {:#}", error);
-            if let Err(error) = context.sender.send(BrowserEvent::Error(
-                Arc::new(anyhow!("error when processing event: {:#}", error)),
-            )) {
-                log::error!("failed to send browse revent: {:#}", error);
+fn apply_action(
+    browser_action: BrowserAction,
+    connection: cdp::Connection,
+    session_id: SessionId,
+    execution_context_id: Option<String>,
+    action_options: ActionOptions,
+    events_tx: mpmc::Sender<InnerEvent>,
+    generation: Generation,
+) {
+    thread::spawn(move || {
+        log::debug!("applying: {:?}", browser_action);
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                browser_action.apply(
+                    &connection,
+                    &session_id,
+                    execution_context_id,
+                    action_options,
+                )
+            }));
+        match result {
+            Ok(Ok(_)) => {
+                log::debug!("applied: {:?}", browser_action);
             }
+            Ok(Err(error)) => {
+                log::error!(
+                    "failed to apply action {:?}: {:?}",
+                    browser_action,
+                    error
+                );
+            }
+            Err(_) => {
+                log::error!(
+                    "worker panicked while applying action {browser_action:?}"
+                );
+                let _ = events_tx.send(InnerEvent::Fatal(format!(
+                    "worker panicked while applying action {browser_action:?}"
+                )));
+                return;
+            }
+        }
+        if let Err(error) =
+            events_tx.send(InnerEvent::ActionApplied(generation))
+        {
+            log::error!("failed to send ActionApplied: {error}");
         }
     });
 }
@@ -688,6 +834,7 @@ fn process_event(
 ) -> Result<InnerState> {
     use InnerStateKind::*;
     Ok(match (state_current, event) {
+        (_, InnerEvent::Fatal(error)) => bail!("{error}"),
         (mut state, InnerEvent::ExecutionContextCreated(id, frame_id)) => {
             if context.frame_id == frame_id {
                 log::debug!(
@@ -790,7 +937,10 @@ fn process_event(
                 exceptions,
                 screenshot,
                 generation,
-            )?;
+            ).with_context(|| format!(
+                "state capture failed: generation={}, session={:?}, call_frame={:?}",
+                generation, context.session_id, call_frame_id,
+            ))?;
 
             context
                 .sender
@@ -889,37 +1039,20 @@ fn process_event(
             // evaluation indefinitely. This gives us a chance to
             // receive the "Debugger.paused" event and resume
             // (extracting the uncaught exception information).
-            thread::spawn(move || {
-                log::debug!("applying: {:?}", browser_action);
-                match browser_action.apply(
-                    &connection,
-                    &session_id,
-                    execution_context_id,
-                    action_options,
-                ) {
-                    Ok(_) => {
-                        log::debug!("applied: {:?}", browser_action);
-                    }
-                    Err(err) => {
-                        log::error!(
-                            "failed to apply action {:?}: {:?}",
-                            browser_action,
-                            err
-                        )
-                    }
-                }
-                if let Err(error) =
-                    events_tx.send(InnerEvent::ActionApplied(shared.generation))
-                {
-                    log::error!("failed to send ActionApplied: {}", error);
-                }
-            });
+            apply_action(
+                *browser_action,
+                connection,
+                session_id,
+                execution_context_id,
+                action_options,
+                events_tx,
+                shared.generation,
+            );
 
             shared.console_entries.clear();
-            let (activity_tx, activity_rx) = mpmc::bounded(32);
-            activity::all_activity(&context.connection.events, activity_tx)?;
+            let activity = activity::all_activity(&context.connection.events)?;
             InnerState {
-                kind: Acting(activity_rx),
+                kind: Acting(activity),
                 shared,
             }
         }
@@ -1096,19 +1229,18 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     events_tx: &mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
-    let (activity_tx, activity_rx) = mpmc::bounded(32);
-    activity::all_activity(&context.connection.events, activity_tx)?;
-    start_quiescence_timer_from_activity(shared, events_tx, activity_rx);
+    let activity = activity::all_activity(&context.connection.events)?;
+    start_quiescence_timer_from_activity(shared, events_tx, activity);
     Ok(())
 }
 
 fn start_quiescence_timer_from_activity(
     shared: &InnerStateShared,
     events_tx: &mpmc::Sender<InnerEvent>,
-    activity_rx: mpmc::Receiver<Duration>,
+    activity: ActivityStream,
 ) {
     let quiescent = quiescence::start(
-        activity_rx,
+        activity,
         QUIESCENCE_INITIAL_IDLE,
         QUIESCENCE_TIMEOUT,
     );
@@ -1179,6 +1311,13 @@ fn capture_browser_state(
         }
     }
 
+    log::debug!(
+        "requesting capture pause: generation={}, session={:?}, frame={:?}, execution_context={}",
+        state.shared.generation.next(),
+        context.session_id,
+        context.frame_id,
+        execution_context_id,
+    );
     context.connection.post(
         runtime::EvaluateParams::builder()
             .expression("debugger;0")
