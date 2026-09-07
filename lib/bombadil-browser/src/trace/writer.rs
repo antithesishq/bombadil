@@ -1,4 +1,9 @@
-use std::{borrow::Cow, io::Write, path::PathBuf, time::UNIX_EPOCH};
+use std::{
+    borrow::Cow,
+    io::{BufWriter, Write},
+    path::PathBuf,
+    time::UNIX_EPOCH,
+};
 
 use anyhow::Result;
 use bombadil::specification::domain::Snapshot;
@@ -14,7 +19,7 @@ use crate::{
 
 pub struct FileTraceWriter {
     screenshots_path: PathBuf,
-    trace_file: File,
+    trace_file: BufWriter<File>,
     last_transition_hash: Option<u64>,
 }
 
@@ -48,7 +53,7 @@ impl FileTraceWriter {
             .open(&trace_file_path)?;
         Ok(FileTraceWriter {
             screenshots_path,
-            trace_file,
+            trace_file: BufWriter::new(trace_file),
             last_transition_hash: None,
         })
     }
@@ -84,9 +89,9 @@ impl TraceWriter for FileTraceWriter {
 
         self.last_transition_hash = state.transition_hash;
 
-        self.trace_file
-            .write_all(json::to_string(&entry.to_schema())?.as_bytes())?;
+        json::to_writer(&mut self.trace_file, &entry.to_schema())?;
         self.trace_file.write_all(b"\n")?;
+        self.trace_file.flush()?;
 
         Ok(())
     }
