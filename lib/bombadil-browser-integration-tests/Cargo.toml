@@ -21,7 +21,7 @@ log.workspace = true
 hegeltest.workspace = true
 rand.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
 tower.workspace = true
 tower-http = { workspace = true, features = ["fs"] }
 url.workspace = true
