@@ -131,11 +131,7 @@ pub fn format_action<
                 content_str
             )
         }
-        BrowserAction::DoubleClick {
-            fingerprint,
-            point,
-            delay_millis,
-        } => {
+        BrowserAction::DoubleClick { fingerprint, point } => {
             let content_str = fingerprint
                 .text_content
                 .as_ref()
@@ -147,12 +143,11 @@ pub fn format_action<
                 })
                 .unwrap_or_default();
             format!(
-                "{} <{}> (x: {}, y: {}, delay: {}{})",
+                "{} <{}> (x: {}, y: {}{})",
                 styled::maybe_bold("Double-clicking".to_string()),
                 fingerprint.tag,
                 styled::maybe_blue(format!("{}", Formatted(&point.x))),
                 styled::maybe_blue(format!("{}", Formatted(&point.y))),
-                styled::maybe_blue(format!("{}ms", Formatted(delay_millis))),
                 content_str
             )
         }

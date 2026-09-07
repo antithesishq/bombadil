@@ -12,6 +12,7 @@
   chromium,
   freefont_ttf,
   makeFontsConf,
+  cacert,
   libiconv ? null,
   craneLib,
   craneLibStatic,
@@ -170,6 +171,7 @@ let
 
   testPreCheck = ''
     export FONTCONFIG_FILE=${makeFontsConf { fontDirectories = [ freefont_ttf ]; }}
+    export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt
     export HOME=$(mktemp -d)
     mkdir -p $HOME/.cache $HOME/.config $HOME/.local $HOME/.pki
     mkdir -p $HOME/.config/google-chrome/Crashpad

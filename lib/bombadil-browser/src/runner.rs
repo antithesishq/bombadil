@@ -7,8 +7,8 @@ pub use bombadil::runner::{
     ControlFlow, PropertyViolation, RunStrategy, Runner,
 };
 
-use crate::browser::{BrowserOptions, DebuggerOptions};
-use crate::driver::BrowserDriver;
+use crate::browser::BrowserOptions;
+use crate::driver::{BrowserDriver, DebuggerOptions};
 
 pub fn launch(
     origin: Url,

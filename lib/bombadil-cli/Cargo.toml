@@ -28,7 +28,7 @@ rand.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
-tokio = { workspace = true, features = ["full"] }
+tokio = { workspace = true, features = ["rt", "fs"] }
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]

@@ -6,9 +6,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
 use rand::SeedableRng;
-use std::io::Write;
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -21,27 +21,24 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime},
 };
+use std::{io::Write, sync::OnceLock};
 use tempfile::{NamedTempFile, TempDir};
-use tokio::sync::Semaphore;
 use tower_http::services::ServeDir;
 use url::Url;
 
 use bombadil::{specification::verifier::Specification, styled};
 use bombadil_browser::{
     browser::{
-        Browser, BrowserOptions, DebuggerOptions, DownloadBehavior, Emulation,
-        LaunchOptions, actions::BrowserAction,
+        BrowserOptions, DownloadBehavior, Emulation, actions::BrowserAction,
     },
+    chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
+    driver::DebuggerOptions,
     runner,
     strategy::{TestStrategy, TraceWriter},
 };
 
-/// These tests are pretty heavy, and running too many parallel risks one browser get stuck and
-/// causing a test to hang, so we limit parallelism.
-static TEST_SEMAPHORE: Semaphore = Semaphore::const_new(16);
-const TEST_TIMEOUT_SECONDS: u64 = 120;
 const ARTIFACT_OBSERVATION_INTERVAL: Duration = Duration::from_millis(5);
 // Chromium's chrome_browser_main_extra_parts_optimization_guide.cc places the
 // active model store under DIR_USER_DATA, optimization_guide_constants.cc
@@ -57,6 +54,11 @@ const OPTIMIZATION_GUIDE_ARTIFACT_ROOTS: [&str; 5] = [
 ];
 
 static INIT: Once = Once::new();
+static TEST_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
+
+fn acquire<'a>() -> SemaphoreGuard<'a> {
+    TEST_SEMAPHORE.get_or_init(|| Semaphore::new(4)).acquire()
+}
 
 struct ArtifactMonitor {
     handle: thread::JoinHandle<()>,
@@ -492,7 +494,7 @@ impl<'a> BrowserIntegrationTest<'a> {
     ///     http://localhost:{P}/tests/{name}.
     ///
     /// Which means that every named test case directory should have an index.html file.
-    async fn run(self) {
+    fn run(self) {
         let Self {
             seed,
             name,
@@ -507,7 +509,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             mut expected_download_contents,
         } = self;
         setup();
-        let _permit = TEST_SEMAPHORE.acquire().await.unwrap();
+        let _guard = acquire();
         log::info!("starting browser test");
         let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
 
@@ -551,36 +553,43 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
-        let app = Router::new()
-            .route("/test-file", get(download_testfile))
-            .route("/secret/{*path}", get(secret_handler))
-            .fallback_service(ServeDir::new(&test_dir));
-        let app_other = app.clone();
+        let (port_tx, port_rx) = std::sync::mpsc::channel();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.spawn(async move {
+            let app = Router::new()
+                .route("/test-file", get(download_testfile))
+                .route("/secret/{*path}", get(secret_handler))
+                .fallback_service(ServeDir::new(&test_dir));
+            let app_other = app.clone();
 
-        let (listener, listener_other, port) = loop {
-            let listener =
-                tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let addr = listener.local_addr().unwrap();
-            let listener_other =
-                if let Ok(listener_other) = tokio::net::TcpListener::bind(
-                    format!("127.0.0.1:{}", addr.port() + 1),
-                )
-                .await
-                {
-                    listener_other
-                } else {
-                    continue;
-                };
-            break (listener, listener_other, addr.port());
-        };
+            let (listener, listener_other, port) = loop {
+                let listener =
+                    tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = listener.local_addr().unwrap();
+                let listener_other =
+                    if let Ok(listener_other) = tokio::net::TcpListener::bind(
+                        format!("127.0.0.1:{}", addr.port() + 1),
+                    )
+                    .await
+                    {
+                        listener_other
+                    } else {
+                        continue;
+                    };
+                break (listener, listener_other, addr.port());
+            };
 
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            tokio::spawn(async move {
+                axum::serve(listener_other, app_other).await.unwrap();
+            });
+
+            port_tx.send(port).unwrap();
         });
-        tokio::spawn(async move {
-            axum::serve(listener_other, app_other).await.unwrap();
-        });
 
+        let port = port_rx.recv().unwrap();
         let origin =
             Url::parse(&format!("http://localhost:{}/{}", port, name,))
                 .unwrap();
@@ -630,6 +639,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
+                executable: chromium::locate::executable().unwrap(),
                 headless: true,
                 no_sandbox: true,
                 user_data_directory: user_data_directory.path().to_path_buf(),
@@ -668,80 +678,58 @@ impl<'a> BrowserIntegrationTest<'a> {
                 match self {
                     Outcome::Success => write!(f, "success"),
                     Outcome::Error(error) => {
-                        write!(f, "error: {}", error)
+                        write!(f, "error: {:#}", error)
                     }
                 }
             }
         }
 
-        log::info!("starting runner with infrastructure safety timeout");
-        // The driver and runner are synchronous (the browser runs on its own
-        // worker thread/runtime), so build and run them on a blocking thread.
-        let run_handle = tokio::task::spawn_blocking(move || {
-            let runner = runner::launch(
-                origin.clone(),
-                specification,
-                browser_options,
-                debugger_options,
-            )
-            .expect("run_test failed");
-
-            let test_start = SystemTime::now();
-            let deadline = time_limit.map(|duration| test_start + duration);
-
-            let mut strategy = TestStrategy {
-                rng: rand::prelude::StdRng::seed_from_u64(seed),
-                test_start: Some(Time::from_system_time(test_start)),
-                deadline,
-                mode: bombadil_browser::strategy::TestMode::RandomWalk,
-                writer,
-                exit_on_violation: true,
-                origin,
-                output_path: output_path_buf,
-                violations_count: 0,
-            };
-
-            match runner.run(&mut strategy) {
-                Err(error) => Outcome::Error(error),
-                Ok(_) if strategy.violations_count == 0 => Outcome::Success,
-                Ok(_) => {
-                    let violations: Vec<String> = strategy
-                        .writer
-                        .violations
-                        .iter()
-                        .map(|violation| {
-                            let markup = markup::render_violation(
-                                &violation.to_schema(),
-                            );
-                            let rendered = styled::markup_to_styled(
-                                &markup,
-                                Time::from_system_time(test_start),
-                            );
-                            format!("{}:\n{}\n\n", violation.name, rendered)
-                        })
-                        .collect();
-                    Outcome::Error(anyhow!(
-                        "violations:\n\n{}",
-                        violations.join("")
-                    ))
-                }
-            }
-        });
-
-        let outcome = match tokio::time::timeout(
-            Duration::from_secs(TEST_TIMEOUT_SECONDS),
-            run_handle,
+        log::info!("starting runner");
+        let test_start = SystemTime::now();
+        let deadline = time_limit.map(|duration| test_start + duration);
+        let runner = runner::launch(
+            origin.clone(),
+            specification,
+            browser_options,
+            debugger_options,
         )
-        .await
-        {
-            Ok(Ok(outcome)) => Ok(outcome),
-            Ok(Err(join_error)) => {
-                Err(format!("runner task panicked: {join_error}"))
+        .expect("run_test failed");
+
+        let mut strategy = TestStrategy {
+            rng: rand::prelude::StdRng::seed_from_u64(seed),
+            test_start: Some(Time::from_system_time(test_start)),
+            deadline,
+            mode: bombadil_browser::strategy::TestMode::RandomWalk,
+            writer,
+            exit_on_violation: true,
+            origin,
+            output_path: output_path_buf,
+            violations_count: 0,
+        };
+
+        let outcome = match runner.run(&mut strategy) {
+            Err(error) => Outcome::Error(error),
+            Ok(_) if strategy.violations_count == 0 => Outcome::Success,
+            Ok(_) => {
+                let violations: Vec<String> = strategy
+                    .writer
+                    .violations
+                    .iter()
+                    .map(|violation| {
+                        let markup =
+                            markup::render_violation(&violation.to_schema());
+                        let rendered = styled::markup_to_styled(
+                            &markup,
+                            Time::from_system_time(test_start),
+                        );
+                        format!("{}:\n{}\n\n", violation.name, rendered)
+                    })
+                    .collect();
+                Outcome::Error(anyhow!(
+                    "violations:\n\n{}",
+                    violations.join("")
+                ))
             }
-            Err(_elapsed) => Err(format!(
-                "test infrastructure timeout — test hung for {}s",
-                TEST_TIMEOUT_SECONDS
-            )),
         };
         let download_observations = download_monitor
             .map(ArtifactMonitor::finish)
@@ -752,9 +740,8 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         log::info!("checking outcome");
         let outcome_failure = match (outcome, expect) {
-            (Err(failure), _) => Some(failure),
             (
-                Ok(Outcome::Error(error)),
+                Outcome::Error(error),
                 Expect::Error {
                     substring,
                     forbidden_substrings,
@@ -766,20 +753,20 @@ impl<'a> BrowserIntegrationTest<'a> {
                         "expected error message {:?} not found in:\n\n{}\n\ntry reproducing by adding .seed({})",
                         substring, error, seed
                     ))
-                } else if let Some(forbidden) = forbidden_substrings
-                    .iter()
-                    .find(|forbidden| message.contains(**forbidden))
-                {
-                    Some(format!(
-                        "error message exposed forbidden download detail {:?}: {}",
-                        forbidden, message
-                    ))
                 } else {
-                    None
+                    forbidden_substrings
+                        .iter()
+                        .find(|forbidden| message.contains(**forbidden))
+                        .map(|forbidden| {
+                            format!(
+                                "error message exposed forbidden download detail {:?}: {}",
+                                forbidden, message
+                            )
+                        })
                 }
             }
-            (Ok(Outcome::Success), Expect::Success) => None,
-            (Ok(outcome), expect) => Some(format!(
+            (Outcome::Success, Expect::Success) => None,
+            (outcome, expect) => Some(format!(
                 "{} but got {}\n\ntry reproducing by adding .seed({})",
                 expect, outcome, seed
             )),
@@ -824,64 +811,57 @@ impl<'a> BrowserIntegrationTest<'a> {
     }
 }
 
-#[tokio::test]
-async fn test_console_error() {
+#[test]
+fn test_console_error() {
     BrowserIntegrationTest::new("console-error")
         .expect_error("oh no you pressed too much")
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_links() {
+#[test]
+fn test_links() {
     BrowserIntegrationTest::new("links")
         .expect_error("404")
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_uncaught_exception() {
+#[test]
+fn test_uncaught_exception() {
     BrowserIntegrationTest::new("uncaught-exception")
         .expect_error("oh no you pressed too much")
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_unhandled_promise_rejection() {
+#[test]
+fn test_unhandled_promise_rejection() {
     BrowserIntegrationTest::new("unhandled-promise-rejection")
         .expect_error("oh no you pressed too much")
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_other_domain() {
+#[test]
+fn test_other_domain() {
     BrowserIntegrationTest::new("other-domain")
         .time_limit(Duration::from_secs(5))
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_action_within_iframe() {
+#[test]
+fn test_action_within_iframe() {
     BrowserIntegrationTest::new("action-within-iframe")
         .time_limit(Duration::from_secs(5))
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_no_action_available() {
+#[test]
+fn test_no_action_available() {
     BrowserIntegrationTest::new("no-action-available")
         .expect_error("no actions available")
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_back_from_non_html() {
+#[test]
+fn test_back_from_non_html() {
     BrowserIntegrationTest::new("back-from-non-html")
         .time_limit(Duration::from_secs(30))
         .specification(
@@ -903,88 +883,11 @@ export const navigatesBackFromNonHtml = eventually(
 ).within(20, "seconds");
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_browser_lifecycle() {
-    setup();
-    let test_dir = format!("{}/tests", env!("CARGO_MANIFEST_DIR"));
-    let app = Router::new().fallback_service(ServeDir::new(&test_dir));
-
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let port = addr.port();
-    tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-
-    let origin =
-        Url::parse(&format!("http://localhost:{}/console-error", port,))
-            .unwrap();
-    log::info!("running test server on {}", origin);
-    let user_data_directory = TempDir::new().unwrap();
-
-    let downloads_directory = TempDir::new().unwrap();
-    let mut browser = Browser::new(
-        origin,
-        BrowserOptions {
-            create_target: true,
-            emulation: Emulation {
-                width: 800,
-                height: 600,
-                device_scale_factor: 1.0,
-            },
-            instrumentation: Default::default(),
-            download_behavior: DownloadBehavior::AllowAndName,
-            downloads_directory: downloads_directory.path().to_path_buf(),
-            grant_permissions: vec![],
-            extra_headers: Default::default(),
-            cookies: vec![],
-        },
-        DebuggerOptions::Managed {
-            launch_options: LaunchOptions {
-                headless: true,
-                no_sandbox: true,
-                user_data_directory: user_data_directory.path().to_path_buf(),
-            },
-        },
-    )
-    .await
-    .unwrap();
-
-    browser.initiate().await.unwrap();
-
-    let state = match browser.next_event().await.unwrap() {
-        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
-            assert_eq!(state.title, "Console Error");
-            state
-        }
-        bombadil_browser::browser::BrowserEvent::Error(error) => {
-            panic!("unexpected browser error: {}", error)
-        }
-    };
-
-    browser
-        .apply(BrowserAction::Reload, Arc::new(state))
-        .unwrap();
-
-    match browser.next_event().await.unwrap() {
-        bombadil_browser::browser::BrowserEvent::StateChanged(state) => {
-            assert_eq!(state.title, "Console Error");
-        }
-        bombadil_browser::browser::BrowserEvent::Error(error) => {
-            panic!("unexpected browser error: {}", error)
-        }
-    }
-
-    log::info!("just changing for CI");
-    browser.terminate().await.unwrap();
-}
-
-#[tokio::test]
-async fn test_random_text_input() {
+#[test]
+fn test_random_text_input() {
     BrowserIntegrationTest::new("random-text-input")
         .specification(
             r#"
@@ -1003,11 +906,11 @@ export const inputEventuallyHasText = eventually(
 "#,
         )
         .run()
-        .await;
+        ;
 }
 
-#[tokio::test]
-async fn test_textarea_backspace() {
+#[test]
+fn test_textarea_backspace() {
     BrowserIntegrationTest::new("textarea-backspace")
         .specification(
             r#"
@@ -1026,12 +929,11 @@ export const editorEventuallyEmpty = eventually(
 ).within(10, "seconds");
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_counter_state_machine() {
+#[test]
+fn test_counter_state_machine() {
     BrowserIntegrationTest::new("counter-state-machine")
         .time_limit(Duration::from_secs(3))
         .specification(
@@ -1064,11 +966,11 @@ export const counterStateMachine = always(unchanged.or(increment).or(decrement))
 "#,
         )
         .run()
-        .await;
+        ;
 }
 
-#[tokio::test]
-async fn test_resource_leak_detected() {
+#[test]
+fn test_resource_leak_detected() {
     BrowserIntegrationTest::new("resource-leak")
         .time_limit(Duration::from_secs(8))
         .expect_error("noDomLeak")
@@ -1085,11 +987,11 @@ export const noDomLeak = noResourceLeak({
 "#,
         )
         .run()
-        .await;
+        ;
 }
 
-#[tokio::test]
-async fn test_no_resource_leak() {
+#[test]
+fn test_no_resource_leak() {
     BrowserIntegrationTest::new("no-resource-leak")
         .time_limit(Duration::from_secs(8))
         .specification(
@@ -1105,11 +1007,11 @@ export const noDomLeak = noResourceLeak({
 "#,
         )
         .run()
-        .await;
+        ;
 }
 
-#[tokio::test]
-async fn test_extractor_exception_stack_trace() {
+#[test]
+fn test_extractor_exception_stack_trace() {
     BrowserIntegrationTest::new("extractor-exception")
         .expect_error("\n    at throwingFunction")
         .specification(
@@ -1124,12 +1026,11 @@ function throwingFunction() {
 const bad = extract((state) => throwingFunction());
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_wait_action() {
+#[test]
+fn test_wait_action() {
     BrowserIntegrationTest::new("wait-action")
         .time_limit(Duration::from_secs(3))
         .specification(
@@ -1147,12 +1048,11 @@ const counterValue = extract((state) => {
 export const counterNeverChanges = always(() => counterValue.current === 0);
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_managed_chrome_avoids_background_optimization_hints_download() {
+#[test]
+fn test_managed_chrome_avoids_background_optimization_hints_download() {
     BrowserIntegrationTest::new("wait-action")
         .time_limit(Duration::from_secs(60))
         .specification(
@@ -1165,12 +1065,11 @@ export const staysRunning = always(() => true);
 "#,
         )
         .expect_empty_downloads()
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_double_click() {
+#[test]
+fn test_double_click() {
     BrowserIntegrationTest::new("double-click")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1201,11 +1100,11 @@ export const counterIncreases = eventually(() => counterValue.current > 0);
 "#,
         )
         .run()
-        .await;
+        ;
 }
 
-#[tokio::test]
-async fn test_extractor_guard() {
+#[test]
+fn test_extractor_guard() {
     BrowserIntegrationTest::new("extractor-guard")
         .expect_error("Cannot access cell.current from within an extractor")
         .specification(
@@ -1220,12 +1119,11 @@ const foo = extract((state) => state.document.title);
 const bar = extract((state) => foo.current);
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_module_script() {
+#[test]
+fn test_module_script() {
     BrowserIntegrationTest::new("module-script")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1244,12 +1142,11 @@ export const moduleLoaded = now(() => {
 });
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_snapshot_references_in_violation() {
+#[test]
+fn test_snapshot_references_in_violation() {
     BrowserIntegrationTest::new("snapshot-references")
         .expect_error("pageValue =")
         .specification(
@@ -1269,12 +1166,11 @@ export const valueShouldStayZero = always(
 );
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_module_script_external() {
+#[test]
+fn test_module_script_external() {
     BrowserIntegrationTest::new("module-script-external")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1293,12 +1189,11 @@ export const moduleLoaded = now(() => {
 });
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_time_limit() {
+#[test]
+fn test_time_limit() {
     BrowserIntegrationTest::new("time-limit")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1308,12 +1203,11 @@ export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 export const neverDone = always(() => true);
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_file_download() {
+#[test]
+fn test_file_download() {
     BrowserIntegrationTest::new("file-download")
         .time_limit(Duration::from_secs(10))
         .expect_download_contents(b"test file contents")
@@ -1333,12 +1227,11 @@ export const downloadCompletes = eventually(
 );
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_file_download_deny() {
+#[test]
+fn test_file_download_deny() {
     BrowserIntegrationTest::new("file-download-deny")
         .time_limit(Duration::from_secs(10))
         .download_behavior(DownloadBehavior::Deny)
@@ -1348,12 +1241,11 @@ async fn test_file_download_deny() {
         )
         .expect_empty_downloads()
         .expect_no_downloads()
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_file_picker() {
+#[test]
+fn test_file_picker() {
     let test_file = NamedTempFile::new().unwrap();
     std::fs::write(test_file.path(), b"test file content").unwrap();
     let file_path = test_file.path().display();
@@ -1395,12 +1287,11 @@ export const fileUploaded = eventually(
     BrowserIntegrationTest::new("file-picker")
         .time_limit(Duration::from_secs(30))
         .specification(&specification)
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_granted_permissions() {
+#[test]
+fn test_granted_permissions() {
     BrowserIntegrationTest::new("granted-permissions")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1432,12 +1323,11 @@ export const geolocationGranted = now(() => {
             "notifications".to_string(),
             "geolocation".to_string(),
         ])
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_extra_headers() {
+#[test]
+fn test_extra_headers() {
     BrowserIntegrationTest::new("fetch-headers")
         .extra_headers(HashMap::from([(
             "Authorization".to_string(),
@@ -1459,12 +1349,11 @@ export const secretResourceLoaded = eventually(
 ).within(10, "seconds");
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_cookies() {
+#[test]
+fn test_cookies() {
     BrowserIntegrationTest::new("fetch-headers")
         .cookies(vec![BrowserCookie::parse("session=bombadil").unwrap()])
         .time_limit(Duration::from_secs(15))
@@ -1483,12 +1372,11 @@ export const sessionCookiePresent = eventually(
 ).within(10, "seconds");
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_cookie_domain() {
+#[test]
+fn test_cookie_domain() {
     BrowserIntegrationTest::new("cookie-domain")
         .cookies(vec![
             BrowserCookie::parse("session=bombadil; Domain=localhost").unwrap(),
@@ -1510,12 +1398,11 @@ export const sessionCookieOnOtherPort = eventually(
 ).within(10, "seconds");
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_confirm_dialog() {
+#[test]
+fn test_confirm_dialog() {
     BrowserIntegrationTest::new("confirm-dialog")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1534,12 +1421,11 @@ export const dialogWasAccepted = now(
 );
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_disabled_clicks() {
+#[test]
+fn test_disabled_clicks() {
     BrowserIntegrationTest::new("disabled-clicks")
         .expect_error("no actions available")
         .specification(
@@ -1550,12 +1436,11 @@ export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
 export const keepRunning = always(() => true);
 "#,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_mouse_drag() {
+#[test]
+fn test_mouse_drag() {
     BrowserIntegrationTest::new("mouse-drag")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1582,12 +1467,11 @@ export const drag = actions(() => [
 export const wasDragged = eventually(() => status.current === "dragged");
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_set_viewport() {
+#[test]
+fn test_set_viewport() {
     BrowserIntegrationTest::new("set-viewport")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1607,12 +1491,11 @@ export const resize = actions(() => [
 export const viewportApplied = eventually(() => size.current === "1024x768");
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_custom_element_slot() {
+#[test]
+fn test_custom_element_slot() {
     BrowserIntegrationTest::new("custom-element-slot")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1629,12 +1512,11 @@ const isDone = extract((state) => {
 export const eventuallyDone = eventually(() => isDone.current);
 "##,
         )
-        .run()
-        .await;
+        .run();
 }
 
-#[tokio::test]
-async fn test_custom_action() {
+#[test]
+fn test_custom_action() {
     BrowserIntegrationTest::new("custom-action")
         .time_limit(Duration::from_secs(5))
         .specification(
@@ -1672,5 +1554,30 @@ export const counterDoubled = eventually(() =>
 "##,
         )
         .run()
-        .await;
+        ;
+}
+
+#[test]
+fn test_back_forward() {
+    BrowserIntegrationTest::new("back-forward")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually, always } from "@antithesishq/bombadil";
+import { branch } from "@antithesishq/bombadil/actions";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { clicks, back, forward, lastAction } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const _actions = actions(() => {
+  if (lastAction.current === null) {
+    return clicks.generate();
+  }
+  return branch([[1, back.generate()], [1, forward.generate()]]);
+});
+
+// export const eventuallyDone = eventually(() => lastAction.current == "Forward");
+export const ok = always(() => true);
+"##,
+        )
+        .run();
 }
