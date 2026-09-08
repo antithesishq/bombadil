@@ -944,7 +944,6 @@ mod tests {
             Cow::Borrowed("Test.second"),
             Cow::Borrowed("Test.first"),
         ]);
-        let all = events.all();
         let mut calls = HashMap::new();
         for method in ["Test.first", "Test.ignored", "Test.second"] {
             handle_message(
@@ -955,7 +954,6 @@ mod tests {
                 &subscribers,
             ).unwrap();
         }
-        assert_eq!(all.len(), 3);
         assert_eq!(selected.len(), 2);
         for method in ["Test.first", "Test.second"] {
             let event = selected.recv().unwrap();

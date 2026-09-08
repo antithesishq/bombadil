@@ -18,14 +18,12 @@ pub struct Events {
 pub(crate) struct Subscribers {
     closed: bool,
     close_error: Option<String>,
-    all: Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>,
     single: HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
 }
 
 impl Subscribers {
     pub(crate) fn is_interested_in(&self, method: &str) -> bool {
-        !self.closed
-            && (!self.all.is_empty() || self.single.contains_key(method))
+        !self.closed && self.single.contains_key(method)
     }
 
     #[hotpath::measure]
@@ -35,7 +33,6 @@ impl Subscribers {
 
         // These channels are unbounded, so a slow subscriber cannot block the
         // WebSocket worker that must read command responses.
-        self.all.retain(|s| s.send(event.clone()).is_ok());
         if let Some(subscriptions) = self.single.get_mut(&event.method) {
             subscriptions.retain(|s| s.send(event.clone()).is_ok());
             if subscriptions.is_empty() {
@@ -50,24 +47,11 @@ impl Subscribers {
         }
         self.closed = true;
         self.close_error = error;
-        self.all.clear();
         self.single.clear();
     }
 }
 
 impl Events {
-    pub fn all(&self) -> mpmc::Receiver<Arc<CdpJsonEventMessage>> {
-        let mut subscribers = self
-            .subscribers
-            .lock()
-            .expect("failed to acquire lock for subscribers");
-        let (tx, rx) = mpmc::unbounded();
-        if !subscribers.closed {
-            subscribers.all.push(tx);
-        }
-        rx
-    }
-
     /// Receive only the selected methods, preserving their arrival order.
     pub fn methods(
         &self,
@@ -199,7 +183,7 @@ mod tests {
         let events = Events {
             subscribers: subscribers.clone(),
         };
-        let receiver = events.all();
+        let receiver = events.methods([TestEvent::method_id()]);
         let (done_tx, done_rx) = mpmc::bounded(1);
 
         std::thread::spawn(move || {
@@ -243,7 +227,7 @@ mod tests {
             .unwrap()
             .close(Some("worker failed".into()));
         assert!(matches!(
-            events.all().try_recv(),
+            events.methods([TestEvent::method_id()]).try_recv(),
             Err(mpmc::TryRecvError::Disconnected)
         ));
         assert_eq!(

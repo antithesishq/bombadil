@@ -15,7 +15,7 @@
 use std::env;
 
 use anyhow::{Result, anyhow, bail};
-use cdp::{Connection, Method};
+use cdp::{Connection, Method, MethodType};
 use cdp_protocol::cdp::{
     browser_protocol::{browser, page, target},
     js_protocol::runtime,
@@ -128,7 +128,11 @@ fn main() -> Result<()> {
         .ok_or(anyhow!("no execution context"))?;
     log::info!("Got page load.");
 
-    let residual = connection.events.all();
+    let residual = connection.events.methods([
+        runtime::EventExecutionContextDestroyed::method_id(),
+        runtime::EventExecutionContextsCleared::method_id(),
+        target::EventDetachedFromTarget::method_id(),
+    ]);
 
     if mode == Mode::Create {
         let _ = connection.send(
@@ -141,7 +145,7 @@ fn main() -> Result<()> {
 
     connection.close()?;
 
-    println!("Residual events:");
+    println!("Remaining context and detach events:");
     for event in residual {
         println!("${}: {}", event.method_name(), event.params.get());
     }
