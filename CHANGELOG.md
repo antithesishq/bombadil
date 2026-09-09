@@ -1,5 +1,29 @@
 # The Bombadil Changelog
 
+## 0.7.3
+
+Major updates:
+
+* Browser testing is now up to 6x faster, capturing and testing up to 60 states
+  per second, made possible by forking and heavily rewriting our CDP client,
+  along with various improvements to the browser driver
+  (#292, #298, #300)
+* Support custom actions in browser driver (#276)
+
+Minor updates:
+
+* Add CI test using test-external (#301)
+* Trim down tokio feature set (#297)
+* Unpin & update boa (#299)
+* Make hotpath an opt-in command in Nix shell (#283)
+* Bump flake inputs (#280)
+* Translate remaning LTL equivalence properties to Hegel (#281)
+
+Bug fixes:
+
+* Deprecate defunct delayMillis for DoubleClick action (#296)
+* Handle additional frame navigation/load events (#294)
+
 ## 0.7.2
 
 Bug fixes:
