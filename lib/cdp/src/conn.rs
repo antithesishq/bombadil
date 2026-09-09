@@ -100,7 +100,7 @@ pub struct PendingResponse<T: Command> {
     method: MethodId,
     deadline: Instant,
     reply_rx: mpmc::Receiver<Reply>,
-    command: PhantomData<fn() -> T>,
+    command: PhantomData<T>,
 }
 
 impl<T: Command> PendingResponse<T> {
