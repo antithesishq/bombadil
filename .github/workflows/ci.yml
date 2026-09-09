@@ -201,8 +201,12 @@ jobs:
           path: result/
 
   inspect-test:
-    name: Inspect UI test
+    name: Inspect UI test (${{ matrix.mode }})
     needs: build-x86_64-linux
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [managed, external-create-target, external-attach]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -224,25 +228,56 @@ jobs:
             --time-limit 30s || true
       - name: Test inspect UI
         env:
+          MODE: ${{ matrix.mode }}
           TIME_LIMIT: ${{ (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '1m' || '20s' }}
         run: |
+          trap 'kill $(jobs -p) 2>/dev/null || true' EXIT
+
           ./bombadil browser inspect report --no-open --port 1073 &
           for i in $(seq 1 30); do
             if curl -sf http://localhost:1073 > /dev/null 2>&1; then break; fi
             sleep 1
           done
-          ./bombadil browser test \
-            --headless --no-sandbox \
-            --instrument-javascript="" \
-            --output-path inspect-test-output \
-            --time-limit "$TIME_LIMIT" \
-            http://localhost:1073 \
+
+          common_args=(
+            --instrument-javascript=""
+            --output-path inspect-test-output
+            --time-limit "$TIME_LIMIT"
+            http://localhost:1073
             lib/bombadil-inspect/test/inspect.spec.ts
+          )
+
+          case "$MODE" in
+            managed)
+              ./bombadil browser test --headless --no-sandbox "${common_args[@]}"
+              ;;
+            external-create-target|external-attach)
+              initial_url=about:blank
+              external_args=(--remote-debugger http://localhost:9222)
+              if [ "$MODE" = "external-create-target" ]; then
+                external_args+=(--create-target)
+              else
+                initial_url=http://localhost:1073
+              fi
+              "$CHROME" \
+                --headless=new \
+                --no-sandbox \
+                --disable-gpu \
+                --remote-debugging-port=9222 \
+                --user-data-dir="$(mktemp -d)" \
+                "$initial_url" &
+              for i in $(seq 1 30); do
+                if curl -sf http://localhost:9222/json/version > /dev/null 2>&1; then break; fi
+                sleep 1
+              done
+              ./bombadil browser test-external "${external_args[@]}" "${common_args[@]}"
+              ;;
+          esac
       - name: Upload inspect test output
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: inspect-test-output
+          name: inspect-test-output-${{ matrix.mode }}
           path: inspect-test-output/
 
   smoke-test:
