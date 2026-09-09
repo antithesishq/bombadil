@@ -371,7 +371,11 @@ pub struct Property {
 #[derive(Debug, Clone)]
 enum PropertyState {
     Initial(Formula<BombadilDomain<RuntimeFunction>>),
+    // Keep the current result here so callers can borrow it without cloning.
+    // True and False without a continuation become Settled on the next step,
+    // after callers have had a chance to report them.
     Evaluated(eval::Value<BombadilDomain<RuntimeFunction>>),
+    // A terminal result from an earlier step; no longer emitted to callers.
     Settled,
 }
 
