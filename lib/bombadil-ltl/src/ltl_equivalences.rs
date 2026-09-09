@@ -184,13 +184,21 @@ fn assert_values_eq(
                             Some(StopDefault::False(_)),
                         ) => {}
                         (left, right) => {
-                            panic!("\n{:?}\n\n!=\n\n{:?}\n", left, right)
+                            dbg!(left);
+                            eprintln!("\n!=\n");
+                            dbg!(right);
+                            panic!("test failed")
                         }
                     }
                 }
             }
         }
-        (left, right) => panic!("\n{:?}\n\n!=\n\n{:?}\n", left, right),
+        (left, right) => {
+            dbg!(left);
+            eprintln!("\n!=\n");
+            dbg!(right);
+            panic!("test failed")
+        }
     }
 }
 

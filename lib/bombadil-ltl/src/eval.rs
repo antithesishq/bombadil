@@ -598,14 +598,11 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                     }
                     pending_updated.push(r);
                 }
-                // A False attempt just drops out unless it left a continuation
-                // (e.g. wrapped by something else still monitoring). It's not
-                // fatal on its own — only "nothing left pending" is fatal.
-                Value::False(_v, continuation) => {
-                    if let Some(c) = continuation {
-                        pending_updated.push(c);
-                    }
-                }
+                // Not a witness, and its continuation (which is only used
+                // to keep checking Always properties for multiple violations)
+                // cannot become a witness at a later state, hence we ignore
+                // it.
+                Value::False(_v, _continuation) => {}
             }
         }
 
