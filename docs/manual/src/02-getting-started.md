@@ -218,7 +218,8 @@ This will open a web application in your browser, which has some features to hig
   transitions by clicking the actions. 
 * In the bottom you'll see the timeline, which you can scrub (click and drag)
   with your mouse. The timeline also shows the currently selected state
-  transition.
+  transition. Hold Shift while dragging to zoom into a time range; click
+  Reset zoom to return to the full timeline.
 * If there were any violations found in the test, they'll be shown as
   exclamation mark icons in the timeline.
 
