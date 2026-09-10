@@ -263,9 +263,23 @@ impl TerminalDriver {
         );
         while let Some(row) = row_iter.next() {
             let mut cell_iter = self.cell_iterator.update(row)?;
+            // Adapted from Ghostty's one-style-lookup-per-run optimization:
+            // https://github.com/ghostty-org/ghostty/blob/a887df42c56f6de86c0fe6da9c4eeca37931e083/src/terminal/render.zig#L1102-L1143
+            // Style IDs are page-local. Reset the cache for each row.
+            let mut style_cache: Option<(ghostty_style::Id, TerminalStyle)> =
+                None;
             while let Some(cell) = cell_iter.next() {
-                let style = style_from_ghostty(&cell.style()?);
-                cells.push(match cell.raw_cell()?.wide()? {
+                let raw_cell = cell.raw_cell()?;
+                let style_id = raw_cell.style_id()?;
+                let style = match &style_cache {
+                    Some((id, style)) if *id == style_id => style.clone(),
+                    _ => {
+                        let style = style_from_ghostty(&cell.style()?);
+                        style_cache = Some((style_id, style.clone()));
+                        style
+                    }
+                };
+                cells.push(match raw_cell.wide()? {
                     // Trailing column of a wide character.
                     CellWide::SpacerTail => {
                         TerminalCell::Continuation { style }
