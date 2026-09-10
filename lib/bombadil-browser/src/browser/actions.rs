@@ -109,7 +109,7 @@ impl BrowserAction {
                 let last: page::NavigationEntry = history.entries
                     [(history.current_index - 1) as usize]
                     .clone();
-                connection.post(
+                connection.send(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(last.id)
                         .build()
@@ -128,7 +128,7 @@ impl BrowserAction {
                 }
                 let next: page::NavigationEntry =
                     history.entries[next_index].clone();
-                connection.post(
+                connection.send(
                     page::NavigateToHistoryEntryParams::builder()
                         .entry_id(next.id)
                         .build()
@@ -142,7 +142,7 @@ impl BrowserAction {
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                connection.post(
+                connection.send(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -154,7 +154,7 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                connection.post(
+                connection.send(
                     input::SynthesizeScrollGestureParams::builder()
                         .x(origin.x)
                         .y(origin.y)
@@ -171,7 +171,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.post(
+                connection.send(
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
@@ -179,7 +179,7 @@ impl BrowserAction {
                     ),
                     Some(session_id),
                 )?;
-                connection.post(
+                connection.send(
                     builder
                         .clone()
                         .r#type(input::DispatchMouseEventType::MousePressed)
@@ -187,7 +187,7 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
                 )?;
-                connection.post(
+                connection.send(
                     builder
                         .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
@@ -212,7 +212,7 @@ impl BrowserAction {
                     ),
                     Some(session_id),
                 )?;
-                connection.post(
+                connection.send(
                     builder
                         .clone()
                         .r#type(input::DispatchMouseEventType::MousePressed)
@@ -220,7 +220,7 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
                 )?;
-                connection.post(
+                connection.send(
                     builder
                         .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
@@ -255,7 +255,7 @@ impl BrowserAction {
                     }
                     builder.build().map_err(|err| anyhow!(err))
                 };
-                connection.post(
+                connection.send(
                     build_params(
                         input::DispatchKeyEventType::RawKeyDown,
                         None,
@@ -263,7 +263,7 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
                 if let Some(text) = text {
-                    connection.post(
+                    connection.send(
                         build_params(
                             input::DispatchKeyEventType::Char,
                             Some(text),
@@ -271,7 +271,7 @@ impl BrowserAction {
                         Some(session_id),
                     )?;
                 }
-                connection.post(
+                connection.send(
                     build_params(input::DispatchKeyEventType::KeyUp, None)?,
                     Some(session_id),
                 )?;
@@ -292,7 +292,7 @@ impl BrowserAction {
                 if node.node_id.inner() == &0 {
                     bail!("element not found for selector: {:?}", selector);
                 }
-                connection.post(
+                connection.send(
                     dom::SetFileInputFilesParams::builder()
                         .files(files.clone())
                         .node_id(node.node_id)
@@ -318,7 +318,7 @@ impl BrowserAction {
                         .build()
                         .map_err(|err| anyhow!(err))
                 };
-                connection.post(
+                connection.send(
                     dispatch(
                         input::DispatchMouseEventType::MousePressed,
                         *from,
@@ -337,7 +337,7 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    connection.post(
+                    connection.send(
                         dispatch(
                             input::DispatchMouseEventType::MouseMoved,
                             point,
@@ -346,7 +346,7 @@ impl BrowserAction {
                         Some(session_id),
                     )?;
                 }
-                connection.post(
+                connection.send(
                     dispatch(
                         input::DispatchMouseEventType::MouseReleased,
                         *to,
@@ -356,7 +356,7 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::SetViewport { width, height } => {
-                connection.post(
+                connection.send(
                     emulation::SetDeviceMetricsOverrideParams::builder()
                         .width(u32::from(*width))
                         .height(u32::from(*height))
