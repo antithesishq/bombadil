@@ -33,7 +33,7 @@ pub trait InterfaceDriver {
 
     fn initiate(&mut self) -> Result<()>;
 
-    fn terminate(self) -> Result<()>;
+    fn terminate(&mut self) -> Result<()>;
 
     fn next_event(&mut self) -> Option<DriverEvent<Self::State>>;
 
