@@ -9,7 +9,10 @@ use axum::{
 use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
 use rand::SeedableRng;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::{Arc, atomic::AtomicBool},
+};
 use std::{
     fmt::Display,
     sync::Once,
@@ -324,6 +327,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             specification,
             browser_options,
             debugger_options,
+            Arc::new(AtomicBool::new(false)),
         )
         .expect("run_test failed");
 

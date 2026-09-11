@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json as json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
@@ -180,11 +181,12 @@ pub struct Browser {
     frame_id: FrameId,
     origin: Url,
     create_target: bool,
+    terminated: Arc<AtomicBool>,
 }
 
 impl Drop for Browser {
     fn drop(&mut self) {
-        let _ = self.connection.close();
+        let _ = self.terminate();
     }
 }
 
@@ -398,7 +400,13 @@ impl Browser {
             },
             shared: state_shared,
         };
-        run_state_machine(context, events_rx, state_initial);
+        let terminated = Arc::new(AtomicBool::new(false));
+        run_state_machine(
+            context,
+            events_rx,
+            state_initial,
+            terminated.clone(),
+        );
 
         Ok(Browser {
             browser_events_rx,
@@ -409,6 +417,7 @@ impl Browser {
             frame_id,
             origin,
             create_target: browser_options.create_target,
+            terminated,
         })
     }
 
@@ -442,18 +451,21 @@ impl Browser {
         Ok(())
     }
 
-    pub fn terminate(self) -> Result<()> {
-        if self.create_target {
-            self.connection.send(
+    pub fn terminate(&mut self) -> Result<()> {
+        if self.terminated.swap(true, Ordering::SeqCst) {
+            // Already terminated.
+            return Ok(());
+        }
+        log::info!("terminating browser");
+        if self.create_target
+            && let Err(error) = self.connection.post(
                 target::CloseTargetParams::new(self.target_id.clone()),
                 Some(&self.session_id),
-            )?;
+            )
+        {
+            log::error!("failed to close created target: {:#}", error);
         }
-        // Close the browser before waiting for the state machine. Any CDP calls
-        // in-flight inside process_event will fail once the connection drops,
-        // unblocking the state machine so it can exit. Without this ordering,
-        // terminate() could deadlock: the state machine waits for a CDP response
-        // and the browser never closes because we're waiting for the state machine.
+
         let _ = self.connection.close();
 
         Ok(())
@@ -751,13 +763,16 @@ fn run_state_machine(
     context: BrowserContext,
     events_rx: mpmc::Receiver<InnerEvent>,
     mut state_current: InnerState,
+    terminated: Arc<AtomicBool>,
 ) {
     let error_tx = context.sender.clone();
     let _ = thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<()> {
                 log::info!("processing events");
-                while let Ok(event) = events_rx.recv() {
+                while let Ok(event) = events_rx.recv()
+                    && !terminated.load(Ordering::SeqCst)
+                {
                     state_current = if log::log_enabled!(log::Level::Debug) {
                         let before = format!(
                             "{:?} ({})",
@@ -792,6 +807,11 @@ fn run_state_machine(
                 Ok(())
             },
         ));
+        if terminated.load(Ordering::SeqCst) {
+            // In case the browser was actively terminated, we ignore potential errors.
+            log::debug!("terminated with result: {:?}", result);
+            return;
+        }
         let error = match result {
             Ok(Ok(())) => return,
             Ok(Err(error)) => format!("{error:#}"),

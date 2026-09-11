@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use antithesis_sdk::assert::{AssertType, assert_raw};
 use anyhow::Result;
 use bombadil_ltl::eval;
@@ -58,11 +61,20 @@ pub trait RunStrategy<D: InterfaceDriver> {
 pub struct Runner<D: InterfaceDriver> {
     driver: D,
     verifier: Verifier,
+    interrupted: Arc<AtomicBool>,
 }
 
 impl<D: InterfaceDriver> Runner<D> {
-    pub fn new(driver: D, verifier: Verifier) -> Self {
-        Self { driver, verifier }
+    pub fn new(
+        driver: D,
+        verifier: Verifier,
+        interrupted: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            driver,
+            verifier,
+            interrupted,
+        }
     }
 
     pub fn run<S: RunStrategy<D>>(
@@ -73,11 +85,16 @@ impl<D: InterfaceDriver> Runner<D> {
         self.driver.initiate()?;
         log::debug!("driver initiated");
 
-        let result = Self::run_test(&mut self.driver, self.verifier, strategy);
+        let result = Self::run_test(
+            &mut self.driver,
+            self.verifier,
+            self.interrupted,
+            strategy,
+        );
+
+        self.driver.terminate()?;
 
         log::debug!("test finished");
-
-        self.driver.terminate().expect("driver failed to terminate");
 
         result
     }
@@ -85,12 +102,13 @@ impl<D: InterfaceDriver> Runner<D> {
     fn run_test<S: RunStrategy<D>>(
         driver: &mut D,
         mut verifier: Verifier,
+        interrupted: Arc<AtomicBool>,
         strategy: &mut S,
     ) -> Result<S::StopValue> {
         let mut last_action: Option<D::Action> = None;
         let mut violations = Vec::new();
 
-        loop {
+        while !interrupted.load(Ordering::SeqCst) {
             let event = driver.next_event();
 
             if antithesis::is_in_guest() {
@@ -182,5 +200,7 @@ impl<D: InterfaceDriver> Runner<D> {
                 }
             }
         }
+        log::debug!("interrupted, stopping runner");
+        strategy.on_interrupted()
     }
 }

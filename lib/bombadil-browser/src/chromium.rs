@@ -11,6 +11,9 @@ use std::{
 use tempfile::TempDir;
 use url::Url;
 
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+
 pub mod locate;
 
 #[derive(Clone)]
@@ -47,6 +50,9 @@ impl Chromium {
                 .to_str()
                 .ok_or(anyhow!("invalid chromium executable path"))?,
         );
+
+        #[cfg(unix)]
+        command.process_group(0); // Spawn in a new process group.
 
         command
             .stdin(Stdio::null())
@@ -122,12 +128,21 @@ impl Chromium {
 
 impl Drop for Chromium {
     fn drop(&mut self) {
-        if let Some(mut child) = self.process_child.take()
-            && let Err(error) = child.kill()
-        {
-            log::error!("failed to kill chromium/chrome process: {}", error);
-        } else {
-            log::info!("killed chromium/chrome process");
+        if let Some(mut child) = self.process_child.take() {
+            if let Err(error) = child.kill() {
+                log::error!(
+                    "failed to kill chromium/chrome process: {}",
+                    error
+                );
+            } else {
+                log::info!("killed chromium/chrome process");
+            }
+            if let Err(error) = child.wait() {
+                log::error!(
+                    "failed to await killed chromium/chrome process: {}",
+                    error
+                );
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::io::Write;
-use std::sync::Once;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
+use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -94,7 +95,11 @@ impl TerminalIntegrationTest {
                     &program,
                     &args,
                 )?;
-                let runner = Runner::new(driver, verifier);
+                let runner = Runner::new(
+                    driver,
+                    verifier,
+                    Arc::new(AtomicBool::new(false)),
+                );
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,

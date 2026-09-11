@@ -16,6 +16,10 @@ use std::{
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
@@ -510,11 +514,20 @@ fn run_with_writer(
         output_path: strategy_output_path,
     }: RunOptions,
 ) -> Result<TestResult> {
+    let interrupted = Arc::new(AtomicBool::new(false));
+    {
+        let interrupted = interrupted.clone();
+        ctrlc::set_handler(move || {
+            interrupted.store(true, Ordering::SeqCst);
+        })?;
+    }
+
     let runner = bombadil_browser::runner::launch(
         origin.clone(),
         specification,
         browser_options,
         debugger_options,
+        interrupted,
     )?;
 
     let mut strategy = TestStrategy {

@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use anyhow::Result;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::{Specification, Verifier};
@@ -15,6 +18,7 @@ pub fn launch(
     specification: Specification,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    interrupted: Arc<AtomicBool>,
 ) -> Result<Runner<BrowserDriver>> {
     let specification_bundle = bundle(".", &specification.module_specifier)?;
     let verifier = Verifier::new(&specification_bundle)?;
@@ -26,5 +30,5 @@ pub fn launch(
         specification_bundle,
     )?;
 
-    Ok(Runner::new(driver, verifier))
+    Ok(Runner::new(driver, verifier, interrupted))
 }

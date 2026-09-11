@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 use std::{collections::VecDeque, path::PathBuf, process::exit};
 
@@ -144,7 +146,15 @@ pub fn run(command: Command) {
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
 
-                let runner = Runner::new(driver, verifier);
+                let interrupted = Arc::new(AtomicBool::new(false));
+                {
+                    let interrupted = interrupted.clone();
+                    ctrlc::set_handler(move || {
+                        interrupted.store(true, Ordering::SeqCst);
+                    })?;
+                }
+
+                let runner = Runner::new(driver, verifier, interrupted);
                 let mut strategy = TerminalStrategy {
                     rng: AntithesisRng,
                     mode,
