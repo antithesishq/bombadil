@@ -1,5 +1,17 @@
 # The Bombadil Changelog
 
+## 0.7.4
+
+Minor updates:
+
+* Update libghostty-rs to 0.2.1 (#303)
+
+Bug fixes;
+
+* Handle SIGINT and stop test gracefully (#308, #309)
+* Add test and fix for action races (#307)
+* Ignore false continuations in Eventually eval (#306)
+
 ## 0.7.3
 
 Major updates:
