@@ -321,16 +321,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
-        log::info!("starting runner with infrastructure safety timeout");
-        let runner = runner::launch(
-            origin.clone(),
-            specification,
-            browser_options,
-            debugger_options,
-            Arc::new(AtomicBool::new(false)),
-        )
-        .expect("run_test failed");
-
         let mut strategy = TestStrategy {
             rng: rand::prelude::StdRng::seed_from_u64(seed),
             test_start: Some(Time::from_system_time(test_start)),
@@ -338,12 +328,22 @@ impl<'a> BrowserIntegrationTest<'a> {
             mode: bombadil_browser::strategy::TestMode::RandomWalk,
             writer,
             exit_on_violation: true,
-            origin,
+            origin: origin.clone(),
             output_path: output_path_buf,
             violations_count: 0,
         };
 
-        let outcome = match runner.run(&mut strategy) {
+        log::info!("starting runner with infrastructure safety timeout");
+        let run_result = runner::launch(
+            origin,
+            specification,
+            browser_options,
+            debugger_options,
+            Arc::new(AtomicBool::new(false)),
+            &mut strategy,
+        );
+
+        let outcome = match run_result {
             Err(error) => Outcome::Error(error),
             Ok(_) if strategy.violations_count == 0 => Outcome::Success,
             Ok(_) => {

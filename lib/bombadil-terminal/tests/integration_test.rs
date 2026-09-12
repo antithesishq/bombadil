@@ -5,7 +5,7 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use anyhow::Result;
-use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy, Runner};
+use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
@@ -87,7 +87,7 @@ impl TerminalIntegrationTest {
             // Keep the spec file alive for the whole run.
             let _specification_file = specification_file;
             let result = (|| -> Result<u64> {
-                let (driver, verifier) = TerminalDriver::launch(
+                let (mut driver, verifier) = TerminalDriver::launch(
                     specification,
                     size,
                     max_scrollback,
@@ -95,16 +95,16 @@ impl TerminalIntegrationTest {
                     &program,
                     &args,
                 )?;
-                let runner = Runner::new(
-                    driver,
-                    verifier,
-                    Arc::new(AtomicBool::new(false)),
-                );
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
-                runner.run(&mut strategy)?;
+                runner::run(
+                    &mut driver,
+                    &mut strategy,
+                    verifier,
+                    Arc::new(AtomicBool::new(false)),
+                )?;
                 Ok(strategy.violations_count)
             })();
             let _ = sender.send(result);

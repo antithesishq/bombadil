@@ -82,7 +82,7 @@ impl InterfaceDriver for BrowserDriver {
         self.browser.initiate()
     }
 
-    fn terminate(mut self) -> Result<()> {
+    fn terminate(&mut self) -> Result<()> {
         self.browser.terminate()
     }
 

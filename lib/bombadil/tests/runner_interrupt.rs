@@ -9,7 +9,7 @@ use serde_json as json;
 use tempfile::NamedTempFile;
 
 use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
-use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy, Runner};
+use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Verifier;
@@ -43,7 +43,7 @@ impl InterfaceDriver for FakeDriver {
         Ok(())
     }
 
-    fn terminate(self) -> Result<()> {
+    fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -120,18 +120,18 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
     let next_event_calls = Arc::new(AtomicUsize::new(0));
     let on_interrupted_calls = Arc::new(AtomicUsize::new(0));
 
-    let driver = FakeDriver {
+    let mut driver = FakeDriver {
         initiated: initiated.clone(),
         terminated: terminated.clone(),
         next_event_calls: next_event_calls.clone(),
     };
-    let runner = Runner::new(driver, dummy_verifier(), interrupted);
 
     let mut strategy = FakeStrategy {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    runner.run(&mut strategy).expect("runner returned Err");
+    runner::run(&mut driver, &mut strategy, dummy_verifier(), interrupted)
+        .expect("runner returned Err");
 
     assert!(
         initiated.load(Ordering::SeqCst),

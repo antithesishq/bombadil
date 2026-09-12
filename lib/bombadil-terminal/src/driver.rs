@@ -331,7 +331,7 @@ impl InterfaceDriver for TerminalDriver {
         Ok(())
     }
 
-    fn terminate(self) -> Result<()> {
+    fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();
         Ok(())
     }

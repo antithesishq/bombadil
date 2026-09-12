@@ -522,14 +522,6 @@ fn run_with_writer(
         })?;
     }
 
-    let runner = bombadil_browser::runner::launch(
-        origin.clone(),
-        specification,
-        browser_options,
-        debugger_options,
-        interrupted,
-    )?;
-
     let mut strategy = TestStrategy {
         rng: AntithesisRng,
         mode,
@@ -539,8 +531,15 @@ fn run_with_writer(
         deadline,
         output_path: strategy_output_path,
         violations_count: 0,
-        origin,
+        origin: origin.clone(),
     };
 
-    runner.run(&mut strategy)
+    bombadil_browser::runner::launch(
+        origin,
+        specification,
+        browser_options,
+        debugger_options,
+        interrupted,
+        &mut strategy,
+    )
 }

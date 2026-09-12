@@ -58,149 +58,124 @@ pub trait RunStrategy<D: InterfaceDriver> {
     fn on_interrupted(&mut self) -> Result<Self::StopValue>;
 }
 
-pub struct Runner<D: InterfaceDriver> {
-    driver: D,
+pub fn run<D: InterfaceDriver, S: RunStrategy<D>>(
+    driver: &mut D,
+    strategy: &mut S,
     verifier: Verifier,
     interrupted: Arc<AtomicBool>,
+) -> Result<S::StopValue> {
+    log::info!("starting test");
+    driver.initiate()?;
+    log::debug!("driver initiated");
+
+    let result = run_test(driver, verifier, interrupted, strategy);
+
+    driver.terminate()?;
+
+    log::debug!("test finished");
+
+    result
 }
 
-impl<D: InterfaceDriver> Runner<D> {
-    pub fn new(
-        driver: D,
-        verifier: Verifier,
-        interrupted: Arc<AtomicBool>,
-    ) -> Self {
-        Self {
-            driver,
-            verifier,
-            interrupted,
+fn run_test<D: InterfaceDriver, S: RunStrategy<D>>(
+    driver: &mut D,
+    mut verifier: Verifier,
+    interrupted: Arc<AtomicBool>,
+    strategy: &mut S,
+) -> Result<S::StopValue> {
+    let mut last_action: Option<D::Action> = None;
+    let mut violations = Vec::new();
+
+    while !interrupted.load(Ordering::SeqCst) {
+        let event = driver.next_event();
+
+        if antithesis::is_in_guest() {
+            // This lets the Antithesis fuzzer know of a new state in our loop,
+            // so that it can fork and change the entropy to explore the SUT.
+            antithesis_fuzzer::mark_state_boundary();
         }
-    }
 
-    pub fn run<S: RunStrategy<D>>(
-        mut self,
-        strategy: &mut S,
-    ) -> Result<S::StopValue> {
-        log::info!("starting test");
-        self.driver.initiate()?;
-        log::debug!("driver initiated");
+        match event {
+            Some(DriverEvent::StateChanged(state)) => {
+                let snapshots = driver
+                    .extract_snapshots(state.clone(), last_action.as_ref())?;
+                for value in snapshots.iter() {
+                    log::debug!(
+                        "snapshot {}: {}",
+                        value.name.as_deref().unwrap_or("<unnamed>"),
+                        value.value
+                    );
+                }
 
-        let result = Self::run_test(
-            &mut self.driver,
-            self.verifier,
-            self.interrupted,
-            strategy,
-        );
+                let step_result = verifier.step::<D::ActionTemplate>(
+                    &snapshots,
+                    Time::from_system_time(D::state_timestamp(&state)),
+                )?;
 
-        self.driver.terminate()?;
-
-        log::debug!("test finished");
-
-        result
-    }
-
-    fn run_test<S: RunStrategy<D>>(
-        driver: &mut D,
-        mut verifier: Verifier,
-        interrupted: Arc<AtomicBool>,
-        strategy: &mut S,
-    ) -> Result<S::StopValue> {
-        let mut last_action: Option<D::Action> = None;
-        let mut violations = Vec::new();
-
-        while !interrupted.load(Ordering::SeqCst) {
-            let event = driver.next_event();
-
-            if antithesis::is_in_guest() {
-                // This lets the Antithesis fuzzer know of a new state in our loop,
-                // so that it can fork and change the entropy to explore the SUT.
-                antithesis_fuzzer::mark_state_boundary();
-            }
-
-            match event {
-                Some(DriverEvent::StateChanged(state)) => {
-                    let snapshots = driver.extract_snapshots(
-                        state.clone(),
-                        last_action.as_ref(),
-                    )?;
-                    for value in snapshots.iter() {
-                        log::debug!(
-                            "snapshot {}: {}",
-                            value.name.as_deref().unwrap_or("<unnamed>"),
-                            value.value
-                        );
-                    }
-
-                    let step_result = verifier.step::<D::ActionTemplate>(
-                        &snapshots,
-                        Time::from_system_time(D::state_timestamp(&state)),
-                    )?;
-
-                    violations.clear();
-                    for (name, value) in step_result.properties() {
-                        let (condition, hit, details) = match value {
-                            eval::Value::False(violation, _) => {
-                                let violation =
-                                    violation_with_pretty_functions(violation)
-                                        .to_schema();
-                                violations.push(PropertyViolation {
-                                    name: name.clone(),
-                                    violation: violation.clone(),
-                                });
-                                (false, true, json!({ "violation": violation }))
-                            }
-                            eval::Value::Residual(_) | eval::Value::True(_) => {
-                                (true, true, json!({}))
-                            }
-                        };
-
-                        // Catalog properties, or report their violations, to Antithesis.
-                        assert_raw(
-                            condition,
-                            name.clone(),
-                            &details,
-                            "".into(),
-                            "".into(),
-                            "".into(),
-                            0,
-                            0,
-                            hit,  // hit
-                            true, // must_hit
-                            AssertType::Always,
-                            "Bombadil property".into(),
-                            name.clone(),
-                        );
-                    }
-
-                    let control = strategy.on_new_state(
-                        &state,
-                        step_result.actions,
-                        last_action.as_ref(),
-                        &snapshots,
-                        PropertiesState {
-                            violations: &violations,
-                            all_definite: step_result.all_definite,
-                        },
-                    )?;
-
-                    match control {
-                        ControlFlow::Stop(value) => return Ok(value),
-                        ControlFlow::Continue(action) => {
-                            log::info!("picked action: {:?}", action);
-                            driver.apply(action.clone(), state.clone())?;
-                            last_action = Some(action);
+                violations.clear();
+                for (name, value) in step_result.properties() {
+                    let (condition, hit, details) = match value {
+                        eval::Value::False(violation, _) => {
+                            let violation =
+                                violation_with_pretty_functions(violation)
+                                    .to_schema();
+                            violations.push(PropertyViolation {
+                                name: name.clone(),
+                                violation: violation.clone(),
+                            });
+                            (false, true, json!({ "violation": violation }))
                         }
+                        eval::Value::Residual(_) | eval::Value::True(_) => {
+                            (true, true, json!({}))
+                        }
+                    };
+
+                    // Catalog properties, or report their violations, to Antithesis.
+                    assert_raw(
+                        condition,
+                        name.clone(),
+                        &details,
+                        "".into(),
+                        "".into(),
+                        "".into(),
+                        0,
+                        0,
+                        hit,  // hit
+                        true, // must_hit
+                        AssertType::Always,
+                        "Bombadil property".into(),
+                        name.clone(),
+                    );
+                }
+
+                let control = strategy.on_new_state(
+                    &state,
+                    step_result.actions,
+                    last_action.as_ref(),
+                    &snapshots,
+                    PropertiesState {
+                        violations: &violations,
+                        all_definite: step_result.all_definite,
+                    },
+                )?;
+
+                match control {
+                    ControlFlow::Stop(value) => return Ok(value),
+                    ControlFlow::Continue(action) => {
+                        log::info!("picked action: {:?}", action);
+                        driver.apply(action.clone(), state.clone())?;
+                        last_action = Some(action);
                     }
                 }
-                Some(DriverEvent::Error(error)) => {
-                    anyhow::bail!("driver error: {}", error);
-                }
-                None => {
-                    anyhow::bail!("driver closed");
-                }
+            }
+            Some(DriverEvent::Error(error)) => {
+                anyhow::bail!("driver error: {}", error);
+            }
+            None => {
+                anyhow::bail!("driver closed");
             }
         }
-        log::debug!("interrupted, stopping runner");
-        strategy.on_interrupted()
     }
+    log::debug!("interrupted, stopping runner");
+    strategy.on_interrupted()
 }

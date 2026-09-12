@@ -5,7 +5,7 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
-use bombadil::runner::Runner;
+use bombadil::runner;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil_schema::Time;
@@ -134,7 +134,7 @@ pub fn run(command: Command) {
                     None => TerminalTestMode::RandomWalk,
                 };
 
-                let (driver, verifier) = TerminalDriver::launch(
+                let (mut driver, verifier) = TerminalDriver::launch(
                     specification,
                     TerminalSize { columns, rows },
                     scrollback_lines_max as usize,
@@ -154,7 +154,6 @@ pub fn run(command: Command) {
                     })?;
                 }
 
-                let runner = Runner::new(driver, verifier, interrupted);
                 let mut strategy = TerminalStrategy {
                     rng: AntithesisRng,
                     mode,
@@ -165,7 +164,12 @@ pub fn run(command: Command) {
                     deadline,
                     states_seen: 0,
                 };
-                let exit_reason = runner.run(&mut strategy)?;
+                let exit_reason = runner::run(
+                    &mut driver,
+                    &mut strategy,
+                    verifier,
+                    interrupted,
+                )?;
 
                 println!();
                 match exit_reason {
