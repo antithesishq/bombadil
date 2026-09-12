@@ -368,24 +368,26 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            BrowserAction::Custom {
-                name,
-                arguments: options,
-            } => {
+            BrowserAction::Custom { name, arguments } => {
                 let call = CallFunctionOnParamsBuilder::default().function_declaration(
-                    r#"async (name, options) => {
+                    r#"async (name, args) => {
                         try {
-                            await __bombadilRequire('@antithesishq/bombadil').runtime.runCustomAction(name, options);
+                            await __bombadilRequire('@antithesishq/bombadil').runtime.runCustomAction(name, args);
                         } catch (err) {
-                            throw new Error(`Error executing custom action ${JSON.stringify(name)}: ${err}`);
+                            throw new Error(`Error executing custom action ${JSON.stringify(name)}(${args.join(", ")}): ${err}`);
                         }
                     }"#
                 )
                     .argument(CallArgument::builder().value(json::json!(name)).build())
-                    .argument(CallArgument::builder().value(options.clone()).build())
+                    .argument(CallArgument::builder().value(arguments.clone()).build())
+                    .await_promise(true)
+                    .return_by_value(true)
                     .unique_context_id(unique_context_id.ok_or(anyhow!("no unique_context_id available, can't apply custom action"))?)
                 .build().map_err(|err| anyhow!(err))?;
-                connection.send(call, Some(session_id))?;
+                let result = connection.send(call, Some(session_id))?;
+                if let Some(exception) = result.exception_details {
+                    bail!("{}", exception)
+                }
             }
         };
         Ok(())

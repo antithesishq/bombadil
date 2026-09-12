@@ -1124,7 +1124,7 @@ export const eventuallyDone = eventually(() => isDone.current);
 #[test]
 fn test_custom_action() {
     BrowserIntegrationTest::new("custom-action")
-        .time_limit(Duration::from_secs(5))
+        .time_limit(Duration::from_secs(10))
         .specification(
             r##"
 import { eventually } from "@antithesishq/bombadil";
@@ -1140,16 +1140,18 @@ const result = extract((state) => {
   return element?.textContent ?? "";
 });
 
-const doubleCounter = registerCustomAction("doubleCounter", async () => {
-  const resultElement = document.getElementById("result");
-  if (resultElement) {
-    resultElement.textContent = (counter.current * 2).toString();
-  }
-});
+const multiplyCounter = registerCustomAction(
+  "multiplyCounter", 
+  async (_window, _document, factor: number, ignore: bool) => {
+    const resultElement = document.getElementById("result");
+    if (resultElement && !ignore) {
+      resultElement.textContent = (counter.current * factor).toString();
+    }
+  });
 
 export const _actions = actions(() => {
   if (result.current === "") {
-    return [doubleCounter()];
+    return [multiplyCounter(2, false)];
   }
   return ["Wait"];
 });

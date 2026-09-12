@@ -135,13 +135,13 @@ export class Runtime<S> {
     this.customActions[action.name] = action;
   }
 
-  async runCustomAction(name: string, args: unknown): Promise<void> {
+  async runCustomAction(name: string, args: unknown[]): Promise<void> {
     const action = this.customActions[name];
     if (!action) {
       return Promise.reject(
         new Error(`Custom action "${name}" is not registered.`),
       );
     }
-    return action.run(args);
+    return action.run(...args);
   }
 }

@@ -481,7 +481,7 @@ expression: bundle
     		if (!action) {
     			return Promise.reject(new Error(`Custom action "${name}" is not registered.`));
     		}
-    		return action.run(args);
+    		return action.run(...args);
     	}
     }
     module.exports.ExtractorCell = ExtractorCell;
