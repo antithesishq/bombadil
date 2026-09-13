@@ -1,12 +1,22 @@
 # The Bombadil Changelog
 
+## 0.7.5
+
+Bug fixes:
+
+* Custom action varags invocation (#312)
+
+Internal:
+
+* Lift `run` to top-level, no struct around (#311)
+
 ## 0.7.4
 
 Minor updates:
 
 * Update libghostty-rs to 0.2.1 (#303)
 
-Bug fixes;
+Bug fixes:
 
 * Handle SIGINT and stop test gracefully (#308, #309)
 * Add test and fix for action races (#307)
