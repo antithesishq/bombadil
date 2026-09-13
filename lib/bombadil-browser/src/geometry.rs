@@ -3,7 +3,18 @@ use std::ops::RangeInclusive;
 use rand::distr::uniform::SampleUniform;
 use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[derive(
+    Copy,
+    Clone,
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+)]
 pub struct Point<N = f64> {
     pub x: N,
     pub y: N,

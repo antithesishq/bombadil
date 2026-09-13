@@ -71,7 +71,9 @@ impl Format for StringGenerator {
                             write!(f, "..=")?;
                             write!(f, "\\u{{{}}}", range.end())?;
                         }
-                        CharSetEntry::Literal(_) => todo!(),
+                        CharSetEntry::Literal(string) => {
+                            write!(f, "{:?}", string)?;
+                        }
                     }
                 }
                 write!(f, ">")

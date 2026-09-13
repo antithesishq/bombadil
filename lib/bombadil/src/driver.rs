@@ -1,6 +1,6 @@
-use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::SystemTime;
+use std::{fmt::Debug, hash::Hasher};
 
 use anyhow::Result;
 use bombadil_schema::Time;
@@ -42,6 +42,8 @@ pub trait ActionTemplate<Action> {
     ) -> Action;
 
     fn accepts(&self, original: &Action) -> bool;
+
+    fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }
 
 pub trait InterfaceSession {
@@ -50,7 +52,9 @@ pub trait InterfaceSession {
         + Debug
         + Serialize
         + DeserializeOwned
+        + Format
         + FromGeneratedAction
+        + PartialEq
         + ActionTemplate<Self::Action>;
     type State: RunState + Debug;
 

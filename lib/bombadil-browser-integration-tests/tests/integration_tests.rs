@@ -238,7 +238,6 @@ impl<'a> BrowserIntegrationTest<'a> {
         let origin =
             Url::parse(&format!("http://localhost:{}/{}", port, name,))
                 .unwrap();
-        let user_data_directory = TempDir::new().unwrap();
 
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         let specification = match specification {
@@ -276,7 +275,6 @@ impl<'a> BrowserIntegrationTest<'a> {
                 executable: chromium::locate::executable().unwrap(),
                 headless: true,
                 no_sandbox: true,
-                user_data_directory: user_data_directory.path().to_path_buf(),
             },
         };
 

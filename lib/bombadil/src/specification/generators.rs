@@ -62,7 +62,7 @@ impl TextGenerator {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum StringGenerator {
     Text { length: RangeInclusive<u16> },
     Email,
@@ -70,7 +70,7 @@ pub enum StringGenerator {
     CharSet { entries: Vec<CharSetEntry> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum CharSetEntry {
     Range(RangeInclusive<u32>),
     Literal(String),
@@ -160,7 +160,7 @@ impl StringGenerator {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Regexp(pub String);
 
 #[cfg(test)]
