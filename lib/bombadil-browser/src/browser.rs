@@ -192,8 +192,8 @@ impl Drop for Browser {
 
 impl Browser {
     pub fn new(
-        origin: Url,
-        browser_options: BrowserOptions,
+        origin: &Url,
+        browser_options: &BrowserOptions,
         chromium: &Chromium,
     ) -> Result<Self> {
         let connection = cdp::Connection::connect(
@@ -298,7 +298,7 @@ impl Browser {
             let cookies = browser_options
                 .cookies
                 .iter()
-                .map(|cookie| build_cookie_param(cookie, &origin))
+                .map(|cookie| build_cookie_param(cookie, origin))
                 .collect::<Result<Vec<_>>>()?;
             connection.send(
                 network::SetCookiesParams::new(cookies),
@@ -415,7 +415,7 @@ impl Browser {
             target_id,
             session_id,
             frame_id,
-            origin,
+            origin: origin.clone(),
             create_target: browser_options.create_target,
             terminated,
         })

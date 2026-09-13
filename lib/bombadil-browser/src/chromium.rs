@@ -30,18 +30,18 @@ pub struct Chromium {
 }
 
 impl Chromium {
-    pub fn connect(remote_debugger: Url) -> Result<Self> {
+    pub fn connect(remote_debugger: &Url) -> Result<Self> {
         Ok(Chromium {
             web_socket_remote_debugger:
                 web_socket_remote_debugger_get_with_attempts(
-                    &remote_debugger,
+                    remote_debugger,
                     5,
                 )?,
             process_child: None,
         })
     }
 
-    pub fn launch(launch_options: LaunchOptions) -> Result<Self> {
+    pub fn launch(launch_options: &LaunchOptions) -> Result<Self> {
         let crash_dumps_dir = TempDir::new()?;
 
         let mut command = process::Command::new(

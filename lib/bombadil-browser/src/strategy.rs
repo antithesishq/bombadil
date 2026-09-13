@@ -1,4 +1,5 @@
 use crate::browser::actions::BrowserActionTemplate;
+use crate::driver::BrowserSession;
 use crate::render::format_action;
 use crate::url::is_within_domain;
 use anyhow::{Result, bail};
@@ -13,7 +14,6 @@ use url::Url;
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
     convert::ToSchema,
-    driver::BrowserDriver,
     runner::{ControlFlow, PropertyViolation, RunStrategy},
 };
 use bombadil_schema::markup;
@@ -119,7 +119,7 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
     }
 }
 
-impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserDriver>
+impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserSession>
     for TestStrategy<Writer, Rng>
 {
     type StopValue = TestResult;

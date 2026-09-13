@@ -6,7 +6,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow};
-use bombadil::driver::{DriverEvent, InterfaceDriver};
+use bombadil::driver::{DriverEvent, InterfaceDriver, InterfaceSession};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
@@ -170,7 +170,85 @@ impl ToInternal<TerminalAction> for terminal::TerminalAction {
     }
 }
 
+pub struct TerminalProgramOptions {
+    pub size: TerminalSize,
+    pub scrollback_lines_max: usize,
+    pub quiescence_timeout: Duration,
+    pub program: String,
+    pub arguments: Vec<String>,
+}
+
 pub struct TerminalDriver {
+    specification_bundle: Arc<str>,
+    program_options: TerminalProgramOptions,
+}
+
+impl TerminalDriver {
+    pub fn new(
+        specification: Specification,
+        program_options: TerminalProgramOptions,
+    ) -> Result<(Self, Verifier)> {
+        let specification_bundle: Arc<str> =
+            bundle(".", &specification.module_specifier)
+                .map_err(|e| anyhow!("bundle failed: {e}"))?
+                .into();
+
+        let verifier = Verifier::new(&specification_bundle)?;
+
+        Ok((
+            TerminalDriver {
+                specification_bundle,
+                program_options,
+            },
+            verifier,
+        ))
+    }
+}
+
+impl InterfaceDriver for TerminalDriver {
+    type Session = TerminalSession;
+
+    #[hotpath::measure]
+    fn initiate(&self) -> Result<Self::Session> {
+        let extractor = Extractors::initialize(&self.specification_bundle)?;
+
+        let mut terminal = Terminal::new(TerminalOptions {
+            cols: self.program_options.size.columns,
+            rows: self.program_options.size.rows,
+            max_scrollback: self.program_options.scrollback_lines_max,
+        })?;
+
+        let (process, output) = PtyProcess::spawn(
+            self.program_options.size,
+            &self.program_options.program,
+            &self.program_options.arguments,
+        )?;
+        let process = Rc::new(RefCell::new(process));
+
+        let callback_process = process.clone();
+        terminal.on_pty_write(move |_, data| {
+            let mut process = callback_process.borrow_mut();
+            process.write(data);
+        })?;
+
+        sleep(INITIATE_STARTUP_DELAY);
+
+        Ok(TerminalSession {
+            extractor,
+            terminal,
+            process,
+            output,
+            size: self.program_options.size,
+            quiescence_timeout: self.program_options.quiescence_timeout,
+            last_action: None,
+            render_state: RenderState::new()?,
+            row_iterator: RowIterator::new()?,
+            cell_iterator: CellIterator::new()?,
+        })
+    }
+}
+
+pub struct TerminalSession {
     extractor: Extractors,
     terminal: Terminal<'static, 'static>,
     process: Rc<RefCell<PtyProcess>>,
@@ -186,57 +264,7 @@ pub struct TerminalDriver {
     cell_iterator: CellIterator<'static>,
 }
 
-impl TerminalDriver {
-    #[hotpath::measure]
-    pub fn launch(
-        specification: Specification,
-        size: TerminalSize,
-        scrollback_lines_max: usize,
-        quiescence_timeout: Duration,
-        program: &str,
-        arguments: &[String],
-    ) -> Result<(Self, Verifier)> {
-        let bundle_code = bundle(".", &specification.module_specifier)
-            .map_err(|e| anyhow!("bundle failed: {e}"))?;
-
-        let extractor = Extractors::initialize(&bundle_code)?;
-        let verifier = Verifier::new(&bundle_code)?;
-
-        let program = program.to_string();
-        let arguments = arguments.to_vec();
-
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: size.columns,
-            rows: size.rows,
-            max_scrollback: scrollback_lines_max,
-        })?;
-
-        let (process, output) = PtyProcess::spawn(size, &program, &arguments)?;
-        let process = Rc::new(RefCell::new(process));
-
-        let callback_process = process.clone();
-        terminal.on_pty_write(move |_, data| {
-            let mut process = callback_process.borrow_mut();
-            process.write(data);
-        })?;
-
-        Ok((
-            Self {
-                extractor,
-                terminal,
-                process,
-                output,
-                size,
-                quiescence_timeout,
-                last_action: None,
-                render_state: RenderState::new()?,
-                row_iterator: RowIterator::new()?,
-                cell_iterator: CellIterator::new()?,
-            },
-            verifier,
-        ))
-    }
-
+impl TerminalSession {
     #[hotpath::measure]
     fn drain_output(&mut self, quiescence_timeout: Duration) {
         let deadline = Instant::now() + DRAIN_DURATION_MAX;
@@ -320,16 +348,10 @@ impl TerminalDriver {
     }
 }
 
-impl InterfaceDriver for TerminalDriver {
+impl InterfaceSession for TerminalSession {
     type Action = TerminalAction;
     type ActionTemplate = TerminalActionTemplate;
     type State = TerminalState;
-
-    #[hotpath::measure]
-    fn initiate(&mut self) -> Result<()> {
-        sleep(INITIATE_STARTUP_DELAY);
-        Ok(())
-    }
 
     fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();

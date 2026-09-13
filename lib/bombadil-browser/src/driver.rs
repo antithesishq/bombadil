@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
-use bombadil::driver::{DriverEvent, InterfaceDriver};
+use bombadil::driver::{DriverEvent, InterfaceDriver, InterfaceSession};
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
 use serde::Deserialize;
@@ -29,6 +29,46 @@ pub enum DebuggerOptions {
 }
 
 pub struct BrowserDriver {
+    pub origin: Url,
+    pub browser_options: BrowserOptions,
+    pub debugger_options: DebuggerOptions,
+    pub specification_bundle: Arc<str>,
+}
+
+impl InterfaceDriver for BrowserDriver {
+    type Session = BrowserSession;
+
+    fn initiate(&self) -> Result<Self::Session> {
+        let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
+            EDGE_MAP_SIZE,
+            "bombadil.tsv",
+        );
+
+        let chromium = match &self.debugger_options {
+            DebuggerOptions::External { remote_debugger } => {
+                Chromium::connect(remote_debugger)?
+            }
+            DebuggerOptions::Managed { launch_options } => {
+                Chromium::launch(launch_options)?
+            }
+        };
+        let mut browser =
+            Browser::new(&self.origin, &self.browser_options, &chromium)?;
+        browser.ensure_script_evaluated(&self.specification_bundle)?;
+
+        browser.initiate()?;
+
+        Ok(BrowserSession {
+            _chromium: chromium,
+            edges: vec![0u8; EDGE_MAP_SIZE],
+            coverage_map_offset,
+            browser,
+            specification_bundle: self.specification_bundle.clone(),
+        })
+    }
+}
+
+pub struct BrowserSession {
     // We need to own this throughout the lifecycle, becausing
     // dropping a managed Chromium value terminates the spawned
     // browser process.
@@ -37,50 +77,13 @@ pub struct BrowserDriver {
     edges: Vec<u8>,
     coverage_map_offset: usize,
     browser: Browser,
-    specification_bundle: String,
+    specification_bundle: Arc<str>,
 }
 
-impl BrowserDriver {
-    pub fn launch(
-        origin: Url,
-        browser_options: BrowserOptions,
-        debugger_options: DebuggerOptions,
-        specification_bundle: String,
-    ) -> Result<Self> {
-        let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
-            EDGE_MAP_SIZE,
-            "bombadil.tsv",
-        );
-
-        let chromium = match debugger_options {
-            DebuggerOptions::External { remote_debugger } => {
-                Chromium::connect(remote_debugger)?
-            }
-            DebuggerOptions::Managed { launch_options } => {
-                Chromium::launch(launch_options)?
-            }
-        };
-        let browser = Browser::new(origin, browser_options, &chromium)?;
-        browser.ensure_script_evaluated(&specification_bundle)?;
-
-        Ok(Self {
-            _chromium: chromium,
-            edges: vec![0u8; EDGE_MAP_SIZE],
-            coverage_map_offset,
-            browser,
-            specification_bundle,
-        })
-    }
-}
-
-impl InterfaceDriver for BrowserDriver {
+impl InterfaceSession for BrowserSession {
     type Action = BrowserAction;
     type ActionTemplate = BrowserActionTemplate;
     type State = BrowserState;
-
-    fn initiate(&mut self) -> Result<()> {
-        self.browser.initiate()
-    }
 
     fn terminate(&mut self) -> Result<()> {
         self.browser.terminate()
@@ -130,7 +133,8 @@ impl InterfaceDriver for BrowserDriver {
     ) -> Result<Vec<Snapshot>> {
         if !await_bundle_defined(&state).context("failed to run extractors")? {
             log::warn!("specification bundle not defined, reevaluating...");
-            state.evaluate_script(&self.specification_bundle)?;
+            let bundle: &str = &self.specification_bundle;
+            state.evaluate_script(bundle)?;
         }
         run_extractors(state, last_action)
     }

@@ -5,13 +5,14 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use anyhow::Result;
+use bombadil::driver::InterfaceDriver;
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Tree;
 use bombadil_schema::terminal::TerminalSize;
-use bombadil_terminal::driver::TerminalActionTemplate;
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
+use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;
 use tempfile::NamedTempFile;
@@ -35,7 +36,7 @@ fn setup() {
 struct TerminalIntegrationTest {
     seed: u64,
     program: String,
-    args: Vec<String>,
+    arguments: Vec<String>,
     size: TerminalSize,
     max_scrollback: usize,
     specification_source: String,
@@ -46,7 +47,7 @@ impl TerminalIntegrationTest {
         Self {
             seed: rand::random(),
             program: program.to_string(),
-            args: args.iter().map(|arg| arg.to_string()).collect(),
+            arguments: args.iter().map(|arg| arg.to_string()).collect(),
             size: TerminalSize {
                 columns: 80,
                 rows: 24,
@@ -68,7 +69,7 @@ impl TerminalIntegrationTest {
         let TerminalIntegrationTest {
             seed,
             program,
-            args,
+            arguments,
             size,
             max_scrollback,
             specification_source,
@@ -87,20 +88,22 @@ impl TerminalIntegrationTest {
             // Keep the spec file alive for the whole run.
             let _specification_file = specification_file;
             let result = (|| -> Result<u64> {
-                let (mut driver, verifier) = TerminalDriver::launch(
+                let (driver, verifier) = TerminalDriver::new(
                     specification,
-                    size,
-                    max_scrollback,
-                    Duration::from_millis(10),
-                    &program,
-                    &args,
+                    bombadil_terminal::driver::TerminalProgramOptions {
+                        size,
+                        scrollback_lines_max: max_scrollback,
+                        quiescence_timeout: Duration::from_millis(10),
+                        program,
+                        arguments,
+                    },
                 )?;
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
                 runner::run(
-                    &mut driver,
+                    &mut driver.initiate()?,
                     &mut strategy,
                     verifier,
                     Arc::new(AtomicBool::new(false)),
@@ -350,7 +353,7 @@ struct IntegrationTestStrategy {
     violations_count: u64,
 }
 
-impl RunStrategy<TerminalDriver> for IntegrationTestStrategy {
+impl RunStrategy<TerminalSession> for IntegrationTestStrategy {
     type StopValue = ();
 
     fn on_new_state(

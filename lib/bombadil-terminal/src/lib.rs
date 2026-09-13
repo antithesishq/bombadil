@@ -16,7 +16,7 @@ use bombadil_schema::terminal::{
 use owo_colors::{OwoColorize, XtermColors};
 use rand::{RngExt, TryRng};
 
-use crate::driver::{TerminalAction, TerminalActionTemplate, TerminalDriver};
+use crate::driver::{TerminalAction, TerminalActionTemplate, TerminalSession};
 use crate::state::TerminalState;
 use crate::trace::TraceWriter;
 
@@ -87,7 +87,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
     }
 }
 
-impl<Rng: TryRng + RngExt> RunStrategy<TerminalDriver>
+impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
     for TerminalStrategy<Rng>
 {
     type StopValue = ExitReason;

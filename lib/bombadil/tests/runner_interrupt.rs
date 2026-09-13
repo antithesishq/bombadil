@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json as json;
 use tempfile::NamedTempFile;
 
-use bombadil::driver::{DriverEvent, FromGeneratedAction, InterfaceDriver};
+use bombadil::driver::{
+    DriverEvent, FromGeneratedAction, InterfaceDriver, InterfaceSession,
+};
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
@@ -34,14 +36,26 @@ struct FakeDriver {
 }
 
 impl InterfaceDriver for FakeDriver {
+    type Session = FakeSession;
+
+    fn initiate(&self) -> Result<Self::Session> {
+        self.initiated.store(true, Ordering::SeqCst);
+        Ok(FakeSession {
+            terminated: self.terminated.clone(),
+            next_event_calls: self.next_event_calls.clone(),
+        })
+    }
+}
+
+struct FakeSession {
+    terminated: Arc<AtomicBool>,
+    next_event_calls: Arc<AtomicUsize>,
+}
+
+impl InterfaceSession for FakeSession {
     type Action = FakeAction;
     type ActionTemplate = FakeAction;
     type State = FakeState;
-
-    fn initiate(&mut self) -> Result<()> {
-        self.initiated.store(true, Ordering::SeqCst);
-        Ok(())
-    }
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
@@ -78,7 +92,7 @@ struct FakeStrategy {
     on_interrupted_calls: Arc<AtomicUsize>,
 }
 
-impl RunStrategy<FakeDriver> for FakeStrategy {
+impl RunStrategy<FakeSession> for FakeStrategy {
     type StopValue = ();
 
     fn on_new_state(
@@ -120,7 +134,7 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
     let next_event_calls = Arc::new(AtomicUsize::new(0));
     let on_interrupted_calls = Arc::new(AtomicUsize::new(0));
 
-    let mut driver = FakeDriver {
+    let driver = FakeDriver {
         initiated: initiated.clone(),
         terminated: terminated.clone(),
         next_event_calls: next_event_calls.clone(),
@@ -130,7 +144,8 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    runner::run(&mut driver, &mut strategy, dummy_verifier(), interrupted)
+    let mut session = driver.initiate().expect("driver failed to initiate");
+    runner::run(&mut session, &mut strategy, dummy_verifier(), interrupted)
         .expect("runner returned Err");
 
     assert!(

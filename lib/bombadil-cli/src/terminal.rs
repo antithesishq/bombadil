@@ -5,6 +5,7 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
+use bombadil::driver::InterfaceDriver;
 use bombadil::runner;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
@@ -12,7 +13,9 @@ use bombadil_schema::Time;
 use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalSize, TerminalTraceEntry,
 };
-use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
+use bombadil_terminal::driver::{
+    TerminalAction, TerminalDriver, TerminalProgramOptions,
+};
 use bombadil_terminal::trace::TraceWriter;
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use std::fs::File;
@@ -95,7 +98,7 @@ pub fn run(command: Command) {
             command,
         } => {
             let run_test = || -> Result<()> {
-                let (program, args) = match &command[..] {
+                let (program, arguments) = match &command[..] {
                     [program, args @ ..] => (program.as_str(), args),
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
@@ -134,14 +137,17 @@ pub fn run(command: Command) {
                     None => TerminalTestMode::RandomWalk,
                 };
 
-                let (mut driver, verifier) = TerminalDriver::launch(
-                    specification,
-                    TerminalSize { columns, rows },
-                    scrollback_lines_max as usize,
-                    Duration::from_millis(quiescence_timeout_ms),
-                    program,
-                    args,
-                )?;
+                let program_options = TerminalProgramOptions {
+                    size: TerminalSize { columns, rows },
+                    scrollback_lines_max: scrollback_lines_max as usize,
+                    quiescence_timeout: Duration::from_millis(
+                        quiescence_timeout_ms,
+                    ),
+                    program: program.to_string(),
+                    arguments: arguments.to_vec(),
+                };
+                let (driver, verifier) =
+                    TerminalDriver::new(specification, program_options)?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -165,7 +171,7 @@ pub fn run(command: Command) {
                     states_seen: 0,
                 };
                 let exit_reason = runner::run(
-                    &mut driver,
+                    &mut driver.initiate()?,
                     &mut strategy,
                     verifier,
                     interrupted,

@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::antithesis;
-use crate::driver::{DriverEvent, InterfaceDriver};
+use crate::driver::{DriverEvent, InterfaceSession};
 use crate::specification::convert::{
     ToSchema, violation_with_pretty_functions,
 };
@@ -43,47 +43,46 @@ pub struct PropertiesState<'a> {
     pub all_definite: bool,
 }
 
-pub trait RunStrategy<D: InterfaceDriver> {
+pub trait RunStrategy<Session: InterfaceSession> {
     type StopValue;
 
     fn on_new_state(
         &mut self,
-        state: &D::State,
-        tree: Tree<D::ActionTemplate>,
-        last_action: Option<&D::Action>,
+        state: &Session::State,
+        tree: Tree<Session::ActionTemplate>,
+        last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
-    ) -> Result<ControlFlow<Self::StopValue, D::Action>>;
+    ) -> Result<ControlFlow<Self::StopValue, Session::Action>>;
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue>;
 }
 
-pub fn run<D: InterfaceDriver, S: RunStrategy<D>>(
-    driver: &mut D,
-    strategy: &mut S,
+pub fn run<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
+    session: &mut Session,
+    strategy: &mut Strategy,
     verifier: Verifier,
     interrupted: Arc<AtomicBool>,
-) -> Result<S::StopValue> {
+) -> Result<Strategy::StopValue> {
     log::info!("starting test");
-    driver.initiate()?;
     log::debug!("driver initiated");
 
-    let result = run_test(driver, verifier, interrupted, strategy);
+    let result = run_test(session, verifier, interrupted, strategy);
 
-    driver.terminate()?;
+    session.terminate()?;
 
     log::debug!("test finished");
 
     result
 }
 
-fn run_test<D: InterfaceDriver, S: RunStrategy<D>>(
-    driver: &mut D,
+fn run_test<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
+    driver: &mut Session,
     mut verifier: Verifier,
     interrupted: Arc<AtomicBool>,
-    strategy: &mut S,
-) -> Result<S::StopValue> {
-    let mut last_action: Option<D::Action> = None;
+    strategy: &mut Strategy,
+) -> Result<Strategy::StopValue> {
+    let mut last_action: Option<Session::Action> = None;
     let mut violations = Vec::new();
 
     while !interrupted.load(Ordering::SeqCst) {
@@ -107,9 +106,9 @@ fn run_test<D: InterfaceDriver, S: RunStrategy<D>>(
                     );
                 }
 
-                let step_result = verifier.step::<D::ActionTemplate>(
+                let step_result = verifier.step::<Session::ActionTemplate>(
                     &snapshots,
-                    Time::from_system_time(D::state_timestamp(&state)),
+                    Time::from_system_time(Session::state_timestamp(&state)),
                 )?;
 
                 violations.clear();

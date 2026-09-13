@@ -23,6 +23,11 @@ impl FromGeneratedAction for json::Value {
 
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
+    type Session: InterfaceSession;
+    fn initiate(&self) -> Result<Self::Session>;
+}
+
+pub trait InterfaceSession {
     type Action: Clone + Debug + Serialize + DeserializeOwned;
     type ActionTemplate: Clone
         + Debug
@@ -30,8 +35,6 @@ pub trait InterfaceDriver {
         + DeserializeOwned
         + FromGeneratedAction;
     type State: Debug;
-
-    fn initiate(&mut self) -> Result<()>;
 
     fn terminate(&mut self) -> Result<()>;
 
