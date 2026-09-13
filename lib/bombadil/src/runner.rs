@@ -58,6 +58,10 @@ pub trait RunStrategy<Session: InterfaceSession> {
     fn on_interrupted(&mut self) -> Result<Self::StopValue>;
 }
 
+pub trait RunState {
+    fn timestamp(&self) -> Time;
+}
+
 pub fn run<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
     session: &mut Session,
     strategy: &mut Strategy,

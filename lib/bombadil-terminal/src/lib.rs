@@ -3,7 +3,8 @@ use std::io::Write;
 use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::render::format_timestamp;
+use bombadil::driver::{ActionTemplate, RunState};
+use bombadil::render::Formatted;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
@@ -24,7 +25,6 @@ pub mod driver;
 pub mod extractors;
 pub mod js;
 pub mod pty;
-pub mod render;
 pub mod state;
 pub mod trace;
 
@@ -191,12 +191,13 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
         }
 
         let action = self.pick_action(tree)?;
-        writeln!(
-            buffer,
-            "{} {}",
-            format_timestamp(state.timestamp, test_start),
-            render::format_action(&action),
-        )?;
+        let elapsed = std::time::Duration::from_micros(
+            state
+                .timestamp()
+                .as_micros()
+                .saturating_sub(test_start.as_micros()),
+        );
+        writeln!(buffer, "{} {}", Formatted(&elapsed), Formatted(&action))?;
 
         print!("{}", buffer);
         std::io::stdout().flush()?;

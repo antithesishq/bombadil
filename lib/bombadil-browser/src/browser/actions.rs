@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::FromGeneratedAction;
+use bombadil::driver::{ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
@@ -394,8 +394,8 @@ impl BrowserAction {
     }
 }
 
-impl BrowserActionTemplate {
-    pub fn generate<Rng: rand::TryRng + rand::RngExt>(
+impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
+    fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
         rng: &mut Rng,
     ) -> BrowserAction {
@@ -472,7 +472,7 @@ impl BrowserActionTemplate {
         }
     }
 
-    pub fn accepts(&self, original: &BrowserAction) -> bool {
+    fn accepts(&self, original: &BrowserAction) -> bool {
         match (self, original) {
             (BrowserAction::Back, BrowserAction::Back) => true,
             (BrowserAction::Forward, BrowserAction::Forward) => true,

@@ -6,12 +6,16 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow};
-use bombadil::driver::{DriverEvent, InterfaceDriver, InterfaceSession};
+use bombadil::driver::{
+    ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession,
+};
+use bombadil::render::Format;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::generators::StringGenerator;
 use bombadil::specification::verifier::{Specification, Verifier};
+use bombadil::styled;
 use bombadil_schema::terminal::{
     self, ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalCursor, TerminalCursorPosition, TerminalCursorVisualStyle,
@@ -53,8 +57,8 @@ pub enum TerminalAction<U16 = u16, Text = String> {
 pub type TerminalActionTemplate =
     TerminalAction<RangeInclusive<u16>, StringGenerator>;
 
-impl TerminalActionTemplate {
-    pub fn generate<Rng: rand::TryRng + rand::RngExt>(
+impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
+    fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
         rng: &mut Rng,
     ) -> TerminalAction {
@@ -77,7 +81,7 @@ impl TerminalActionTemplate {
         }
     }
 
-    pub fn accepts(&self, original: &TerminalAction) -> bool {
+    fn accepts(&self, original: &TerminalAction) -> bool {
         match (self, original) {
             (
                 TerminalAction::TypeText {
@@ -116,6 +120,52 @@ impl TerminalActionTemplate {
                 true
             }
             _ => false,
+        }
+    }
+}
+
+impl Format for TerminalAction {
+    fn format(
+        &self,
+        f: &mut std::fmt::Formatter,
+    ) -> std::prelude::v1::Result<(), std::fmt::Error> {
+        match self {
+            TerminalAction::TypeText { text } => {
+                write!(
+                    f,
+                    "{} {}",
+                    styled::maybe_bold("Typing".to_string()),
+                    styled::maybe_blue(format!("{:?}", text)),
+                )
+            }
+            TerminalAction::Resize { size } => {
+                write!(
+                    f,
+                    "{} (columns: {}, rows: {})",
+                    styled::maybe_bold("Resizing".to_string()),
+                    styled::maybe_blue(format!("{}", size.columns)),
+                    styled::maybe_blue(format!("{}", size.rows)),
+                )
+            }
+            TerminalAction::ScrollUp {} => {
+                write!(f, "{}", styled::maybe_bold("Scrolling up".to_string()))
+            }
+            TerminalAction::ScrollDown {} => {
+                write!(
+                    f,
+                    "{}",
+                    styled::maybe_bold("Scrolling down".to_string())
+                )
+            }
+            TerminalAction::Click { row, column } => {
+                write!(
+                    f,
+                    "{} at row {}, column {}",
+                    styled::maybe_bold("Clicking".to_string()),
+                    styled::maybe_blue(format!("{}", row)),
+                    styled::maybe_blue(format!("{}", column)),
+                )
+            }
         }
     }
 }
@@ -187,21 +237,16 @@ impl TerminalDriver {
     pub fn new(
         specification: Specification,
         program_options: TerminalProgramOptions,
-    ) -> Result<(Self, Verifier)> {
+    ) -> Result<Self> {
         let specification_bundle: Arc<str> =
             bundle(".", &specification.module_specifier)
                 .map_err(|e| anyhow!("bundle failed: {e}"))?
                 .into();
 
-        let verifier = Verifier::new(&specification_bundle)?;
-
-        Ok((
-            TerminalDriver {
-                specification_bundle,
-                program_options,
-            },
-            verifier,
-        ))
+        Ok(TerminalDriver {
+            specification_bundle,
+            program_options,
+        })
     }
 }
 
@@ -209,7 +254,10 @@ impl InterfaceDriver for TerminalDriver {
     type Session = TerminalSession;
 
     #[hotpath::measure]
-    fn initiate(&self) -> Result<Self::Session> {
+    fn initiate(
+        &self,
+    ) -> std::result::Result<(Self::Session, Verifier), anyhow::Error> {
+        let verifier = Verifier::new(&self.specification_bundle)?;
         let extractor = Extractors::initialize(&self.specification_bundle)?;
 
         let mut terminal = Terminal::new(TerminalOptions {
@@ -233,18 +281,21 @@ impl InterfaceDriver for TerminalDriver {
 
         sleep(INITIATE_STARTUP_DELAY);
 
-        Ok(TerminalSession {
-            extractor,
-            terminal,
-            process,
-            output,
-            size: self.program_options.size,
-            quiescence_timeout: self.program_options.quiescence_timeout,
-            last_action: None,
-            render_state: RenderState::new()?,
-            row_iterator: RowIterator::new()?,
-            cell_iterator: CellIterator::new()?,
-        })
+        Ok((
+            TerminalSession {
+                extractor,
+                terminal,
+                process,
+                output,
+                size: self.program_options.size,
+                quiescence_timeout: self.program_options.quiescence_timeout,
+                last_action: None,
+                render_state: RenderState::new()?,
+                row_iterator: RowIterator::new()?,
+                cell_iterator: CellIterator::new()?,
+            },
+            verifier,
+        ))
     }
 }
 

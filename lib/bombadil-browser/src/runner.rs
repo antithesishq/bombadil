@@ -5,7 +5,7 @@ use anyhow::Result;
 use bombadil::driver::InterfaceDriver;
 use bombadil::runner;
 use bombadil::specification::bundler::bundle;
-use bombadil::specification::verifier::{Specification, Verifier};
+use bombadil::specification::verifier::Specification;
 use url::Url;
 
 pub use bombadil::runner::{ControlFlow, PropertyViolation, RunStrategy};
@@ -23,7 +23,6 @@ pub fn launch<S: RunStrategy<BrowserSession>>(
 ) -> Result<S::StopValue> {
     let specification_bundle =
         Arc::from(bundle(".", &specification.module_specifier)?);
-    let verifier = Verifier::new(&specification_bundle)?;
 
     let driver = BrowserDriver {
         origin,
@@ -32,5 +31,7 @@ pub fn launch<S: RunStrategy<BrowserSession>>(
         specification_bundle,
     };
 
-    runner::run(&mut driver.initiate()?, strategy, verifier, interrupted)
+    let (mut session, verifier) = driver.initiate()?;
+
+    runner::run(&mut session, strategy, verifier, interrupted)
 }

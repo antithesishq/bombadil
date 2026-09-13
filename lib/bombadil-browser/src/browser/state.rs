@@ -1,5 +1,7 @@
 use crate::instrumentation::js::{EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE};
 use anyhow::{Context, Result};
+use bombadil::driver::RunState;
+use bombadil_schema::Time;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::{
     browser_protocol::{
@@ -52,6 +54,12 @@ pub struct BrowserState {
     pub coverage: Coverage,
     pub screenshot: Screenshot,
     pub resources: Resources,
+}
+
+impl RunState for BrowserState {
+    fn timestamp(&self) -> bombadil_schema::Time {
+        Time::from_system_time(self.timestamp)
+    }
 }
 
 pub type EdgeIndex = u32;

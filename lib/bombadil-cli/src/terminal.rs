@@ -146,7 +146,7 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let (driver, verifier) =
+                let driver =
                     TerminalDriver::new(specification, program_options)?;
 
                 let test_start = SystemTime::now();
@@ -170,8 +170,9 @@ pub fn run(command: Command) {
                     deadline,
                     states_seen: 0,
                 };
+                let (mut session, verifier) = driver.initiate()?;
                 let exit_reason = runner::run(
-                    &mut driver.initiate()?,
+                    &mut session,
                     &mut strategy,
                     verifier,
                     interrupted,

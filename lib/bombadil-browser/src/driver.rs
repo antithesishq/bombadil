@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context, Result};
 use bombadil::driver::{DriverEvent, InterfaceDriver, InterfaceSession};
 use bombadil::specification::domain::Snapshot;
+use bombadil::specification::verifier::Verifier;
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
@@ -38,7 +39,8 @@ pub struct BrowserDriver {
 impl InterfaceDriver for BrowserDriver {
     type Session = BrowserSession;
 
-    fn initiate(&self) -> Result<Self::Session> {
+    fn initiate(&self) -> Result<(Self::Session, Verifier)> {
+        let verifier = Verifier::new(&self.specification_bundle)?;
         let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
             EDGE_MAP_SIZE,
             "bombadil.tsv",
@@ -58,13 +60,16 @@ impl InterfaceDriver for BrowserDriver {
 
         browser.initiate()?;
 
-        Ok(BrowserSession {
-            _chromium: chromium,
-            edges: vec![0u8; EDGE_MAP_SIZE],
-            coverage_map_offset,
-            browser,
-            specification_bundle: self.specification_bundle.clone(),
-        })
+        Ok((
+            BrowserSession {
+                _chromium: chromium,
+                edges: vec![0u8; EDGE_MAP_SIZE],
+                coverage_map_offset,
+                browser,
+                specification_bundle: self.specification_bundle.clone(),
+            },
+            verifier,
+        ))
     }
 }
 

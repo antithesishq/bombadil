@@ -1,7 +1,9 @@
 use std::time::SystemTime;
 
-use bombadil_schema::terminal::{
-    ProcessExitStatus, TerminalCursor, TerminalGrid,
+use bombadil::driver::RunState;
+use bombadil_schema::{
+    Time,
+    terminal::{ProcessExitStatus, TerminalCursor, TerminalGrid},
 };
 use serde::Serialize;
 
@@ -16,4 +18,10 @@ pub struct TerminalState {
     pub cursor: TerminalCursor,
     pub exit_status: Option<ProcessExitStatus>,
     pub last_action: Option<TerminalAction>,
+}
+
+impl RunState for TerminalState {
+    fn timestamp(&self) -> bombadil_schema::Time {
+        Time::from_system_time(self.timestamp)
+    }
 }
