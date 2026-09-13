@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -9,7 +10,7 @@ use anyhow::{Result, anyhow};
 use bombadil::driver::{
     ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession,
 };
-use bombadil::render::Format;
+use bombadil::render::{Format, Formatted};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
@@ -122,9 +123,19 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
             _ => false,
         }
     }
+
+    fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        match self {
+            TerminalAction::TypeText { text } => text.hash(hasher),
+            TerminalAction::Resize { size } => size.hash(hasher),
+            TerminalAction::Click { row, column } => (row, column).hash(hasher),
+            TerminalAction::ScrollUp {} => "ScrollUp".hash(hasher),
+            TerminalAction::ScrollDown {} => "ScrollDown".hash(hasher),
+        }
+    }
 }
 
-impl Format for TerminalAction {
+impl<U16: Format, String: Format> Format for TerminalAction<U16, String> {
     fn format(
         &self,
         f: &mut std::fmt::Formatter,
@@ -135,7 +146,7 @@ impl Format for TerminalAction {
                     f,
                     "{} {}",
                     styled::maybe_bold("Typing".to_string()),
-                    styled::maybe_blue(format!("{:?}", text)),
+                    styled::maybe_blue(format!("{}", Formatted(text))),
                 )
             }
             TerminalAction::Resize { size } => {
@@ -143,8 +154,8 @@ impl Format for TerminalAction {
                     f,
                     "{} (columns: {}, rows: {})",
                     styled::maybe_bold("Resizing".to_string()),
-                    styled::maybe_blue(format!("{}", size.columns)),
-                    styled::maybe_blue(format!("{}", size.rows)),
+                    styled::maybe_blue(format!("{}", Formatted(&size.columns))),
+                    styled::maybe_blue(format!("{}", Formatted(&size.rows))),
                 )
             }
             TerminalAction::ScrollUp {} => {
@@ -162,8 +173,8 @@ impl Format for TerminalAction {
                     f,
                     "{} at row {}, column {}",
                     styled::maybe_bold("Clicking".to_string()),
-                    styled::maybe_blue(format!("{}", row)),
-                    styled::maybe_blue(format!("{}", column)),
+                    styled::maybe_blue(format!("{}", Formatted(row))),
+                    styled::maybe_blue(format!("{}", Formatted(column))),
                 )
             }
         }

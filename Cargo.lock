@@ -451,6 +451,7 @@ dependencies = [
  "boa_engine",
  "bombadil-ltl",
  "bombadil-schema",
+ "crossbeam-channel",
  "hegeltest",
  "hotpath",
  "include_dir",
