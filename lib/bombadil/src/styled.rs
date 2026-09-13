@@ -329,6 +329,13 @@ pub fn maybe_bold(s: String) -> String {
         s
     }
 }
+pub fn maybe_underline(s: String) -> String {
+    if supports_color() {
+        s.underline().to_string()
+    } else {
+        s
+    }
+}
 pub fn maybe_italic(s: String) -> String {
     if supports_color() {
         s.italic().to_string()

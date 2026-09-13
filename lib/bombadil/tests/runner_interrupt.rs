@@ -20,7 +20,9 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Verifier;
 use bombadil::tree::Tree;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord,
+)]
 struct FakeAction;
 
 impl Format for FakeAction {
@@ -42,6 +44,10 @@ impl ActionTemplate<FakeAction> for FakeAction {
 
     fn accepts(&self, _original: &FakeAction) -> bool {
         true
+    }
+
+    fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        hasher.write_u8(0)
     }
 }
 
