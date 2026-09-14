@@ -10,6 +10,12 @@ Runs in your local developer environment, in CI, and inside Antithesis.
 > on `0.x` versions. That said, it helps real users find real bugs, so 
 > why not give it a try!
 
+## Join us
+
+Do you want to join us on our quest to reinvent how the world thinks about software reliability?
+
+[We are hiring](https://antithesis.com/company/careers/?ashby_jid=88f9ee26-c86f-4625-9ac2-cb268678044a#open-roles) 
+
 ## Documentation
 
 Learn all about Bombadil with the following resources:
