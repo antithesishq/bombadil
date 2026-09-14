@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use hegel::TestCase;
+use hegel::{Generator, TestCase};
 
 use crate::{
     eval::*,
@@ -59,8 +59,8 @@ fn test_eventually_eventually_violation_doesnt_grow() {
 
 #[hegel::test(test_cases = 1000)]
 fn test_violation_doesnt_grow_larger_than_formula(tc: TestCase) {
-    let formula = tc.draw(syntax()).nnf();
-    let state = tc.draw(state());
+    let formula = tc.draw(syntax().print_as_debug()).nnf();
+    let state = tc.draw(state().print_as_debug());
     // We currently do not support nested unbounded always in the evaluator, even if it's
     // allowed syntactically.
     tc.assume(!has_nested_unbounded_always(&formula));

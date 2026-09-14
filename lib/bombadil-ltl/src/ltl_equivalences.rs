@@ -144,7 +144,7 @@ fn syntax() -> impl Generator<Syntax<TestDomain>> {
     ]);
 
     let result = syntax.generator();
-    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
+    syntax.set(one_of([leaf.boxed(), branch.boxed()]).print_as_debug());
     result
 }
 
@@ -277,9 +277,9 @@ fn check_equivalence(
 // X(φ ∨ ψ) ⇔ (X φ) ∨ (X ψ)
 #[hegel::test]
 fn test_next_disjunction_distributivity(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let ψ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let ψ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Next(Box::new(Syntax::Or(
         Box::new(φ.clone()),
@@ -302,9 +302,9 @@ fn test_next_disjunction_distributivity(tc: TestCase) {
 // X (φ ∧ ψ) ⇔ (X φ) ∧ (X ψ)
 #[hegel::test]
 fn test_next_conjunction_distributivity(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let ψ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let ψ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Next(Box::new(Syntax::And(
         Box::new(φ.clone()),
@@ -327,10 +327,10 @@ fn test_next_conjunction_distributivity(tc: TestCase) {
 // F(φ ∨ ψ) ⇔ (F φ) ∨ (F ψ)
 #[hegel::test]
 fn test_eventually_disjunction_distributivity(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let ψ = tc.draw(syntax());
-    let bound = tc.draw(bound());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let ψ = tc.draw(syntax().print_as_debug());
+    let bound = tc.draw(bound().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Eventually(
         Box::new(Syntax::Or(Box::new(φ.clone()), Box::new(ψ.clone()))),
@@ -353,10 +353,10 @@ fn test_eventually_disjunction_distributivity(tc: TestCase) {
 // G(φ ∧ ψ) ⇔ (G φ) ∧ (G ψ)
 #[hegel::test]
 fn test_always_conjunction_distributivity(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let ψ = tc.draw(syntax());
-    let bound = tc.draw(bound());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let ψ = tc.draw(syntax().print_as_debug());
+    let bound = tc.draw(bound().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Always(
         Box::new(Syntax::And(Box::new(φ.clone()), Box::new(ψ.clone()))),
@@ -381,8 +381,8 @@ fn test_always_conjunction_distributivity(tc: TestCase) {
 // X(¬φ) ⇔ ¬X(φ)
 #[hegel::test]
 fn test_next_self_duality(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left =
         Syntax::Next(Box::new(Syntax::Not(Box::new(φ.clone())))).nnf();
@@ -394,8 +394,8 @@ fn test_next_self_duality(tc: TestCase) {
 // G(¬φ) ⇔ ¬F(φ)
 #[hegel::test]
 fn test_always_eventually_duality(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left =
         Syntax::Always(Box::new(Syntax::Not(Box::new(φ.clone()))), None).nnf();
@@ -408,8 +408,8 @@ fn test_always_eventually_duality(tc: TestCase) {
 // F(φ) ⇔ F(F(φ))
 #[hegel::test]
 fn test_eventually_idempotency(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Eventually(Box::new(φ.clone()), None).nnf();
     let formula_right = Syntax::Eventually(
@@ -428,8 +428,8 @@ fn test_eventually_idempotency(tc: TestCase) {
 // G(φ) ⇔ G(G(φ))
 #[hegel::test]
 fn test_always_idempotency(tc: TestCase) {
-    let φ = tc.draw(syntax());
-    let trace = tc.draw(trace());
+    let φ = tc.draw(syntax().print_as_debug());
+    let trace = tc.draw(trace().print_as_debug());
 
     let formula_left = Syntax::Always(Box::new(φ.clone()), None).nnf();
     let formula_right = Syntax::Always(

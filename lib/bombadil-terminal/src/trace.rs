@@ -257,62 +257,71 @@ mod tests {
     use super::*;
 
     #[hegel::composite]
-    fn generate_color(tc: TestCase) -> TerminalColor {
-        tc.draw(one_of([
-            just(TerminalColor::None).boxed(),
-            just(TerminalColor::Palette(tc.draw(integers()))).boxed(),
-            just(TerminalColor::RGB {
-                r: tc.draw(integers()),
-                g: tc.draw(integers()),
-                b: tc.draw(integers()),
-            })
-            .boxed(),
-        ]))
+    fn generate_color(tc: &TestCase) -> TerminalColor {
+        tc.draw(
+            one_of([
+                just(TerminalColor::None).boxed(),
+                just(TerminalColor::Palette(tc.draw(integers()))).boxed(),
+                just(TerminalColor::RGB {
+                    r: tc.draw(integers()),
+                    g: tc.draw(integers()),
+                    b: tc.draw(integers()),
+                })
+                .boxed(),
+            ])
+            .print_as_debug(),
+        )
     }
 
     #[hegel::composite]
-    fn generate_underline(tc: TestCase) -> TerminalUnderline {
-        tc.draw(one_of([
-            just(TerminalUnderline::None).boxed(),
-            just(TerminalUnderline::Single).boxed(),
-            just(TerminalUnderline::Double).boxed(),
-            just(TerminalUnderline::Curly).boxed(),
-            just(TerminalUnderline::Dotted).boxed(),
-            just(TerminalUnderline::Dashed).boxed(),
-        ]))
+    fn generate_underline(tc: &TestCase) -> TerminalUnderline {
+        tc.draw(
+            one_of([
+                just(TerminalUnderline::None).boxed(),
+                just(TerminalUnderline::Single).boxed(),
+                just(TerminalUnderline::Double).boxed(),
+                just(TerminalUnderline::Curly).boxed(),
+                just(TerminalUnderline::Dotted).boxed(),
+                just(TerminalUnderline::Dashed).boxed(),
+            ])
+            .print_as_debug(),
+        )
     }
 
     #[hegel::composite]
-    fn generate_style(tc: TestCase) -> TerminalStyle {
+    fn generate_style(tc: &TestCase) -> TerminalStyle {
         TerminalStyle {
-            foreground_color: tc.draw(generate_color()),
-            background_color: tc.draw(generate_color()),
-            underline_color: tc.draw(generate_color()),
-            underline: tc.draw(generate_underline()),
+            foreground_color: tc.draw(generate_color().print_as_debug()),
+            background_color: tc.draw(generate_color().print_as_debug()),
+            underline_color: tc.draw(generate_color().print_as_debug()),
+            underline: tc.draw(generate_underline().print_as_debug()),
             attributes: TerminalAttributes(tc.draw(integers())),
         }
     }
 
     #[hegel::composite]
-    fn generate_cell(tc: TestCase) -> TerminalCell {
-        let style = tc.draw(generate_style());
+    fn generate_cell(tc: &TestCase) -> TerminalCell {
+        let style = tc.draw(generate_style().print_as_debug());
 
-        tc.draw(one_of([
-            just(TerminalCell::Occupied {
-                contents: SmallString::from(tc.draw(text().max_size(1))),
-                wide: tc.draw(booleans()),
-                style: style.clone(),
-            })
-            .boxed(),
-            just(TerminalCell::Continuation {
-                style: style.clone(),
-            })
-            .boxed(),
-            just(TerminalCell::Empty {
-                style: style.clone(),
-            })
-            .boxed(),
-        ]))
+        tc.draw(
+            one_of([
+                just(TerminalCell::Occupied {
+                    contents: SmallString::from(tc.draw(text().max_size(1))),
+                    wide: tc.draw(booleans()),
+                    style: style.clone(),
+                })
+                .boxed(),
+                just(TerminalCell::Continuation {
+                    style: style.clone(),
+                })
+                .boxed(),
+                just(TerminalCell::Empty {
+                    style: style.clone(),
+                })
+                .boxed(),
+            ])
+            .print_as_debug(),
+        )
     }
 
     #[hegel::test(test_cases = 10)]
@@ -322,7 +331,7 @@ mod tests {
             rows: tc.draw(integers().min_value(1).max_value(10)),
         };
         let cells = tc.draw(
-            vecs(generate_cell())
+            vecs(generate_cell().print_as_debug())
                 .min_size(size.cell_count() as usize)
                 .max_size(size.cell_count() as usize),
         );

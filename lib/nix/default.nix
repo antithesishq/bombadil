@@ -16,6 +16,7 @@
   libiconv ? null,
   craneLib,
   craneLibStatic,
+  libhegelC,
   darwin ? null,
   xcbuild ? null,
   # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
@@ -116,34 +117,7 @@ let
       done
     '';
 
-  # hegeltest-c's build.rs only exists to verify that the checked-in
-  # include/hegel.h matches what cbindgen would regenerate from src/lib.rs
-  # — a drift check for upstream's own CI, not something we consume. It
-  # runs `cargo metadata` against the vendored manifest, which fails when
-  # any transitive (dashu-int, cbindgen, ...) has been bumped between
-  # hegeltest's publish and our `cargo update`. The build.rs already has
-  # an escape hatch for `cargo package`'s isolated target dir; vendored
-  # copies hit the same class of problem from a path that hatch doesn't
-  # match. Stub the build.rs so cbindgen never runs — we ship Rust
-  # bindings, the header is for C/C++ consumers we don't have.
-  cargoVendorDir = craneLib.vendorCargoDeps {
-    inherit src;
-    overrideVendorCargoPackage =
-      pkg: drv:
-      if lib.hasPrefix "hegeltest" pkg.name then
-        drv.overrideAttrs (old: {
-          postInstall = (old.postInstall or "") + ''
-            # Only overwrite if the crate actually ships a build.rs.
-            # hegeltest-c is the one we need to neutralize; siblings
-            # don't have one and we don't want to add it.
-            if [ -f $out/build.rs ]; then
-              echo 'fn main() {}' > $out/build.rs
-            fi
-          '';
-        })
-      else
-        drv;
-  };
+  cargoVendorDir = craneLib.vendorCargoDeps { inherit src; };
 
   commonArgs = {
     inherit src cargoVendorDir;
@@ -157,6 +131,7 @@ let
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
     cargoExtraArgs = "--workspace --exclude bombadil-inspect";
+    HEGEL_C_LIB_DIR = "${libhegelC}/lib";
   }
   // ghosttyEnv;
   depsArgs = commonArgs // {

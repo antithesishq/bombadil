@@ -102,7 +102,7 @@ mod tests {
     /// starting at 1. It assumes the root will always be created with the value 0.
     /// The parent ID in the pairs are within [0, child).
     #[hegel::composite]
-    fn insertions(tc: TestCase) -> Vec<(u8, u8)> {
+    fn insertions(tc: &TestCase) -> Vec<(u8, u8)> {
         let mut result = vec![];
         for id in 1..tc.draw(integers().min_value(1)) {
             let parent = tc.draw(integers().min_value(0).max_value(id - 1));

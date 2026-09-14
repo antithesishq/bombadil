@@ -285,6 +285,6 @@ pub fn syntax<Snapshot: State + 'static>()
     ]);
 
     let result = syntax.generator();
-    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
+    syntax.set(one_of([leaf.boxed(), branch.boxed()]).print_as_debug());
     result
 }
