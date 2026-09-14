@@ -4,7 +4,7 @@ use crate::schema::{
     EventuallyViolation, Formula, PropertyViolation, Snapshot, Time, Violation,
 };
 use serde_json::Value;
-use willow_tree::{NodeId, Tree};
+use stdx::tree::{NodeId, Tree};
 
 #[derive(Debug, Clone)]
 pub enum Node {

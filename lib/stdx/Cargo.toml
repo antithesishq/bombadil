@@ -1,5 +1,5 @@
 [package]
-name = "willow-tree"
+name = "stdx"
 version.workspace = true
 edition.workspace = true
 

@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use bombadil_schema::Time;
 use bombadil_schema::markup::{Layout, Markup, Node};
 use serde_json::Value;
-use willow_tree::NodeId;
+use stdx::tree::NodeId;
 use yew::prelude::*;
 
 use crate::duration::{FormatDurationOptions, format_duration};

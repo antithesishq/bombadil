@@ -15,8 +15,8 @@ members = [
     "lib/cdp/pdl",
     "lib/cdp/protocol",
     "lib/small-string",
+    "lib/stdx",
     "lib/typescript-reference",
-    "lib/willow-tree",
 ]
 resolver = "2"
 

@@ -92,7 +92,7 @@ impl<T> Node<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::NodeId;
+    use super::NodeId;
 
     use super::Tree;
     use hegel::{TestCase, generators::integers};

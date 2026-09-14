@@ -464,10 +464,10 @@ dependencies = [
  "regex-syntax",
  "serde",
  "serde_json",
+ "stdx",
  "supports-color 3.0.2",
  "tempfile",
  "url",
- "willow-tree",
 ]
 
 [[package]]
@@ -576,10 +576,10 @@ dependencies = [
  "js-sys",
  "serde",
  "serde_json",
+ "stdx",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "willow-tree",
  "yew",
 ]
 
@@ -601,7 +601,7 @@ dependencies = [
  "serde",
  "serde_json",
  "small-string",
- "willow-tree",
+ "stdx",
 ]
 
 [[package]]
@@ -4641,6 +4641,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
+name = "stdx"
+version = "0.7.5"
+dependencies = [
+ "hegeltest",
+]
+
+[[package]]
 name = "str_indices"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5579,13 +5586,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "willow-tree"
-version = "0.7.5"
-dependencies = [
- "hegeltest",
 ]
 
 [[package]]
