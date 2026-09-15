@@ -79,23 +79,34 @@ const tickLabels = extract((state) =>
   ),
 );
 
+const isZoomed = extract((state) =>
+  Boolean(state.document.querySelector(".reset-zoom")),
+);
+
 export const eventuallyShowsActions = always(
   eventually(() => actionEntries.current.length > 0).within(2, "seconds"),
 );
 
-// Regression guard for #171: the timeline axis must span exactly the action
-// times. The first tick is the chart origin (00:00) and the last tick is the
-// final action's timestamp. Tick labels omit milliseconds, so only the
-// non-fractional part of the action timestamp is compared. A unit mismatch
-// (micros rendered as millis) scaled the labels by 1000x, which this
-// property catches.
+// Regression guard for #171: when viewing the full timeline, the axis must
+// span exactly the action times. Short timelines show milliseconds, while
+// longer ones omit them. A unit mismatch (micros rendered as millis) scaled
+// the labels by 1000x, which this property catches.
 export const timelineTicksMatchActionTimes = always(() => {
   if (isLoading()) return true;
+  if (isZoomed.current) return true;
   const ticks = tickLabels.current;
   const entries = actionEntries.current;
   if (!ticks?.length || entries.length === 0) return true;
-  const lastActionTime = entries[entries.length - 1]?.time?.split(".")[0];
-  return ticks[0] === "00:00" && ticks[ticks.length - 1] === lastActionTime;
+
+  const lastActionTime = entries[entries.length - 1]?.time;
+  if (!lastActionTime) return true;
+  const includeMillis = ticks[0]?.includes(".");
+  const expectedStart = includeMillis ? "00:00.000" : "00:00";
+  const expectedEnd = includeMillis
+    ? lastActionTime
+    : lastActionTime.split(".")[0];
+
+  return ticks[0] === expectedStart && ticks[ticks.length - 1] === expectedEnd;
 });
 
 export const clickTimelineMovesCursorCorrectly = always(() => {
