@@ -36,7 +36,7 @@ impl Format for f64 {
 
 impl Format for String {
     fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 

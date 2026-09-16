@@ -67,6 +67,25 @@ impl<T, const N: usize> RingBuffer<T, N> {
     }
 }
 
+struct DebugValues<'a, T, const N: usize>(&'a RingBuffer<T, N>);
+
+impl<'a, T: std::fmt::Debug, const N: usize> std::fmt::Debug
+    for DebugValues<'a, T, N>
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.0.iter()).finish()
+    }
+}
+
+impl<T: std::fmt::Debug, const N: usize> std::fmt::Debug for RingBuffer<T, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RingBuffer")
+            .field("len", &self.len)
+            .field("values", &DebugValues(self))
+            .finish()
+    }
+}
+
 impl<T, const N: usize> Default for RingBuffer<T, N> {
     fn default() -> Self {
         Self::new()
