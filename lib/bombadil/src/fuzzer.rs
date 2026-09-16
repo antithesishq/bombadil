@@ -3,12 +3,11 @@ use bombadil_schema::Time;
 use crossbeam_channel as mpmc;
 use std::{
     collections::{BTreeMap, HashMap},
-    fmt::Display,
-    fmt::Write as _,
+    fmt::{Display, Write as _},
     hash::{DefaultHasher, Hasher},
     io::Write,
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -32,7 +31,7 @@ use crate::{
 const FUZZ_WORKER_COUNT: usize = 8;
 const FUZZ_WORKER_ACTIONS_COUNT_MAX: usize = 32;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct WorkerId(usize);
 
 impl Display for WorkerId {
@@ -41,7 +40,7 @@ impl Display for WorkerId {
     }
 }
 
-#[derive(Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
 struct RunId(usize);
 
 impl RunId {
@@ -66,6 +65,7 @@ enum WorkerMessage<Session: InterfaceSession> {
     },
 }
 
+#[derive(Debug)]
 struct Worker<D: InterfaceDriver> {
     worker_id: WorkerId,
     run_id: RunId,
@@ -88,6 +88,12 @@ impl<D: InterfaceDriver> Worker<D> {
     }
 }
 
+#[derive(Debug)]
+struct FuzzState<D: InterfaceDriver> {
+    workers: Vec<Worker<D>>,
+    property_violation_counts: BTreeMap<String, u64>,
+}
+
 pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
     mut rng: Rng,
     driver: Arc<D>,
@@ -97,10 +103,8 @@ pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
     swarm: bool,
 ) -> Result<()>
 where
-    <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send,
+    <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
 {
-    use std::fmt::Write;
-
     let fuzz_start = Time::from_system_time(SystemTime::now());
     let fuzz_deadline = fuzz_start + time_limit_fuzz;
     let (worker_tx, worker_rx) = mpmc::unbounded();
@@ -126,8 +130,18 @@ where
                 run_id,
                 swarm,
             };
-            if let Err(error) = fuzz_worker_thread.run() {
-                log::error!("run failed: {error:#}");
+            let outcome = std::panic::catch_unwind(
+                std::panic::AssertUnwindSafe(|| fuzz_worker_thread.run()),
+            );
+            if let Err(payload) = outcome {
+                let msg = payload
+                    .downcast_ref::<&'static str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| {
+                        "<non-string panic payload>".to_string()
+                    });
+                log::error!("worker {worker_id} panicked: {msg}");
             }
         });
         workers.push(Worker {
@@ -142,120 +156,163 @@ where
     // finished, and the the loop below will never exit.
     drop(worker_tx);
 
-    let mut property_violation_counts: BTreeMap<String, u64> = BTreeMap::new();
+    let fuzz_state = Arc::new(RwLock::new(FuzzState {
+        workers,
+        property_violation_counts: BTreeMap::new(),
+    }));
+
+    let render_loop_handle =
+        render_loop_spawn(interrupted.clone(), fuzz_state.clone());
+
     while let Ok(message) = worker_rx.recv()
         && !interrupted.load(Ordering::SeqCst)
     {
         match message {
             WorkerMessage::Step {
-                worker_id,
+                worker_id: WorkerId(worker_index),
                 run_id,
                 time_relative,
                 action_selected,
                 violations,
             } => {
-                let worker = &mut workers[worker_id.0];
-                if run_id > worker.run_id {
-                    worker.reset(run_id);
+                let mut state =
+                    fuzz_state.write().expect("failed to acquire state lock");
+                if run_id > state.workers[worker_index].run_id {
+                    state.workers[worker_index].reset(run_id);
                 }
 
-                worker.actions.push((time_relative, action_selected));
-                worker.violations_count += violations.len() as u64;
+                state.workers[worker_index]
+                    .actions
+                    .push((time_relative, action_selected));
+                state.workers[worker_index].violations_count +=
+                    violations.len() as u64;
                 for violation in violations {
                     log::info!(
                         "{}/{}, violation of {}: {:?}",
-                        worker.worker_id,
-                        worker.run_id,
+                        state.workers[worker_index].worker_id,
+                        state.workers[worker_index].run_id,
                         violation.name,
                         violation.violation
                     );
-                    *property_violation_counts
+                    *state
+                        .property_violation_counts
                         .entry(violation.name)
                         .or_default() += 1;
                 }
             }
-        }
-
-        let mut buffer = String::new();
-        const SEP: &str = "  ";
-        write!(buffer, "\x1b[2J\x1b[H")?;
-        writeln!(
-            buffer,
-            "{}",
-            maybe_bold(format!(
-                "{:^6}{SEP}{:^3}{SEP}{:^10}{SEP}{:>4}{SEP}{:^9}{SEP}Action",
-                "Worker", "Run", "Violations", "SPS", "Time"
-            ))
-        )?;
-        for worker in &workers {
-            write!(buffer, "{:^6}", worker.worker_id.0)?;
-            write!(buffer, "{SEP}")?;
-            write!(buffer, "{:^3}", worker.run_id.0)?;
-            write!(buffer, "{SEP}")?;
-            write!(buffer, "{:^10}", worker.violations_count)?;
-            write!(buffer, "{SEP}")?;
-            if let Some((action_last_time, action_last)) = worker.actions.last()
-            {
-                if worker.actions.len() > 1
-                    && let Some(states_per_second) =
-                        worker.actions.first().map(|(action_first_time, _)| {
-                            (worker.actions.len() as f64)
-                                / action_last_time
-                                    .checked_sub(*action_first_time)
-                                    .expect("action times are not ordered")
-                                    .as_secs_f64()
-                        })
-                {
-                    write!(buffer, "{:>4.1}", states_per_second)?;
-                } else {
-                    write!(buffer, "{:>4}", "")?;
-                }
-                write!(buffer, "{SEP}")?;
-
-                writeln!(
-                    buffer,
-                    "{:>9}{SEP}{}",
-                    Formatted(action_last_time),
-                    Formatted(action_last)
-                )?;
-            } else {
-                writeln!(buffer)?;
-            }
-        }
-        writeln!(buffer)?;
-        if !property_violation_counts.is_empty() {
-            writeln!(
-                buffer,
-                "{}\n",
-                maybe_bold("Violated properties:".to_string()),
-            )?;
-        }
-        for (property_name, count) in &property_violation_counts {
-            writeln!(
-                buffer,
-                "{}: {}",
-                property_name.clone(),
-                if *count > 0 {
-                    maybe_red(format!("{}", count))
-                } else {
-                    "0".into()
-                },
-            )?;
-        }
-
-        print!("{}", buffer);
-        std::io::stdout().flush()?;
+        };
     }
     println!("Shutting down...");
+    interrupted.store(true, Ordering::SeqCst);
+    render_loop_handle
+        .join()
+        .map_err(|_| anyhow!("render loop thread panicked"))??;
 
-    for worker in workers {
-        worker
-            .handle
-            .join()
-            .map_err(|_| anyhow!("fuzz run thread panicked"))?;
+    {
+        let state = Arc::try_unwrap(fuzz_state)
+            .unwrap_or_else(|_| panic!("fuzz state still has outstanding refs"))
+            .into_inner()
+            .expect("failed to get inner fuzz state");
+        for worker in state.workers {
+            worker
+                .handle
+                .join()
+                .map_err(|_| anyhow!("fuzz run thread panicked"))?;
+        }
     }
 
     Ok(())
+}
+
+fn render_loop_spawn<D: InterfaceDriver + 'static>(
+    interrupted: Arc<AtomicBool>,
+    state: Arc<RwLock<FuzzState<D>>>,
+) -> thread::JoinHandle<Result<()>>
+where
+    <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
+{
+    thread::spawn(move || {
+        while !interrupted.load(Ordering::SeqCst) {
+            thread::sleep(Duration::from_millis(100));
+            let Ok(state) = state.try_read() else {
+                log::warn!("failed to acquire state lock, skipping render");
+                continue;
+            };
+            let mut buffer = String::new();
+            const SEP: &str = "  ";
+            write!(buffer, "\x1b[2J\x1b[H")?;
+            writeln!(
+                buffer,
+                "{}",
+                maybe_bold(format!(
+                    "{:^6}{SEP}{:^3}{SEP}{:^10}{SEP}{:>5}{SEP}{:^9}{SEP}Action",
+                    "Worker", "Run", "Violations", "SPS", "Time"
+                ))
+            )?;
+            for worker in &state.workers {
+                write!(buffer, "{:^6}", worker.worker_id.0)?;
+                write!(buffer, "{SEP}")?;
+                write!(buffer, "{:^3}", worker.run_id.0)?;
+                write!(buffer, "{SEP}")?;
+                write!(buffer, "{:^10}", worker.violations_count)?;
+                write!(buffer, "{SEP}")?;
+                if let Some((action_last_time, action_last)) =
+                    worker.actions.last()
+                {
+                    if worker.actions.len() > 1
+                        && let Some(states_per_second) = worker
+                            .actions
+                            .first()
+                            .map(|(action_first_time, _)| {
+                                (worker.actions.len() as f64)
+                                    / action_last_time
+                                        .checked_sub(*action_first_time)
+                                        .expect("action times are not ordered")
+                                        .as_secs_f64()
+                            })
+                    {
+                        write!(buffer, "{:>5.1}", states_per_second)?;
+                    } else {
+                        write!(buffer, "{:>5}", "")?;
+                    }
+                    write!(buffer, "{SEP}")?;
+
+                    writeln!(
+                        buffer,
+                        "{:>9}{SEP}{}",
+                        Formatted(action_last_time),
+                        Formatted(action_last)
+                    )?;
+                } else {
+                    writeln!(buffer)?;
+                }
+            }
+            writeln!(buffer)?;
+            if !state.property_violation_counts.is_empty() {
+                writeln!(
+                    buffer,
+                    "{}\n",
+                    maybe_bold("Violated properties:".to_string()),
+                )?;
+            }
+            for (property_name, count) in &state.property_violation_counts {
+                writeln!(
+                    buffer,
+                    "{}: {}",
+                    property_name.clone(),
+                    if *count > 0 {
+                        maybe_red(format!("{}", count))
+                    } else {
+                        "0".into()
+                    },
+                )?;
+            }
+
+            print!("{}", buffer);
+            std::io::stdout().flush()?;
+        }
+        Ok(())
+    })
 }
 
 struct FuzzWorkerThread<D: InterfaceDriver> {
@@ -272,10 +329,15 @@ struct FuzzWorkerThread<D: InterfaceDriver> {
 
 impl<D: InterfaceDriver> FuzzWorkerThread<D> {
     #[hotpath::measure]
-    fn run(mut self) -> Result<()> {
+    fn run(mut self) {
         let mut rng = StdRng::seed_from_u64(self.seed);
 
         while !self.interrupted.load(Ordering::SeqCst) {
+            log::info!(
+                "worker {} entering iteration (run_id={})",
+                self.worker_id,
+                self.run_id
+            );
             let test_start = Time::from_system_time(SystemTime::now());
             if test_start > self.fuzz_deadline {
                 break;
@@ -300,15 +362,20 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                 mode,
                 excluded: HashMap::new(),
             };
-            let (mut session, verifier) = self.driver.initiate()?;
+            let (mut session, verifier) =
+                self.driver.initiate().expect("driver initiate failed");
 
             let result = runner::run(
                 &mut session,
                 &mut strategy,
                 verifier,
                 self.interrupted.clone(),
-            )?;
-            log::debug!("worker {}: got result: {result:?}", self.worker_id);
+            );
+            log::info!(
+                "worker {} finished runner::run (run_id={}, result={result:?})",
+                self.worker_id,
+                self.run_id
+            );
 
             if log::log_enabled!(log::Level::Debug) && self.swarm {
                 for (hash, templates) in strategy.excluded {
@@ -317,19 +384,22 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                         buffer,
                         "worker {} excluded with hash {hash}): ",
                         self.worker_id
-                    )?;
+                    )
+                    .expect("write failed");
                     for template in templates {
-                        write!(buffer, "\n{}, ", Formatted(&template))?;
+                        write!(buffer, "\n{}, ", Formatted(&template))
+                            .expect("write failed");
                     }
                     log::debug!("{}", buffer);
                 }
             }
             self.run_id = self.run_id.next();
+
+            log::debug!("terminating session");
             if let Err(error) = session.terminate() {
                 log::error!("failed to terminate session: {:#}", error);
             }
         }
-        Ok(())
     }
 }
 
