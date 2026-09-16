@@ -9,6 +9,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    hegel = {
+      url = "github:hegeldev/hegel-rust?dir=nix&ref=v0.45.2";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   nixConfig = {
@@ -23,6 +27,7 @@
       flake-utils,
       crane,
       rust-overlay,
+      hegel,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -67,8 +72,21 @@
           rev = "a887df42c56f6de86c0fe6da9c4eeca37931e083";
           sha256 = "sha256-1Zz65SCk3rkJ9+Q0MmyNOTNiDSLBRIHRd3IvFM4iNXw=";
         };
+        # Override postInstall to keep the native `libhegel_c.{so,dylib}`
+        # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
+        libhegelC = (hegel.lib.mkLibhegel { inherit pkgs; }).overrideAttrs (_: {
+          postInstall =
+            let
+              ext = if pkgs.stdenv.hostPlatform.isDarwin then "dylib" else "so";
+            in
+            ''
+              mkdir -p $out/lib
+              cp "$(find target -name 'libhegel_c.${ext}' -path '*/release/*' | head -n1)" \
+                $out/lib/libhegel_c.${ext}
+            '';
+        });
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib craneLibStatic ghosttySrc;
+          inherit craneLib craneLibStatic ghosttySrc libhegelC;
         };
       in
       {

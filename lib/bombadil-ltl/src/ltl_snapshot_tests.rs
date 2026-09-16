@@ -413,7 +413,7 @@ fn nontemporal_syntax() -> impl Generator<Syntax<SnapshotDomain>> {
     ]);
 
     let result = syntax.generator();
-    syntax.set(one_of([leaf.boxed(), branch.boxed()]));
+    syntax.set(one_of([leaf.boxed(), branch.boxed()]).print_as_debug());
     result
 }
 
@@ -493,7 +493,7 @@ fn actual_snapshot_indices(value: &Value<SnapshotDomain>) -> BTreeSet<usize> {
 
 #[hegel::test]
 fn test_true_snapshots_equal_truth_contributing(tc: TestCase) {
-    let syntax = tc.draw(nontemporal_syntax());
+    let syntax = tc.draw(nontemporal_syntax().print_as_debug());
     let state_x = tc.draw(booleans());
     let state_y = tc.draw(booleans());
     let formula = syntax.nnf();

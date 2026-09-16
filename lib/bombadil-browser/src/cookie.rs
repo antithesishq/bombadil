@@ -211,8 +211,8 @@ mod tests {
 
     #[hegel::test]
     fn roundtrip_display_parse(tc: TestCase) {
-        let name = tc.draw(cookie_name());
-        let value = tc.draw(cookie_value());
+        let name = tc.draw(cookie_name().print_as_debug());
+        let value = tc.draw(cookie_value().print_as_debug());
         let url = Url::parse(&tc.draw(urls())).unwrap_or_else(|_| {
             tc.reject();
         });
