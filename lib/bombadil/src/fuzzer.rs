@@ -246,6 +246,7 @@ where
                 buffer,
                 "{}",
                 maybe_bold(format!(
+                    "{:^6}{SEP}{:^3}{SEP}{:^10}{SEP}{:^6}{SEP}{:^9}{SEP}Action",
                     "Worker", "Run", "Violations", "SPS", "Time"
                 ))
             )?;
@@ -271,7 +272,9 @@ where
                                         .as_secs_f64()
                             })
                     {
+                        write!(buffer, "{:>6.1}", states_per_second)?;
                     } else {
+                        write!(buffer, "{:>6}", "")?;
                     }
                     write!(buffer, "{SEP}")?;
 
