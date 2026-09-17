@@ -46,6 +46,11 @@ const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(1000);
 /// time.
 const DRAIN_DURATION_MAX: Duration = Duration::from_secs(1);
 
+/// If no output has arrived from the child for this long AND input bytes
+/// have been dropped since the last output, treat the child as hung and
+/// surface it as a driver error (which ends the current run).
+const HANG_QUIET_THRESHOLD: Duration = Duration::from_secs(5);
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum TerminalAction<U16 = u16, Text = String> {
     TypeText { text: Text },
@@ -301,6 +306,7 @@ impl InterfaceDriver for TerminalDriver {
                 size: self.program_options.size,
                 quiescence_timeout: self.program_options.quiescence_timeout,
                 last_action: None,
+                last_output_at: Instant::now(),
                 render_state: RenderState::new()?,
                 row_iterator: RowIterator::new()?,
                 cell_iterator: CellIterator::new()?,
@@ -318,6 +324,7 @@ pub struct TerminalSession {
     size: TerminalSize,
     quiescence_timeout: Duration,
     last_action: Option<TerminalAction>,
+    last_output_at: Instant,
     // Reused across frames: the ghostty render API is stateful and
     // optimized for repeated updates (dirty-region tracking), so these
     // are created once instead of per extracted state.
@@ -328,18 +335,23 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     #[hotpath::measure]
-    fn drain_output(&mut self, quiescence_timeout: Duration) {
+    fn drain_output(&mut self, quiescence_timeout: Duration) -> bool {
         let deadline = Instant::now() + DRAIN_DURATION_MAX;
+        let mut received_any = false;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
             match self.output.read_until(quiescence_timeout.min(remaining)) {
-                ReadResult::Chunk(data) => self.terminal.vt_write(&data),
+                ReadResult::Chunk(data) => {
+                    received_any = true;
+                    self.terminal.vt_write(&data);
+                }
                 ReadResult::Empty | ReadResult::Ended => break,
             }
         }
+        received_any
     }
 
     #[hotpath::measure]
@@ -422,7 +434,26 @@ impl InterfaceSession for TerminalSession {
 
     #[hotpath::measure]
     fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
-        self.drain_output(self.quiescence_timeout);
+        let received = self.drain_output(self.quiescence_timeout);
+        if received {
+            self.last_output_at = Instant::now();
+        }
+        let quiet_for =
+            Instant::now().saturating_duration_since(self.last_output_at);
+        if quiet_for > HANG_QUIET_THRESHOLD {
+            let dropped_since_last_output = self
+                .process
+                .borrow()
+                .last_input_dropped()
+                .map(|t| t > self.last_output_at)
+                .unwrap_or(false);
+            if dropped_since_last_output {
+                return Some(DriverEvent::Error(Arc::new(anyhow!(
+                    "SUT appears hung: no output for {:.1}s and input has been dropped since",
+                    quiet_for.as_secs_f64()
+                ))));
+            }
+        }
         match self.extract_state() {
             Ok(state) => Some(DriverEvent::StateChanged(Arc::new(state))),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),

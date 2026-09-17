@@ -2,6 +2,7 @@ use std::{
     ffi::OsStr,
     io::{Read, Write},
     sync::mpsc,
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub struct PtyProcess {
     master: Option<Box<dyn MasterPty + Send + 'static>>,
     reader: Option<std::thread::JoinHandle<()>>,
     writer: Option<std::thread::JoinHandle<()>>,
+    input_dropped_at: Option<Instant>,
 }
 
 const INPUT_QUEUE_CAPACITY: usize = 128;
@@ -98,6 +100,7 @@ impl PtyProcess {
                 master: Some(pair.master),
                 reader: Some(reader),
                 writer: Some(writer),
+                input_dropped_at: None,
             },
             PtyOutput { output_read },
         ))
@@ -110,6 +113,7 @@ impl PtyProcess {
         match tx.try_send(input.to_vec()) {
             Ok(()) => {}
             Err(mpsc::TrySendError::Full(dropped)) => {
+                self.input_dropped_at = Some(Instant::now());
                 log::warn!(
                     "PTY input queue full, dropped {} bytes",
                     dropped.len()
@@ -119,6 +123,10 @@ impl PtyProcess {
                 log::warn!("PTY writer thread has exited");
             }
         }
+    }
+
+    pub fn last_input_dropped(&self) -> Option<Instant> {
+        self.input_dropped_at
     }
 
     pub fn resize(&mut self, size: TerminalSize) -> Result<()> {

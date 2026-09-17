@@ -130,9 +130,10 @@ where
                 run_id,
                 swarm,
             };
-            let outcome = std::panic::catch_unwind(
-                std::panic::AssertUnwindSafe(|| fuzz_worker_thread.run()),
-            );
+            let outcome =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    fuzz_worker_thread.run()
+                }));
             if let Err(payload) = outcome {
                 let msg = payload
                     .downcast_ref::<&'static str>()
@@ -245,7 +246,6 @@ where
                 buffer,
                 "{}",
                 maybe_bold(format!(
-                    "{:^6}{SEP}{:^3}{SEP}{:^10}{SEP}{:>5}{SEP}{:^9}{SEP}Action",
                     "Worker", "Run", "Violations", "SPS", "Time"
                 ))
             )?;
@@ -271,9 +271,7 @@ where
                                         .as_secs_f64()
                             })
                     {
-                        write!(buffer, "{:>5.1}", states_per_second)?;
                     } else {
-                        write!(buffer, "{:>5}", "")?;
                     }
                     write!(buffer, "{SEP}")?;
 
