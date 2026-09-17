@@ -23,9 +23,18 @@ Learn all about Bombadil with the following resources:
 > *browser* and *terminal*, and you can switch between the flavors in the
 > navigation sidebar.
 
+## Join us
+
+Do you want to join us on our quest to reinvent how the world thinks about software reliability?
+
+[We are hiring](https://antithesis.com/company/careers/?ashby_jid=88f9ee26-c86f-4625-9ac2-cb268678044a#open-roles) 
+
 Or, if you want to hack on it, see [Contributing](docs/development/contributing.md).
 
 <hr>
+
+
+
 
 <img alt="Tom Bombadil" src="docs/development/tom.png" width=360 />
 
