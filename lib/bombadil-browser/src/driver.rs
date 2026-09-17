@@ -18,6 +18,7 @@ use crate::browser::state::{BrowserState, Coverage};
 use crate::browser::{Browser, BrowserEvent, BrowserOptions};
 use crate::chromium;
 use crate::chromium::Chromium;
+use crate::instrumentation::InstrumentationConfig;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
 
 pub enum DebuggerOptions {
@@ -41,10 +42,22 @@ impl InterfaceDriver for BrowserDriver {
 
     fn initiate(&self) -> Result<(Self::Session, Verifier)> {
         let verifier = Verifier::new(&self.specification_bundle)?;
-        let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
-            EDGE_MAP_SIZE,
-            "bombadil.tsv",
-        );
+
+        let coverage = if self.browser_options.instrumentation
+            == InstrumentationConfig::none()
+        {
+            None
+        } else {
+            // TODO: write coverage file with real data
+            let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
+                EDGE_MAP_SIZE,
+                "bombadil.tsv",
+            );
+            Some(BrowserSessionCoverage {
+                edges: vec![0u8; EDGE_MAP_SIZE],
+                coverage_map_offset,
+            })
+        };
 
         let chromium = match &self.debugger_options {
             DebuggerOptions::External { remote_debugger } => {
@@ -63,14 +76,19 @@ impl InterfaceDriver for BrowserDriver {
         Ok((
             BrowserSession {
                 _chromium: chromium,
-                edges: vec![0u8; EDGE_MAP_SIZE],
-                coverage_map_offset,
                 browser,
                 specification_bundle: self.specification_bundle.clone(),
+                coverage,
             },
             verifier,
         ))
     }
+}
+
+pub struct BrowserSessionCoverage {
+    // Heap-allocated so the 64 KB edge map doesn't blow the stack.
+    edges: Vec<u8>,
+    coverage_map_offset: usize,
 }
 
 pub struct BrowserSession {
@@ -78,9 +96,7 @@ pub struct BrowserSession {
     // dropping a managed Chromium value terminates the spawned
     // browser process.
     _chromium: Chromium,
-    // Heap-allocated so the 64 KB edge map doesn't blow the stack.
-    edges: Vec<u8>,
-    coverage_map_offset: usize,
+    coverage: Option<BrowserSessionCoverage>,
     browser: Browser,
     specification_bundle: Arc<str>,
 }
@@ -97,24 +113,27 @@ impl InterfaceSession for BrowserSession {
     fn next_event(&mut self) -> Option<DriverEvent<BrowserState>> {
         match self.browser.next_event() {
             Some(BrowserEvent::StateChanged(state)) => {
-                for (index, bucket) in &state.coverage.edges_new {
-                    let index = *index as usize;
-                    // Report coverage changes to Antithesis.
-                    if self.edges[index] == 0 {
-                        assert!(
-                            self.coverage_map_offset
-                                < (usize::MAX - EDGE_MAP_SIZE),
-                            "offset + index overflows usize"
-                        );
-                        antithesis_fuzzer::notify_coverage(
-                            self.coverage_map_offset + index,
-                        );
+                if let Some(coverage) = &mut self.coverage {
+                    for (index, bucket) in &state.coverage.edges_new {
+                        let index = *index as usize;
+                        // Report coverage changes to Antithesis.
+                        if coverage.edges[index] == 0 {
+                            assert!(
+                                coverage.coverage_map_offset
+                                    < (usize::MAX - EDGE_MAP_SIZE),
+                                "offset + index overflows usize"
+                            );
+                            antithesis_fuzzer::notify_coverage(
+                                coverage.coverage_map_offset + index,
+                            );
+                        }
+                        // Update main edge coverage map.
+                        coverage.edges[index] =
+                            max(coverage.edges[index], *bucket);
                     }
-                    // Update main edge coverage map.
-                    self.edges[index] = max(self.edges[index], *bucket);
+                    log_coverage_stats_increment(&state.coverage);
+                    log_coverage_stats_total(&coverage.edges);
                 }
-                log_coverage_stats_increment(&state.coverage);
-                log_coverage_stats_total(&self.edges);
                 // Then forward the event.
                 Some(DriverEvent::StateChanged(Arc::new(state)))
             }
