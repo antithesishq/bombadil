@@ -83,6 +83,7 @@ pub enum Command {
 
     /// [EXPERIMENTAL] Fuzz (running many short test runs) the given program against a
     /// TypeScript specification
+    #[command(hide = true)]
     Fuzz {
         /// Path to a TypeScript specification file (uses the
         /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will

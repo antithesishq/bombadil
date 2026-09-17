@@ -72,6 +72,7 @@ pub enum BrowserCommand {
         create_target: bool,
     },
     /// Fuzz (running many tests) with a browser managed by Bombadil
+    #[command(hide = true)]
     Fuzz {
         #[clap(flatten)]
         shared: FuzzSharedOptions,
