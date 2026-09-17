@@ -57,7 +57,7 @@ impl TextGenerator {
         value.chars().all(|char| {
             self.ranges
                 .iter()
-                .any(|(from, to)| *from <= char && char >= *to)
+                .any(|(from, to)| *from <= char && char <= *to)
         })
     }
 }
@@ -138,7 +138,7 @@ impl StringGenerator {
     pub fn accepts(&self, value: &str) -> bool {
         match self {
             StringGenerator::Text { length } => {
-                if let Ok(value_length) = u16::try_from(value.len()) {
+                if let Ok(value_length) = u16::try_from(value.chars().count()) {
                     length.contains(&value_length)
                         && TextGenerator::new().accepts(value)
                 } else {
@@ -162,3 +162,65 @@ impl StringGenerator {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Regexp(pub String);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn text_accepts_spaces_and_punctuation() {
+        let generator = StringGenerator::Text { length: 1..=1 };
+        for value in [" ", "!", "\"", "#", "$", "%", "&", "'", "(", ")"] {
+            assert!(generator.accepts(value), "rejected {value:?}");
+        }
+    }
+
+    #[test]
+    fn text_length_counts_unicode_scalars() {
+        let generator = StringGenerator::Text { length: 1..=1 };
+        for value in ["A", "é", "\u{200b}", "🦀"] {
+            assert!(generator.accepts(value), "rejected {value:?}");
+        }
+        assert!(!generator.accepts(""));
+        assert!(!generator.accepts("éA"));
+
+        let generator = StringGenerator::Text { length: 2..=2 };
+        assert!(generator.accepts("é🦀"));
+        assert!(generator.accepts("e\u{0301}"));
+        assert!(!generator.accepts("é"));
+        assert!(!generator.accepts("é🦀A"));
+    }
+
+    #[test]
+    fn text_rejects_characters_outside_generated_ranges() {
+        let generator = StringGenerator::Text { length: 1..=10 };
+        for value in ["\0", "\n", "\u{007f}", "中", "\u{10ffff}", "A中B"] {
+            assert!(!generator.accepts(value), "accepted {value:?}");
+        }
+    }
+
+    #[test]
+    fn text_accepts_its_generated_values() {
+        let mut rng = StdRng::seed_from_u64(0);
+        for length in [0, 1, 2, 10, 100] {
+            let generator = StringGenerator::Text {
+                length: length..=length,
+            };
+            for _ in 0..32 {
+                let value = generator.generate(&mut rng);
+                assert!(generator.accepts(&value), "rejected {value:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn text_accepts_maximum_length_unicode() {
+        let generator = StringGenerator::Text {
+            length: u16::MAX..=u16::MAX,
+        };
+        let value = "é".repeat(u16::MAX as usize);
+        assert!(generator.accepts(&value));
+        assert!(!generator.accepts(&(value + "é")));
+    }
+}
