@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::{fmt::Debug, hash::Hasher};
@@ -7,6 +8,7 @@ use bombadil_schema::Time;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json as json;
 
+use crate::runner::PropertyViolation;
 use crate::{
     render::Format,
     specification::{domain::Snapshot, verifier::Verifier},
@@ -28,7 +30,8 @@ impl FromGeneratedAction for json::Value {
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
     type Session: InterfaceSession;
-    fn initiate(&self) -> Result<(Self::Session, Verifier)>;
+    type TraceWriter: TraceWriter<Self::Session>;
+    fn initiate(&self) -> Result<(Self::Session, Verifier, Self::TraceWriter)>;
 }
 
 pub trait RunState {
@@ -44,6 +47,49 @@ pub trait ActionTemplate<Action> {
     fn accepts(&self, original: &Action) -> bool;
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
+}
+
+pub struct TraceWriterOutput {
+    pub root_path: PathBuf,
+    pub overwrite: bool,
+}
+
+pub trait TraceWriter<Session: InterfaceSession> {
+    fn write(
+        &mut self,
+        state: &Session::State,
+        last_action: Option<&Session::Action>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
+    ) -> Result<()>;
+}
+
+impl<Session: InterfaceSession> TraceWriter<Session>
+    for Box<dyn TraceWriter<Session>>
+{
+    fn write(
+        &mut self,
+        state: &<Session as InterfaceSession>::State,
+        last_action: Option<&<Session as InterfaceSession>::Action>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
+    ) -> Result<()> {
+        (**self).write(state, last_action, snapshots, violations)
+    }
+}
+
+pub struct NoopTraceWriter;
+
+impl<Session: InterfaceSession> TraceWriter<Session> for NoopTraceWriter {
+    fn write(
+        &mut self,
+        _state: &Session::State,
+        _last_action: Option<&Session::Action>,
+        _snapshots: &[Snapshot],
+        _violations: &[PropertyViolation],
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub trait InterfaceSession {

@@ -353,6 +353,9 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
             } else {
                 FuzzMode::RandomWalk
             };
+            let (mut session, verifier, mut trace_writer) =
+                self.driver.initiate().expect("driver initiate failed");
+
             let mut strategy = FuzzStrategy {
                 worker_id: self.worker_id,
                 run_id: self.run_id,
@@ -363,13 +366,18 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                 mode,
                 excluded: HashMap::new(),
             };
-            let (mut session, verifier) =
-                self.driver.initiate().expect("driver initiate failed");
+
+            // let output_path = resolve_output_path(output_path)?;
+            // let writer = TraceWriter::initialize(
+            //     output_path.clone(),
+            //     output_path_overwrite,
+            // )?;
 
             let result = runner::run(
                 &mut session,
                 &mut strategy,
                 verifier,
+                &mut trace_writer,
                 self.interrupted.clone(),
             );
             log::info!(

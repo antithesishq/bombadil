@@ -6,23 +6,32 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
-use bombadil::runner::PropertyViolation;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
+use bombadil::{driver::TraceWriter, runner::PropertyViolation};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{TerminalCell, TerminalGrid};
 use serde_json as json;
 use std::fs::File;
 
-use crate::{driver::TerminalAction, state::TerminalState};
+use crate::{
+    driver::{TerminalAction, TerminalSession},
+    state::TerminalState,
+};
 
 /// Writes trace entries on a dedicated thread so that JSON
 /// serialization and disk I/O (hundreds of kilobytes per state) overlap
 /// with the test loop instead of stalling it. The bounded channel
 /// provides backpressure if the writer cannot keep up.
-pub struct TraceWriter {
+pub struct TerminalTraceWriter {
     sender: mpsc::SyncSender<Message>,
     worker: Option<JoinHandle<Result<()>>>,
+}
+
+impl Drop for TerminalTraceWriter {
+    fn drop(&mut self) {
+        let _ = self.flush();
+    }
 }
 
 enum Message {
@@ -118,7 +127,7 @@ fn write_grid(buffer: &mut Vec<u8>, grid: &TerminalGrid) -> Result<()> {
 // cap memory while letting the writer thread run behind the test loop.
 const PENDING_ENTRIES_MAX: usize = 32;
 
-impl TraceWriter {
+impl TerminalTraceWriter {
     pub fn initialize(
         root_path: PathBuf,
         output_path_overwrite: bool,
@@ -150,26 +159,6 @@ impl TraceWriter {
         })
     }
 
-    #[hotpath::measure]
-    pub fn write(
-        &mut self,
-        state: &TerminalState,
-        last_action: Option<&TerminalAction>,
-        snapshots: &[Snapshot],
-        violations: &[PropertyViolation],
-    ) -> Result<()> {
-        let entry = Box::new(OwnedEntry {
-            state: state.clone(),
-            action: last_action.cloned(),
-            snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
-            violations: violations.iter().map(|v| v.to_schema()).collect(),
-        });
-        if self.sender.send(Message::Entry(entry)).is_err() {
-            return Err(self.worker_failure());
-        }
-        Ok(())
-    }
-
     pub fn flush(&mut self) -> Result<()> {
         let (ack_sender, ack_receiver) = mpsc::sync_channel(1);
         if self.sender.send(Message::Flush(ack_sender)).is_err() {
@@ -193,6 +182,28 @@ impl TraceWriter {
             },
             None => anyhow!("trace writer thread already failed"),
         }
+    }
+}
+
+impl TraceWriter<TerminalSession> for TerminalTraceWriter {
+    #[hotpath::measure]
+    fn write(
+        &mut self,
+        state: &TerminalState,
+        last_action: Option<&TerminalAction>,
+        snapshots: &[Snapshot],
+        violations: &[PropertyViolation],
+    ) -> Result<()> {
+        let entry = Box::new(OwnedEntry {
+            state: state.clone(),
+            action: last_action.cloned(),
+            snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
+            violations: violations.iter().map(|v| v.to_schema()).collect(),
+        });
+        if self.sender.send(Message::Entry(entry)).is_err() {
+            return Err(self.worker_failure());
+        }
+        Ok(())
     }
 }
 
