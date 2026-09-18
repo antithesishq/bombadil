@@ -673,6 +673,8 @@ fn browser_fuzz(
         trace_writer_output,
     })?;
 
+    // TODO: return result from `fuzz` that can be used to print something like the following:
+
     /*
     let heading = {
         let TestResult {
