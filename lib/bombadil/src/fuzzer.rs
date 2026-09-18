@@ -506,6 +506,9 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession>
         _state: &Session::State,
         tree: Tree<Session::ActionTemplate>,
     ) -> Result<Session::Action> {
+        // TODO: somehow inject the following old behavior for browser fuzzing specifically. Some
+        // set of "tactics" that can filter the action tree?
+
         // let tree = if is_within_domain(&state.url, &self.origin) {
         //     tree
         // } else {
@@ -567,13 +570,6 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> anyhow::Result<ControlFlow<Self::StopValue, Session::Action>> {
-        // self.writer.write(
-        //     state,
-        //     last_action,
-        //     snapshots,
-        //     properties.violations,
-        // )?;
-
         if properties.all_definite {
             log::info!("all properties are definite, stopping");
             return Ok(ControlFlow::Stop(ExitReason::AllDefinite));
