@@ -1,5 +1,20 @@
 # The Bombadil Changelog
 
+## 0.7.6
+
+Bug fixes:
+
+* Fix replay rejecting generated text (#320)
+* Don't initialize coverage module when instrumentation disabled (#321)
+
+Internal:
+
+* Replace example-based tests with Hegel property (#323)
+* Added a hiring note (#318)
+* Bump hegel version (#316)
+* Rename willow-tree to stdx, as an internal extras library (#315)
+* Split driver and session, generalize strategy (#314)
+
 ## 0.7.5
 
 Bug fixes:
