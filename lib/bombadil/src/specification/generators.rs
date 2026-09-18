@@ -166,61 +166,59 @@ pub struct Regexp(pub String);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hegel::{
+        Generator, TestCase,
+        generators::{integers, just, one_of, text, vecs},
+    };
     use rand::{SeedableRng, rngs::StdRng};
 
-    #[test]
-    fn text_accepts_spaces_and_punctuation() {
-        let generator = StringGenerator::Text { length: 1..=1 };
-        for value in [" ", "!", "\"", "#", "$", "%", "&", "'", "(", ")"] {
-            assert!(generator.accepts(value), "rejected {value:?}");
-        }
+    #[hegel::test]
+    fn string_generator_accepts_generated(tc: TestCase) {
+        let generator = tc.draw(string_generators().print_as_debug());
+        let mut rng = StdRng::seed_from_u64(tc.draw(integers()));
+        let value = generator.generate(&mut rng);
+        assert!(
+            generator.accepts(&value),
+            "generator must accept all values it generates, but rejected {value:?}"
+        );
     }
 
-    #[test]
-    fn text_length_counts_unicode_scalars() {
-        let generator = StringGenerator::Text { length: 1..=1 };
-        for value in ["A", "é", "\u{200b}", "🦀"] {
-            assert!(generator.accepts(value), "rejected {value:?}");
-        }
-        assert!(!generator.accepts(""));
-        assert!(!generator.accepts("éA"));
-
-        let generator = StringGenerator::Text { length: 2..=2 };
-        assert!(generator.accepts("é🦀"));
-        assert!(generator.accepts("e\u{0301}"));
-        assert!(!generator.accepts("é"));
-        assert!(!generator.accepts("é🦀A"));
+    #[hegel::composite]
+    fn string_generators(tc: &TestCase) -> StringGenerator {
+        tc.draw(
+            one_of([
+                just(StringGenerator::Email).boxed(),
+                vecs(charset_entries())
+                    .min_size(1)
+                    .map(|entries| StringGenerator::CharSet { entries })
+                    .boxed(),
+            ])
+            .print_as_debug(),
+        )
     }
 
-    #[test]
-    fn text_rejects_characters_outside_generated_ranges() {
-        let generator = StringGenerator::Text { length: 1..=10 };
-        for value in ["\0", "\n", "\u{007f}", "中", "\u{10ffff}", "A中B"] {
-            assert!(!generator.accepts(value), "accepted {value:?}");
-        }
+    #[hegel::composite]
+    fn charset_entries(tc: &TestCase) -> CharSetEntry {
+        tc.draw(
+            one_of([
+                char_ranges().map(CharSetEntry::Range).boxed(),
+                text().map(CharSetEntry::Literal).boxed(),
+            ])
+            .print_as_debug(),
+        )
     }
 
-    #[test]
-    fn text_accepts_its_generated_values() {
-        let mut rng = StdRng::seed_from_u64(0);
-        for length in [0, 1, 2, 10, 100] {
-            let generator = StringGenerator::Text {
-                length: length..=length,
-            };
-            for _ in 0..32 {
-                let value = generator.generate(&mut rng);
-                assert!(generator.accepts(&value), "rejected {value:?}");
-            }
+    #[hegel::composite]
+    fn char_ranges(tc: &TestCase) -> RangeInclusive<u32> {
+        fn in_range(tc: &TestCase, min: u32, max: u32) -> RangeInclusive<u32> {
+            let start = tc.draw(integers().min_value(min).max_value(max));
+            let end = tc.draw(integers().min_value(start).max_value(max));
+            start..=end
         }
-    }
 
-    #[test]
-    fn text_accepts_maximum_length_unicode() {
-        let generator = StringGenerator::Text {
-            length: u16::MAX..=u16::MAX,
-        };
-        let value = "é".repeat(u16::MAX as usize);
-        assert!(generator.accepts(&value));
-        assert!(!generator.accepts(&(value + "é")));
+        tc.draw(one_of([
+            just(in_range(tc, 0x0000, 0xD7FF)),
+            just(in_range(tc, 0xE000, 0x10FFFF)),
+        ]))
     }
 }
