@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 
 use bombadil::driver::{
     ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
-    InterfaceSession, RunState,
+    InterfaceSession, NoopTraceWriter, RunState,
 };
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
@@ -74,10 +74,14 @@ struct FakeDriver {
 
 impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
+    type TraceWriter = NoopTraceWriter;
 
     fn initiate(
         &self,
-    ) -> std::result::Result<(FakeSession, Verifier), anyhow::Error> {
+    ) -> std::result::Result<
+        (FakeSession, Verifier, NoopTraceWriter),
+        anyhow::Error,
+    > {
         self.initiated.store(true, Ordering::SeqCst);
         Ok((
             FakeSession {
@@ -85,6 +89,7 @@ impl InterfaceDriver for FakeDriver {
                 next_event_calls: self.next_event_calls.clone(),
             },
             dummy_verifier(),
+            NoopTraceWriter,
         ))
     }
 }
@@ -186,10 +191,16 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    let (mut session, verifier) =
+    let (mut session, verifier, mut trace_writer) =
         driver.initiate().expect("driver failed to initiate");
-    runner::run(&mut session, &mut strategy, verifier, interrupted)
-        .expect("runner returned Err");
+    runner::run(
+        &mut session,
+        &mut strategy,
+        verifier,
+        &mut trace_writer,
+        interrupted,
+    )
+    .expect("runner returned Err");
 
     assert!(
         initiated.load(Ordering::SeqCst),

@@ -19,7 +19,6 @@ use rand::{RngExt, TryRng};
 
 use crate::driver::{TerminalAction, TerminalActionTemplate, TerminalSession};
 use crate::state::TerminalState;
-use crate::trace::TraceWriter;
 
 pub mod driver;
 pub mod extractors;
@@ -36,7 +35,6 @@ pub enum TerminalTestMode {
 pub struct TerminalStrategy<Rng: TryRng> {
     pub rng: Rng,
     pub mode: TerminalTestMode,
-    pub writer: Option<TraceWriter>,
     pub test_start: Option<bombadil_schema::Time>,
     pub violations_count: u64,
     pub exit_on_violation: bool,
@@ -80,9 +78,6 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
         &mut self,
         reason: ExitReason,
     ) -> Result<ControlFlow<ExitReason, TerminalAction>> {
-        if let Some(writer) = self.writer.as_mut() {
-            writer.flush()?;
-        }
         Ok(ControlFlow::Stop(reason))
     }
 }
@@ -97,8 +92,8 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
         &mut self,
         state: &TerminalState,
         tree: Tree<TerminalActionTemplate>,
-        last_action: Option<&TerminalAction>,
-        snapshots: &[Snapshot],
+        _last_action: Option<&TerminalAction>,
+        _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
         use std::fmt::Write;
@@ -158,15 +153,6 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
             );
         }
 
-        if let Some(writer) = self.writer.as_mut() {
-            writer.write(
-                state,
-                last_action,
-                snapshots,
-                properties.violations,
-            )?;
-        }
-
         if self.violations_count > 0 && self.exit_on_violation {
             return self.stop(ExitReason::ExitOnViolation);
         }
@@ -206,9 +192,6 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
     }
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue> {
-        if let Some(writer) = self.writer.as_mut() {
-            writer.flush()?;
-        }
         Ok(ExitReason::Interrupted)
     }
 }

@@ -16,7 +16,6 @@ use bombadil_schema::terminal::{
 use bombadil_terminal::driver::{
     TerminalAction, TerminalDriver, TerminalProgramOptions,
 };
-use bombadil_terminal::trace::TraceWriter;
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -125,14 +124,14 @@ pub enum Command {
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
-        // /// Where to store output data (trace.jsonl). Defaults to a
-        // /// fresh temporary directory.
-        // #[arg(long)]
-        // output_path: Option<PathBuf>,
-        // /// Overwrite any existing trace at --output-path. Without this
-        // /// flag, Bombadil refuses to write when trace.jsonl already exists.
-        // #[arg(long)]
-        // output_path_overwrite: bool,
+        /// Where to store output data (trace.jsonl). Defaults to a
+        /// fresh temporary directory.
+        #[arg(long)]
+        output_path: Option<PathBuf>,
+        /// Overwrite any existing trace at --output-path. Without this
+        /// flag, Bombadil refuses to write when trace.jsonl already exists.
+        #[arg(long)]
+        output_path_overwrite: bool,
     },
 }
 
@@ -179,10 +178,6 @@ pub fn run(command: Command) {
                 };
 
                 let output_path = resolve_output_path(output_path)?;
-                let writer = TraceWriter::initialize(
-                    output_path.clone(),
-                    output_path_overwrite,
-                )?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(
@@ -200,8 +195,12 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let driver =
-                    TerminalDriver::new(specification, program_options)?;
+                let driver = TerminalDriver::new(
+                    specification,
+                    program_options,
+                    output_path.clone(),
+                    output_path_overwrite,
+                )?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -217,18 +216,19 @@ pub fn run(command: Command) {
                 let mut strategy = TerminalStrategy {
                     rng: AntithesisRng,
                     mode,
-                    writer: Some(writer),
                     test_start: Some(Time::from_system_time(test_start)),
                     violations_count: 0,
                     exit_on_violation,
                     deadline,
                     states_seen: 0,
                 };
-                let (mut session, verifier) = driver.initiate()?;
+                let (mut session, verifier, mut trace_writer) =
+                    driver.initiate()?;
                 let exit_reason = runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
+                    &mut trace_writer,
                     interrupted,
                 )?;
 
@@ -271,7 +271,7 @@ pub fn run(command: Command) {
                             .duration_since(test_start)?
                             .as_secs_f64()
                 );
-                println!("Trace written to: {}", output_path.display());
+                println!("Output written to: {}", output_path.display());
 
                 if strategy.violations_count > 0 {
                     bail!(
@@ -307,6 +307,8 @@ pub fn run(command: Command) {
             scrollback_lines_max,
             quiescence_timeout_ms,
             command,
+            output_path,
+            output_path_overwrite,
         } => {
             let run_fuzz = || {
                 let (program, arguments) = match &command[..] {
@@ -335,11 +337,7 @@ pub fn run(command: Command) {
                     }
                 };
 
-                // let output_path = resolve_output_path(output_path)?;
-                // let writer = TraceWriter::initialize(
-                //     output_path.clone(),
-                //     output_path_overwrite,
-                // )?;
+                let output_path = resolve_output_path(output_path)?;
 
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
@@ -353,6 +351,8 @@ pub fn run(command: Command) {
                 let driver = Arc::new(TerminalDriver::new(
                     specification,
                     program_options,
+                    output_path,
+                    output_path_overwrite,
                 )?);
 
                 let interrupted = Arc::new(AtomicBool::new(false));

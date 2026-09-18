@@ -6,14 +6,17 @@ use std::{
 };
 
 use anyhow::Result;
-use bombadil::specification::domain::Snapshot;
+use bombadil::{
+    driver::{TraceWriter, TraceWriterOutput},
+    specification::domain::Snapshot,
+};
 use serde_json as json;
 use std::fs::File;
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
     convert::ToSchema,
-    strategy::TraceWriter,
+    driver::BrowserSession,
     trace::{PropertyViolation, TraceEntry},
 };
 
@@ -24,19 +27,17 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub fn initialize(
-        root_path: PathBuf,
-        output_path_overwrite: bool,
-    ) -> Result<Self> {
+    pub fn initialize(output: &TraceWriterOutput) -> Result<Self> {
         log::info!(
             "storing trace in {}",
-            root_path
+            output
+                .root_path
                 .to_str()
                 .expect("states directory path is not valid unicode")
         );
-        let trace_file_path = root_path.join("trace.jsonl");
+        let trace_file_path = output.root_path.join("trace.jsonl");
         if trace_file_path.try_exists()? {
-            if !output_path_overwrite {
+            if !output.overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
                      Use --output-path-overwrite to overwrite, or choose a different --output-path.",
@@ -45,7 +46,7 @@ impl FileTraceWriter {
             }
             std::fs::remove_file(&trace_file_path)?;
         }
-        let screenshots_path = root_path.join("screenshots");
+        let screenshots_path = output.root_path.join("screenshots");
         std::fs::create_dir_all(&screenshots_path)?;
         let trace_file = File::options()
             .write(true)
@@ -59,7 +60,7 @@ impl FileTraceWriter {
     }
 }
 
-impl TraceWriter for FileTraceWriter {
+impl TraceWriter<BrowserSession> for FileTraceWriter {
     fn write(
         &mut self,
         state: &BrowserState,
@@ -93,20 +94,6 @@ impl TraceWriter for FileTraceWriter {
         self.trace_file.write_all(b"\n")?;
         self.trace_file.flush()?;
 
-        Ok(())
-    }
-}
-
-pub struct NoopTraceWriter;
-
-impl TraceWriter for NoopTraceWriter {
-    fn write(
-        &mut self,
-        _state: &BrowserState,
-        _last_action: Option<&BrowserAction>,
-        _snapshots: &[Snapshot],
-        _violations: &[PropertyViolation],
-    ) -> Result<()> {
         Ok(())
     }
 }

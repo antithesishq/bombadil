@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
-use bombadil::driver::InterfaceDriver;
+use bombadil::driver::{InterfaceDriver, TraceWriterOutput};
 use bombadil::runner;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Specification;
@@ -18,6 +18,7 @@ pub fn launch<S: RunStrategy<BrowserSession>>(
     specification: Specification,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    trace_writer_output: Option<TraceWriterOutput>,
     interrupted: Arc<AtomicBool>,
     strategy: &mut S,
 ) -> Result<S::StopValue> {
@@ -29,9 +30,16 @@ pub fn launch<S: RunStrategy<BrowserSession>>(
         browser_options,
         debugger_options,
         specification_bundle,
+        trace_writer_output,
     };
 
-    let (mut session, verifier) = driver.initiate()?;
+    let (mut session, verifier, mut trace_writer) = driver.initiate()?;
 
-    runner::run(&mut session, strategy, verifier, interrupted)
+    runner::run(
+        &mut session,
+        strategy,
+        verifier,
+        &mut trace_writer,
+        interrupted,
+    )
 }

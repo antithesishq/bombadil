@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::ops::RangeInclusive;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -38,6 +39,7 @@ use small_string::SmallString;
 use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
+use crate::trace::TerminalTraceWriter;
 
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(1000);
 
@@ -247,12 +249,16 @@ pub struct TerminalProgramOptions {
 pub struct TerminalDriver {
     specification_bundle: Arc<str>,
     program_options: TerminalProgramOptions,
+    pub output_path: PathBuf,
+    pub output_path_overwrite: bool,
 }
 
 impl TerminalDriver {
     pub fn new(
         specification: Specification,
         program_options: TerminalProgramOptions,
+        output_path: PathBuf,
+        output_path_overwrite: bool,
     ) -> Result<Self> {
         let specification_bundle: Arc<str> =
             bundle(".", &specification.module_specifier)
@@ -262,19 +268,30 @@ impl TerminalDriver {
         Ok(TerminalDriver {
             specification_bundle,
             program_options,
+            output_path,
+            output_path_overwrite,
         })
     }
 }
 
 impl InterfaceDriver for TerminalDriver {
     type Session = TerminalSession;
+    type TraceWriter = TerminalTraceWriter;
 
     #[hotpath::measure]
     fn initiate(
         &self,
-    ) -> std::result::Result<(Self::Session, Verifier), anyhow::Error> {
+    ) -> std::result::Result<
+        (Self::Session, Verifier, Self::TraceWriter),
+        anyhow::Error,
+    > {
         let verifier = Verifier::new(&self.specification_bundle)?;
         let extractor = Extractors::initialize(&self.specification_bundle)?;
+
+        let writer = TerminalTraceWriter::initialize(
+            self.output_path.clone(),
+            self.output_path_overwrite,
+        )?;
 
         let mut terminal = Terminal::new(TerminalOptions {
             cols: self.program_options.size.columns,
@@ -312,6 +329,7 @@ impl InterfaceDriver for TerminalDriver {
                 cell_iterator: CellIterator::new()?,
             },
             verifier,
+            writer,
         ))
     }
 }

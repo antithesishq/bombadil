@@ -4,9 +4,14 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
-use bombadil::driver::{DriverEvent, InterfaceDriver, InterfaceSession};
-use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Verifier;
+use bombadil::{
+    driver::{
+        DriverEvent, InterfaceDriver, InterfaceSession, NoopTraceWriter,
+        TraceWriter, TraceWriterOutput,
+    },
+    specification::domain::Snapshot,
+};
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
@@ -20,6 +25,7 @@ use crate::chromium;
 use crate::chromium::Chromium;
 use crate::instrumentation::InstrumentationConfig;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
+use crate::trace::writer::FileTraceWriter;
 
 pub enum DebuggerOptions {
     External {
@@ -35,12 +41,14 @@ pub struct BrowserDriver {
     pub browser_options: BrowserOptions,
     pub debugger_options: DebuggerOptions,
     pub specification_bundle: Arc<str>,
+    pub trace_writer_output: Option<TraceWriterOutput>,
 }
 
 impl InterfaceDriver for BrowserDriver {
     type Session = BrowserSession;
+    type TraceWriter = Box<dyn TraceWriter<BrowserSession>>;
 
-    fn initiate(&self) -> Result<(Self::Session, Verifier)> {
+    fn initiate(&self) -> Result<(Self::Session, Verifier, Self::TraceWriter)> {
         let verifier = Verifier::new(&self.specification_bundle)?;
 
         let coverage = if self.browser_options.instrumentation
@@ -58,6 +66,13 @@ impl InterfaceDriver for BrowserDriver {
                 coverage_map_offset,
             })
         };
+
+        let trace_writer: Box<dyn TraceWriter<BrowserSession>> =
+            if let Some(output) = &self.trace_writer_output {
+                Box::new(FileTraceWriter::initialize(output)?)
+            } else {
+                Box::new(NoopTraceWriter)
+            };
 
         let chromium = match &self.debugger_options {
             DebuggerOptions::External { remote_debugger } => {
@@ -81,6 +96,7 @@ impl InterfaceDriver for BrowserDriver {
                 coverage,
             },
             verifier,
+            trace_writer,
         ))
     }
 }

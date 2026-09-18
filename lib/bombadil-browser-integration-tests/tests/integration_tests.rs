@@ -23,15 +23,17 @@ use tempfile::{NamedTempFile, TempDir};
 use tower_http::services::ServeDir;
 use url::Url;
 
-use bombadil::{specification::verifier::Specification, styled};
+use bombadil::{
+    driver::TraceWriter, specification::verifier::Specification, styled,
+};
 use bombadil_browser::{
     browser::{BrowserOptions, Emulation, actions::BrowserAction},
     chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
-    driver::DebuggerOptions,
+    driver::{BrowserSession, DebuggerOptions},
     runner,
-    strategy::{TestStrategy, TraceWriter},
+    strategy::TestStrategy,
 };
 
 static INIT: Once = Once::new();
@@ -286,7 +288,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             violations: Vec<bombadil::runner::PropertyViolation>,
         }
 
-        impl TraceWriter for ViolationsCollectingWriter {
+        impl TraceWriter<BrowserSession> for ViolationsCollectingWriter {
             fn write(
                 &mut self,
                 _state: &bombadil_browser::browser::state::BrowserState,
@@ -299,8 +301,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
-        let output_path = TempDir::new().unwrap();
-        let output_path_buf = output_path.path().to_path_buf();
         let writer = ViolationsCollectingWriter::default();
 
         enum Outcome {
@@ -324,10 +324,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             test_start: Some(Time::from_system_time(test_start)),
             deadline,
             mode: bombadil_browser::strategy::TestMode::RandomWalk,
-            writer,
             exit_on_violation: true,
             origin: origin.clone(),
-            output_path: output_path_buf,
             violations_count: 0,
         };
 
@@ -337,6 +335,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             specification,
             browser_options,
             debugger_options,
+            None,
             Arc::new(AtomicBool::new(false)),
             &mut strategy,
         );
@@ -345,8 +344,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             Err(error) => Outcome::Error(error),
             Ok(_) if strategy.violations_count == 0 => Outcome::Success,
             Ok(_) => {
-                let violations: Vec<String> = strategy
-                    .writer
+                let violations: Vec<String> = writer
                     .violations
                     .iter()
                     .map(|violation| {

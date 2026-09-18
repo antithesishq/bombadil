@@ -15,7 +15,7 @@ use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;
-use tempfile::NamedTempFile;
+use tempfile::{NamedTempFile, TempDir};
 
 const MAX_SCROLLBACK: usize = 1_000;
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -82,6 +82,8 @@ impl TerminalIntegrationTest {
         let specification = Specification {
             module_specifier: specification_file.path().display().to_string(),
         };
+        let output_path = TempDir::new().unwrap();
+        let output_path_buf = output_path.path().to_path_buf();
 
         let (sender, receiver) = mpsc::channel();
         let _ = std::thread::spawn(move || {
@@ -97,16 +99,20 @@ impl TerminalIntegrationTest {
                         program,
                         arguments,
                     },
+                    output_path_buf,
+                    false,
                 )?;
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
-                let (mut session, verifier) = driver.initiate()?;
+                let (mut session, verifier, mut trace_writer) =
+                    driver.initiate()?;
                 runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
+                    &mut trace_writer,
                     Arc::new(AtomicBool::new(false)),
                 )?;
                 Ok(strategy.violations_count)
