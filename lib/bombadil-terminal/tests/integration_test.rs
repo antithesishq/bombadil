@@ -5,7 +5,7 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use anyhow::Result;
-use bombadil::driver::{ActionTemplate, InterfaceDriver};
+use bombadil::driver::{ActionTemplate, InterfaceDriver, RunId};
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
@@ -15,7 +15,7 @@ use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::NamedTempFile;
 
 const MAX_SCROLLBACK: usize = 1_000;
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -82,8 +82,6 @@ impl TerminalIntegrationTest {
         let specification = Specification {
             module_specifier: specification_file.path().display().to_string(),
         };
-        let output_path = TempDir::new().unwrap();
-        let output_path_buf = output_path.path().to_path_buf();
 
         let (sender, receiver) = mpsc::channel();
         let _ = std::thread::spawn(move || {
@@ -99,15 +97,14 @@ impl TerminalIntegrationTest {
                         program,
                         arguments,
                     },
-                    output_path_buf,
-                    false,
+                    None,
                 )?;
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
                 let (mut session, verifier, mut trace_writer) =
-                    driver.initiate()?;
+                    driver.new_session(RunId::default())?;
                 runner::run(
                     &mut session,
                     &mut strategy,

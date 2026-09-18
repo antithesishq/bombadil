@@ -24,7 +24,9 @@ use tower_http::services::ServeDir;
 use url::Url;
 
 use bombadil::{
-    driver::TraceWriter, specification::verifier::Specification, styled,
+    driver::{RunId, TraceWriter},
+    specification::verifier::Specification,
+    styled,
 };
 use bombadil_browser::{
     browser::{BrowserOptions, Emulation, actions::BrowserAction},
@@ -331,6 +333,7 @@ impl<'a> BrowserIntegrationTest<'a> {
 
         log::info!("starting runner with infrastructure safety timeout");
         let run_result = runner::launch(
+            RunId::default(),
             origin,
             specification,
             browser_options,

@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -27,11 +28,23 @@ impl FromGeneratedAction for json::Value {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Default)]
+pub struct RunId(pub u64);
+
+impl Display for RunId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
     type Session: InterfaceSession;
     type TraceWriter: TraceWriter<Self::Session>;
-    fn initiate(&self) -> Result<(Self::Session, Verifier, Self::TraceWriter)>;
+    fn new_session(
+        &self,
+        run_id: RunId,
+    ) -> Result<(Self::Session, Verifier, Self::TraceWriter)>;
 }
 
 pub trait RunState {
@@ -49,6 +62,7 @@ pub trait ActionTemplate<Action> {
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }
 
+#[derive(Clone, Debug)]
 pub struct TraceWriterOutput {
     pub root_path: PathBuf,
     pub overwrite: bool,
