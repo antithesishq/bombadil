@@ -1,5 +1,17 @@
 # The Bombadil Changelog
 
+## 0.7.6
+
+Minor updates:
+
+* Don't initialize coverage module when instrumentation is disabled (#321)
+
+Internal:
+
+* Bump hegel version (#316)
+* Rename `willow-tree` to `stdx` as an internal extras library (#315)
+* Split driver and session, generalize strategy (#314)
+
 ## 0.7.5
 
 Bug fixes:
