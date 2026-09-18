@@ -6,6 +6,7 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{InterfaceDriver, RunId, TraceWriterOutput};
+use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
@@ -381,15 +382,15 @@ pub fn run(command: Command) {
                     })?;
                 }
 
-                fuzzer::fuzz(
-                    AntithesisRng,
+                fuzzer::fuzz(FuzzOptions {
+                    rng: AntithesisRng,
                     driver,
                     interrupted,
                     time_limit_fuzz,
                     time_limit_run,
                     swarm,
-                    Some(trace_writer_output),
-                )?;
+                    trace_writer_output: Some(trace_writer_output),
+                })?;
 
                 Ok(())
             };

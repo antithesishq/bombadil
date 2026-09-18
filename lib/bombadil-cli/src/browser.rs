@@ -25,7 +25,7 @@ use tempfile::TempDir;
 use bombadil::{
     antithesis,
     driver::{RunId, TraceWriterOutput},
-    fuzzer,
+    fuzzer::{self, FuzzOptions},
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -663,15 +663,15 @@ fn browser_fuzz(
         trace_writer_output: trace_writer_output.clone(),
     });
 
-    fuzzer::fuzz(
-        AntithesisRng,
+    fuzzer::fuzz(FuzzOptions {
+        rng: AntithesisRng,
         driver,
         interrupted,
-        shared_options.time_limit_fuzz,
-        shared_options.time_limit_run,
-        shared_options.swarm,
+        time_limit_fuzz: shared_options.time_limit_fuzz,
+        time_limit_run: shared_options.time_limit_run,
+        swarm: shared_options.swarm,
         trace_writer_output,
-    )?;
+    })?;
 
     /*
     let heading = {

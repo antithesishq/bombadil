@@ -85,14 +85,30 @@ struct FuzzState<D: InterfaceDriver> {
     property_violation_run_ids: BTreeMap<String, BTreeSet<RunId>>,
 }
 
+#[derive(Debug)]
+pub struct FuzzOptions<
+    D: InterfaceDriver + Send + Sync + 'static,
+    Rng: TryRng + RngExt,
+> {
+    pub rng: Rng,
+    pub driver: Arc<D>,
+    pub interrupted: Arc<AtomicBool>,
+    pub time_limit_fuzz: Duration,
+    pub time_limit_run: Duration,
+    pub swarm: bool,
+    pub trace_writer_output: Option<TraceWriterOutput>,
+}
+
 pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
-    mut rng: Rng,
-    driver: Arc<D>,
-    interrupted: Arc<AtomicBool>,
-    time_limit_fuzz: Duration,
-    time_limit_run: Duration,
-    swarm: bool,
-    trace_writer_output: Option<TraceWriterOutput>,
+    FuzzOptions {
+        mut rng,
+        driver,
+        interrupted,
+        time_limit_fuzz,
+        time_limit_run,
+        swarm,
+        trace_writer_output,
+    }: FuzzOptions<D, Rng>,
 ) -> Result<()>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
