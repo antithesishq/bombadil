@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 
 use bombadil::driver::{
     ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
-    InterfaceSession, RunState,
+    InterfaceSession, NoopTraceWriter, RunId, RunState,
 };
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
@@ -20,7 +20,9 @@ use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Verifier;
 use bombadil::tree::Tree;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord,
+)]
 struct FakeAction;
 
 impl Format for FakeAction {
@@ -42,6 +44,10 @@ impl ActionTemplate<FakeAction> for FakeAction {
 
     fn accepts(&self, _original: &FakeAction) -> bool {
         true
+    }
+
+    fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        hasher.write_u8(0)
     }
 }
 
@@ -68,10 +74,15 @@ struct FakeDriver {
 
 impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
+    type TraceWriter = NoopTraceWriter;
 
-    fn initiate(
+    fn new_session(
         &self,
-    ) -> std::result::Result<(FakeSession, Verifier), anyhow::Error> {
+        _run_id: RunId,
+    ) -> std::result::Result<
+        (FakeSession, Verifier, NoopTraceWriter),
+        anyhow::Error,
+    > {
         self.initiated.store(true, Ordering::SeqCst);
         Ok((
             FakeSession {
@@ -79,6 +90,7 @@ impl InterfaceDriver for FakeDriver {
                 next_event_calls: self.next_event_calls.clone(),
             },
             dummy_verifier(),
+            NoopTraceWriter,
         ))
     }
 }
@@ -180,10 +192,17 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    let (mut session, verifier) =
-        driver.initiate().expect("driver failed to initiate");
-    runner::run(&mut session, &mut strategy, verifier, interrupted)
-        .expect("runner returned Err");
+    let (mut session, verifier, mut trace_writer) = driver
+        .new_session(RunId::default())
+        .expect("driver failed to initiate");
+    runner::run(
+        &mut session,
+        &mut strategy,
+        verifier,
+        &mut trace_writer,
+        interrupted,
+    )
+    .expect("runner returned Err");
 
     assert!(
         initiated.load(Ordering::SeqCst),

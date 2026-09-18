@@ -54,7 +54,7 @@ pub enum TerminalCursorVisualStyle {
     Unknown,
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TerminalSize<U16 = u16> {
     pub columns: U16,
     pub rows: U16,

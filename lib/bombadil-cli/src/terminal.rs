@@ -5,10 +5,11 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::InterfaceDriver;
-use bombadil::runner;
+use bombadil::driver::{InterfaceDriver, RunId, TraceWriterOutput};
+use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
+use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalSize, TerminalTraceEntry,
@@ -16,7 +17,6 @@ use bombadil_schema::terminal::{
 use bombadil_terminal::driver::{
     TerminalAction, TerminalDriver, TerminalProgramOptions,
 };
-use bombadil_terminal::trace::TraceWriter;
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -80,6 +80,60 @@ pub enum Command {
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
     },
+
+    /// [EXPERIMENTAL] Fuzz (running many short test runs) the given program against a
+    /// TypeScript specification
+    #[command(hide = true)]
+    Fuzz {
+        /// Path to a TypeScript specification file (uses the
+        /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will
+        /// use the default specification for terminal UIs.
+        #[arg(long = "specification")]
+        specification_file: Option<PathBuf>,
+        /// Whether to exit the test when first failing property is found (useful in development and CI)
+        #[arg(long)]
+        exit_on_violation: bool,
+        /// Maximum time to run an individual test run. Accepts a number with a unit suffix:
+        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        #[arg(long, value_parser = duration::parse_duration, default_value = "10s")]
+        time_limit_run: Duration,
+        /// Maximum time to run the full fuzzing campaign. Accepts a number with a unit suffix:
+        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        #[arg(long, value_parser = duration::parse_duration, default_value = "5m")]
+        time_limit_fuzz: Duration,
+
+        /// Whether to apply swarm testing to actions. Otherwise all actions are enabled.
+        #[arg(long)]
+        swarm: bool,
+
+        /// Terminal columns at startup
+        #[arg(long, default_value_t = defaults::COLUMNS)]
+        columns: u16,
+        /// Terminal rows at startup
+        #[arg(long, default_value_t = defaults::ROWS)]
+        rows: u16,
+        /// Maximum line count to keep in scrollback buffer
+        #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
+        scrollback_lines_max: u16,
+        /// How long to wait (in milliseconds) for the program to stop emitting
+        /// output before extracting the next state. Lower values increase
+        /// throughput but risk sampling mid-render; higher values give the
+        /// program more time to finish drawing.
+        #[arg(long, default_value_t = defaults::QUIESCENCE_TIMEOUT_MS)]
+        quiescence_timeout_ms: u64,
+        /// The command to run as the system under test. Everything after
+        /// `--` is forwarded as program + arguments.
+        #[clap(trailing_var_arg = true)]
+        command: Vec<String>,
+        /// Where to store output data (trace.jsonl). Defaults to a
+        /// fresh temporary directory.
+        #[arg(long)]
+        output_path: Option<PathBuf>,
+        /// Overwrite any existing trace at --output-path. Without this
+        /// flag, Bombadil refuses to write when trace.jsonl already exists.
+        #[arg(long)]
+        output_path_overwrite: bool,
+    },
 }
 
 pub fn run(command: Command) {
@@ -125,16 +179,21 @@ pub fn run(command: Command) {
                 };
 
                 let output_path = resolve_output_path(output_path)?;
-                let writer = TraceWriter::initialize(
-                    output_path.clone(),
-                    output_path_overwrite,
-                )?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(
                         load_reproduce_actions(&path)?,
                     ),
                     None => TerminalTestMode::RandomWalk,
+                };
+
+                let trace_writer_output = if antithesis::is_in_guest() {
+                    None
+                } else {
+                    Some(TraceWriterOutput {
+                        root_path: output_path.clone(),
+                        overwrite: output_path_overwrite,
+                    })
                 };
 
                 let program_options = TerminalProgramOptions {
@@ -146,8 +205,11 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let driver =
-                    TerminalDriver::new(specification, program_options)?;
+                let driver = TerminalDriver::new(
+                    specification,
+                    program_options,
+                    trace_writer_output,
+                )?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -163,18 +225,19 @@ pub fn run(command: Command) {
                 let mut strategy = TerminalStrategy {
                     rng: AntithesisRng,
                     mode,
-                    writer: Some(writer),
                     test_start: Some(Time::from_system_time(test_start)),
                     violations_count: 0,
                     exit_on_violation,
                     deadline,
                     states_seen: 0,
                 };
-                let (mut session, verifier) = driver.initiate()?;
+                let (mut session, verifier, mut trace_writer) =
+                    driver.new_session(RunId::default())?;
                 let exit_reason = runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
+                    &mut trace_writer,
                     interrupted,
                 )?;
 
@@ -217,7 +280,7 @@ pub fn run(command: Command) {
                             .duration_since(test_start)?
                             .as_secs_f64()
                 );
-                println!("Trace written to: {}", output_path.display());
+                println!("Output written to: {}", output_path.display());
 
                 if strategy.violations_count > 0 {
                     bail!(
@@ -230,6 +293,110 @@ pub fn run(command: Command) {
 
             if let Err(error) = run_test() {
                 eprintln!("\n\nterminal test failed: {error}");
+
+                if let Some(source) = error.source() {
+                    eprintln!("\nCauses:");
+
+                    for cause in anyhow::Chain::new(source) {
+                        eprintln!("  - {cause}");
+                    }
+                }
+
+                exit(1);
+            }
+        }
+        Command::Fuzz {
+            specification_file,
+            exit_on_violation: _,
+            time_limit_run,
+            time_limit_fuzz,
+            swarm,
+            columns,
+            rows,
+            scrollback_lines_max,
+            quiescence_timeout_ms,
+            command,
+            output_path,
+            output_path_overwrite,
+        } => {
+            let run_fuzz = || {
+                if antithesis::is_in_guest() {
+                    bail!(
+                        "bombadil fuzzing mode is not available in antithesis; use `test` or `test-external`"
+                    );
+                };
+
+                let (program, arguments) = match &command[..] {
+                    [program, args @ ..] => (program.as_str(), args),
+                    _ => bail!("expected `<program> [args...]` after `--`"),
+                };
+
+                let specification = if let Some(path) = specification_file {
+                    // Prepend "./" for relative paths that don't already start with "."
+                    // so the bundler treats them as paths rather than bare specifiers.
+                    let path = if path.is_relative() && !path.starts_with(".") {
+                        PathBuf::from(".").join(path)
+                    } else {
+                        path.clone()
+                    };
+
+                    Specification {
+                        module_specifier: path.display().to_string(),
+                    }
+                } else {
+                    log::info!("using default specification");
+                    Specification {
+                        module_specifier:
+                            "@antithesishq/bombadil/terminal/defaults"
+                                .to_string(),
+                    }
+                };
+
+                let output_path = resolve_output_path(output_path)?;
+
+                let trace_writer_output = TraceWriterOutput {
+                    root_path: output_path.clone(),
+                    overwrite: output_path_overwrite,
+                };
+
+                let program_options = TerminalProgramOptions {
+                    size: TerminalSize { columns, rows },
+                    scrollback_lines_max: scrollback_lines_max as usize,
+                    quiescence_timeout: Duration::from_millis(
+                        quiescence_timeout_ms,
+                    ),
+                    program: program.to_string(),
+                    arguments: arguments.to_vec(),
+                };
+                let driver = Arc::new(TerminalDriver::new(
+                    specification,
+                    program_options,
+                    Some(trace_writer_output.clone()),
+                )?);
+
+                let interrupted = Arc::new(AtomicBool::new(false));
+                {
+                    let interrupted = interrupted.clone();
+                    ctrlc::set_handler(move || {
+                        interrupted.store(true, Ordering::SeqCst);
+                    })?;
+                }
+
+                fuzzer::fuzz(FuzzOptions {
+                    rng: AntithesisRng,
+                    driver,
+                    interrupted,
+                    time_limit_fuzz,
+                    time_limit_run,
+                    swarm,
+                    trace_writer_output: Some(trace_writer_output),
+                })?;
+
+                Ok(())
+            };
+
+            if let Err(error) = run_fuzz() {
+                eprintln!("\n\nterminal fuzz failed: {error}");
 
                 if let Some(source) = error.source() {
                     eprintln!("\nCauses:");

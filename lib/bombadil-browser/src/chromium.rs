@@ -20,7 +20,6 @@ pub mod locate;
 pub struct LaunchOptions {
     pub executable: PathBuf,
     pub headless: bool,
-    pub user_data_directory: PathBuf,
     pub no_sandbox: bool,
 }
 
@@ -42,7 +41,13 @@ impl Chromium {
     }
 
     pub fn launch(launch_options: &LaunchOptions) -> Result<Self> {
-        let crash_dumps_dir = TempDir::new()?;
+        let user_data_directory = TempDir::with_prefix("chrome_user_data_")?;
+        log::info!(
+            "storing chromium/chrome user data in {}",
+            user_data_directory.path().display()
+        );
+
+        let crash_dumps_dir = TempDir::with_prefix("chrome_chrash_dumps_")?;
 
         let mut command = process::Command::new(
             launch_options
@@ -71,8 +76,9 @@ impl Chromium {
 
         command.arg(format!(
             "--user-data-dir={}",
-            launch_options
-                .user_data_directory
+            user_data_directory
+                .path()
+                .to_path_buf()
                 .to_str()
                 .ok_or(anyhow!("invalid user_data_dir"))?,
         ));
@@ -170,13 +176,15 @@ fn web_socket_remote_debugger_get_with_attempts(
 ) -> Result<Url> {
     for n in 1..=attempts {
         thread::sleep(Duration::from_millis(n as u64 * 200));
-        log::debug!("get web_socket_remote_debugger attempt {n}");
+        log::debug!(
+            "get web_socket_remote_debugger ({remote_debugger}) attempt {n}"
+        );
         if let Ok(url) = web_socket_remote_debugger_get(remote_debugger) {
             return Ok(url);
         }
     }
     bail!(
-        "failed to get web_socket_remote_debugger URL after {attempts} attempts"
+        "failed to get web_socket_remote_debugger URL ({remote_debugger}) after {attempts} attempts",
     )
 }
 

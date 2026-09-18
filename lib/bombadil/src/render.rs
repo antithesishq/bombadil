@@ -36,7 +36,7 @@ impl Format for f64 {
 
 impl Format for String {
     fn format(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
-        write!(f, "{}", self)
+        write!(f, "{:?}", self)
     }
 }
 
@@ -71,7 +71,9 @@ impl Format for StringGenerator {
                             write!(f, "..=")?;
                             write!(f, "\\u{{{}}}", range.end())?;
                         }
-                        CharSetEntry::Literal(_) => todo!(),
+                        CharSetEntry::Literal(string) => {
+                            write!(f, "{:?}", string)?;
+                        }
                     }
                 }
                 write!(f, ">")

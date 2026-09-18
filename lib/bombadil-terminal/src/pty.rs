@@ -2,6 +2,7 @@ use std::{
     ffi::OsStr,
     io::{Read, Write},
     sync::mpsc,
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -13,11 +14,15 @@ use portable_pty::{
 };
 
 pub struct PtyProcess {
-    child: Box<dyn Child + Send + Sync>,
-    input_write: Box<dyn Write + Send>,
-    master: Box<dyn MasterPty + Send + 'static>,
+    child: Option<Box<dyn Child + Send + Sync>>,
+    input_tx: Option<mpsc::SyncSender<Vec<u8>>>,
+    master: Option<Box<dyn MasterPty + Send + 'static>>,
     reader: Option<std::thread::JoinHandle<()>>,
+    writer: Option<std::thread::JoinHandle<()>>,
+    input_dropped_at: Option<Instant>,
 }
+
+const INPUT_QUEUE_CAPACITY: usize = 128;
 
 impl PtyProcess {
     pub fn spawn<I: IntoIterator<Item = S>, S: AsRef<OsStr>>(
@@ -67,28 +72,69 @@ impl PtyProcess {
                 }
             })?;
 
+        let mut input_write = pair.master.take_writer()?;
+        let (input_tx, input_rx) =
+            mpsc::sync_channel::<Vec<u8>>(INPUT_QUEUE_CAPACITY);
+
+        // Writes to the master go through this dedicated thread so the
+        // driver never blocks on the pty's input buffer.
+        let writer = std::thread::Builder::new()
+            .name("bombadil-pty-writer".to_string())
+            .spawn(move || {
+                while let Ok(bytes) = input_rx.recv() {
+                    if let Err(error) = input_write.write_all(&bytes) {
+                        log::warn!("PTY write error: {error}");
+                        break;
+                    }
+                    if let Err(error) = input_write.flush() {
+                        log::warn!("PTY flush error: {error}");
+                        break;
+                    }
+                }
+            })?;
+
         Ok((
             Self {
-                child,
-                input_write: pair.master.take_writer()?,
-                master: pair.master,
+                child: Some(child),
+                input_tx: Some(input_tx),
+                master: Some(pair.master),
                 reader: Some(reader),
+                writer: Some(writer),
+                input_dropped_at: None,
             },
             PtyOutput { output_read },
         ))
     }
 
     pub fn write(&mut self, input: &[u8]) {
-        if let Err(error) = self.input_write.write_all(input) {
-            log::warn!("PTY write error: {error}");
-        }
-        if let Err(error) = self.input_write.flush() {
-            log::warn!("PTY flush error: {error}");
+        let Some(tx) = self.input_tx.as_ref() else {
+            return;
+        };
+        match tx.try_send(input.to_vec()) {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(dropped)) => {
+                self.input_dropped_at = Some(Instant::now());
+                log::warn!(
+                    "PTY input queue full, dropped {} bytes",
+                    dropped.len()
+                );
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => {
+                log::warn!("PTY writer thread has exited");
+            }
         }
     }
 
+    pub fn last_input_dropped(&self) -> Option<Instant> {
+        self.input_dropped_at
+    }
+
     pub fn resize(&mut self, size: TerminalSize) -> Result<()> {
-        self.master.resize(PtySize {
+        let master = self
+            .master
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("pty is not running"))?;
+        master.resize(PtySize {
             cols: size.columns,
             rows: size.rows,
             ..Default::default()
@@ -97,8 +143,12 @@ impl PtyProcess {
     }
 
     pub fn wait(mut self) -> Result<ExitStatus> {
-        let status = self.child.wait()?;
-        drop(self.master);
+        let mut child = self
+            .child
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("pty is not running"))?;
+        let status = child.wait()?;
+        self.master.take();
         if let Some(reader) = self.reader.take() {
             let _ = reader.join();
         }
@@ -106,11 +156,33 @@ impl PtyProcess {
     }
 
     pub fn kill(&mut self) {
-        let _ = self.child.kill();
+        self.cleanup();
     }
 
     pub fn exit_status(&mut self) -> Result<Option<ExitStatus>> {
-        Ok(self.child.try_wait()?)
+        let Some(child) = self.child.as_mut() else {
+            return Ok(None);
+        };
+        Ok(child.try_wait()?)
+    }
+
+    fn cleanup(&mut self) {
+        drop(self.input_tx.take());
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.master.take();
+        // Detach reader and writer rather than joining, and let them exit
+        // on their own.
+        drop(self.reader.take());
+        drop(self.writer.take());
+    }
+}
+
+impl Drop for PtyProcess {
+    fn drop(&mut self) {
+        self.cleanup();
     }
 }
 

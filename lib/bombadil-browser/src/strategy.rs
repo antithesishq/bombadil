@@ -8,13 +8,13 @@ use bombadil::runner::PropertiesState;
 use bombadil::styled;
 use bombadil::{specification::domain::Snapshot, tree::Tree};
 use rand::{RngExt, TryRng};
-use std::{collections::VecDeque, path::PathBuf, time::SystemTime};
+use std::{collections::VecDeque, time::SystemTime};
 use url::Url;
 
 use crate::{
     browser::{actions::BrowserAction, state::BrowserState},
     convert::ToSchema,
-    runner::{ControlFlow, PropertyViolation, RunStrategy},
+    runner::{ControlFlow, RunStrategy},
 };
 use bombadil_schema::markup;
 
@@ -23,25 +23,13 @@ pub enum TestMode {
     Reproduce(VecDeque<BrowserAction>),
 }
 
-pub trait TraceWriter {
-    fn write(
-        &mut self,
-        state: &BrowserState,
-        last_action: Option<&BrowserAction>,
-        snapshots: &[Snapshot],
-        violations: &[PropertyViolation],
-    ) -> Result<()>;
-}
-
-pub struct TestStrategy<Writer: TraceWriter, Rng> {
+pub struct TestStrategy<Rng> {
     pub rng: Rng,
     pub mode: TestMode,
-    pub writer: Writer,
     pub exit_on_violation: bool,
     pub test_start: Option<bombadil_schema::Time>,
     pub deadline: Option<SystemTime>,
     pub origin: Url,
-    pub output_path: PathBuf,
     pub violations_count: u64,
 }
 
@@ -60,7 +48,7 @@ pub struct TestResult {
     pub violations_count: u64,
 }
 
-impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
+impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
     fn pick_action(
         &mut self,
         state: &BrowserState,
@@ -119,17 +107,15 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> TestStrategy<Writer, Rng> {
     }
 }
 
-impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserSession>
-    for TestStrategy<Writer, Rng>
-{
+impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     type StopValue = TestResult;
 
     fn on_new_state(
         &mut self,
         state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
-        last_action: Option<&BrowserAction>,
-        snapshots: &[Snapshot],
+        _last_action: Option<&BrowserAction>,
+        _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> anyhow::Result<ControlFlow<Self::StopValue, BrowserAction>> {
         let test_start = *self.test_start.get_or_insert(
@@ -151,13 +137,6 @@ impl<Writer: TraceWriter, Rng: TryRng + RngExt> RunStrategy<BrowserSession>
                 text
             );
         }
-
-        self.writer.write(
-            state,
-            last_action,
-            snapshots,
-            properties.violations,
-        )?;
 
         if self.violations_count > 0 && self.exit_on_violation {
             return Ok(ControlFlow::Stop(TestResult {

@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::antithesis;
-use crate::driver::{DriverEvent, InterfaceSession};
+use crate::driver::{DriverEvent, InterfaceSession, TraceWriter};
 use crate::specification::convert::{
     ToSchema, violation_with_pretty_functions,
 };
@@ -62,16 +62,21 @@ pub trait RunState {
     fn timestamp(&self) -> Time;
 }
 
-pub fn run<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
+pub fn run<
+    Session: InterfaceSession,
+    Strategy: RunStrategy<Session>,
+    Writer: TraceWriter<Session>,
+>(
     session: &mut Session,
     strategy: &mut Strategy,
     verifier: Verifier,
+    writer: &mut Writer,
     interrupted: Arc<AtomicBool>,
 ) -> Result<Strategy::StopValue> {
     log::info!("starting test");
     log::debug!("driver initiated");
 
-    let result = run_test(session, verifier, interrupted, strategy);
+    let result = run_test(session, verifier, writer, interrupted, strategy);
 
     session.terminate()?;
 
@@ -80,9 +85,14 @@ pub fn run<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
     result
 }
 
-fn run_test<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
+fn run_test<
+    Session: InterfaceSession,
+    Strategy: RunStrategy<Session>,
+    Writer: TraceWriter<Session>,
+>(
     driver: &mut Session,
     mut verifier: Verifier,
+    writer: &mut Writer,
     interrupted: Arc<AtomicBool>,
     strategy: &mut Strategy,
 ) -> Result<Strategy::StopValue> {
@@ -151,15 +161,24 @@ fn run_test<Session: InterfaceSession, Strategy: RunStrategy<Session>>(
                     );
                 }
 
+                let properties = PropertiesState {
+                    violations: &violations,
+                    all_definite: step_result.all_definite,
+                };
+
+                writer.write(
+                    &state,
+                    last_action.as_ref(),
+                    &snapshots,
+                    properties.violations,
+                )?;
+
                 let control = strategy.on_new_state(
                     &state,
                     step_result.actions,
                     last_action.as_ref(),
                     &snapshots,
-                    PropertiesState {
-                        violations: &violations,
-                        all_definite: step_result.all_definite,
-                    },
+                    properties,
                 )?;
 
                 match control {

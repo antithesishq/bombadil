@@ -5,7 +5,7 @@ use std::sync::{Arc, Once};
 use std::time::Duration;
 
 use anyhow::Result;
-use bombadil::driver::{ActionTemplate, InterfaceDriver};
+use bombadil::driver::{ActionTemplate, InterfaceDriver, RunId};
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
@@ -97,16 +97,19 @@ impl TerminalIntegrationTest {
                         program,
                         arguments,
                     },
+                    None,
                 )?;
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
-                let (mut session, verifier) = driver.initiate()?;
+                let (mut session, verifier, mut trace_writer) =
+                    driver.new_session(RunId::default())?;
                 runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
+                    &mut trace_writer,
                     Arc::new(AtomicBool::new(false)),
                 )?;
                 Ok(strategy.violations_count)

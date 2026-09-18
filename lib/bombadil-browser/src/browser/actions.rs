@@ -1,3 +1,4 @@
+use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::thread;
 use std::time::Duration;
@@ -23,7 +24,7 @@ pub struct ActionOptions {
     pub device_scale_factor: f64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
 {
     Back,
@@ -549,6 +550,49 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 },
             ) => candidate_selector == original_selector,
             _ => false,
+        }
+    }
+
+    fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        match self {
+            BrowserAction::Back => "Back".hash(hasher),
+            BrowserAction::Forward => "Forward".hash(hasher),
+            BrowserAction::Click { fingerprint, .. } => {
+                ("Click", fingerprint).hash(hasher);
+            }
+            BrowserAction::DoubleClick { fingerprint, .. } => {
+                ("DoubleClick", fingerprint).hash(hasher);
+            }
+            BrowserAction::TypeText { text, .. } => {
+                ("TypeText", text).hash(hasher);
+            }
+            BrowserAction::PressKey { code } => {
+                ("PressKey", code).hash(hasher);
+            }
+            BrowserAction::ScrollUp { .. } => {
+                "ScrollUp".hash(hasher);
+            }
+            BrowserAction::ScrollDown { .. } => {
+                "ScrollDown".hash(hasher);
+            }
+            BrowserAction::Reload => {
+                "Reload".hash(hasher);
+            }
+            BrowserAction::Wait => {
+                "Wait".hash(hasher);
+            }
+            BrowserAction::SetFileInputFiles { selector, .. } => {
+                ("SetFileInputFiles", selector).hash(hasher);
+            }
+            BrowserAction::MouseDrag { .. } => {
+                "MouseDrag".hash(hasher);
+            }
+            BrowserAction::SetViewport { width, height } => {
+                ("SetViewport", width, height).hash(hasher);
+            }
+            BrowserAction::Custom { name, .. } => {
+                ("Custom", name).hash(hasher);
+            }
         }
     }
 }

@@ -27,7 +27,9 @@ pub struct Resources {
     pub script_duration: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord,
+)]
 pub struct Fingerprint {
     // Universal strong identifiers
     #[serde(skip_serializing_if = "Option::is_none")]
