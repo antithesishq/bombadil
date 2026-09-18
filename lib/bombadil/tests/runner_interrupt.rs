@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 
 use bombadil::driver::{
     ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
-    InterfaceSession, NoopTraceWriter, RunState,
+    InterfaceSession, NoopTraceWriter, RunId, RunState,
 };
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
@@ -76,8 +76,9 @@ impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
     type TraceWriter = NoopTraceWriter;
 
-    fn initiate(
+    fn new_session(
         &self,
+        _run_id: RunId,
     ) -> std::result::Result<
         (FakeSession, Verifier, NoopTraceWriter),
         anyhow::Error,
@@ -191,8 +192,9 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    let (mut session, verifier, mut trace_writer) =
-        driver.initiate().expect("driver failed to initiate");
+    let (mut session, verifier, mut trace_writer) = driver
+        .new_session(RunId::default())
+        .expect("driver failed to initiate");
     runner::run(
         &mut session,
         &mut strategy,

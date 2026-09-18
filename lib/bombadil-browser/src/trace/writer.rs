@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use bombadil::{
-    driver::{TraceWriter, TraceWriterOutput},
+    driver::{RunId, TraceWriter, TraceWriterOutput},
     specification::domain::Snapshot,
 };
 use serde_json as json;
@@ -27,15 +27,19 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub fn initialize(output: &TraceWriterOutput) -> Result<Self> {
+    pub fn initialize(
+        output: &TraceWriterOutput,
+        run_id: RunId,
+    ) -> Result<Self> {
+        let run_path =
+            output.root_path.join("runs").join(format!("{}", run_id.0));
         log::info!(
-            "storing trace in {}",
-            output
-                .root_path
+            "storing run trace in {}",
+            run_path
                 .to_str()
                 .expect("states directory path is not valid unicode")
         );
-        let trace_file_path = output.root_path.join("trace.jsonl");
+        let trace_file_path = run_path.join("trace.jsonl");
         if trace_file_path.try_exists()? {
             if !output.overwrite {
                 anyhow::bail!(
@@ -46,7 +50,7 @@ impl FileTraceWriter {
             }
             std::fs::remove_file(&trace_file_path)?;
         }
-        let screenshots_path = output.root_path.join("screenshots");
+        let screenshots_path = run_path.join("screenshots");
         std::fs::create_dir_all(&screenshots_path)?;
         let trace_file = File::options()
             .write(true)

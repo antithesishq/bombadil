@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
+use bombadil::driver::RunId;
 use bombadil::specification::verifier::Verifier;
 use bombadil::{
     driver::{
@@ -48,7 +49,10 @@ impl InterfaceDriver for BrowserDriver {
     type Session = BrowserSession;
     type TraceWriter = Box<dyn TraceWriter<BrowserSession>>;
 
-    fn initiate(&self) -> Result<(Self::Session, Verifier, Self::TraceWriter)> {
+    fn new_session(
+        &self,
+        run_id: RunId,
+    ) -> Result<(Self::Session, Verifier, Self::TraceWriter)> {
         let verifier = Verifier::new(&self.specification_bundle)?;
 
         let coverage = if self.browser_options.instrumentation
@@ -69,7 +73,7 @@ impl InterfaceDriver for BrowserDriver {
 
         let trace_writer: Box<dyn TraceWriter<BrowserSession>> =
             if let Some(output) = &self.trace_writer_output {
-                Box::new(FileTraceWriter::initialize(output)?)
+                Box::new(FileTraceWriter::initialize(output, run_id)?)
             } else {
                 Box::new(NoopTraceWriter)
             };

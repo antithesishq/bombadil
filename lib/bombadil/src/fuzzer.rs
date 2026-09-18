@@ -2,13 +2,13 @@ use anyhow::{Result, anyhow};
 use bombadil_schema::Time;
 use crossbeam_channel as mpmc;
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fmt::{Display, Write as _},
     hash::{DefaultHasher, Hasher},
     io::Write,
     sync::{
         Arc, RwLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, SystemTime},
@@ -18,7 +18,10 @@ use rand::{Rng, RngExt, SeedableRng, TryRng, prelude::StdRng};
 use stdx::ring_buffer::RingBuffer;
 
 use crate::{
-    driver::{ActionTemplate, InterfaceDriver, InterfaceSession, RunState},
+    driver::{
+        ActionTemplate, InterfaceDriver, InterfaceSession, RunId, RunState,
+        TraceWriterOutput,
+    },
     render::Formatted,
     runner::{
         self, ControlFlow, PropertiesState, PropertyViolation, RunStrategy,
@@ -39,23 +42,11 @@ impl Display for WorkerId {
         write!(f, "{}", self.0)
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq)]
-struct RunId(usize);
-
-impl RunId {
-    pub fn next(&self) -> Self {
-        RunId(self.0 + 1)
-    }
-}
-
-impl Display for RunId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 enum WorkerMessage<Session: InterfaceSession> {
+    Start {
+        worker_id: WorkerId,
+        run_id: RunId,
+    },
     Step {
         worker_id: WorkerId,
         run_id: RunId,
@@ -68,7 +59,7 @@ enum WorkerMessage<Session: InterfaceSession> {
 #[derive(Debug)]
 struct Worker<D: InterfaceDriver> {
     worker_id: WorkerId,
-    run_id: RunId,
+    run_id: Option<RunId>,
     handle: thread::JoinHandle<()>,
     actions: RingBuffer<
         (
@@ -82,7 +73,7 @@ struct Worker<D: InterfaceDriver> {
 
 impl<D: InterfaceDriver> Worker<D> {
     fn reset(&mut self, run_id: RunId) {
-        self.run_id = run_id;
+        self.run_id = Some(run_id);
         self.actions = RingBuffer::new(); // TODO: add `.clear()`
         self.violations_count = 0;
     }
@@ -91,7 +82,7 @@ impl<D: InterfaceDriver> Worker<D> {
 #[derive(Debug)]
 struct FuzzState<D: InterfaceDriver> {
     workers: Vec<Worker<D>>,
-    property_violation_counts: BTreeMap<String, u64>,
+    property_violation_run_ids: BTreeMap<String, BTreeSet<RunId>>,
 }
 
 pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
@@ -101,6 +92,7 @@ pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
     time_limit_fuzz: Duration,
     time_limit_run: Duration,
     swarm: bool,
+    trace_writer_output: Option<TraceWriterOutput>,
 ) -> Result<()>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
@@ -108,12 +100,13 @@ where
     let fuzz_start = Time::from_system_time(SystemTime::now());
     let fuzz_deadline = fuzz_start + time_limit_fuzz;
     let (worker_tx, worker_rx) = mpmc::unbounded();
+    let run_id_next = Arc::new(AtomicU64::new(0));
 
     let mut workers: Vec<Worker<D>> = Vec::with_capacity(FUZZ_WORKER_COUNT);
     for i in 0..FUZZ_WORKER_COUNT {
         let worker_tx = worker_tx.clone();
         let worker_id = WorkerId(i);
-        let run_id = RunId(0);
+        let run_id_next = run_id_next.clone();
         let driver = driver.clone();
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
@@ -127,7 +120,7 @@ where
                 time_limit: time_limit_run,
                 fuzz_deadline,
                 worker_id,
-                run_id,
+                run_id_next,
                 swarm,
             };
             let outcome =
@@ -147,7 +140,7 @@ where
         });
         workers.push(Worker {
             worker_id,
-            run_id,
+            run_id: None,
             handle,
             actions: RingBuffer::new(),
             violations_count: 0,
@@ -159,7 +152,7 @@ where
 
     let fuzz_state = Arc::new(RwLock::new(FuzzState {
         workers,
-        property_violation_counts: BTreeMap::new(),
+        property_violation_run_ids: BTreeMap::new(),
     }));
 
     let render_loop_handle =
@@ -169,6 +162,14 @@ where
         && !interrupted.load(Ordering::SeqCst)
     {
         match message {
+            WorkerMessage::Start {
+                worker_id: WorkerId(worker_index),
+                run_id,
+            } => {
+                let mut state =
+                    fuzz_state.write().expect("failed to acquire state lock");
+                state.workers[worker_index].reset(run_id);
+            }
             WorkerMessage::Step {
                 worker_id: WorkerId(worker_index),
                 run_id,
@@ -178,9 +179,6 @@ where
             } => {
                 let mut state =
                     fuzz_state.write().expect("failed to acquire state lock");
-                if run_id > state.workers[worker_index].run_id {
-                    state.workers[worker_index].reset(run_id);
-                }
 
                 state.workers[worker_index]
                     .actions
@@ -191,19 +189,22 @@ where
                     log::info!(
                         "{}/{}, violation of {}: {:?}",
                         state.workers[worker_index].worker_id,
-                        state.workers[worker_index].run_id,
+                        run_id,
                         violation.name,
                         violation.violation
                     );
-                    *state
-                        .property_violation_counts
+                    state
+                        .property_violation_run_ids
                         .entry(violation.name)
-                        .or_default() += 1;
+                        .or_default()
+                        .insert(run_id);
                 }
             }
         };
     }
+
     println!("Shutting down...");
+
     interrupted.store(true, Ordering::SeqCst);
     render_loop_handle
         .join()
@@ -220,6 +221,10 @@ where
                 .join()
                 .map_err(|_| anyhow!("fuzz run thread panicked"))?;
         }
+    }
+
+    if let Some(output) = trace_writer_output {
+        println!("Output written to: {}", output.root_path.display());
     }
 
     Ok(())
@@ -253,7 +258,14 @@ where
             for worker in &state.workers {
                 write!(buffer, "{:^6}", worker.worker_id.0)?;
                 write!(buffer, "{SEP}")?;
-                write!(buffer, "{:^3}", worker.run_id.0)?;
+                write!(
+                    buffer,
+                    "{:^3}",
+                    worker
+                        .run_id
+                        .map(|id| format!("{}", id))
+                        .unwrap_or("-".into())
+                )?;
                 write!(buffer, "{SEP}")?;
                 write!(buffer, "{:^10}", worker.violations_count)?;
                 write!(buffer, "{SEP}")?;
@@ -289,24 +301,28 @@ where
                 }
             }
             writeln!(buffer)?;
-            if !state.property_violation_counts.is_empty() {
+            if !state.property_violation_run_ids.is_empty() {
                 writeln!(
                     buffer,
                     "{}\n",
-                    maybe_bold("Violated properties:".to_string()),
+                    maybe_bold(
+                        "Violated properties (and their run IDs):".to_string()
+                    ),
                 )?;
             }
-            for (property_name, count) in &state.property_violation_counts {
-                writeln!(
-                    buffer,
-                    "{}: {}",
-                    property_name.clone(),
-                    if *count > 0 {
-                        maybe_red(format!("{}", count))
-                    } else {
-                        "0".into()
-                    },
-                )?;
+            for (property_name, run_ids) in &state.property_violation_run_ids {
+                if !run_ids.is_empty() {
+                    writeln!(
+                        buffer,
+                        "{}: {}",
+                        maybe_red(property_name.clone()),
+                        run_ids
+                            .iter()
+                            .map(|id| format!("{id}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
+                }
             }
 
             print!("{}", buffer);
@@ -324,20 +340,25 @@ struct FuzzWorkerThread<D: InterfaceDriver> {
     time_limit: Duration,
     fuzz_deadline: Time,
     worker_id: WorkerId,
-    run_id: RunId,
+    run_id_next: Arc<AtomicU64>,
     swarm: bool,
 }
 
 impl<D: InterfaceDriver> FuzzWorkerThread<D> {
     #[hotpath::measure]
-    fn run(mut self) {
+    fn run(self) {
         let mut rng = StdRng::seed_from_u64(self.seed);
 
-        while !self.interrupted.load(Ordering::SeqCst) {
+        for iteration in 0.. {
+            if self.interrupted.load(Ordering::SeqCst) {
+                break;
+            }
+            let run_id = RunId(self.run_id_next.fetch_add(1, Ordering::SeqCst));
             log::info!(
-                "worker {} entering iteration (run_id={})",
+                "worker {} entering iteration {} (run_id={})",
                 self.worker_id,
-                self.run_id
+                iteration,
+                run_id,
             );
             let test_start = Time::from_system_time(SystemTime::now());
             if test_start > self.fuzz_deadline {
@@ -353,12 +374,14 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
             } else {
                 FuzzMode::RandomWalk
             };
-            let (mut session, verifier, mut trace_writer) =
-                self.driver.initiate().expect("driver initiate failed");
+            let (mut session, verifier, mut trace_writer) = self
+                .driver
+                .new_session(run_id)
+                .expect("driver initiate failed");
 
             let mut strategy = FuzzStrategy {
                 worker_id: self.worker_id,
-                run_id: self.run_id,
+                run_id,
                 rng: StdRng::seed_from_u64(run_seed),
                 test_start,
                 test_deadline: test_start + self.time_limit,
@@ -367,11 +390,12 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                 excluded: HashMap::new(),
             };
 
-            // let output_path = resolve_output_path(output_path)?;
-            // let writer = TraceWriter::initialize(
-            //     output_path.clone(),
-            //     output_path_overwrite,
-            // )?;
+            if let Err(error) = self.worker_tx.send(WorkerMessage::Start {
+                worker_id: self.worker_id,
+                run_id,
+            }) {
+                log::error!("failed to send worker message: {:#}", error);
+            }
 
             let result = runner::run(
                 &mut session,
@@ -380,10 +404,10 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                 &mut trace_writer,
                 self.interrupted.clone(),
             );
+
             log::info!(
-                "worker {} finished runner::run (run_id={}, result={result:?})",
+                "worker {} finished runner::run (iteration={iteration}, run_id={run_id}, result={result:?})",
                 self.worker_id,
-                self.run_id
             );
 
             if log::log_enabled!(log::Level::Debug) && self.swarm {
@@ -402,7 +426,6 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                     log::debug!("{}", buffer);
                 }
             }
-            self.run_id = self.run_id.next();
 
             log::debug!("terminating session");
             if let Err(error) = session.terminate() {

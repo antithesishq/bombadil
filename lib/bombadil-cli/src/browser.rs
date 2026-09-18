@@ -24,7 +24,7 @@ use tempfile::TempDir;
 
 use bombadil::{
     antithesis,
-    driver::TraceWriterOutput,
+    driver::{RunId, TraceWriterOutput},
     fuzzer,
     specification::{bundler::bundle, verifier::Specification},
     styled,
@@ -523,15 +523,16 @@ fn browser_test(
     }
 
     let trace_writer_output = if antithesis::is_in_guest() {
+        None
+    } else {
         Some(TraceWriterOutput {
             root_path: output_path.clone(),
             overwrite: shared_options.output_path_overwrite,
         })
-    } else {
-        None
     };
 
     let run_options = RunOptions {
+        run_id: RunId::default(),
         specification,
         browser_options,
         debugger_options,
@@ -613,6 +614,12 @@ fn browser_fuzz(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
+    if antithesis::is_in_guest() {
+        bail!(
+            "bombadil fuzzing mode is not available in antithesis; use `test` or `test-external`"
+        );
+    };
+
     // Load a user-provided specification, or use the defaults provided by Bombadil.
     let specification = if let Some(path) = &shared_options.specification_file {
         let path = if path.is_relative() && !path.starts_with(".") {
@@ -630,12 +637,6 @@ fn browser_fuzz(
             module_specifier: "@antithesishq/bombadil/browser/defaults"
                 .to_string(),
         }
-    };
-
-    if antithesis::is_in_guest() {
-        bail!(
-            "bombadil fuzzing mode is not available in antithesis; use `test` or `test-external`"
-        );
     };
 
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -659,7 +660,7 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
-        trace_writer_output,
+        trace_writer_output: trace_writer_output.clone(),
     });
 
     fuzzer::fuzz(
@@ -669,6 +670,7 @@ fn browser_fuzz(
         shared_options.time_limit_fuzz,
         shared_options.time_limit_run,
         shared_options.swarm,
+        trace_writer_output,
     )?;
 
     /*
@@ -737,6 +739,7 @@ fn browser_fuzz(
 }
 
 struct RunOptions {
+    run_id: RunId,
     origin: Url,
     specification: Specification,
     browser_options: BrowserOptions,
@@ -749,6 +752,7 @@ struct RunOptions {
 
 fn run_with_writer(
     RunOptions {
+        run_id,
         origin,
         specification,
         browser_options,
@@ -778,6 +782,7 @@ fn run_with_writer(
     };
 
     bombadil_browser::runner::launch(
+        run_id,
         origin,
         specification,
         browser_options,

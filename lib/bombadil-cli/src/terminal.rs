@@ -5,10 +5,10 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::InterfaceDriver;
+use bombadil::driver::{InterfaceDriver, RunId, TraceWriterOutput};
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
-use bombadil::{fuzzer, runner};
+use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalSize, TerminalTraceEntry,
@@ -186,6 +186,15 @@ pub fn run(command: Command) {
                     None => TerminalTestMode::RandomWalk,
                 };
 
+                let trace_writer_output = if antithesis::is_in_guest() {
+                    None
+                } else {
+                    Some(TraceWriterOutput {
+                        root_path: output_path.clone(),
+                        overwrite: output_path_overwrite,
+                    })
+                };
+
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
                     scrollback_lines_max: scrollback_lines_max as usize,
@@ -198,8 +207,7 @@ pub fn run(command: Command) {
                 let driver = TerminalDriver::new(
                     specification,
                     program_options,
-                    output_path.clone(),
-                    output_path_overwrite,
+                    trace_writer_output,
                 )?;
 
                 let test_start = SystemTime::now();
@@ -223,7 +231,7 @@ pub fn run(command: Command) {
                     states_seen: 0,
                 };
                 let (mut session, verifier, mut trace_writer) =
-                    driver.initiate()?;
+                    driver.new_session(RunId::default())?;
                 let exit_reason = runner::run(
                     &mut session,
                     &mut strategy,
@@ -311,6 +319,12 @@ pub fn run(command: Command) {
             output_path_overwrite,
         } => {
             let run_fuzz = || {
+                if antithesis::is_in_guest() {
+                    bail!(
+                        "bombadil fuzzing mode is not available in antithesis; use `test` or `test-external`"
+                    );
+                };
+
                 let (program, arguments) = match &command[..] {
                     [program, args @ ..] => (program.as_str(), args),
                     _ => bail!("expected `<program> [args...]` after `--`"),
@@ -339,6 +353,11 @@ pub fn run(command: Command) {
 
                 let output_path = resolve_output_path(output_path)?;
 
+                let trace_writer_output = TraceWriterOutput {
+                    root_path: output_path.clone(),
+                    overwrite: output_path_overwrite,
+                };
+
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
                     scrollback_lines_max: scrollback_lines_max as usize,
@@ -351,8 +370,7 @@ pub fn run(command: Command) {
                 let driver = Arc::new(TerminalDriver::new(
                     specification,
                     program_options,
-                    output_path,
-                    output_path_overwrite,
+                    Some(trace_writer_output.clone()),
                 )?);
 
                 let interrupted = Arc::new(AtomicBool::new(false));
@@ -370,6 +388,7 @@ pub fn run(command: Command) {
                     time_limit_fuzz,
                     time_limit_run,
                     swarm,
+                    Some(trace_writer_output),
                 )?;
 
                 Ok(())

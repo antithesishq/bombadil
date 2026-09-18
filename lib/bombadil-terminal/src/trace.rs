@@ -1,14 +1,13 @@
 use std::{
     io::{self, BufWriter, Write},
-    path::PathBuf,
     sync::mpsc,
     thread::JoinHandle,
 };
 
 use anyhow::{Result, anyhow};
-use bombadil::specification::convert::ToSchema;
-use bombadil::specification::domain::Snapshot;
+use bombadil::{driver::RunId, specification::domain::Snapshot};
 use bombadil::{driver::TraceWriter, runner::PropertyViolation};
+use bombadil::{driver::TraceWriterOutput, specification::convert::ToSchema};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{TerminalCell, TerminalGrid};
 use serde_json as json;
@@ -129,13 +128,15 @@ const PENDING_ENTRIES_MAX: usize = 32;
 
 impl TerminalTraceWriter {
     pub fn initialize(
-        root_path: PathBuf,
-        output_path_overwrite: bool,
+        output: &TraceWriterOutput,
+        run_id: RunId,
     ) -> Result<Self> {
-        std::fs::create_dir_all(&root_path)?;
-        let trace_path = root_path.join("trace.jsonl");
+        let run_path =
+            output.root_path.join("runs").join(format!("{}", run_id.0));
+        std::fs::create_dir_all(&run_path)?;
+        let trace_path = run_path.join("trace.jsonl");
         if trace_path.try_exists()? {
-            if !output_path_overwrite {
+            if !output.overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
                      Use --output-path-overwrite to overwrite, or choose a different --output-path.",
@@ -148,7 +149,7 @@ impl TerminalTraceWriter {
             .write(true)
             .create_new(true)
             .open(&trace_path)?;
-        log::info!("storing trace in {}", root_path.display());
+        log::info!("storing run trace in {}", run_path.display());
         let (sender, receiver) = mpsc::sync_channel(PENDING_ENTRIES_MAX);
         let worker = std::thread::Builder::new()
             .name("bombadil-trace-writer".to_string())
