@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use bombadil::{
-    driver::{RunId, TraceWriter, TraceWriterOutput},
+    driver::{OutputWriter, RunId, TraceWriter},
     specification::domain::Snapshot,
 };
 use serde_json as json;
@@ -20,6 +20,27 @@ use crate::{
     trace::{PropertyViolation, TraceEntry},
 };
 
+pub struct FileOutputWriter {
+    pub root_path: PathBuf,
+    pub overwrite: bool,
+}
+
+impl FileOutputWriter {
+    pub fn run_directory(&self, run_id: RunId) -> PathBuf {
+        self.root_path.join("runs").join(format!("{}", run_id.0))
+    }
+}
+
+impl OutputWriter<BrowserSession> for FileOutputWriter {
+    type TraceWriter = FileTraceWriter;
+
+    fn trace_writer(&mut self, run_id: RunId) -> Result<Self::TraceWriter> {
+        let run_path =
+            self.root_path.join("runs").join(format!("{}", run_id.0));
+        FileTraceWriter::initialize(run_path, self.overwrite)
+    }
+}
+
 pub struct FileTraceWriter {
     screenshots_path: PathBuf,
     trace_file: BufWriter<File>,
@@ -27,12 +48,7 @@ pub struct FileTraceWriter {
 }
 
 impl FileTraceWriter {
-    pub fn initialize(
-        output: &TraceWriterOutput,
-        run_id: RunId,
-    ) -> Result<Self> {
-        let run_path =
-            output.root_path.join("runs").join(format!("{}", run_id.0));
+    pub fn initialize(run_path: PathBuf, overwrite: bool) -> Result<Self> {
         log::info!(
             "storing run trace in {}",
             run_path
@@ -41,7 +57,7 @@ impl FileTraceWriter {
         );
         let trace_file_path = run_path.join("trace.jsonl");
         if trace_file_path.try_exists()? {
-            if !output.overwrite {
+            if !overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
                      Use --output-path-overwrite to overwrite, or choose a different --output-path.",

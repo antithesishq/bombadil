@@ -5,7 +5,8 @@ use bombadil_browser::{
     chromium::{self, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
-    driver::{BrowserDriver, DebuggerOptions},
+    driver::{BrowserDriver, BrowserSession, DebuggerOptions},
+    trace::writer::{FileOutputWriter, FileTraceWriter},
 };
 use clap::Args;
 use serde_json as json;
@@ -24,7 +25,7 @@ use tempfile::TempDir;
 
 use bombadil::{
     antithesis,
-    driver::{RunId, TraceWriterOutput},
+    driver::{NoopTraceWriter, RunId, TraceWriter},
     fuzzer::{self, FuzzOptions},
     specification::{bundler::bundle, verifier::Specification},
     styled,
@@ -522,15 +523,6 @@ fn browser_test(
         );
     }
 
-    let trace_writer_output = if antithesis::is_in_guest() {
-        None
-    } else {
-        Some(TraceWriterOutput {
-            root_path: output_path.clone(),
-            overwrite: shared_options.output_path_overwrite,
-        })
-    };
-
     let run_options = RunOptions {
         run_id: RunId::default(),
         specification,
@@ -540,10 +532,19 @@ fn browser_test(
         deadline: shared_options.time_limit.map(|d| SystemTime::now() + d),
         origin: shared_options.origin.url,
         exit_on_violation: shared_options.exit_on_violation,
-        trace_writer_output,
     };
 
-    let test_result = run_with_writer(run_options)?;
+    let test_result = if antithesis::is_in_guest() {
+        run_with_writer(run_options, NoopTraceWriter)?
+    } else {
+        run_with_writer(
+            run_options,
+            FileTraceWriter::initialize(
+                output_path.clone(),
+                shared_options.output_path_overwrite,
+            )?,
+        )?
+    };
 
     let heading = {
         let TestResult {
@@ -650,17 +651,16 @@ fn browser_fuzz(
     let specification_bundle =
         Arc::from(bundle(".", &specification.module_specifier)?);
 
-    let trace_writer_output = Some(TraceWriterOutput {
+    let output_writer = FileOutputWriter {
         root_path: output_path.clone(),
         overwrite: shared_options.output_path_overwrite,
-    });
+    };
 
     let driver = Arc::new(BrowserDriver {
         origin: shared_options.origin.url,
         browser_options,
         debugger_options,
         specification_bundle,
-        trace_writer_output: trace_writer_output.clone(),
     });
 
     fuzzer::fuzz(FuzzOptions {
@@ -670,7 +670,7 @@ fn browser_fuzz(
         time_limit_fuzz: shared_options.time_limit_fuzz,
         time_limit_run: shared_options.time_limit_run,
         swarm: shared_options.swarm,
-        trace_writer_output,
+        output_writer,
     })?;
 
     // TODO: return result from `fuzz` that can be used to print something like the following:
@@ -749,10 +749,9 @@ struct RunOptions {
     mode: TestMode,
     exit_on_violation: bool,
     deadline: Option<SystemTime>,
-    trace_writer_output: Option<TraceWriterOutput>,
 }
 
-fn run_with_writer(
+fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
     RunOptions {
         run_id,
         origin,
@@ -762,8 +761,8 @@ fn run_with_writer(
         mode,
         exit_on_violation,
         deadline,
-        trace_writer_output,
     }: RunOptions,
+    trace_writer: Writer,
 ) -> Result<TestResult> {
     let interrupted = Arc::new(AtomicBool::new(false));
     {
@@ -789,7 +788,7 @@ fn run_with_writer(
         specification,
         browser_options,
         debugger_options,
-        trace_writer_output,
+        trace_writer,
         interrupted,
         &mut strategy,
     )

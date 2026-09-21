@@ -7,7 +7,7 @@ use std::{
     hash::{DefaultHasher, Hasher},
     io::Write,
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread,
@@ -19,8 +19,8 @@ use stdx::ring_buffer::RingBuffer;
 
 use crate::{
     driver::{
-        ActionTemplate, InterfaceDriver, InterfaceSession, RunId, RunState,
-        TraceWriterOutput,
+        ActionTemplate, InterfaceDriver, InterfaceSession, OutputWriter, RunId,
+        RunState,
     },
     render::Formatted,
     runner::{
@@ -88,18 +88,23 @@ struct FuzzState<D: InterfaceDriver> {
 #[derive(Debug)]
 pub struct FuzzOptions<
     D: InterfaceDriver + Send + Sync + 'static,
+    Writer: OutputWriter<D::Session>,
     Rng: TryRng + RngExt,
 > {
     pub rng: Rng,
     pub driver: Arc<D>,
+    pub output_writer: Writer,
     pub interrupted: Arc<AtomicBool>,
     pub time_limit_fuzz: Duration,
     pub time_limit_run: Duration,
     pub swarm: bool,
-    pub trace_writer_output: Option<TraceWriterOutput>,
 }
 
-pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
+pub fn fuzz<
+    D: InterfaceDriver + Send + Sync + 'static,
+    Writer: OutputWriter<D::Session> + Send + Sync + 'static,
+    Rng: TryRng + RngExt,
+>(
     FuzzOptions {
         mut rng,
         driver,
@@ -107,14 +112,16 @@ pub fn fuzz<D: InterfaceDriver + Send + Sync + 'static, Rng: TryRng + RngExt>(
         time_limit_fuzz,
         time_limit_run,
         swarm,
-        trace_writer_output,
-    }: FuzzOptions<D, Rng>,
+        output_writer,
+    }: FuzzOptions<D, Writer, Rng>,
 ) -> Result<()>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
 {
     let fuzz_start = Time::from_system_time(SystemTime::now());
     let fuzz_deadline = fuzz_start + time_limit_fuzz;
+
+    let output_writer = Arc::new(Mutex::new(output_writer));
     let (worker_tx, worker_rx) = mpmc::unbounded();
     let run_id_next = Arc::new(AtomicU64::new(0));
 
@@ -124,12 +131,14 @@ where
         let worker_id = WorkerId(i);
         let run_id_next = run_id_next.clone();
         let driver = driver.clone();
+        let output_writer = output_writer.clone();
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
         log::debug!("spawning {worker_id}");
         let handle = thread::spawn(move || {
             let fuzz_worker_thread = FuzzWorkerThread {
                 driver,
+                output_writer,
                 worker_tx,
                 interrupted,
                 seed,
@@ -239,10 +248,6 @@ where
         }
     }
 
-    if let Some(output) = trace_writer_output {
-        println!("Output written to: {}", output.root_path.display());
-    }
-
     Ok(())
 }
 
@@ -348,8 +353,9 @@ where
     })
 }
 
-struct FuzzWorkerThread<D: InterfaceDriver> {
+struct FuzzWorkerThread<D: InterfaceDriver, Writer: OutputWriter<D::Session>> {
     driver: Arc<D>,
+    output_writer: Arc<Mutex<Writer>>,
     worker_tx: mpmc::Sender<WorkerMessage<D::Session>>,
     interrupted: Arc<AtomicBool>,
     seed: u64,
@@ -360,7 +366,9 @@ struct FuzzWorkerThread<D: InterfaceDriver> {
     swarm: bool,
 }
 
-impl<D: InterfaceDriver> FuzzWorkerThread<D> {
+impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
+    FuzzWorkerThread<D, Writer>
+{
     #[hotpath::measure]
     fn run(self) {
         let mut rng = StdRng::seed_from_u64(self.seed);
@@ -390,7 +398,7 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
             } else {
                 FuzzMode::RandomWalk
             };
-            let (mut session, verifier, mut trace_writer) = self
+            let (mut session, verifier) = self
                 .driver
                 .new_session(run_id)
                 .expect("driver initiate failed");
@@ -405,6 +413,14 @@ impl<D: InterfaceDriver> FuzzWorkerThread<D> {
                 mode,
                 excluded: HashMap::new(),
             };
+
+            let mut output_writer = self
+                .output_writer
+                .lock()
+                .expect("failed to acquire lock for output writer");
+            let mut trace_writer = output_writer
+                .trace_writer(run_id)
+                .expect("initializing trace writer failed");
 
             if let Err(error) = self.worker_tx.send(WorkerMessage::Start {
                 worker_id: self.worker_id,

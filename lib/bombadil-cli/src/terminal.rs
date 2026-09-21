@@ -5,7 +5,7 @@ use std::{collections::VecDeque, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{InterfaceDriver, RunId, TraceWriterOutput};
+use bombadil::driver::{InterfaceDriver, NoopTraceWriter, RunId};
 use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
@@ -17,6 +17,7 @@ use bombadil_schema::terminal::{
 use bombadil_terminal::driver::{
     TerminalAction, TerminalDriver, TerminalProgramOptions,
 };
+use bombadil_terminal::trace::{TerminalOutputWriter, TerminalTraceWriter};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -187,15 +188,6 @@ pub fn run(command: Command) {
                     None => TerminalTestMode::RandomWalk,
                 };
 
-                let trace_writer_output = if antithesis::is_in_guest() {
-                    None
-                } else {
-                    Some(TraceWriterOutput {
-                        root_path: output_path.clone(),
-                        overwrite: output_path_overwrite,
-                    })
-                };
-
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
                     scrollback_lines_max: scrollback_lines_max as usize,
@@ -205,11 +197,8 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let driver = TerminalDriver::new(
-                    specification,
-                    program_options,
-                    trace_writer_output,
-                )?;
+                let driver =
+                    TerminalDriver::new(specification, program_options)?;
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -231,15 +220,30 @@ pub fn run(command: Command) {
                     deadline,
                     states_seen: 0,
                 };
-                let (mut session, verifier, mut trace_writer) =
+                let (mut session, verifier) =
                     driver.new_session(RunId::default())?;
-                let exit_reason = runner::run(
-                    &mut session,
-                    &mut strategy,
-                    verifier,
-                    &mut trace_writer,
-                    interrupted,
-                )?;
+
+                let exit_reason = if antithesis::is_in_guest() {
+                    runner::run(
+                        &mut session,
+                        &mut strategy,
+                        verifier,
+                        &mut NoopTraceWriter,
+                        interrupted,
+                    )?
+                } else {
+                    let mut trace_writer = TerminalTraceWriter::initialize(
+                        output_path.clone(),
+                        output_path_overwrite,
+                    )?;
+                    runner::run(
+                        &mut session,
+                        &mut strategy,
+                        verifier,
+                        &mut trace_writer,
+                        interrupted,
+                    )?
+                };
 
                 println!();
                 match exit_reason {
@@ -354,7 +358,7 @@ pub fn run(command: Command) {
 
                 let output_path = resolve_output_path(output_path)?;
 
-                let trace_writer_output = TraceWriterOutput {
+                let output_writer = TerminalOutputWriter {
                     root_path: output_path.clone(),
                     overwrite: output_path_overwrite,
                 };
@@ -371,7 +375,6 @@ pub fn run(command: Command) {
                 let driver = Arc::new(TerminalDriver::new(
                     specification,
                     program_options,
-                    Some(trace_writer_output.clone()),
                 )?);
 
                 let interrupted = Arc::new(AtomicBool::new(false));
@@ -389,7 +392,7 @@ pub fn run(command: Command) {
                     time_limit_fuzz,
                     time_limit_run,
                     swarm,
-                    trace_writer_output: Some(trace_writer_output),
+                    output_writer,
                 })?;
 
                 Ok(())

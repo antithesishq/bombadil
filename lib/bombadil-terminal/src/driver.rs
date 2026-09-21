@@ -8,8 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow};
 use bombadil::driver::{
-    ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession,
-    NoopTraceWriter, RunId, TraceWriter, TraceWriterOutput,
+    ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession, RunId,
 };
 use bombadil::render::{Format, Formatted};
 use bombadil::specification::bundler::bundle;
@@ -39,7 +38,6 @@ use small_string::SmallString;
 use crate::extractors::Extractors;
 use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
-use crate::trace::TerminalTraceWriter;
 
 const INITIATE_STARTUP_DELAY: Duration = Duration::from_millis(1000);
 
@@ -249,14 +247,12 @@ pub struct TerminalProgramOptions {
 pub struct TerminalDriver {
     specification_bundle: Arc<str>,
     program_options: TerminalProgramOptions,
-    output: Option<TraceWriterOutput>,
 }
 
 impl TerminalDriver {
     pub fn new(
         specification: Specification,
         program_options: TerminalProgramOptions,
-        output: Option<TraceWriterOutput>,
     ) -> Result<Self> {
         let specification_bundle: Arc<str> =
             bundle(".", &specification.module_specifier)
@@ -266,32 +262,20 @@ impl TerminalDriver {
         Ok(TerminalDriver {
             specification_bundle,
             program_options,
-            output,
         })
     }
 }
 
 impl InterfaceDriver for TerminalDriver {
     type Session = TerminalSession;
-    type TraceWriter = Box<dyn TraceWriter<TerminalSession>>;
 
     #[hotpath::measure]
     fn new_session(
         &self,
-        run_id: RunId,
-    ) -> std::result::Result<
-        (Self::Session, Verifier, Self::TraceWriter),
-        anyhow::Error,
-    > {
+        _run_id: RunId,
+    ) -> std::result::Result<(Self::Session, Verifier), anyhow::Error> {
         let verifier = Verifier::new(&self.specification_bundle)?;
         let extractor = Extractors::initialize(&self.specification_bundle)?;
-
-        let trace_writer: Box<dyn TraceWriter<TerminalSession>> =
-            if let Some(output) = &self.output {
-                Box::new(TerminalTraceWriter::initialize(output, run_id)?)
-            } else {
-                Box::new(NoopTraceWriter)
-            };
 
         let mut terminal = Terminal::new(TerminalOptions {
             cols: self.program_options.size.columns,
@@ -329,7 +313,6 @@ impl InterfaceDriver for TerminalDriver {
                 cell_iterator: CellIterator::new()?,
             },
             verifier,
-            trace_writer,
         ))
     }
 }

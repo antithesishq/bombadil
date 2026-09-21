@@ -74,15 +74,11 @@ struct FakeDriver {
 
 impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
-    type TraceWriter = NoopTraceWriter;
 
     fn new_session(
         &self,
         _run_id: RunId,
-    ) -> std::result::Result<
-        (FakeSession, Verifier, NoopTraceWriter),
-        anyhow::Error,
-    > {
+    ) -> std::result::Result<(FakeSession, Verifier), anyhow::Error> {
         self.initiated.store(true, Ordering::SeqCst);
         Ok((
             FakeSession {
@@ -90,7 +86,6 @@ impl InterfaceDriver for FakeDriver {
                 next_event_calls: self.next_event_calls.clone(),
             },
             dummy_verifier(),
-            NoopTraceWriter,
         ))
     }
 }
@@ -192,7 +187,9 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         on_interrupted_calls: on_interrupted_calls.clone(),
     };
 
-    let (mut session, verifier, mut trace_writer) = driver
+    let mut trace_writer = NoopTraceWriter;
+
+    let (mut session, verifier) = driver
         .new_session(RunId::default())
         .expect("driver failed to initiate");
     runner::run(

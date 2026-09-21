@@ -7,10 +7,7 @@ use anyhow::{Context, Result};
 use bombadil::driver::RunId;
 use bombadil::specification::verifier::Verifier;
 use bombadil::{
-    driver::{
-        DriverEvent, InterfaceDriver, InterfaceSession, NoopTraceWriter,
-        TraceWriter, TraceWriterOutput,
-    },
+    driver::{DriverEvent, InterfaceDriver, InterfaceSession},
     specification::domain::Snapshot,
 };
 use bombadil_schema::Time;
@@ -26,7 +23,6 @@ use crate::chromium;
 use crate::chromium::Chromium;
 use crate::instrumentation::InstrumentationConfig;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
-use crate::trace::writer::FileTraceWriter;
 
 pub enum DebuggerOptions {
     External {
@@ -42,17 +38,12 @@ pub struct BrowserDriver {
     pub browser_options: BrowserOptions,
     pub debugger_options: DebuggerOptions,
     pub specification_bundle: Arc<str>,
-    pub trace_writer_output: Option<TraceWriterOutput>,
 }
 
 impl InterfaceDriver for BrowserDriver {
     type Session = BrowserSession;
-    type TraceWriter = Box<dyn TraceWriter<BrowserSession>>;
 
-    fn new_session(
-        &self,
-        run_id: RunId,
-    ) -> Result<(Self::Session, Verifier, Self::TraceWriter)> {
+    fn new_session(&self, _: RunId) -> Result<(Self::Session, Verifier)> {
         let verifier = Verifier::new(&self.specification_bundle)?;
 
         let coverage = if self.browser_options.instrumentation
@@ -70,13 +61,6 @@ impl InterfaceDriver for BrowserDriver {
                 coverage_map_offset,
             })
         };
-
-        let trace_writer: Box<dyn TraceWriter<BrowserSession>> =
-            if let Some(output) = &self.trace_writer_output {
-                Box::new(FileTraceWriter::initialize(output, run_id)?)
-            } else {
-                Box::new(NoopTraceWriter)
-            };
 
         let chromium = match &self.debugger_options {
             DebuggerOptions::External { remote_debugger } => {
@@ -100,7 +84,6 @@ impl InterfaceDriver for BrowserDriver {
                 coverage,
             },
             verifier,
-            trace_writer,
         ))
     }
 }

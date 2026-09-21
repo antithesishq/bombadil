@@ -1,5 +1,4 @@
 use std::fmt::Display;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::{fmt::Debug, hash::Hasher};
@@ -40,11 +39,7 @@ impl Display for RunId {
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
     type Session: InterfaceSession;
-    type TraceWriter: TraceWriter<Self::Session>;
-    fn new_session(
-        &self,
-        run_id: RunId,
-    ) -> Result<(Self::Session, Verifier, Self::TraceWriter)>;
+    fn new_session(&self, run_id: RunId) -> Result<(Self::Session, Verifier)>;
 }
 
 pub trait RunState {
@@ -62,10 +57,9 @@ pub trait ActionTemplate<Action> {
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }
 
-#[derive(Clone, Debug)]
-pub struct TraceWriterOutput {
-    pub root_path: PathBuf,
-    pub overwrite: bool,
+pub trait OutputWriter<Session: InterfaceSession> {
+    type TraceWriter: TraceWriter<Session>;
+    fn trace_writer(&mut self, run_id: RunId) -> Result<Self::TraceWriter>;
 }
 
 pub trait TraceWriter<Session: InterfaceSession> {
@@ -89,6 +83,16 @@ impl<Session: InterfaceSession> TraceWriter<Session>
         violations: &[PropertyViolation],
     ) -> Result<()> {
         (**self).write(state, last_action, snapshots, violations)
+    }
+}
+
+pub struct NoopOutputWriter;
+
+impl<Session: InterfaceSession> OutputWriter<Session> for NoopOutputWriter {
+    type TraceWriter = NoopTraceWriter;
+
+    fn trace_writer(&mut self, _: RunId) -> Result<Self::TraceWriter> {
+        Ok(NoopTraceWriter)
     }
 }
 

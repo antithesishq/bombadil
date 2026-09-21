@@ -1,13 +1,14 @@
 use std::{
     io::{self, BufWriter, Write},
+    path::PathBuf,
     sync::mpsc,
     thread::JoinHandle,
 };
 
 use anyhow::{Result, anyhow};
+use bombadil::{driver::OutputWriter, specification::convert::ToSchema};
 use bombadil::{driver::RunId, specification::domain::Snapshot};
 use bombadil::{driver::TraceWriter, runner::PropertyViolation};
-use bombadil::{driver::TraceWriterOutput, specification::convert::ToSchema};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{TerminalCell, TerminalGrid};
 use serde_json as json;
@@ -17,6 +18,21 @@ use crate::{
     driver::{TerminalAction, TerminalSession},
     state::TerminalState,
 };
+
+pub struct TerminalOutputWriter {
+    pub root_path: PathBuf,
+    pub overwrite: bool,
+}
+
+impl OutputWriter<TerminalSession> for TerminalOutputWriter {
+    type TraceWriter = TerminalTraceWriter;
+
+    fn trace_writer(&mut self, run_id: RunId) -> Result<Self::TraceWriter> {
+        let run_path =
+            self.root_path.join("runs").join(format!("{}", run_id.0));
+        TerminalTraceWriter::initialize(run_path, self.overwrite)
+    }
+}
 
 /// Writes trace entries on a dedicated thread so that JSON
 /// serialization and disk I/O (hundreds of kilobytes per state) overlap
@@ -127,16 +143,11 @@ fn write_grid(buffer: &mut Vec<u8>, grid: &TerminalGrid) -> Result<()> {
 const PENDING_ENTRIES_MAX: usize = 32;
 
 impl TerminalTraceWriter {
-    pub fn initialize(
-        output: &TraceWriterOutput,
-        run_id: RunId,
-    ) -> Result<Self> {
-        let run_path =
-            output.root_path.join("runs").join(format!("{}", run_id.0));
+    pub fn initialize(run_path: PathBuf, overwrite: bool) -> Result<Self> {
         std::fs::create_dir_all(&run_path)?;
         let trace_path = run_path.join("trace.jsonl");
         if trace_path.try_exists()? {
-            if !output.overwrite {
+            if !overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
                      Use --output-path-overwrite to overwrite, or choose a different --output-path.",
