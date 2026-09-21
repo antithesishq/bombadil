@@ -26,7 +26,7 @@ use tempfile::TempDir;
 use bombadil::{
     antithesis,
     driver::{NoopTraceWriter, RunId, TraceWriter},
-    fuzzer::{self, FuzzOptions},
+    fuzzer,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -51,7 +51,7 @@ pub enum BrowserCommand {
     /// Run a test with a browser managed by Bombadil
     Test {
         #[clap(flatten)]
-        shared: TestSharedOptions,
+        shared: RunSharedOptions,
         /// Whether the browser should run in a visible window or not
         #[arg(long, default_value_t = false)]
         headless: bool,
@@ -63,7 +63,7 @@ pub enum BrowserCommand {
     /// --remote-debugging-port=9992`)
     TestExternal {
         #[clap(flatten)]
-        shared: TestSharedOptions,
+        shared: RunSharedOptions,
         /// Address to the remote debugger's server, e.g. http://localhost:9222
         #[arg(long)]
         remote_debugger: Url,
@@ -76,7 +76,9 @@ pub enum BrowserCommand {
     #[command(hide = true)]
     Fuzz {
         #[clap(flatten)]
-        shared: FuzzSharedOptions,
+        run_shared_options: RunSharedOptions,
+        #[clap(flatten)]
+        fuzz_options: FuzzOptions,
         /// Whether the browser should run in a visible window or not
         #[arg(long, default_value_t = false)]
         headless: bool,
@@ -98,7 +100,7 @@ pub enum BrowserCommand {
 }
 
 #[derive(Args)]
-pub struct TestSharedOptions {
+pub struct RunSharedOptions {
     /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
     /// other websites)
     pub origin: Origin,
@@ -157,65 +159,17 @@ pub struct TestSharedOptions {
 }
 
 #[derive(Args)]
-pub struct FuzzSharedOptions {
-    /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
-    /// other websites)
-    pub origin: Origin,
-    /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
-    /// package on NPM
-    pub specification_file: Option<PathBuf>,
-
-    /// Where to store output data (trace, screenshots, etc.)
-    #[arg(long)]
-    pub output_path: Option<PathBuf>,
-    /// Overwrite any existing trace at --output-path. Without this flag,
-    /// Bombadil refuses to write when trace.jsonl already exists.
-    #[arg(long)]
-    pub output_path_overwrite: bool,
-
+pub struct FuzzOptions {
     /// Whether to apply swarm testing to actions. Otherwise all actions are enabled.
     #[arg(long)]
     pub swarm: bool,
 
-    /// Browser viewport width in pixels
-    #[arg(long, default_value_t = DEFAULT_WIDTH)]
-    pub width: u16,
-    /// Browser viewport height in pixels
-    #[arg(long, default_value_t = DEFAULT_HEIGHT)]
-    pub height: u16,
-    /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
-    /// mode
-    #[arg(long, default_value_t = DEFAULT_DEVICE_SCALE_FACTOR)]
-    pub device_scale_factor: f64,
-    /// What types of JavaScript to instrument for coverage tracking.
-    /// Comma-separated list of: "files", "inline"
-    #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
-    pub instrument_javascript: InstrumentationConfig,
-    /// Maximum time to run the full fuzzing compaign. Accepts a number with a unit suffix:
-    /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
     #[arg(long, value_parser = duration::parse_duration, default_value = "5m")]
     pub time_limit_fuzz: Duration,
     /// Maximum time to run an individual linear run. Accepts a number with a unit suffix:
     /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
     #[arg(long, value_parser = duration::parse_duration, default_value = "30s")]
     pub time_limit_run: Duration,
-    /// Comma-separated list of Chrome permissions to grant.
-    /// Examples: local-network-access, geolocation, notifications.
-    #[arg(
-        long,
-        default_value = "local-network-access,local-network,loopback-network"
-    )]
-    pub chrome_grant_permissions: String,
-    /// Extra HTTP header to send with all browser requests, in KEY=VALUE format.
-    /// Can be specified multiple times.
-    #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
-    pub headers: Vec<(String, String)>,
-    /// Cookie to set in the browser before testing. Accepts plain NAME=VALUE
-    /// (scoped to the origin) or Set-Cookie syntax with attributes such as
-    /// Domain, Path, Secure, and HttpOnly. Unlike `--header`, these become real
-    /// browser cookies. Can be specified multiple times.
-    #[arg(long = "cookie", value_name = "SET-COOKIE", value_parser = parse_cookie)]
-    pub cookies: Vec<BrowserCookie>,
 }
 
 #[derive(Clone)]
@@ -315,15 +269,19 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             )
         }
         BrowserCommand::Fuzz {
-            shared,
             headless,
             no_sandbox,
+            run_shared_options,
+            fuzz_options,
         } => {
-            let output_path =
-                output_path::resolve_output_path(&shared.output_path)?;
+            let output_path = output_path::resolve_output_path(
+                &run_shared_options.output_path,
+            )?;
 
-            let browser_options =
-                browser_options_from_fuzz_shared(&shared, &output_path);
+            let browser_options = browser_options_from_test_shared(
+                &run_shared_options,
+                &output_path,
+            );
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
                     executable: chromium::locate::executable()?,
@@ -331,7 +289,13 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                     no_sandbox,
                 },
             };
-            browser_fuzz(output_path, shared, browser_options, debugger_options)
+            browser_fuzz(
+                output_path,
+                run_shared_options,
+                browser_options,
+                debugger_options,
+                fuzz_options,
+            )
         }
         BrowserCommand::Inspect {
             trace_path,
@@ -389,31 +353,7 @@ fn parse_instrumentation_config(
 }
 
 fn browser_options_from_test_shared(
-    shared: &TestSharedOptions,
-    output_path: &Path,
-) -> BrowserOptions {
-    BrowserOptions {
-        create_target: true,
-        emulation: Emulation {
-            width: shared.width,
-            height: shared.height,
-            device_scale_factor: shared.device_scale_factor,
-        },
-        instrumentation: shared.instrument_javascript.clone(),
-        downloads_directory: output_path.join("downloads"),
-        grant_permissions: shared
-            .chrome_grant_permissions
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect(),
-        extra_headers: shared.headers.iter().cloned().collect(),
-        cookies: shared.cookies.clone(),
-    }
-}
-
-fn browser_options_from_fuzz_shared(
-    shared: &FuzzSharedOptions,
+    shared: &RunSharedOptions,
     output_path: &Path,
 ) -> BrowserOptions {
     BrowserOptions {
@@ -438,7 +378,7 @@ fn browser_options_from_fuzz_shared(
 
 fn reproduce_command_args(
     subcommand: &str,
-    shared: &TestSharedOptions,
+    shared: &RunSharedOptions,
 ) -> Vec<String> {
     let mut args = vec![subcommand.to_string(), shared.origin.url.to_string()];
     if let Some(path) = &shared.specification_file {
@@ -467,7 +407,7 @@ fn reproduce_command_args(
     args
 }
 
-fn resolve_test_mode(shared_options: &TestSharedOptions) -> Result<TestMode> {
+fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
@@ -491,7 +431,7 @@ fn browser_test(
     mode: TestMode,
     reproduce_args: Vec<String>,
     output_path: PathBuf,
-    shared_options: TestSharedOptions,
+    shared_options: RunSharedOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
@@ -611,9 +551,10 @@ fn browser_test(
 
 fn browser_fuzz(
     output_path: PathBuf,
-    shared_options: FuzzSharedOptions,
+    shared_options: RunSharedOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    fuzz_options: FuzzOptions,
 ) -> Result<()> {
     if antithesis::is_in_guest() {
         bail!(
@@ -663,13 +604,13 @@ fn browser_fuzz(
         specification_bundle,
     });
 
-    fuzzer::fuzz(FuzzOptions {
+    fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
         interrupted,
-        time_limit_fuzz: shared_options.time_limit_fuzz,
-        time_limit_run: shared_options.time_limit_run,
-        swarm: shared_options.swarm,
+        time_limit_fuzz: fuzz_options.time_limit_fuzz,
+        time_limit_run: fuzz_options.time_limit_run,
+        swarm: fuzz_options.swarm,
         output_writer,
     })?;
 
