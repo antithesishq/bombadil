@@ -75,6 +75,43 @@ pub enum Residual<D: Domain> {
     },
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ResidualSize {
+    pub nodes: usize,
+    pub depth: usize,
+}
+
+impl<D: Domain> Residual<D> {
+    pub fn size(&self) -> ResidualSize {
+        let mut size = ResidualSize::default();
+        let mut queue = vec![(self, 1usize)];
+
+        while let Some((residual, depth)) = queue.pop() {
+            size.nodes += 1;
+            size.depth = size.depth.max(depth);
+            match residual {
+                Residual::True(_)
+                | Residual::False(_)
+                | Residual::Derived(_, _) => {}
+                Residual::And { left, right }
+                | Residual::Or { left, right }
+                | Residual::Implies { left, right, .. } => {
+                    queue.push((left, depth + 1));
+                    queue.push((right, depth + 1));
+                }
+                Residual::OrEventually { pending, .. }
+                | Residual::AndAlways { pending, .. } => {
+                    for residual in pending {
+                        queue.push((residual, depth + 1));
+                    }
+                }
+            }
+        }
+
+        size
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Derived<D: Domain> {
     Once {
@@ -421,7 +458,12 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                         pending_updated.push(pending);
                     }
                 }
-                Value::Residual(residual) => pending_updated.push(residual),
+                Value::Residual(residual) => {
+                    if is_own_derived(&residual, &subformula, start, end) {
+                        has_own_derived_residual = true;
+                    }
+                    pending_updated.push(residual);
+                }
                 Value::False(violation, residual) => {
                     if let Some(residual) = residual {
                         pending_updated.push(residual);

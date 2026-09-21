@@ -149,32 +149,6 @@ pub fn has_nested_unbounded_always<Snapshot: State>(
     false
 }
 
-pub fn residual_depth<D: Domain>(root: &Residual<D>) -> usize {
-    let mut stack: Vec<(&Residual<D>, usize)> = vec![(root, 1)];
-    let mut depth_max = 0;
-    while let Some((residual, depth)) = stack.pop() {
-        depth_max = depth_max.max(depth);
-        match residual {
-            Residual::True(_)
-            | Residual::False(_)
-            | Residual::Derived(_, _) => {}
-            Residual::And { left, right }
-            | Residual::Or { left, right }
-            | Residual::Implies { left, right, .. } => {
-                stack.push((left, depth + 1));
-                stack.push((right, depth + 1));
-            }
-            Residual::AndAlways { pending, .. }
-            | Residual::OrEventually { pending, .. } => {
-                for residual in pending {
-                    stack.push((residual, depth + 1));
-                }
-            }
-        }
-    }
-    depth_max
-}
-
 pub fn formula_depth<Snapshot: State>(
     root: &Formula<TestDomain<Snapshot>>,
 ) -> usize {

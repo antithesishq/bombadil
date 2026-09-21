@@ -7,8 +7,8 @@ use crate::{
     formula::*,
     test_domain::{
         TestDomain, TestState, TestTime, Variable, evaluate_with_state,
-        formula_depth, has_nested_unbounded_always, residual_depth, state,
-        step_with_state, syntax, violation_depth,
+        formula_depth, has_nested_unbounded_always, state, step_with_state,
+        syntax, violation_depth,
     },
 };
 
@@ -80,7 +80,7 @@ fn test_violation_doesnt_grow_larger_than_formula(tc: TestCase) {
                 "violation depth {depth_violation} at step {i} does not match formula depth {depth_formula}:\n\nviolation: {violation:?}\n\nresidual: {residual:?}\n",
             );
             if let Some(residual) = residual {
-                assert!(residual_depth(residual) <= depth_formula);
+                assert!(residual.size().depth <= depth_formula);
                 value = Value::Residual(residual.clone())
             }
         }
@@ -121,7 +121,7 @@ fn test_always_implies_eventually_violation_doesnt_grow() {
                 panic!("expected residual at step {}, got {:?}", i, other)
             }
         };
-        assert!(residual_depth(&residual) < 20);
+        assert!(residual.size().depth < 20);
 
         value = step_with_state(
             &residual,
@@ -143,6 +143,59 @@ fn test_always_implies_eventually_violation_doesnt_grow() {
                 value = Value::Residual(residual.clone())
             }
         }
+    }
+}
+
+// Grows in width rather than depth, hence the assert on the node count.
+#[test]
+fn test_always_vacuous_implication_residual_stays_bounded() {
+    let formula: Formula<TestDomain> = Formula::Always(
+        Box::new(Formula::Implies(
+            Box::new(Formula::Thunk {
+                function: Variable::Y,
+                negated: false,
+            }),
+            Box::new(Formula::Next(Box::new(Formula::Thunk {
+                function: Variable::X,
+                negated: false,
+            }))),
+        )),
+        None,
+    );
+    let mut value = evaluate_with_state(
+        &formula,
+        &TestState {
+            x: true,
+            y: true,
+            z: true,
+        },
+        |_| (),
+    );
+    for i in 1..=2000u64 {
+        let residual = match value {
+            Value::Residual(residual) => residual,
+            other => {
+                panic!("expected residual at step {}, got {:?}", i, other)
+            }
+        };
+        let size = residual.size();
+        assert!(
+            size.nodes <= 8,
+            "residual grew to {:?} at step {}:\n\n{:?}\n",
+            size,
+            i,
+            residual
+        );
+        value = step_with_state(
+            &residual,
+            &TestState {
+                x: true,
+                y: false,
+                z: true,
+            },
+            TestTime(i),
+            |_| (),
+        );
     }
 }
 
@@ -168,7 +221,7 @@ fn test_always_next_residual_stays_bounded() {
                 panic!("expected residual at step {}, got {:?}", i, other)
             }
         };
-        let depth = residual_depth(&residual);
+        let depth = residual.size().depth;
         assert!(depth <= 4, "residual depth grew to {} at step {}", depth, i,);
         value = step_with_state(&residual, &eval_state, TestTime(i), |_| ());
     }
