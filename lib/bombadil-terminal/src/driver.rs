@@ -439,9 +439,9 @@ impl InterfaceSession for TerminalSession {
         if received {
             self.last_output_at = Instant::now();
         }
-        let quiet_for =
+        let quiet_duration =
             Instant::now().saturating_duration_since(self.last_output_at);
-        if quiet_for > HANG_QUIET_THRESHOLD {
+        if quiet_duration > HANG_QUIET_THRESHOLD {
             let dropped_since_last_output = self
                 .process
                 .borrow()
@@ -451,7 +451,7 @@ impl InterfaceSession for TerminalSession {
             if dropped_since_last_output {
                 return Some(DriverEvent::Error(Arc::new(anyhow!(
                     "SUT appears hung: no output for {:.1}s and input has been dropped since",
-                    quiet_for.as_secs_f64()
+                    quiet_duration.as_secs_f64()
                 ))));
             }
         }

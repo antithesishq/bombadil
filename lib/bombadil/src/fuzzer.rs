@@ -153,14 +153,14 @@ where
                     fuzz_worker_thread.run()
                 }));
             if let Err(payload) = outcome {
-                let msg = payload
+                let message = payload
                     .downcast_ref::<&'static str>()
                     .map(|s| (*s).to_string())
                     .or_else(|| payload.downcast_ref::<String>().cloned())
                     .unwrap_or_else(|| {
                         "<non-string panic payload>".to_string()
                     });
-                log::error!("worker {worker_id} panicked: {msg}");
+                log::error!("worker {worker_id} panicked: {message}");
             }
         });
         workers.push(Worker {
@@ -228,9 +228,9 @@ where
         };
     }
 
+    interrupted.store(true, Ordering::SeqCst);
     println!("Shutting down...");
 
-    interrupted.store(true, Ordering::SeqCst);
     render_loop_handle
         .join()
         .map_err(|_| anyhow!("render loop thread panicked"))??;
@@ -389,11 +389,10 @@ impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
                 break;
             }
             let run_seed = rng.next_u64();
-            let action_probability = rng.random_range(0.3..0.8);
             let mode = if self.swarm {
                 FuzzMode::Swarm {
                     seed: run_seed,
-                    action_probability,
+                    action_probability: rng.random_range(0.3..0.8),
                 }
             } else {
                 FuzzMode::RandomWalk
