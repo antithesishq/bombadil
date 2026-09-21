@@ -805,8 +805,6 @@ export const typeHelloWorld = new ActionGenerator(() =>
 );
 ```
 
-### 
-
 :::
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of
