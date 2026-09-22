@@ -137,7 +137,7 @@ enum StateRequestReason {
 /// Deliberately long so we don't fire before the browser has produced
 /// any frames; the first activity event will replace this with a much shorter
 /// deadline.
-const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(250);
+const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(5 * 16);
 const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 

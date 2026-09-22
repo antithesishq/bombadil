@@ -16,8 +16,9 @@ pub fn start(
     let (result_tx, result_rx) = mpmc::bounded(1);
 
     let _ = thread::spawn(move || {
-        let deadline_max = Instant::now() + timeout_max;
-        let mut deadline_idle = Instant::now() + timeout_idle;
+        let start = Instant::now();
+        let deadline_max = start + timeout_max;
+        let mut deadline_idle = start + timeout_idle;
         loop {
             let deadline_next = deadline_idle.min(deadline_max);
             // A ready activity channel always wins over select's default arm.
@@ -30,8 +31,10 @@ pub fn start(
                 recv(activity.receiver()) -> bump => {
                     match bump {
                         Ok(bump) => {
-                            log::debug!("quiescence timer bumped by {bump:?}");
-                            deadline_idle = (Instant::now() + bump).min(deadline_max);
+                            let now = Instant::now();
+                            let elapsed = now - start;
+                            log::debug!("quiescence timer bumped by {bump:?}, {elapsed:?} from start");
+                            deadline_idle = (now + bump).min(deadline_max);
                         }
                         Err(mpmc::RecvError) => {
                             // Channel is empty and disconnected.

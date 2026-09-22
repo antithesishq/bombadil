@@ -13,10 +13,10 @@ use crossbeam_channel as mpmc;
 const MAX_HITS_PER_URL: u32 = 3;
 
 /// How long a new outgoing request extends the quiescence deadline.
-const NETWORK_BUMP_REQUEST: Duration = Duration::from_millis(100);
+const NETWORK_BUMP_REQUEST: Duration = Duration::from_millis(5);
 
 /// How long an incoming response extends the quiescence deadline.
-const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(10);
+const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(5);
 
 /// Maximum number of screencast frames that can bump the quiescence
 /// timer in a single window. Prevents perpetual animations (CSS
