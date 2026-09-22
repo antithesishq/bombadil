@@ -1,6 +1,7 @@
 {
   dockerTools,
   buildEnv,
+  cacert,
   coreutils,
   runtimeShell,
   bashInteractive,
@@ -29,6 +30,7 @@ dockerTools.buildLayeredImage {
   tag = version;
   contents = [
     bombadil
+    cacert
     coreutils
     bashInteractive
     fontconfig
@@ -71,6 +73,8 @@ dockerTools.buildLayeredImage {
     ];
     Env = [
       "FONTCONFIG_FILE=${fontConfig}"
+      "SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
+      "NIX_SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt"
     ];
   };
 }

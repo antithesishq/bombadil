@@ -314,6 +314,41 @@ jobs:
           name: terminal-test-output-${{ matrix.os }}
           path: terminal-test-output/
 
+  smoke-test-docker:
+    name: Smoke test (docker)
+    needs: build-docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bombadil-docker-image
+      - name: Load Docker image
+        run: |
+          LOAD_OUTPUT=$(docker load -i bombadil-docker-image.tar.gz)
+          echo "$LOAD_OUTPUT"
+          IMAGE_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+      - name: Run browser test in container
+        run: |
+          mkdir -p docker-smoke-output
+          chmod 777 docker-smoke-output
+          docker run --rm \
+            -v "$PWD/lib/bombadil-browser-integration-tests/tests/console-error:/test:ro" \
+            -v "$PWD/docker-smoke-output:/output" \
+            "$IMAGE_TAG" \
+            browser test /test/index.html \
+              --headless --no-sandbox \
+              --output-path /output \
+              --time-limit 10s || true
+          test -s docker-smoke-output/trace.jsonl
+      - name: Upload docker smoke test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-smoke-output
+          path: docker-smoke-output/
+
   test-npm-package:
     name: Test npm package (${{ matrix.os }})
     needs: [build-x86_64-linux, build-aarch64-darwin, build-npm-package]
@@ -365,6 +400,7 @@ jobs:
         build-docker,
         build-manual,
         smoke-test,
+        smoke-test-docker,
         test-npm-package,
       ]
     runs-on: ubuntu-latest
@@ -429,7 +465,7 @@ jobs:
 
   publish-docker:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-docker]
+    needs: [build-docker, smoke-test-docker]
     runs-on: ubuntu-latest
     steps:
       - name: OIDC token
@@ -501,6 +537,7 @@ jobs:
       - build-manual
       - inspect-test
       - smoke-test
+      - smoke-test-docker
       - test-npm-package
     runs-on: ubuntu-latest
     steps:

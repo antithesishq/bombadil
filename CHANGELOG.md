@@ -1,5 +1,21 @@
 # The Bombadil Changelog
 
+## 0.7.7
+
+Minor updates:
+
+* Add experimental (and hidden) `fuzz` commands (#317, #326)
+
+Bug fixes:
+
+* Fix docker compatibility issues (#328)
+* Fix duplication of always residuals in LTL eval (#325)
+
+Internals:
+
+* Isolate cargo flags in trunk build (#330)
+* Add CI smoke test for docker container (#329)
+
 ## 0.7.6
 
 Bug fixes:

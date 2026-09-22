@@ -36,6 +36,11 @@ fn build_inspect(dist_directory: &Path) {
         .arg("--dist")
         .arg(&dist_absolute)
         .env("CARGO_TARGET_DIR", &wasm_target_directory)
+        // Cargo passes CARGO_ENCODED_RUSTFLAGS to build scripts, and we don't
+        // want the outer cargo's flags to be passed into the inner cargo build
+        // spawned by `trunk`.
+        .env_remove("CARGO_ENCODED_RUSTFLAGS")
+        .env_remove("RUSTFLAGS")
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .current_dir(inspect_directory);
