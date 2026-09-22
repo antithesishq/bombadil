@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow, bail};
+use crossbeam_channel as mpmc;
 use serde::Deserialize;
 use std::{
+    io::{BufRead, BufReader},
     net::{SocketAddr, TcpListener},
     path::PathBuf,
     process::{self, Stdio},
@@ -62,7 +64,7 @@ impl Chromium {
         command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
 
         if launch_options.no_sandbox {
             command.arg("--no-sandbox");
@@ -114,7 +116,34 @@ impl Chromium {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        let child = command.spawn()?;
+        let mut child = command.spawn()?;
+
+        let (listening_tx, listening_rx) = mpmc::bounded(1);
+        {
+            let stderr = child.stderr.take().ok_or(anyhow!(
+                "failed to get stderr from chromium/chrome process"
+            ))?;
+            thread::spawn(move || {
+                let stderr = BufReader::new(stderr);
+                for line_result in stderr.lines() {
+                    let Ok(line) = line_result else {
+                        break;
+                    };
+                    log::debug!("chromium stderr: {line}");
+                    if line.starts_with("DevTools listening on")
+                        && let Err(error) = listening_tx.send(())
+                    {
+                        log::error!("failed sending listening signal: {error}");
+                    }
+                }
+            });
+        }
+
+        if listening_rx.recv_timeout(Duration::from_secs(5)).is_err() {
+            bail!(
+                "timed out while waiting for chrome/chromium to log 'DevTools listening on ...' message"
+            );
+        }
 
         let mut remote_debugger = Url::from_str("http://127.0.0.1")?;
         remote_debugger
@@ -176,11 +205,13 @@ fn web_socket_remote_debugger_get_with_attempts(
 ) -> Result<Url> {
     for n in 1..=attempts {
         thread::sleep(Duration::from_millis(n as u64 * 200));
-        log::debug!(
-            "get web_socket_remote_debugger ({remote_debugger}) attempt {n}"
-        );
-        if let Ok(url) = web_socket_remote_debugger_get(remote_debugger) {
-            return Ok(url);
+        match web_socket_remote_debugger_get(remote_debugger) {
+            Ok(url) => return Ok(url),
+            Err(error) => {
+                log::debug!(
+                    "get web_socket_remote_debugger ({remote_debugger}) attempt {n} failed: {error:#}"
+                );
+            }
         }
     }
     bail!(
