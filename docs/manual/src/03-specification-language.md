@@ -718,10 +718,7 @@ would catch as a violation.
 :::
 
 ::: terminal
-The terminal driver is experimental, and the catalog of common patterns
-is not yet collected. For now, see the [default specification source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/defaults.ts) 
-and the
-[examples](https://github.com/antithesishq/bombadil/tree/v%version%/examples).
+These are full, runnable examples of properties and action generators you might need in your own testing with Bombadil. Think of them as design patterns for properties. Each example is a self-contained specification file.
 
 ### Successful exit
 
