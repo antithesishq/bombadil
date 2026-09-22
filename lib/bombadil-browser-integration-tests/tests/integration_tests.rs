@@ -202,6 +202,22 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
+        async fn sse_handler(
+            headers: HeaderMap,
+        ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+            println!("`{}` connected", user_agent.as_str());
+
+            let stream = stream::repeat_with(|| Event::default().data("hi!"))
+                .map(Ok)
+                .throttle(Duration::from_secs(1));
+
+            Sse::new(stream).keep_alive(
+                axum::response::sse::KeepAlive::new()
+                    .interval(Duration::from_secs(1))
+                    .text("A message"),
+            );
+        }
+
         let (port_tx, port_rx) = std::sync::mpsc::channel();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.spawn(async move {
@@ -957,6 +973,28 @@ const loaded = extract((state) => {
 
 export const secretResourceLoaded = eventually(
   () => loaded.current === true
+).within(10, "seconds");
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_see_message() {
+    BrowserIntegrationTest::new("sse-message")
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const sse_messages = extract((state) => {
+  return state.document.querySelector('#sse-message') !== null;
+});
+
+export const sseMessageReceived = eventually(
+  () => sse_messages.current === true
 ).within(10, "seconds");
 "#,
         )
