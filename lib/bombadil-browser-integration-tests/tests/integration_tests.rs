@@ -3,15 +3,16 @@ use axum::{
     Router,
     extract::Path,
     http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Sse, sse::Event},
     routing::get,
 };
 use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
+use futures_util::stream::{self, Stream};
+use tokio_stream::StreamExt as _;
 use rand::SeedableRng;
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    collections::HashMap, convert::Infallible, sync::{Arc, Mutex, atomic::AtomicBool}
 };
 use std::{
     fmt::Display,
@@ -37,6 +38,7 @@ use bombadil_browser::{
     runner,
     strategy::TestStrategy,
 };
+
 
 static INIT: Once = Once::new();
 static TEST_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
@@ -203,19 +205,27 @@ impl<'a> BrowserIntegrationTest<'a> {
         }
 
         async fn sse_handler(
-            headers: HeaderMap,
         ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-            println!("`{}` connected", user_agent.as_str());
+            println!("1 client connected");
 
-            let stream = stream::repeat_with(|| Event::default().data("hi!"))
+            // let stream = stream::repeat_with(|| Event::default().data("hi!"))
+            //     .map(Ok)
+            //     .throttle(Duration::from_secs(1000));
+
+            let stream = stream::once(async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Event::default().data("hi!")
+            })
+                .chain(stream::repeat_with(|| Event::default().data("hi!")))
                 .map(Ok)
                 .throttle(Duration::from_secs(1));
+
 
             Sse::new(stream).keep_alive(
                 axum::response::sse::KeepAlive::new()
                     .interval(Duration::from_secs(1))
                     .text("A message"),
-            );
+            )
         }
 
         let (port_tx, port_rx) = std::sync::mpsc::channel();
@@ -224,6 +234,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             let app = Router::new()
                 .route("/test-file", get(download_testfile))
                 .route("/secret/{*path}", get(secret_handler))
+                .route("/sse", get(sse_handler))
                 .fallback_service(ServeDir::new(&test_dir));
             let app_other = app.clone();
 
@@ -980,17 +991,18 @@ export const secretResourceLoaded = eventually(
 }
 
 #[test]
-fn test_see_message() {
+fn test_sse_message() {
     BrowserIntegrationTest::new("sse-message")
         .time_limit(Duration::from_secs(15))
         .specification(
             r#"
 import { eventually } from "@antithesishq/bombadil";
-import { extract } from "@antithesishq/bombadil/browser";
-export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+import { actions,extract } from "@antithesishq/bombadil/browser";
+
+export const waits = actions(() => ["Wait"]);
 
 const sse_messages = extract((state) => {
-  return state.document.querySelector('#sse-message') !== null;
+  return state.document.querySelector('#sse-message>li') !== null;
 });
 
 export const sseMessageReceived = eventually(
