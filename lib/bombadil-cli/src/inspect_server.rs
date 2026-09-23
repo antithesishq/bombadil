@@ -35,7 +35,7 @@ pub async fn serve(
         .fallback(serve_assets)
         .with_state(state);
 
-    let address = format!("127.0.0.1:{}", port);
+    let address = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&address).await?;
     let url = format!("http://{}", address);
 
