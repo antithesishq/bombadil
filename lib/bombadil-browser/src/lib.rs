@@ -1,4 +1,5 @@
 pub mod browser;
+pub mod browser_options;
 pub mod chromium;
 pub mod convert;
 pub mod cookie;

@@ -5,7 +5,7 @@ use cdp::Binary;
 use cdp::MethodType;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::emulation;
-use cdp_protocol::cdp::browser_protocol::network;
+use cdp_protocol::cdp::browser_protocol::network::{self};
 use cdp_protocol::cdp::browser_protocol::page::{
     self, FrameId, NavigationType,
 };
@@ -18,8 +18,6 @@ use crossbeam_channel as mpmc;
 use log;
 use serde::Deserialize;
 use serde_json as json;
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -32,8 +30,9 @@ use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
 };
+use crate::browser_options::BrowserOptions;
 use crate::chromium::Chromium;
-use crate::cookie::{BrowserCookie, build_cookie_param};
+use crate::cookie::build_cookie_param;
 
 pub mod actions;
 pub mod activity;
@@ -154,24 +153,6 @@ struct BrowserContext {
     browser_options: BrowserOptions,
 }
 
-#[derive(Clone)]
-pub struct Emulation {
-    pub width: u16,
-    pub height: u16,
-    pub device_scale_factor: f64,
-}
-
-#[derive(Clone)]
-pub struct BrowserOptions {
-    pub emulation: Emulation,
-    pub create_target: bool,
-    pub instrumentation: crate::instrumentation::InstrumentationConfig,
-    pub downloads_directory: PathBuf,
-    pub grant_permissions: Vec<String>,
-    pub extra_headers: HashMap<String, String>,
-    pub cookies: Vec<BrowserCookie>,
-}
-
 pub struct Browser {
     browser_events_rx: mpmc::Receiver<BrowserEvent>,
     events_tx: mpmc::Sender<InnerEvent>,
@@ -280,6 +261,18 @@ impl Browser {
         connection.send(network::EnableParams::default(), Some(&session_id))?;
         connection
             .send(performance::EnableParams::default(), Some(&session_id))?;
+
+        if let Some(policy) = &browser_options.virtual_time_policy {
+            connection.send(
+                emulation::SetVirtualTimePolicyParams {
+                    policy: policy.into(),
+                    budget: None,
+                    max_virtual_time_task_starvation_count: None,
+                    initial_virtual_time: Some(network::TimeSinceEpoch::new(0)),
+                },
+                Some(&session_id),
+            )?;
+        }
 
         if !browser_options.extra_headers.is_empty() {
             connection.send(

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use std::{collections::HashMap, time::SystemTime};
 
 use anyhow::Result;
 use cdp::MethodType;
@@ -62,6 +62,7 @@ impl Drop for ActivityStream {
 }
 
 pub fn all_activity(events: &cdp::Events) -> Result<ActivityStream> {
+    let start = SystemTime::now();
     let all = events.methods([
         network::EventRequestWillBeSent::method_id(),
         network::EventResponseReceived::method_id(),
@@ -101,7 +102,20 @@ pub fn all_activity(events: &cdp::Events) -> Result<ActivityStream> {
                         (*count <= MAX_HITS_PER_URL)
                             .then_some(NETWORK_BUMP_RESPONSE)
                     },
-                    page::EventScreencastFrame => {
+                    page::EventScreencastFrame: event => {
+                        let Some(timestamp_seconds) = event.metadata.timestamp.as_ref().map(|t| *t.inner()) else {
+                            return Ok(None)
+                        };
+                        if !timestamp_seconds.is_finite() || timestamp_seconds < 0.0 {
+                            log::debug!("rejecting invalid screencast frame timestamp: {timestamp_seconds}");
+                            return Ok(None);
+                        }
+                        let timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs_f64(timestamp_seconds);
+                        if timestamp <= start {
+                            log::debug!("rejecting stale screencast frame");
+                            return Ok(None);
+                        }
+                        log::debug!("screencast frame metadata at timestamp {:?}: {:?}", timestamp, event.metadata);
                         frame_count += 1;
                         (frame_count <= FRAME_BUMP_COUNT_MAX)
                             .then_some(FRAME_BUMP)
