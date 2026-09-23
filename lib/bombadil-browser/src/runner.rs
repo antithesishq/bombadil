@@ -10,7 +10,7 @@ use url::Url;
 
 pub use bombadil::runner::{ControlFlow, PropertyViolation, RunStrategy};
 
-use crate::browser::BrowserOptions;
+use crate::browser_options::BrowserOptions;
 use crate::driver::{BrowserDriver, BrowserSession, DebuggerOptions};
 
 #[allow(clippy::too_many_arguments)]

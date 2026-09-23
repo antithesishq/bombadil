@@ -44,10 +44,11 @@ pub fn start(
                     }
                 },
                 default(deadline_next.duration_since(Instant::now())) => {
+                    let elapsed = Instant::now() - start;
                     if let Err(err) = result_tx.send(()) {
                         log::warn!("failed to send quiescence wait result: {err}");
                     } else {
-                        log::debug!("quiescence timer fired successfully");
+                        log::debug!("quiescence timer fired successfully after {elapsed:?}");
                     }
                     break;
                 },
