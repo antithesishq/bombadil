@@ -10,7 +10,7 @@ futures-util = "0.3.34"
 
 [dev-dependencies]
 anyhow.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["ws"] }
 bombadil = { path = "../bombadil" }
 bombadil-browser = { path = "../bombadil-browser" }
 bombadil-ltl = { path = "../bombadil-ltl" }

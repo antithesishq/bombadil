@@ -1,7 +1,10 @@
 use anyhow::anyhow;
 use axum::{
     Router,
-    extract::Path,
+    extract::{
+        Path,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response, Sse, sse::Event},
     routing::get,
@@ -9,10 +12,11 @@ use axum::{
 use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
 use futures_util::stream::{self, Stream};
-use tokio_stream::StreamExt as _;
 use rand::SeedableRng;
 use std::{
-    collections::HashMap, convert::Infallible, sync::{Arc, Mutex, atomic::AtomicBool}
+    collections::HashMap,
+    convert::Infallible,
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 use std::{
     fmt::Display,
@@ -21,6 +25,7 @@ use std::{
 };
 use std::{io::Write, sync::OnceLock};
 use tempfile::{NamedTempFile, TempDir};
+use tokio_stream::StreamExt as _;
 use tower_http::services::ServeDir;
 use url::Url;
 
@@ -38,7 +43,6 @@ use bombadil_browser::{
     runner,
     strategy::TestStrategy,
 };
-
 
 static INIT: Once = Once::new();
 static TEST_SEMAPHORE: OnceLock<Semaphore> = OnceLock::new();
@@ -204,28 +208,51 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
-        async fn sse_handler(
-        ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+        async fn sse_handler()
+        -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
             println!("1 client connected");
-
-            // let stream = stream::repeat_with(|| Event::default().data("hi!"))
-            //     .map(Ok)
-            //     .throttle(Duration::from_secs(1000));
 
             let stream = stream::once(async {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 Event::default().data("hi!")
             })
-                .chain(stream::repeat_with(|| Event::default().data("hi!")))
-                .map(Ok)
-                .throttle(Duration::from_secs(1));
-
+            .chain(stream::repeat_with(|| Event::default().data("hi!")))
+            .map(Ok)
+            .throttle(Duration::from_secs(1));
 
             Sse::new(stream).keep_alive(
                 axum::response::sse::KeepAlive::new()
                     .interval(Duration::from_secs(1))
                     .text("A message"),
             )
+        }
+
+        async fn ws_handler(upgrade: WebSocketUpgrade) -> Response {
+            upgrade.on_upgrade(ws_conversation)
+        }
+
+        async fn ws_conversation(mut socket: WebSocket) {
+            log::debug!("websocket client connected");
+            if socket
+                .send(Message::text("What's your name?: "))
+                .await
+                .is_err()
+            {
+                return;
+            }
+            while let Some(Ok(message)) = socket.recv().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                log::debug!("websocket client said: {text:?}");
+                let reply = match text.strip_prefix("My name is ") {
+                    Some(name) => format!("Nice to meet you {name}"),
+                    None => "Sorry, I did not understand that".to_string(),
+                };
+                if socket.send(Message::text(reply)).await.is_err() {
+                    return;
+                }
+            }
         }
 
         let (port_tx, port_rx) = std::sync::mpsc::channel();
@@ -235,6 +262,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 .route("/test-file", get(download_testfile))
                 .route("/secret/{*path}", get(secret_handler))
                 .route("/sse", get(sse_handler))
+                .route("/ws", get(ws_handler))
                 .fallback_service(ServeDir::new(&test_dir));
             let app_other = app.clone();
 
@@ -242,16 +270,13 @@ impl<'a> BrowserIntegrationTest<'a> {
                 let listener =
                     tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let addr = listener.local_addr().unwrap();
-                let listener_other =
-                    if let Ok(listener_other) = tokio::net::TcpListener::bind(
-                        format!("127.0.0.1:{}", addr.port() + 1),
-                    )
-                    .await
-                    {
-                        listener_other
-                    } else {
-                        continue;
-                    };
+                let Ok(listener_other) = tokio::net::TcpListener::bind(
+                    format!("127.0.0.1:{}", addr.port() + 1),
+                )
+                .await
+                else {
+                    continue;
+                };
                 break (listener, listener_other, addr.port());
             };
 
@@ -1008,6 +1033,37 @@ const sse_messages = extract((state) => {
 export const sseMessageReceived = eventually(
   () => sse_messages.current === true
 ).within(10, "seconds");
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_ws_message() {
+    BrowserIntegrationTest::new("ws-message")
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+export const waits = actions(() => ["Wait"]);
+
+// The page picks a name at random and exposes it as data-name on the
+// conversation container; every message exchanged over the WebSocket is
+// appended as "<who>: <text>" (see tests/ws-message/index.html).
+const conversation = extract((state) => {
+  const container = state.document.querySelector('#ws-conversation');
+  const messages = Array.from(
+    state.document.querySelectorAll('#ws-conversation>li')
+  ).map((item) => item.textContent);
+  return { name: container?.getAttribute("data-name") ?? null, messages };
+});
+
+export const greetedByName = eventually(() => {
+  const { name, messages } = conversation.current;
+  return name !== null && messages.includes(`server: Nice to meet you ${name}`);
+}).within(10, "seconds");
 "#,
         )
         .run();
