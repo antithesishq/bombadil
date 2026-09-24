@@ -21,14 +21,13 @@ use serde_json as json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
-use crate::browser::activity::ActivityStream;
 use crate::browser::state::Generation;
 use crate::browser::state::{
-    BrowserState, CallFrame, ConsoleEntry, Exception, Screenshot,
+    BrowserState, ConsoleEntry, Exception, Screenshot,
 };
 use crate::browser_options::BrowserOptions;
 use crate::chromium::Chromium;
@@ -71,7 +70,7 @@ enum InnerStateKind {
     Navigating { url: String },
     Loading,
     Running,
-    Acting(ActivityStream),
+    Acting,
 }
 
 impl std::fmt::Debug for InnerStateKind {
@@ -87,7 +86,7 @@ impl std::fmt::Debug for InnerStateKind {
             }
             Self::Loading => write!(f, "Loading"),
             Self::Running => write!(f, "Running"),
-            Self::Acting(_) => write!(f, "Acting"),
+            Self::Acting => write!(f, "Acting"),
         }
     }
 }
@@ -132,12 +131,6 @@ enum StateRequestReason {
     Quiesced,
 }
 
-/// Initial idle timeout before the first activity signal arrives.
-/// Deliberately long so we don't fire before the browser has produced
-/// any frames; the first activity event will replace this with a much shorter
-/// deadline.
-const QUIESCENCE_INITIAL_IDLE: Duration = Duration::from_millis(5 * 16);
-const QUIESCENCE_TIMEOUT: Duration = Duration::from_secs(10);
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
@@ -622,44 +615,9 @@ fn forward_inner_events(
                         log::debug!("forwarding Debugger.resumed: session={:?}", event_session_id);
                         Some(InnerEvent::Resumed)
                     },
-                    runtime::EventExceptionThrown: e => {
-                        Some(InnerEvent::ExceptionThrown(Exception {
-                            exception_id: e.exception_details.exception_id as u32,
-                            timestamp: UNIX_EPOCH
-                                + Duration::from_secs_f64(
-                                    *e.timestamp.inner() / 1000.0,
-                                ),
-                                text: e.exception_details.text.clone(),
-                                line: e.exception_details.line_number as u32,
-                                column: e.exception_details.column_number as u32,
-                                url: e.exception_details.url.clone(),
-                                remote_object: e.exception_details.exception.as_ref().map(
-                                    |obj| state::ExceptionRemoteObject {
-                                        type_name: format!("{:?}", obj.r#type),
-                                        subtype: obj
-                                            .subtype
-                                            .as_ref()
-                                            .map(|st| format!("{:?}", st)),
-                                            class_name: obj.class_name.clone(),
-                                            description: obj.description.clone(),
-                                            value: obj.value.clone(),
-                                    },
-                                ),
-                                stacktrace: e.exception_details.stack_trace.as_ref().map(
-                                    |stack_trace| {
-                                        stack_trace
-                                            .call_frames
-                                            .iter()
-                                            .map(|frame| CallFrame {
-                                                name: frame.function_name.clone(),
-                                                line: frame.line_number as u32,
-                                                column: frame.column_number as u32,
-                                                url: frame.url.clone(),
-                                            })
-                                        .collect()
-                                    },
-                                ),
-                        }))
+                    runtime::EventExceptionThrown: event => {
+                        Some(InnerEvent::ExceptionThrown(Exception::from_exception_details(event.exception_details, Some(UNIX_EPOCH
+                + Duration::from_secs_f64(*event.timestamp.inner() / 1000.0)))))
                     },
                     page::EventFrameRequestedNavigation: nav => {
                         if nav.frame_id == frame_id {
@@ -1094,24 +1052,19 @@ fn process_event(
             );
 
             shared.console_entries.clear();
-            let activity = activity::all_activity(&context.connection.events)?;
             InnerState {
-                kind: Acting(activity),
+                kind: Acting,
                 shared,
             }
         }
         (
             InnerState {
-                kind: Acting(subscription),
+                kind: Acting,
                 shared,
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            start_quiescence_timer_from_activity(
-                &shared,
-                &context.events_tx,
-                subscription,
-            );
+            start_quiescence_timer(&shared, context, &context.events_tx)?;
             InnerState {
                 kind: Running,
                 shared,
@@ -1273,34 +1226,52 @@ fn start_quiescence_timer(
     context: &BrowserContext,
     events_tx: &mpmc::Sender<InnerEvent>,
 ) -> Result<()> {
-    let activity = activity::all_activity(&context.connection.events)?;
-    start_quiescence_timer_from_activity(shared, events_tx, activity);
-    Ok(())
-}
-
-fn start_quiescence_timer_from_activity(
-    shared: &InnerStateShared,
-    events_tx: &mpmc::Sender<InnerEvent>,
-    activity: ActivityStream,
-) {
-    let quiescent = quiescence::start(
-        activity,
-        QUIESCENCE_INITIAL_IDLE,
-        QUIESCENCE_TIMEOUT,
-    );
+    let session_id = context.session_id.clone();
+    let connection = context.connection.clone();
     let generation = shared.generation;
     let sender = events_tx.clone();
-    thread::spawn(move || match quiescent.recv() {
-        Ok(()) => {
-            log::debug!("quiescence timer fired for generation {generation}");
-            let _ = sender.send(InnerEvent::Quiesced(generation));
-        }
-        Err(err) => {
-            log::debug!(
-                "quiescence timer failed for generation {generation} on recv: {err}",
-            );
+    let start = Instant::now();
+
+    thread::spawn(move || {
+        let Ok(evaluation) = runtime::EvaluateParams::builder()
+            .await_promise(true)
+            .expression("new Promise(resolve => { requestAnimationFrame(() => { requestAnimationFrame(() => resolve(true)); }); })")
+            .build() else {
+                log::error!("failed building evaluate method call for generation {generation}");
+                return;
+            };
+        match connection.send(evaluation, Some(&session_id)) {
+            Ok(result) => {
+                if let Some(exception_details) = result.exception_details {
+                    log::error!(
+                        "quiescence timer evaluation failed for generation {generation}: {:?}",
+                        Exception::from_exception_details(
+                            exception_details,
+                            None
+                        )
+                    );
+                    return;
+                }
+                let elapsed = Instant::now().duration_since(start);
+                log::debug!(
+                    "quiescence timer fired for generation {generation} after {elapsed:?}"
+                );
+                if let Err(error) =
+                    sender.send(InnerEvent::Quiesced(generation))
+                {
+                    log::error!(
+                        "failed sending Quiesced message for generation {generation}: {error}"
+                    );
+                }
+            }
+            Err(error) => {
+                log::error!(
+                    "quiescence detection failed for generation {generation}: {error}"
+                );
+            }
         }
     });
+    Ok(())
 }
 
 fn capture_browser_state(

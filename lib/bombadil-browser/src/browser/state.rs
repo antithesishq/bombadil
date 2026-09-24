@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use bombadil::driver::RunState;
 use bombadil_schema::Time;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use cdp_protocol::cdp::js_protocol::runtime;
 use cdp_protocol::cdp::{
     browser_protocol::{
         page::{self, CaptureScreenshotFormat},
@@ -87,13 +88,52 @@ pub struct NavigationEntry {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Exception {
     pub exception_id: u32,
-    pub timestamp: SystemTime,
+    pub timestamp: Option<SystemTime>,
     pub text: String,
     pub line: u32,
     pub column: u32,
     pub url: Option<String>,
     pub remote_object: Option<ExceptionRemoteObject>,
     pub stacktrace: Option<Vec<CallFrame>>,
+}
+
+impl Exception {
+    pub fn from_exception_details(
+        exception_details: runtime::ExceptionDetails,
+        timestamp: Option<SystemTime>,
+    ) -> Self {
+        Exception {
+            exception_id: exception_details.exception_id as u32,
+            timestamp,
+            text: exception_details.text.clone(),
+            line: exception_details.line_number as u32,
+            column: exception_details.column_number as u32,
+            url: exception_details.url.clone(),
+            remote_object: exception_details.exception.as_ref().map(|obj| {
+                ExceptionRemoteObject {
+                    type_name: format!("{:?}", obj.r#type),
+                    subtype: obj.subtype.as_ref().map(|st| format!("{:?}", st)),
+                    class_name: obj.class_name.clone(),
+                    description: obj.description.clone(),
+                    value: obj.value.clone(),
+                }
+            }),
+            stacktrace: exception_details.stack_trace.as_ref().map(
+                |stack_trace| {
+                    stack_trace
+                        .call_frames
+                        .iter()
+                        .map(|frame| CallFrame {
+                            name: frame.function_name.clone(),
+                            line: frame.line_number as u32,
+                            column: frame.column_number as u32,
+                            url: frame.url.clone(),
+                        })
+                        .collect()
+                },
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
