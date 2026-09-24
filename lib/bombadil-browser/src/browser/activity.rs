@@ -12,11 +12,8 @@ use crossbeam_channel as mpmc;
 /// it is considered background noise and filtered out.
 const MAX_HITS_PER_URL: u32 = 3;
 
-/// How long a new outgoing request extends the quiescence deadline.
-const NETWORK_BUMP_REQUEST: Duration = Duration::from_millis(5);
-
 /// How long an incoming response extends the quiescence deadline.
-const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(5);
+const NETWORK_BUMP_RESPONSE: Duration = Duration::from_millis(16);
 
 /// Maximum number of screencast frames that can bump the quiescence
 /// timer in a single window. Prevents perpetual animations (CSS
@@ -64,7 +61,6 @@ impl Drop for ActivityStream {
 pub fn all_activity(events: &cdp::Events) -> Result<ActivityStream> {
     let start = SystemTime::now();
     let all = events.methods([
-        network::EventRequestWillBeSent::method_id(),
         network::EventResponseReceived::method_id(),
         page::EventScreencastFrame::method_id(),
     ]);
@@ -86,14 +82,6 @@ pub fn all_activity(events: &cdp::Events) -> Result<ActivityStream> {
             let method = event.method.clone();
             let bump = (|| -> Result<Option<Duration>> {
                 Ok(try_match!(event, {
-                    network::EventRequestWillBeSent: event => {
-                        let count = hit_counts
-                            .entry(event.request.url.clone())
-                            .or_insert(0);
-                        *count += 1;
-                        (*count <= MAX_HITS_PER_URL)
-                            .then_some(NETWORK_BUMP_REQUEST)
-                    },
                     network::EventResponseReceived: event => {
                         let count = hit_counts
                             .entry(event.response.url.clone())
