@@ -1,7 +1,6 @@
 use anyhow::{Context, ensure};
 use anyhow::{Result, anyhow, bail};
 use base64::Engine;
-use cdp::Binary;
 use cdp::MethodType;
 use cdp::types::try_match;
 use cdp_protocol::cdp::browser_protocol::emulation;
@@ -21,10 +20,11 @@ use serde_json as json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::screenshots::{ScreencastFrame, screencast_frames};
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, ConsoleEntry, Exception, Screenshot,
@@ -140,7 +140,7 @@ struct BrowserContext {
     target_id: TargetId,
     frame_id: FrameId,
     session_id: SessionId,
-    latest_frame: Arc<Mutex<Option<Arc<Binary>>>>,
+    latest_frame: Arc<Mutex<Option<Arc<ScreencastFrame>>>>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
@@ -204,36 +204,14 @@ impl Browser {
             .frame
             .id;
 
-        let latest_frame: Arc<Mutex<Option<Arc<Binary>>>> =
-            Arc::new(Mutex::new(None));
+        let latest_frame = Arc::new(Mutex::new(None));
 
-        let frames_rx = screenshots::screencast_start(
+        screenshots::screencast_start(
             &connection,
             &session_id,
             browser_options.emulation.width,
             browser_options.emulation.height,
         )?;
-
-        // Background task to keep the latest screencast frame updated.
-        {
-            let latest_frame = latest_frame.clone();
-            let events_tx = events_tx.clone();
-            thread::spawn(move || {
-                while let Ok(frame) = frames_rx.recv() {
-                    match frame {
-                        Ok(frame) => {
-                            *latest_frame.lock().unwrap() = Some(frame)
-                        }
-                        Err(error) => {
-                            let _ = events_tx.send(InnerEvent::Fatal(format!(
-                                "screencast worker failed: {error:#}"
-                            )));
-                            break;
-                        }
-                    }
-                }
-            });
-        }
 
         forward_inner_events(&connection, frame_id.clone(), events_tx.clone())?;
         // Observe new tabs and their opener IDs without attaching to them.
@@ -381,6 +359,7 @@ impl Browser {
                     &state_shared,
                     &context,
                     &context.events_tx,
+                    "initial state",
                 )?;
                 InnerStateKind::Running
             },
@@ -889,7 +868,12 @@ fn process_event(
                 debugger::ResumeParams::builder().build(),
                 Some(&context.session_id),
             )?;
-            start_quiescence_timer(&state.shared, context, &context.events_tx)?;
+            start_quiescence_timer(
+                &state.shared,
+                context,
+                &context.events_tx,
+                "paused without call frame retry",
+            )?;
             capture_browser_state(
                 InnerState {
                     kind: InnerStateKind::Running,
@@ -1064,7 +1048,12 @@ fn process_event(
             },
             InnerEvent::ActionApplied(generation),
         ) if shared.generation == generation => {
-            start_quiescence_timer(&shared, context, &context.events_tx)?;
+            start_quiescence_timer(
+                &shared,
+                context,
+                &context.events_tx,
+                "action applied",
+            )?;
             InnerState {
                 kind: Running,
                 shared,
@@ -1075,7 +1064,12 @@ fn process_event(
             state
         }
         (InnerState { shared, .. }, InnerEvent::Loaded) => {
-            start_quiescence_timer(&shared, context, &context.events_tx)?;
+            start_quiescence_timer(
+                &shared,
+                context,
+                &context.events_tx,
+                "loaded",
+            )?;
             InnerState {
                 kind: Running,
                 shared,
@@ -1123,7 +1117,12 @@ fn process_event(
             InnerEvent::DownloadWillBegin { frame_id, url },
         ) if frame_id == context.frame_id => {
             log::debug!("download started: {}", url);
-            start_quiescence_timer(&shared, context, &context.events_tx)?;
+            start_quiescence_timer(
+                &shared,
+                context,
+                &context.events_tx,
+                "download started",
+            )?;
             InnerState {
                 kind: Running,
                 shared,
@@ -1169,6 +1168,7 @@ fn process_event(
                             &shared,
                             context,
                             &context.events_tx,
+                            "bfcache restore",
                         )?;
                         Running
                     }
@@ -1187,7 +1187,9 @@ fn process_event(
         }
         (state, InnerEvent::Quiesced(generation)) => {
             if state.shared.generation != generation {
-                log::debug!("ignoring stale Quiesced event");
+                log::debug!(
+                    "ignoring stale Quiesced event from generation {generation}"
+                );
                 state
             } else if matches!(state.kind, Running) {
                 log::debug!("quiesced, requesting new state capture");
@@ -1225,23 +1227,51 @@ fn start_quiescence_timer(
     shared: &InnerStateShared,
     context: &BrowserContext,
     events_tx: &mpmc::Sender<InnerEvent>,
+    reason: &'static str,
 ) -> Result<()> {
     let session_id = context.session_id.clone();
     let connection = context.connection.clone();
+    let latest_frame = context.latest_frame.clone();
     let generation = shared.generation;
     let sender = events_tx.clone();
-    let start = Instant::now();
+    let start = SystemTime::now();
+    let frames_rx = screencast_frames(&connection)?;
 
     thread::spawn(move || {
         let Ok(evaluation) = runtime::EvaluateParams::builder()
             .await_promise(true)
-            .expression("new Promise(resolve => { requestAnimationFrame(() => { requestAnimationFrame(() => resolve(true)); }); })")
-            .build() else {
-                log::error!("failed building evaluate method call for generation {generation}");
-                return;
-            };
+            .return_by_value(true)
+            .expression(
+                r#"
+(async () => {
+  let iterations = 0;
+  while (true) {
+    const start = performance.now();
+    await new Promise((resolve) => queueMicrotask(resolve));
+    const elapsed = performance.now() - start;
+    if (elapsed < 0.01) {
+      break;
+    }
+    iterations++;
+  }
+  return await new Promise((resolve) => requestAnimationFrame(() => resolve(iterations)));
+})()
+"#,
+            )
+            .build()
+        else {
+            log::error!(
+                "failed building evaluate method call for generation {generation}"
+            );
+            return;
+        };
         match connection.send(evaluation, Some(&session_id)) {
             Ok(result) => {
+                if let Some(value) = result.result.value
+                    && let Ok(value) = json::from_value::<u8>(value)
+                {
+                    log::debug!("quiescence probe iterations: {value}");
+                }
                 if let Some(exception_details) = result.exception_details {
                     log::error!(
                         "quiescence timer evaluation failed for generation {generation}: {:?}",
@@ -1252,10 +1282,44 @@ fn start_quiescence_timer(
                     );
                     return;
                 }
-                let elapsed = Instant::now().duration_since(start);
+
+                let mut frame_latest = None;
+                while let Ok(frame) = frames_rx.try_recv() {
+                    frame_latest = Some(frame);
+                }
+
+                let frame_selected = match frames_rx
+                    .recv_timeout(Duration::from_millis(20))
+                {
+                    Ok(frame) => Some(frame),
+                    Err(_) => {
+                        log::debug!("timed out waiting for screencast frame");
+                        frame_latest
+                    }
+                };
+
+                if let Some(frame) = &frame_selected
+                    && frame.timestamp.duration_since(start).is_ok()
+                {
+                    log::debug!(
+                        "using screencast frame from {:?}",
+                        frame.timestamp.duration_since(start),
+                    );
+                    *latest_frame
+                        .lock()
+                        .expect("failed to acquire lock from latest_frame") =
+                        Some(frame.clone());
+                } else {
+                    log::debug!(
+                        "failed to select new screencast frame for '{reason}' and generation {generation}"
+                    );
+                }
+
+                let elapsed = SystemTime::now().duration_since(start);
                 log::debug!(
-                    "quiescence timer fired for generation {generation} after {elapsed:?}"
+                    "quiescence timer ({reason}) fired for generation {generation} after {elapsed:?}"
                 );
+
                 if let Err(error) =
                     sender.send(InnerEvent::Quiesced(generation))
                 {
@@ -1282,7 +1346,12 @@ fn capture_browser_state(
         shared: InnerStateShared,
         context: &BrowserContext,
     ) -> Result<InnerState> {
-        start_quiescence_timer(&shared, context, &context.events_tx)?;
+        start_quiescence_timer(
+            &shared,
+            context,
+            &context.events_tx,
+            "retry with timer",
+        )?;
         Ok(InnerState {
             kind: InnerStateKind::Running,
             shared,
@@ -1306,9 +1375,9 @@ fn capture_browser_state(
         .expect("failed getting latest frame from mutex")
         .clone();
     match frame {
-        Some(base64) => {
+        Some(frame) => {
             let data = base64::prelude::BASE64_STANDARD
-                .decode(&*base64)
+                .decode(&frame.data)
                 .map_err(|e| anyhow!("screencast base64 decode failed: {e}"))?;
             state.shared.screenshot = Some(Screenshot {
                 format: screenshots::SCREENSHOT_FORMAT,
