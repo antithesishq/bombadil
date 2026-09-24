@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>Receive sse messages</title></head>
+<body>
+
+    <ul id="sse-message">
+
+    </ul>
+
+    <script>
+    const evtSource = new EventSource("../sse");
+
+    evtSource.onmessage = (event) => {
+        const newElement = document.createElement("li");
+        newElement.textContent = `message: ${event.data}`;
+        
+        const eventList = document.getElementById("sse-message");
+        eventList.appendChild(newElement);
+    };
+    </script>
+</body>
+</html>
