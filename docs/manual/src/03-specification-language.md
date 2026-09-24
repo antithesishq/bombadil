@@ -722,7 +722,7 @@ These are full, runnable examples of properties and action generators you might 
 
 ### Successful exit
 
-A simple property that checks if the process terminated with a unsuccesfull exit code. This is one of the default properties for the terminal.
+A simple property that fails if the process terminates with a non-zero exit code. This is one of the default properties for the terminal.
 
 ```typescript
 import { not, always, Formula } from "@antithesishq/bombadil";
@@ -742,7 +742,7 @@ export const exitSuccess: Formula = always(
 
 ### No Replacement Chars
 
-A property that checks whether or not a replacement unicode character (U+FFFD) has been detectred. That character is what a terminal shows when a program emits malformed UTF-8. This is one of the default properties for the terminal.
+A property that checks whether or not a replacement unicode character (U+FFFD) has been detected. That character is what a terminal shows when a program emits malformed UTF-8. This is one of the default properties for the terminal.
 
 ```typescript
 import { always, Formula } from "@antithesishq/bombadil";
@@ -774,12 +774,11 @@ const replacementChars = extract((state) => {
 export const noReplacementChars: Formula = always(
   () => (replacementChars.current ?? []).length === 0,
 );
-
 ```
 
 ### Output matching
 
-A property that checks that certain text is generated while running the test.
+A property that checks that certain text is generated while running the test. The code also defines an action generator that mixes typing "hello world" into the default input, so the property can be satisfied.
 
 ```typescript
 import { eventually } from "@antithesishq/bombadil";
@@ -798,7 +797,7 @@ const nonBlankLines = extract((state) => {
   return lines;
 });
 
-export const eventuallyHelloWorldOrExit = eventually(
+export const eventuallyHelloWorld = eventually(
   () =>
     nonBlankLines.current.filter((line) => line.includes("hello world"))
       .length > 5,
