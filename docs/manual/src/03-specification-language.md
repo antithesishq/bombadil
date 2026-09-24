@@ -725,6 +725,8 @@ These are full, runnable examples of properties and action generators you might 
 A simple property that checks if the process terminated with a unsuccesfull exit code. This is one of the default properties for the terminal.
 
 ```typescript
+import { not, always, Formula } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/terminal";
 
 const exitStatus = extract((state) => state.exitStatus);
 
@@ -743,6 +745,9 @@ export const exitSuccess: Formula = always(
 A property that checks whether or not a replacement unicode character (U+FFFD) has been detectred. That character is what a terminal shows when a program emits malformed UTF-8. This is one of the default properties for the terminal.
 
 ```typescript
+import { always, Formula } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/terminal";
+
 function toHex(str: string): string {
   var result = "";
   for (var i = 0; i < str.length; i++) {
@@ -777,6 +782,11 @@ export const noReplacementChars: Formula = always(
 A property that checks that certain text is generated while running the test.
 
 ```typescript
+import { eventually } from "@antithesishq/bombadil";
+import { ActionGenerator, branch, leaf } from "@antithesishq/bombadil/actions";
+import { ActionTemplate, extract } from "@antithesishq/bombadil/terminal";
+import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
+
 const nonBlankLines = extract((state) => {
   const lines = [];
   for (let index = 0; index < state.grid.size.rows; index++) {
