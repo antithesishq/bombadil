@@ -412,14 +412,15 @@ impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
                 mode,
                 excluded: HashMap::new(),
             };
-
-            let mut output_writer = self
-                .output_writer
-                .lock()
-                .expect("failed to acquire lock for output writer");
-            let mut trace_writer = output_writer
-                .trace_writer(run_id)
-                .expect("initializing trace writer failed");
+            let mut trace_writer = {
+                let mut output_writer = self
+                    .output_writer
+                    .lock()
+                    .expect("failed to acquire lock for output writer");
+                output_writer
+                    .trace_writer(run_id)
+                    .expect("initializing trace writer failed")
+            };
 
             if let Err(error) = self.worker_tx.send(WorkerMessage::Start {
                 worker_id: self.worker_id,
