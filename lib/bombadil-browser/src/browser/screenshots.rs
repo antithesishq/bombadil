@@ -1,5 +1,6 @@
-use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, UNIX_EPOCH};
+use std::{sync::Arc, time::SystemTime};
 
 use anyhow::{Result, anyhow};
 use base64::Engine;
@@ -51,8 +52,7 @@ pub fn screencast_start(
     session_id: &SessionId,
     width: u16,
     height: u16,
-) -> Result<mpmc::Receiver<Result<Arc<Binary>>>> {
-    let (tx, rx) = mpmc::bounded::<Result<Arc<Binary>>>(32);
+) -> Result<()> {
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
     connection.send(
@@ -75,16 +75,13 @@ pub fn screencast_start(
                 log::debug!("screencast: listener started");
                 while let Some(event) = frames.next()? {
                     log::debug!(
-                        "screencast: frame received (session_id={})",
+                        "screencast: frame received (session_id={}), acking",
                         event.session_id
                     );
                     connection.post(
                         page::ScreencastFrameAckParams::new(event.session_id),
                         Some(&session_id),
                     )?;
-                    if tx.send(Ok(Arc::new(event.data))).is_err() {
-                        return Ok(());
-                    }
                 }
                 log::debug!("screencast: listener ended");
                 Ok(())
@@ -96,7 +93,41 @@ pub fn screencast_start(
             Err(_) => anyhow!("screencast worker panicked"),
         };
         log::error!("screencast worker failed: {error:#}");
-        let _ = tx.send(Err(error));
+    });
+
+    Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct ScreencastFrame {
+    pub timestamp: SystemTime,
+    pub data: Binary,
+}
+
+pub fn screencast_frames(
+    connection: &cdp::Connection,
+) -> Result<mpmc::Receiver<Arc<ScreencastFrame>>> {
+    let (tx, rx) = mpmc::bounded::<Arc<ScreencastFrame>>(32);
+    let frames = connection.events.subscribe::<page::EventScreencastFrame>();
+
+    thread::spawn(move || {
+        while let Ok(Some(event)) = frames.next() {
+            let Some(timestamp) = event.metadata.timestamp else {
+                log::warn!("ignoring screencast frame without timestamp");
+                continue;
+            };
+            let timestamp =
+                UNIX_EPOCH + Duration::from_secs_f64(*timestamp.inner());
+            if tx
+                .send(Arc::new(ScreencastFrame {
+                    data: event.data,
+                    timestamp,
+                }))
+                .is_err()
+            {
+                break;
+            }
+        }
     });
 
     Ok(rx)
