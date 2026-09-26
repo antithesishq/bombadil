@@ -120,9 +120,9 @@ The general exit code semantics of the CLI is:
 | `--quiescence-timeout-ms <QUIESCENCE_TIMEOUT_MS>` | How long to wait (in milliseconds) for the program to stop emitting output before extracting the next state. Lower values increase throughput but risk sampling mid-render; higher values give the program more time to finish drawing. | 5 |
 | `--seed <SEED>` | Random generator seed | |
 | `--render-append` | Whether to append render output (otherwise clear screen before every render) | |
-| `--output-path <OUTPUT_PATH>` | Where to store output data (trace.jsonl). Defaults to a fresh temporary directory. | |
-| `--output-path-overwrite` | Overwrite any existing `trace.jsonl` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
-| `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file (file path or directory containing `trace.jsonl`). Replays the recorded actions in order instead of generating new ones.| |
+| `--output-path <OUTPUT_PATH>` | Where to store output data (trace.bin). Defaults to a fresh temporary directory. | |
+| `--output-path-overwrite` | Overwrite any existing `trace.bin` at `--output-path`. Without this flag, Bombadil refuses to write when one already exists. | |
+| `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file (file path or run directory containing `trace.bin`). Replays the recorded actions in order instead of generating new ones.| |
 | `-h, --help` | Print help | |
 :::
 :::

@@ -24,7 +24,7 @@
   # the Cargo build script can skip its in-tree `git clone` step (which has
   # no network access in the Nix sandbox).
   ghosttySrc,
-  zig_0_15,
+  zig_0_16,
   git,
 }:
 let
@@ -39,7 +39,7 @@ let
     GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
   };
   ghosttyNativeBuildInputs = [
-    zig_0_15
+    zig_0_16
     pkg-config
     git
   ]
