@@ -24,7 +24,7 @@ use bombadil_schema::terminal::{
 };
 use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
-    RenderState, Terminal, TerminalOptions,
+    RenderState, Terminal,
     render::{
         CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
         RowIterator, Snapshot as GhosttyRenderSnapshot,
@@ -277,11 +277,13 @@ impl InterfaceDriver for TerminalDriver {
         let verifier = Verifier::new(&self.specification_bundle)?;
         let extractor = Extractors::initialize(&self.specification_bundle)?;
 
-        let mut terminal = Terminal::new(TerminalOptions {
-            cols: self.program_options.size.columns,
-            rows: self.program_options.size.rows,
-            max_scrollback: self.program_options.scrollback_lines_max,
-        })?;
+        let mut terminal = Terminal::new(
+            self.program_options.size.columns,
+            self.program_options.size.rows,
+        )?;
+        terminal.set_scrollback_max_lines(Some(
+            self.program_options.scrollback_lines_max,
+        ))?;
 
         let (process, output) = PtyProcess::spawn(
             self.program_options.size,

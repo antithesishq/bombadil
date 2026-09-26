@@ -51,7 +51,7 @@ include_dir = "0.7.4"
 indoc = "2.0.7"
 insta = "1.43.1"
 js-sys = "0.3"
-libghostty-vt = "0.2.1"
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 log = "0.4.29"
 mime_guess = "2.0"
 mio = { version = "1", features = ["os-poll", "os-ext"] }
