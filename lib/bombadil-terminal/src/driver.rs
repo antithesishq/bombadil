@@ -51,6 +51,11 @@ const DRAIN_DURATION_MAX: Duration = Duration::from_secs(1);
 /// surface it as a driver error (which ends the current run).
 const HANG_QUIET_THRESHOLD: Duration = Duration::from_secs(5);
 
+/// How many bytes of an unfinished escape sequence ghostty retains so that
+/// a terminal snapshot taken mid-sequence can still be encoded. States
+/// sampled inside a longer sequence get no snapshot.
+const SNAPSHOT_CONTINUATION_MAX_BYTES: usize = 64 * 1024;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum TerminalAction<U16 = u16, Text = String> {
     TypeText { text: Text },
@@ -281,9 +286,11 @@ impl InterfaceDriver for TerminalDriver {
             self.program_options.size.columns,
             self.program_options.size.rows,
         )?;
-        terminal.set_scrollback_max_lines(Some(
-            self.program_options.scrollback_lines_max,
-        ))?;
+        terminal
+            .set_scrollback_max_lines(Some(
+                self.program_options.scrollback_lines_max,
+            ))?
+            .set_continuation_max_bytes(SNAPSHOT_CONTINUATION_MAX_BYTES)?;
 
         let (process, output) = PtyProcess::spawn(
             self.program_options.size,
@@ -313,6 +320,7 @@ impl InterfaceDriver for TerminalDriver {
                 render_state: RenderState::new()?,
                 row_iterator: RowIterator::new()?,
                 cell_iterator: CellIterator::new()?,
+                snapshot_capacity: 0,
             },
             verifier,
         ))
@@ -334,6 +342,9 @@ pub struct TerminalSession {
     render_state: RenderState<'static>,
     row_iterator: RowIterator<'static>,
     cell_iterator: CellIterator<'static>,
+    // Size of the last terminal snapshot, used to allocate the next one
+    // up front so encoding writes straight into its final buffer.
+    snapshot_capacity: usize,
 }
 
 impl TerminalSession {
@@ -359,6 +370,8 @@ impl TerminalSession {
 
     #[hotpath::measure]
     fn extract_state(&mut self) -> Result<TerminalState> {
+        // Encoded before the render snapshot below borrows the terminal.
+        let terminal_snapshot = self.encode_terminal_snapshot();
         let snapshot = self.render_state.update(&self.terminal)?;
         let cursor = cursor_from_libghostty(&self.terminal, &snapshot)?;
         let mut row_iter = self.row_iterator.update(&snapshot)?;
@@ -421,7 +434,28 @@ impl TerminalSession {
                 },
             ),
             last_action: self.last_action.clone(),
+            terminal_snapshot,
         })
+    }
+
+    #[hotpath::measure]
+    fn encode_terminal_snapshot(&mut self) -> Option<Arc<Vec<u8>>> {
+        // Ghostty streams the encoding into this buffer, which then moves
+        // through to the trace writer untouched: one copy, out of the
+        // terminal's live state, is the only one made.
+        let mut buffer = Vec::with_capacity(
+            self.snapshot_capacity + self.snapshot_capacity / 8,
+        );
+        match self.terminal.encode_snapshot(&mut buffer) {
+            Ok(()) => {
+                self.snapshot_capacity = buffer.len();
+                Some(Arc::new(buffer))
+            }
+            Err(error) => {
+                log::debug!("failed to encode terminal snapshot: {error}");
+                None
+            }
+        }
     }
 }
 

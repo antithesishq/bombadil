@@ -622,7 +622,6 @@ dependencies = [
  "bombadil-schema",
  "bytes",
  "env_logger",
- "hegeltest",
  "hotpath",
  "libghostty-vt",
  "log",
