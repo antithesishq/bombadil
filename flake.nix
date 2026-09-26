@@ -70,8 +70,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "a887df42c56f6de86c0fe6da9c4eeca37931e083";
-          sha256 = "sha256-1Zz65SCk3rkJ9+Q0MmyNOTNiDSLBRIHRd3IvFM4iNXw=";
+          rev = "3425025e585a3403340d4dc6d65132f42e05e605";
+          sha256 = "sha256-n/DSzaoCxwTXV6bRthscvMrL4+TBJF5tph6Z+vVsAKQ=";
         };
         # Override postInstall to keep the native `libhegel_c.{so,dylib}`
         # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
@@ -148,7 +148,7 @@
                   # Nix
                   nil
 
-                  # For bombadil-terminal. zig_0_15 / pkg-config come in via
+                  # For bombadil-terminal. zig_0_16 / pkg-config come in via
                   # `inputsFrom = [ self.packages.${system}.default ]`; adding
                   # them again here re-sources zig's setup-hook and trips its
                   # readonly `zigDefaultCpuFlag` guard.
