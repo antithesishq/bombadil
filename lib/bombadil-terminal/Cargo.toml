@@ -22,5 +22,4 @@ small-string = { path = "../small-string" }
 
 [dev-dependencies]
 env_logger.workspace = true
-hegeltest.workspace = true
 tempfile.workspace = true
