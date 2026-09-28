@@ -333,6 +333,7 @@ jobs:
         run: |
           mkdir -p docker-smoke-output
           chmod 777 docker-smoke-output
+          set +e
           docker run --rm \
             -v "$PWD/lib/bombadil-browser-integration-tests/tests/console-error:/test:ro" \
             -v "$PWD/docker-smoke-output:/output" \
@@ -340,7 +341,13 @@ jobs:
             browser test /test/index.html \
               --headless --no-sandbox \
               --output-path /output \
-              --time-limit 10s || true
+              --time-limit 10s
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 2 ]; then
+            echo "::error::bombadil exited with unexpected code $exit_code (expected 0 or 2)"
+            exit "$exit_code"
+          fi
           test -s docker-smoke-output/trace.jsonl
       - name: Upload docker smoke test output
         if: failure()
