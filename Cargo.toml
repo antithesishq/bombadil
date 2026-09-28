@@ -1,22 +1,22 @@
 [workspace]
 members = [
-    "lib/antithesis-fuzzer",
-    "lib/bombadil",
-    "lib/bombadil-browser",
-    "lib/bombadil-browser-integration-tests",
-    "lib/bombadil-browser-keys",
-    "lib/bombadil-cli",
-    "lib/bombadil-ltl",
-    "lib/bombadil-inspect",
-    "lib/bombadil-schema",
-    "lib/bombadil-terminal",
-    "lib/cdp",
-    "lib/cdp/types",
-    "lib/cdp/pdl",
-    "lib/cdp/protocol",
-    "lib/small-string",
-    "lib/stdx",
-    "lib/typescript-reference",
+  "lib/antithesis-fuzzer",
+  "lib/bombadil",
+  "lib/bombadil-browser",
+  "lib/bombadil-browser-integration-tests",
+  "lib/bombadil-browser-keys",
+  "lib/bombadil-cli",
+  "lib/bombadil-ltl",
+  "lib/bombadil-inspect",
+  "lib/bombadil-schema",
+  "lib/bombadil-terminal",
+  "lib/cdp",
+  "lib/cdp/types",
+  "lib/cdp/pdl",
+  "lib/cdp/protocol",
+  "lib/small-string",
+  "lib/stdx",
+  "lib/typescript-reference",
 ]
 resolver = "2"
 
@@ -25,7 +25,10 @@ version = "0.7.7"
 edition = "2024"
 
 [workspace.dependencies]
-antithesis_sdk = { version = "0.2.9", default-features = false, features = ["rand_v0_10", "full"] }
+antithesis_sdk = { version = "0.2.9", default-features = false, features = [
+  "rand_v0_10",
+  "full",
+] }
 anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
@@ -51,13 +54,13 @@ include_dir = "0.7.4"
 indoc = "2.0.7"
 insta = "1.43.1"
 js-sys = "0.3"
-libghostty-vt = "0.2.1"
+libghostty-vt = "0.2.2"
 log = "0.4.29"
 mime_guess = "2.0"
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 num-traits = "0.2"
 open = "5.0"
-oxc = { version =  "0.125.0", features = ["codegen", "semantic", "transformer"] }
+oxc = { version = "0.125.0", features = ["codegen", "semantic", "transformer"] }
 oxc_resolver = "11.19.1"
 oxc_codegen = "0.125.0"
 oxc_str = "0.125.0"
