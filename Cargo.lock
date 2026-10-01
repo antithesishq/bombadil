@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "antithesis-fuzzer"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "cc",
  "log",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "antithesis-fuzzer",
  "antithesis_sdk",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "antithesis-fuzzer",
  "anyhow",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "axum",
@@ -539,11 +539,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.7.7"
+version = "0.7.8"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "hegeltest",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "bitflags 2.13.2",
  "insta",
@@ -613,7 +613,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "cdp"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "cdp_protocol",
@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_pdl"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "cdp_types",
@@ -739,7 +739,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_protocol"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "cdp_pdl",
  "cdp_types",
@@ -750,7 +750,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_types"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "serde",
@@ -2633,9 +2633,9 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libghostty-vt"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6219ed1c364b3ef5815fb0fd2acc0662f792adc706dabf59b7ca89280ee6d066"
+checksum = "16c7287a8dc35c3436224b39358af81ab9ea54bafa0f7ea2e068bd2a47bdcb2d"
 dependencies = [
  "bitflags 2.13.2",
  "int-enum",
@@ -2644,9 +2644,9 @@ dependencies = [
 
 [[package]]
 name = "libghostty-vt-sys"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "865fed12a8b2bba3507b3bccd0bef439e06ef1100e652fe6b71d132c41ee8db0"
+checksum = "df233d9b287cded4bbebba3463c6df7a8bdb516c0341ed984e870ef5594c2e6f"
 
 [[package]]
 name = "libloading"
@@ -4519,7 +4519,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "hegeltest",
  "serde",
@@ -4571,7 +4571,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stdx"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "hegeltest",
 ]
@@ -5176,7 +5176,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typescript-reference"
-version = "0.7.7"
+version = "0.7.8"
 dependencies = [
  "anyhow",
  "clap",

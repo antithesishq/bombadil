@@ -5,11 +5,6 @@ validating correctness properties, *finding harder bugs earlier*.
 
 Runs in your local developer environment, in CI, and inside Antithesis.
 
-> [!NOTE] 
-> Bombadil is new and experimental. API might still change while we're
-> on `0.x` versions. That said, it helps real users find real bugs, so 
-> why not give it a try!
-
 ## Documentation
 
 Learn all about Bombadil with the following resources:
@@ -18,23 +13,17 @@ Learn all about Bombadil with the following resources:
 * [Installation](https://antithesishq.github.io/bombadil/browser/2-getting-started.html#installation)
 * [Examples](https://antithesishq.github.io/bombadil/browser/3-specification-language.html#examples)
 
-> [!NOTE] 
-> The Bombadil Manual is available for different drivers, i.e.
-> *browser* and *terminal*, and you can switch between the flavors in the
-> navigation sidebar.
-
 ## Join us
 
-Do you want to join us on our quest to reinvent how the world thinks about software reliability?
+Join us on our quest to reinvent how the world thinks about software reliability. [We are hiring.](https://antithesis.com/company/careers/?ashby_jid=88f9ee26-c86f-4625-9ac2-cb268678044a#open-roles)
 
-[We are hiring](https://antithesis.com/company/careers/?ashby_jid=88f9ee26-c86f-4625-9ac2-cb268678044a#open-roles) 
-
-Or, if you want to hack on it, see [Contributing](docs/development/contributing.md).
+Or, if you want to hack on it, see
+[Contributing](docs/development/contributing.md). We prefer GitHub issues and [Discord discussions](https://discord.gg/antithesis)
+over drive-by pull requests. Make sure you read the [Gen AI
+Policy](docs/development/gen-ai-policy.md) before using LLMs in your
+contributions.
 
 <hr>
-
-
-
 
 <img alt="Tom Bombadil" src="docs/development/tom.png" width=360 />
 

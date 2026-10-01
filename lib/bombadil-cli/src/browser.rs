@@ -2,6 +2,7 @@ use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Context, Result, bail};
 use bombadil_browser::{
+    browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
@@ -31,8 +32,7 @@ use bombadil::{
     styled,
 };
 use bombadil_browser::{
-    browser::{BrowserOptions, Emulation, actions::BrowserAction},
-    instrumentation::InstrumentationConfig,
+    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
 };
 use bombadil_schema::browser;
 
@@ -104,37 +104,47 @@ pub struct RunSharedOptions {
     /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
     /// other websites)
     pub origin: Origin,
+
     /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
     /// package on NPM
     pub specification_file: Option<PathBuf>,
+
     /// Where to store output data (trace, screenshots, etc.)
     #[arg(long)]
     pub output_path: Option<PathBuf>,
+
     /// Overwrite any existing trace at --output-path. Without this flag,
     /// Bombadil refuses to write when trace.jsonl already exists.
     #[arg(long)]
     pub output_path_overwrite: bool,
+
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
+
     /// Browser viewport width in pixels
     #[arg(long, default_value_t = DEFAULT_WIDTH)]
     pub width: u16,
+
     /// Browser viewport height in pixels
     #[arg(long, default_value_t = DEFAULT_HEIGHT)]
     pub height: u16,
+
     /// Scaling factor of the browser viewport, mostly useful on high-DPI monitors when in headed
     /// mode
     #[arg(long, default_value_t = DEFAULT_DEVICE_SCALE_FACTOR)]
     pub device_scale_factor: f64,
+
     /// What types of JavaScript to instrument for coverage tracking.
     /// Comma-separated list of: "files", "inline"
     #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
     pub instrument_javascript: InstrumentationConfig,
+
     /// Maximum time to run the test. Accepts a number with a unit suffix:
     /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
     #[arg(long, value_parser = duration::parse_duration)]
     pub time_limit: Option<Duration>,
+
     /// Comma-separated list of Chrome permissions to grant.
     /// Examples: local-network-access, geolocation, notifications.
     #[arg(
@@ -142,16 +152,25 @@ pub struct RunSharedOptions {
         default_value = "local-network-access,local-network,loopback-network"
     )]
     pub chrome_grant_permissions: String,
+
+    /// Optional virtual time policy for Chrome, used to speed up execution
+    /// of timer-heavy applications.
+    /// Examples: Advance, Pause, PauseIfNetworkFetchesPending.
+    #[arg(long)]
+    pub chrome_virtual_time_policy: Option<VirtualTimePolicy>,
+
     /// Extra HTTP header to send with all browser requests, in KEY=VALUE format.
     /// Can be specified multiple times.
     #[arg(long = "header", value_name = "KEY=VALUE", value_parser = parse_header)]
     pub headers: Vec<(String, String)>,
+
     /// Cookie to set in the browser before testing. Accepts plain NAME=VALUE
     /// (scoped to the origin) or Set-Cookie syntax with attributes such as
     /// Domain, Path, Secure, and HttpOnly. Unlike `--header`, these become real
     /// browser cookies. Can be specified multiple times.
     #[arg(long = "cookie", value_name = "SET-COOKIE", value_parser = parse_cookie)]
     pub cookies: Vec<BrowserCookie>,
+
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
@@ -220,7 +239,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             }
 
             let browser_options =
-                browser_options_from_test_shared(&shared, &output_path);
+                browser_options_from_run_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
                     executable: chromium::locate::executable()?,
@@ -255,7 +274,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_test_shared(&shared, &output_path)
+                ..browser_options_from_run_shared(&shared, &output_path)
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
@@ -278,7 +297,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 &run_shared_options.output_path,
             )?;
 
-            let browser_options = browser_options_from_test_shared(
+            let browser_options = browser_options_from_run_shared(
                 &run_shared_options,
                 &output_path,
             );
@@ -352,7 +371,7 @@ fn parse_instrumentation_config(
     })
 }
 
-fn browser_options_from_test_shared(
+fn browser_options_from_run_shared(
     shared: &RunSharedOptions,
     output_path: &Path,
 ) -> BrowserOptions {
@@ -371,6 +390,7 @@ fn browser_options_from_test_shared(
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect(),
+        virtual_time_policy: shared.chrome_virtual_time_policy.clone(),
         extra_headers: shared.headers.iter().cloned().collect(),
         cookies: shared.cookies.clone(),
     }
