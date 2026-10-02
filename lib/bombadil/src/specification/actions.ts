@@ -53,11 +53,30 @@ export function weighted<A>(
 
 export type Range = number | [number, number];
 
+/**
+ * Generates a random Unicode string within the given length range.
+ */
+export type TextGenerator = { Text: Range };
+
+/**
+ * Generates a string based on one or more charsets.
+ */
+export type CharSetStringGenerator = { CharSet: CharSet.Entries };
+
+/**
+ * Generates a string based on a regular expression. Uses
+ * Rust [regex](https://docs.rs/regex/latest/regex/) semantics.
+ */
+export type RegexpStringGenerator = { Regexp: string };
+
+/**
+ * Generates a string to be used as a parameter in an action.
+ */
 export type StringGenerator =
   | "Email"
-  | { Text: Range }
-  | { CharSet: CharSet.Entries }
-  | { Regexp: string };
+  | TextGenerator
+  | CharSetStringGenerator
+  | RegexpStringGenerator;
 
 /**
  * Encodes characther ranges or literal strings for use in action templates,
