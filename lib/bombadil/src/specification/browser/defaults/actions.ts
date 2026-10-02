@@ -290,7 +290,7 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
           {
             TypeText: {
               text: {
-                Regexp: "\d{1,5}",
+                Regexp: "[0-9]{1,5}",
               },
               delayMillis,
             },

@@ -1,6 +1,6 @@
 {
+  stdenv,
   lib,
-  runCommand,
   typescript,
   writeText,
   src,
@@ -20,6 +20,9 @@ let
       exports = {
         "." = {
           types = "./dist/index.d.ts";
+        };
+        "./internal" = {
+          types = "./dist/internal.d.ts";
         };
         "./actions" = {
           types = "./dist/actions.d.ts";
@@ -164,12 +167,26 @@ let
 
     process.exit(result.status ?? 1);
   '';
+
+  examples = lib.cleanSourceWith {
+    src = ../../examples;
+    filter =
+      path: type:
+      (lib.hasSuffix ".ts" path) || (lib.hasSuffix ".json" path) || (lib.hasSuffix ".dat" path);
+  };
+
 in
-runCommand "bombadil-npm-package-${version}"
-  {
-    nativeBuildInputs = [ typescript ];
-  }
-  ''
+stdenv.mkDerivation {
+  pname = "bombadil-npm-package";
+  inherit version;
+
+  dontUnpack = true;
+
+  nativeBuildInputs = [ typescript ];
+
+  buildPhase = ''
+    runHook preBuild
+
     mkdir -p $out/dist $out/bin
 
     tsc \
@@ -184,4 +201,34 @@ runCommand "bombadil-npm-package-${version}"
     cp ${readme} $out/README.md
     cp ${wrapperScript} $out/bin/bombadil.js
     chmod +x $out/bin/bombadil.js
-  ''
+
+    runHook postBuild
+  '';
+
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+
+    local checkdir
+    checkdir=$(mktemp -d)
+
+    mkdir -p "$checkdir/node_modules/@antithesishq"
+    cp -r $out "$checkdir/node_modules/@antithesishq/bombadil"
+    cp -r ${examples}/* "$checkdir/"
+
+    pushd "$checkdir" >/dev/null
+
+    tsc --noEmit --strict --module nodenext --lib es2022,dom *.ts
+
+    popd >/dev/null
+
+    rm -rf "$checkdir"
+
+    runHook postCheck
+  '';
+
+  installPhase = ''
+    runHook preInstall
+    runHook postInstall
+  '';
+}

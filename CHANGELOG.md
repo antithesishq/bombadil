@@ -1,5 +1,27 @@
 # The Bombadil Changelog
 
+## 0.7.8
+
+Major updates:
+
+* Faster and more robust quiescence detection in browser driver (#338)
+* Add option to virtualize time in Chrome (#340)
+
+Minor updates:
+
+* Update libghostty-vt to 0.2.2 (#343)
+* Bind on all interfaces in `inspect` command's server (#334)
+* Add generative AI policy and refresh contributor docs (#347)
+
+Bug fixes:
+
+* Fix internal module error, and fail build on tsc errors (#345)
+* Only hold lock while getting trace writer in `fuzz` command (#333)
+
+Internal:
+
+* Exit on unexpected Bombadil exit codes in CI (#342)
+
 ## 0.7.7
 
 Minor updates:
@@ -11,7 +33,7 @@ Bug fixes:
 * Fix docker compatibility issues (#328)
 * Fix duplication of always residuals in LTL eval (#325)
 
-Internals:
+Internal:
 
 * Isolate cargo flags in trunk build (#330)
 * Add CI smoke test for docker container (#329)
