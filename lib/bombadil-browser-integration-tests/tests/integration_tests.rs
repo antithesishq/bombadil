@@ -85,6 +85,7 @@ struct BrowserIntegrationTest<'a> {
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
     cookies: Vec<BrowserCookie>,
+    allow_urls: Vec<bombadil_browser::allow_url::AllowUrl>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -98,6 +99,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions: vec![],
             extra_headers: HashMap::new(),
             cookies: vec![],
+            allow_urls: vec![],
         }
     }
 
@@ -137,6 +139,14 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn allow_urls(
+        mut self,
+        allow_urls: Vec<bombadil_browser::allow_url::AllowUrl>,
+    ) -> Self {
+        self.allow_urls = allow_urls;
+        self
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -157,6 +167,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
+            allow_urls,
         } = self;
         setup();
         let _guard = acquire();
@@ -331,6 +342,9 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
+        let allow_urls =
+            bombadil_browser::allow_url::build_allow_list(&origin, &allow_urls);
+
         let mut strategy = TestStrategy {
             rng: rand::prelude::StdRng::seed_from_u64(seed),
             test_start: Some(Time::from_system_time(test_start)),
@@ -339,6 +353,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             exit_on_violation: true,
             origin: origin.clone(),
             violations_count: 0,
+            allow_urls,
         };
 
         log::info!("starting runner with infrastructure safety timeout");
@@ -1013,6 +1028,66 @@ export const sessionCookieOnOtherPort = eventually(
 ).within(10, "seconds");
 "##,
         )
+        .run();
+}
+
+const SUBDOMAIN_ALLOW_URL_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+const subdomainActions = actions(() => {
+  if (onSubdomain.current) {
+    return ["Wait"];
+  }
+  return clicks.generate();
+});
+
+const subdomainOk = extract((state) => {
+  const el = state.document.querySelector("#subdomain-ok");
+  return el != null && (el as HTMLElement).offsetParent !== null;
+});
+
+export { subdomainActions as clicks };
+
+export const exploredSubdomain = eventually(
+  () => subdomainOk.current === true
+).within(10, "seconds");
+"##;
+
+const SUBDOMAIN_DISALLOWED_SPEC: &str = r##"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+export const keepRunning = always(() => !onSubdomain.current);
+"##;
+
+#[test]
+fn test_allow_url_subdomain() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .allow_urls(vec![
+            bombadil_browser::allow_url::AllowUrl::parse("localhost").unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_ALLOW_URL_SPEC)
+        .run();
+}
+
+#[test]
+fn test_allow_url_required_for_subdomain_wait() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .expect_error("no actions available")
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_DISALLOWED_SPEC)
         .run();
 }
 

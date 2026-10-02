@@ -1,12 +1,13 @@
+use crate::allow_url::is_url_allowed;
 use crate::browser::actions::BrowserActionTemplate;
 use crate::driver::BrowserSession;
-use crate::url::is_within_domain;
 use anyhow::{Result, bail};
 use bombadil::driver::{ActionTemplate, RunState};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
 use bombadil::{specification::domain::Snapshot, tree::Tree};
+use bombadil_schema::browser::Fingerprint;
 use rand::{RngExt, TryRng};
 use std::{collections::VecDeque, time::SystemTime};
 use url::Url;
@@ -30,6 +31,7 @@ pub struct TestStrategy<Rng> {
     pub test_start: Option<bombadil_schema::Time>,
     pub deadline: Option<SystemTime>,
     pub origin: Url,
+    pub allow_urls: Vec<crate::allow_url::AllowUrl>,
     pub violations_count: u64,
 }
 
@@ -49,19 +51,46 @@ pub struct TestResult {
 }
 
 impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
+    fn exclude_disallowed_domains(
+        &self,
+        state: &BrowserState,
+        tree: Tree<BrowserActionTemplate>,
+    ) -> Result<Tree<BrowserActionTemplate>> {
+        if is_url_allowed(&state.url, &self.allow_urls) {
+            // Preemptively drop clicks that'd take us to a disallowed URL.
+            tree.filter(&|a| {
+                if let BrowserAction::Click {
+                    fingerprint:
+                        Fingerprint {
+                            href: Some(href), ..
+                        },
+                    ..
+                } = a
+                {
+                    if let Ok(url) = Url::parse(href) {
+                        is_url_allowed(&url, &self.allow_urls)
+                    } else {
+                        true
+                    }
+                } else {
+                    true
+                }
+            })
+        } else {
+            // If we've already ended up at a disallowed URL, we force a
+            // backwards navigation if possible.
+            tree.filter(&|a| matches!(a, BrowserAction::Back))
+        }
+        .prune()
+        .ok_or_else(|| anyhow::anyhow!("no actions available"))
+    }
+
     fn pick_action(
         &mut self,
         state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
-        let tree = if is_within_domain(&state.url, &self.origin) {
-            tree
-        } else {
-            tree.filter(&|a| matches!(a, BrowserAction::Back))
-        }
-        .prune()
-        .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
-
+        let tree = self.exclude_disallowed_domains(state, tree)?;
         match &mut self.mode {
             TestMode::RandomWalk => {
                 let template = tree.pick(&mut self.rng)?.clone();
