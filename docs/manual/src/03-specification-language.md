@@ -718,10 +718,99 @@ would catch as a violation.
 :::
 
 ::: terminal
-The terminal driver is experimental, and the catalog of common patterns
-is not yet collected. For now, see the [default specification source](https://github.com/antithesishq/bombadil/blob/v%version%/lib/bombadil/src/specification/terminal/defaults.ts) 
-and the
-[examples](https://github.com/antithesishq/bombadil/tree/v%version%/examples).
+These are full, runnable examples of properties and action generators you might need in your own testing with Bombadil. Think of them as design patterns for properties. Each example is a self-contained specification file.
+
+### Successful exit
+
+A simple property that fails if the process terminates with a non-zero exit code. This is one of the default properties for the terminal.
+
+```typescript
+import { not, always, Formula } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/terminal";
+
+const exitStatus = extract((state) => state.exitStatus);
+
+export const exitSuccess: Formula = always(
+  not(
+    () =>
+      !!exitStatus.current &&
+      exitStatus.current.signal == null &&
+      exitStatus.current.code > 0,
+  ),
+);
+```
+
+### No Replacement Chars
+
+A property that checks whether or not a replacement unicode character (U+FFFD) has been detected. That character is what a terminal shows when a program emits malformed UTF-8. This is one of the default properties for the terminal.
+
+```typescript
+import { always, Formula } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/terminal";
+
+function toHex(str: string): string {
+  var result = "";
+  for (var i = 0; i < str.length; i++) {
+    result += str.charCodeAt(i).toString(16);
+  }
+  return result;
+}
+
+const replacementChars = extract((state) => {
+  const result = [];
+  for (let i = 0; i < state.grid.size.rows; i++) {
+    for (const match of state.grid.rowText(i).matchAll(/\uFFFD/g)) {
+      result.push({
+        row: i,
+        column: match.index,
+        contents: match[0],
+        hex: toHex(match[0]),
+      });
+    }
+  }
+  return result;
+});
+
+export const noReplacementChars: Formula = always(
+  () => (replacementChars.current ?? []).length === 0,
+);
+```
+
+### Output matching
+
+A property that checks that certain text is generated while running the test. The code also defines an action generator that mixes typing "hello world" into the default input, so the property can be satisfied.
+
+```typescript
+import { eventually } from "@antithesishq/bombadil";
+import { ActionGenerator, branch, leaf } from "@antithesishq/bombadil/actions";
+import { ActionTemplate, extract } from "@antithesishq/bombadil/terminal";
+import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
+
+const nonBlankLines = extract((state) => {
+  const lines = [];
+  for (let index = 0; index < state.grid.size.rows; index++) {
+    const text = state.grid.rowText(index).trim();
+    if (text) {
+      lines.push(text);
+    }
+  }
+  return lines;
+});
+
+export const eventuallyHelloWorld = eventually(
+  () =>
+    nonBlankLines.current.filter((line) => line.includes("hello world"))
+      .length > 5,
+).within(5, "seconds");
+
+export const typeHelloWorld = new ActionGenerator(() =>
+  branch([
+    [10, typeBasicInput.generate()],
+    [1, leaf({ TypeText: { Regexp: "hello world" } } as ActionTemplate)],
+  ]),
+);
+```
+
 :::
 
 [^ltl]: Formally, the properties in Bombadil use a flavor of

@@ -18,7 +18,7 @@ const nonBlankLines = extract((state) => {
   return lines;
 });
 
-export const eventuallyHelloWorldOrExit = eventually(
+export const eventuallyHelloWorld = eventually(
   () =>
     nonBlankLines.current.filter((line) => line.includes("hello world"))
       .length > 5,
