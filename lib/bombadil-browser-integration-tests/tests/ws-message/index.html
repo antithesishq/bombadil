@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head><title>WebSocket conversation</title></head>
+<body>
+
+    <ul id="ws-conversation"></ul>
+
+    <script>
+
+    const names = ["John Doe", "Jane Doe"];
+    const fullName = names[Math.floor(Math.random() * names.length)];
+
+    const conversation = document.getElementById("ws-conversation");
+    conversation.dataset.name = fullName;
+
+    function log(who, text) {
+        const item = document.createElement("li");
+        item.className = who;
+        item.textContent = `${who}: ${text}`;
+        conversation.appendChild(item);
+    }
+
+    const wsUrl = `ws://${location.host}/ws`;
+
+    const worker = new Worker("worker.js");
+    worker.onmessage = (event) => log(event.data.who, event.data.text);
+    worker.onerror = (event) => log("browser", `worker error: ${event.message}`);
+    worker.postMessage({ wsUrl, fullName });
+    </script>
+</body>
+</html>
