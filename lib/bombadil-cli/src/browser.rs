@@ -1,12 +1,13 @@
 use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil_browser::{
     browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
     convert::ToInternal,
     cookie::BrowserCookie,
     driver::{BrowserDriver, BrowserSession, DebuggerOptions},
+    match_pattern::MatchPattern,
     trace::writer::{FileOutputWriter, FileTraceWriter},
 };
 use clap::Args;
@@ -101,8 +102,11 @@ pub enum BrowserCommand {
 
 #[derive(Args)]
 pub struct RunSharedOptions {
-    /// Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to
-    /// other websites)
+    /// Starting URL of the test. Without `--allow-url`, exploration stays on
+    /// the origin's scheme, host and port. For a `file://` origin it stays on
+    /// that exact file. With one or more `--allow-url` entries, those define the
+    /// exploration boundary instead (include the origin there if it should
+    /// remain allowed).
     pub origin: Origin,
 
     /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
@@ -170,6 +174,13 @@ pub struct RunSharedOptions {
     /// browser cookies. Can be specified multiple times.
     #[arg(long = "cookie", value_name = "SET-COOKIE", value_parser = parse_cookie)]
     pub cookies: Vec<BrowserCookie>,
+
+    /// Exploration boundary as Chrome extension match patterns, e.g.
+    /// `*://*.example.com/*`. Replaces the implicit origin match pattern.
+    /// For the pattern syntax, see
+    /// <https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns>
+    #[arg(long = "allow-url", value_name = "MATCH_PATTERN", value_parser = MatchPattern::parse)]
+    pub allow_urls: Vec<MatchPattern>,
 
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with --time-limit and --exit-on-violation.
@@ -424,6 +435,9 @@ fn reproduce_command_args(
     for cookie in &shared.cookies {
         args.push(format!("--cookie {cookie}"));
     }
+    for allow_url in &shared.allow_urls {
+        args.push(format!("--allow-url '{allow_url}'"));
+    }
     args
 }
 
@@ -483,6 +497,16 @@ fn browser_test(
         );
     }
 
+    let origin = shared_options.origin.url;
+    let allow_urls = if shared_options.allow_urls.is_empty() {
+        vec![
+            MatchPattern::from_origin(&origin)
+                .map_err(|reason| anyhow!("invalid allow url: {reason}"))?,
+        ]
+    } else {
+        shared_options.allow_urls
+    };
+
     let run_options = RunOptions {
         run_id: RunId::default(),
         specification,
@@ -490,7 +514,8 @@ fn browser_test(
         debugger_options,
         mode,
         deadline: shared_options.time_limit.map(|d| SystemTime::now() + d),
-        origin: shared_options.origin.url,
+        allow_urls,
+        origin,
         exit_on_violation: shared_options.exit_on_violation,
     };
 
@@ -710,6 +735,7 @@ struct RunOptions {
     mode: TestMode,
     exit_on_violation: bool,
     deadline: Option<SystemTime>,
+    allow_urls: Vec<MatchPattern>,
 }
 
 fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
@@ -722,6 +748,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         mode,
         exit_on_violation,
         deadline,
+        allow_urls,
     }: RunOptions,
     trace_writer: Writer,
 ) -> Result<TestResult> {
@@ -740,7 +767,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         test_start: None,
         deadline,
         violations_count: 0,
-        origin: origin.clone(),
+        allow_urls,
     };
 
     bombadil_browser::runner::launch(

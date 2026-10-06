@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Subdomain origin</title>
+    <style>
+      button {
+        display: block;
+        padding: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <a id="go">Go to subdomain</a>
+    <script>
+      const port = window.location.port;
+      const anchor = document.getElementById("go");
+      anchor.href = `http://app.localhost:${port}/subdomain-origin/inner.html`;
+    </script>
+  </body>
+</html>
