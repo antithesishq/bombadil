@@ -101,7 +101,6 @@ impl<'a> BrowserIntegrationTest<'a> {
             expect: Expect::Success,
             time_limit: None,
             specification: None,
-            
             grant_permissions: vec![
                 "local-network-access".to_string(),
                 "local-network".to_string(),
