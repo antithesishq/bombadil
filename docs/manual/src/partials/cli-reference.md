@@ -23,7 +23,7 @@ The general exit code semantics of the CLI is:
 ::: {#arguments-test}
 | Argument | Description |
 |----------|-------------|
-| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites) |
+| `<ORIGIN>` | Starting URL of the test. Without `--allow-url`, exploration stays on the origin's scheme, host and port. For a `file://` origin it stays on that exact file. With one or more `--allow-url` entries, those define the exploration boundary instead (include the origin there if it should remain allowed). |
 | `[SPECIFICATION_FILE]` | A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil` package on NPM |
 :::
 
@@ -42,6 +42,7 @@ The general exit code semantics of the CLI is:
 | `--chrome-virtual-time-policy <CHROME_VIRTUAL_TIME_POLICY>` |  Optional virtual time policy for Chrome, used to speed up execution of timer-heavy applications. Examples: Advance, Pause, PauseIfNetworkFetchesPending. | |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <SET-COOKIE>` | Cookie to set in the browser before testing. Plain `NAME=VALUE` scopes to the origin; Set-Cookie attributes (`Domain`, `Path`, `Secure`, `HttpOnly`) are supported. Unlike `--header`, these become real browser cookies. Can be specified multiple times. | |
+| `--allow-url <MATCH_PATTERN>` | Exploration boundary as Chrome extension match patterns, e.g. `*://*.example.com/*`. Replaces the implicit origin match pattern. For the pattern syntax, see <https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns>. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--headless` | Whether the browser should run in a visible window or not | |
 | `--no-sandbox` | Disable Chromium sandboxing | |
@@ -55,7 +56,7 @@ The general exit code semantics of the CLI is:
 ::: {#arguments-test-external}
 | Argument | Description |
 |----------|-------------|
-| `<ORIGIN>` | Starting URL of the test (also used as a boundary so that Bombadil doesn't navigate to other websites) |
+| `<ORIGIN>` | Starting URL of the test. Without `--allow-url`, exploration stays on the origin's scheme, host and port. For a `file://` origin it stays on that exact file. With one or more `--allow-url` entries, those define the exploration boundary instead (include the origin there if it should remain allowed). |
 | `[SPECIFICATION_FILE]` | A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil` package on NPM |
 :::
 
@@ -74,6 +75,7 @@ The general exit code semantics of the CLI is:
 | `--chrome-virtual-time-policy <CHROME_VIRTUAL_TIME_POLICY>` |  Optional virtual time policy for Chrome, used to speed up execution of timer-heavy applications. Examples: Advance, Pause, PauseIfNetworkFetchesPending. | |
 | `--header <KEY=VALUE>` | Extra HTTP header to send with all browser requests, in `KEY=VALUE format`. Can be specified multiple times. | |
 | `--cookie <SET-COOKIE>` | Cookie to set in the browser before testing. Plain `NAME=VALUE` scopes to the origin; Set-Cookie attributes (`Domain`, `Path`, `Secure`, `HttpOnly`) are supported. Unlike `--header`, these become real browser cookies. Can be specified multiple times. | |
+| `--allow-url <MATCH_PATTERN>` | Exploration boundary as Chrome extension match patterns, e.g. `*://*.example.com/*`. Replaces the implicit origin match pattern. For the pattern syntax, see <https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns>. Can be specified multiple times. | |
 | `--reproduce <TRACE_FILE>` | Reproduce a previous test run from a trace file, instead of random exploration. Mutually exclusive with `--time-limit` and `--exit-on-violation`. | |
 | `--remote-debugger <REMOTE_DEBUGGER>` | Address to the remote debugger's server, e.g. http://localhost:9222 | |
 | `--create-target` | Whether Bombadil should create a new tab and navigate to the origin URL in it, as part of starting the test (this should probably be false if you test an Electron app) | |

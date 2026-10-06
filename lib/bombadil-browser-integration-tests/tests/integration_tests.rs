@@ -41,6 +41,7 @@ use bombadil_browser::{
     convert::ToSchema,
     cookie::BrowserCookie,
     driver::{BrowserSession, DebuggerOptions},
+    match_pattern::MatchPattern,
     runner,
     strategy::TestStrategy,
 };
@@ -91,6 +92,8 @@ struct BrowserIntegrationTest<'a> {
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
     cookies: Vec<BrowserCookie>,
+    allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
+    file_origin: bool,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -108,6 +111,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             ],
             extra_headers: HashMap::new(),
             cookies: vec![],
+            allow_urls: None,
+            file_origin: false,
         }
     }
 
@@ -147,6 +152,24 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn allow_urls(
+        mut self,
+        allow_urls: Vec<bombadil_browser::match_pattern::MatchPattern>,
+    ) -> Self {
+        self.allow_urls = Some(allow_urls);
+        self
+    }
+
+    /// Start at `file://{test_dir}/{name}/index.html` instead of over HTTP.
+    fn file_origin(mut self) -> Self {
+        self.file_origin = true;
+        self
+    }
+
+    fn fixture_directory(name: &str) -> String {
+        format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -167,6 +190,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
+            allow_urls,
+            file_origin,
         } = self;
         setup();
         let _guard = acquire();
@@ -296,9 +321,15 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
 
         let port = port_rx.recv().unwrap();
-        let origin =
-            Url::parse(&format!("http://localhost:{}/{}", port, name,))
-                .unwrap();
+        let origin = if file_origin {
+            Url::from_file_path(format!(
+                "{}/index.html",
+                Self::fixture_directory(name)
+            ))
+            .unwrap()
+        } else {
+            Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap()
+        };
 
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         let specification = match specification {
@@ -387,14 +418,17 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
+        let allow_urls = allow_urls
+            .unwrap_or(vec![MatchPattern::from_origin(&origin).unwrap()]);
+
         let mut strategy = TestStrategy {
             rng: rand::prelude::StdRng::seed_from_u64(seed),
             test_start: Some(Time::from_system_time(test_start)),
             deadline,
             mode: bombadil_browser::strategy::TestMode::RandomWalk,
             exit_on_violation: true,
-            origin: origin.clone(),
             violations_count: 0,
+            allow_urls,
         };
 
         log::info!("starting runner with infrastructure safety timeout");
@@ -1126,6 +1160,133 @@ export const sessionCookieOnOtherPort = eventually(
         .run();
 }
 
+const SUBDOMAIN_ALLOW_URL_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+export const subdomainActions = actions(() => {
+  if (onSubdomain.current) {
+    return ["Wait"];
+  }
+  return clicks.generate();
+});
+
+const subdomainOk = extract((state) => {
+  const el = state.document.querySelector("#subdomain-ok");
+  return el != null && (el as HTMLElement).offsetParent !== null;
+});
+
+export const exploredSubdomain = eventually(
+  () => subdomainOk.current === true
+).within(10, "seconds");
+"##;
+
+const SUBDOMAIN_DISALLOWED_SPEC: &str = r##"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+export const keepRunning = always(() => !onSubdomain.current);
+"##;
+
+#[test]
+fn test_allow_url_subdomain() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .allow_urls(vec![
+            bombadil_browser::match_pattern::MatchPattern::parse(
+                "*://*.localhost:*/*",
+            )
+            .unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_ALLOW_URL_SPEC)
+        .run();
+}
+
+#[test]
+fn test_allow_url_required_for_subdomain_wait() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .expect_error("no actions available")
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_DISALLOWED_SPEC)
+        .run();
+}
+
+const FILE_ORIGIN_QUERY_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const search = extract((state) => state.window.location.search);
+
+export const reachesQueryRoute = eventually(
+  () => search.current === "?page=2"
+).within(10, "seconds");
+"##;
+
+const FILE_ORIGIN_SIBLING_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSibling = extract(
+  (state) => state.document.querySelector("#sibling-ok") != null
+);
+
+export const reachesSibling = eventually(
+  () => onSibling.current === true
+).within(10, "seconds");
+"##;
+
+const FILE_ORIGIN_KEEP_RUNNING_SPEC: &str = r##"
+import { always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const keepRunning = always(() => true);
+"##;
+
+#[test]
+fn test_file_origin_allows_its_own_query_string() {
+    BrowserIntegrationTest::new("file-origin-query")
+        .file_origin()
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_QUERY_SPEC)
+        .run();
+}
+
+#[test]
+fn test_file_origin_excludes_sibling_files() {
+    BrowserIntegrationTest::new("file-origin-sibling")
+        .file_origin()
+        .expect_error("no actions available")
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_KEEP_RUNNING_SPEC)
+        .run();
+}
+
+#[test]
+fn test_allow_url_opens_up_the_file_directory() {
+    let directory =
+        BrowserIntegrationTest::fixture_directory("file-origin-sibling");
+    BrowserIntegrationTest::new("file-origin-sibling")
+        .file_origin()
+        .allow_urls(vec![
+            MatchPattern::parse(&format!("file://{directory}/*")).unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_SIBLING_SPEC)
+        .run();
+}
+
 #[test]
 fn test_confirm_dialog() {
     BrowserIntegrationTest::new("confirm-dialog")
@@ -1260,7 +1421,7 @@ const result = extract((state) => {
 });
 
 const multiplyCounter = registerCustomAction(
-  "multiplyCounter", 
+  "multiplyCounter",
   async (_window, _document, factor: number, ignore: bool) => {
     const resultElement = document.getElementById("result");
     if (resultElement && !ignore) {
