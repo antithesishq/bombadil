@@ -8,9 +8,9 @@
     </ul>
 
     <script>
-    const evtSource = new EventSource("../sse");
+    const eventSource = new EventSource("../sse");
 
-    evtSource.onmessage = (event) => {
+    eventSource.onmessage = (event) => {
         const newElement = document.createElement("li");
         newElement.textContent = `message: ${event.data}`;
         

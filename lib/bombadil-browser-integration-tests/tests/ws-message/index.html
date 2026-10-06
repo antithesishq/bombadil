@@ -20,12 +20,21 @@
         conversation.appendChild(item);
     }
 
-    const wsUrl = `ws://${location.host}/ws`;
+    const socket = new WebSocket(`ws://${location.host}/ws`);
 
-    const worker = new Worker("worker.js");
-    worker.onmessage = (event) => log(event.data.who, event.data.text);
-    worker.onerror = (event) => log("browser", `worker error: ${event.message}`);
-    worker.postMessage({ wsUrl, fullName });
+    socket.onopen = () => log("browser", "connected");
+
+    socket.onmessage = (event) => {
+        log("server", event.data);
+        if (event.data === "What's your name?: ") {
+            const answer = `My name is ${fullName}`;
+            log("browser", answer);
+            socket.send(answer);
+        }
+    };
+
+    socket.onerror = () => log("browser", "websocket error");
+    socket.onclose = (event) => log("browser", `disconnected (code ${event.code})`);
     </script>
 </body>
 </html>
