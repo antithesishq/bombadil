@@ -1,5 +1,9 @@
 # Contributing
 
+Here are some resources to check out of first:
+
+* [Bombadil Generative AI Policy](gen-ai-policy.md)
+
 ## Developer environment
 
 The blessed setup is using the Nix flake to get a shell.
@@ -57,7 +61,7 @@ cargo build -p bombadil-cli   # CLI binary (includes library)
 See debug logs:
 
 ```bash
-RUST_LOG=bombadil=debug cargo run -- test https://example.com --headless
+RUST_LOG=bombadil=debug cargo run -- browser test https://example.com --headless
 ```
 
 There's also [VSCode launch configs](development/launch.json) for debugging
@@ -82,20 +86,24 @@ trunk serve
 This only runs the frontend. Run the backend using the `inspect` command in a
 separate tab.
 
-## Running in podman
+## Running in Docker
 
 Build and tag the image:
 
 ```bash
-nix build ".#docker" \
-    && podman load < result \
-    && podman tag localhost/bombadil_docker:$(nix eval --raw '.#packages.x86_64-linux.docker.imageTag') localhost/bombadil_docker:latest
+nix build ".#docker" && docker load < result
+```
+
+This will print something like:
+
+```
+Loaded image: antithesishq/bombadil:0.7.7
 ```
 
 Run it:
 
 ```bash
-podman run -ti localhost/bombadil_docker:latest <SOME_URL>
+docker run -ti antithesishq/bombadil:0.7.7 browser test --headless --no-sandbox https://en.wikipedia.org 
 ```
 
 ## Development
@@ -105,8 +113,8 @@ podman run -ti localhost/bombadil_docker:latest <SOME_URL>
 These are useful to run locally before pushing and relying on CI:
 
 ```bash
-cargo build --workspace --exclude bombadil-inspect
-cargo clippy --workspace --exclude bombadil-inspect --fix --allow-dirty
+cargo build --workspace
+cargo clippy --fix --allow-dirty
 cargo fmt --all
 cargo test
 ```

@@ -1,7 +1,7 @@
 import { Runtime } from "./internal";
 
 declare global {
-  module bombadil {
-    const runtime: Runtime<State>;
+  namespace bombadil {
+    const runtime: Runtime<unknown>;
   }
 }

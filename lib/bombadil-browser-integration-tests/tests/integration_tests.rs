@@ -35,7 +35,8 @@ use bombadil::{
     styled,
 };
 use bombadil_browser::{
-    browser::{BrowserOptions, Emulation, actions::BrowserAction},
+    browser::actions::BrowserAction,
+    browser_options::{BrowserOptions, Emulation},
     chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
@@ -325,6 +326,9 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
+            virtual_time_policy: Some(
+                bombadil_browser::browser_options::VirtualTimePolicy::Advance,
+            ),
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
