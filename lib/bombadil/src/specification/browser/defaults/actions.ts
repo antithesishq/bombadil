@@ -128,22 +128,11 @@ const clickablePoints = extract((state) => {
   const added = new Set<Element>();
 
   // Anchors
-  const urlCurrent = new URL(state.window.location.toString());
   for (const anchor of queryAll(state.document.body, "a")) {
     if (!(anchor instanceof HTMLAnchorElement)) continue;
     if (added.has(anchor)) continue;
 
-    let url;
-    try {
-      url = new URL(anchor.href);
-    } catch {
-      continue;
-    }
-
     if (anchor.target === "_blank") continue;
-    if (!url.protocol.startsWith("http")) continue;
-    if (url.hostname !== urlCurrent.hostname) continue;
-    if (url.port !== "" && url.port !== urlCurrent.port) continue;
     if (!isVisible(state.window, anchor)) continue;
 
     const point = clickablePoint(anchor);
