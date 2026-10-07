@@ -5,11 +5,15 @@
   atk,
   autoPatchelfHook,
   dbus,
+  dejavu_fonts,
   expat,
   fetchurl,
   glib,
   libgbm,
   libxkbcommon,
+  liberation_ttf,
+  makeFontsConf,
+  makeWrapper,
   nspr,
   nss,
   stdenv,
@@ -29,6 +33,7 @@ stdenv.mkDerivation rec {
   nativeBuildInputs = [
     unzip
     autoPatchelfHook
+    makeWrapper
   ];
 
   # autoPatchelfHook fails the build if any NEEDED library is missing here.
@@ -63,8 +68,15 @@ stdenv.mkDerivation rec {
     mkdir -p $out/bin
     cp -r chrome-headless-shell-linux64/* $out/bin/
 
-    # Bombadil looks explicitly for "chrome" or "chromium" or honors PATH fallback.
-    # Symlink it so it's transparently matched if a target path overrides it.
-    ln -s $out/bin/chrome-headless-shell $out/bin/chrome
+    # Without a fontconfig config, Skia aborts as soon as it needs a font.
+    wrapProgram $out/bin/chrome-headless-shell \
+      --set-default FONTCONFIG_FILE ${
+        makeFontsConf {
+          fontDirectories = [
+            dejavu_fonts
+            liberation_ttf
+          ];
+        }
+      }
   '';
 }
