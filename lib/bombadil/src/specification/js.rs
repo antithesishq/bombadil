@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -44,7 +45,17 @@ pub fn syntax_from_value(
                 value.display()
             )))?;
 
-    if value.instance_of(&bombadil.pure, context)? {
+    // The formula classes are never subclassed, so comparing prototypes
+    // is equivalent to `instanceof`, and much cheaper in boa.
+    let prototypes = bombadil.prototypes(context)?;
+    let prototype = object.prototype();
+    let is_instance = |class_prototype: &JsObject| {
+        prototype.as_ref().is_some_and(|prototype| {
+            JsObject::equals(prototype, class_prototype)
+        })
+    };
+
+    if is_instance(&prototypes.pure) {
         let value = object
             .get(js_string!("value"), context)?
             .as_boolean()
@@ -61,7 +72,7 @@ pub fn syntax_from_value(
         return Ok(Pure { value, pretty });
     }
 
-    if value.instance_of(&bombadil.thunk, context)? {
+    if is_instance(&prototypes.thunk) {
         let apply_object = object
             .get(js_string!("apply"), context)?
             .as_callable()
@@ -82,13 +93,13 @@ pub fn syntax_from_value(
         }));
     }
 
-    if value.instance_of(&bombadil.not, context)? {
+    if is_instance(&prototypes.not) {
         let value = object.get(js_string!("subformula"), context)?;
         let subformula = syntax_from_value(&value, bombadil, context)?;
         return Ok(Not(Box::new(subformula)));
     }
 
-    if value.instance_of(&bombadil.and, context)? {
+    if is_instance(&prototypes.and) {
         let left_value = object.get(js_string!("left"), context)?;
         let right_value = object.get(js_string!("right"), context)?;
         let left = syntax_from_value(&left_value, bombadil, context)?;
@@ -96,7 +107,7 @@ pub fn syntax_from_value(
         return Ok(And(Box::new(left), Box::new(right)));
     }
 
-    if value.instance_of(&bombadil.or, context)? {
+    if is_instance(&prototypes.or) {
         let left_value = object.get(js_string!("left"), context)?;
         let right_value = object.get(js_string!("right"), context)?;
         let left = syntax_from_value(&left_value, bombadil, context)?;
@@ -104,7 +115,7 @@ pub fn syntax_from_value(
         return Ok(Or(Box::new(left), Box::new(right)));
     }
 
-    if value.instance_of(&bombadil.implies, context)? {
+    if is_instance(&prototypes.implies) {
         let left_value = object.get(js_string!("left"), context)?;
         let right_value = object.get(js_string!("right"), context)?;
         let left = syntax_from_value(&left_value, bombadil, context)?;
@@ -112,14 +123,14 @@ pub fn syntax_from_value(
         return Ok(Implies(Box::new(left), Box::new(right)));
     }
 
-    if value.instance_of(&bombadil.next, context)? {
+    if is_instance(&prototypes.next) {
         let subformula_value = object.get(js_string!("subformula"), context)?;
         let subformula =
             syntax_from_value(&subformula_value, bombadil, context)?;
         return Ok(Next(Box::new(subformula)));
     }
 
-    if value.instance_of(&bombadil.always, context)? {
+    if is_instance(&prototypes.always) {
         let subformula_value = object.get(js_string!("subformula"), context)?;
         let subformula =
             syntax_from_value(&subformula_value, bombadil, context)?;
@@ -129,7 +140,7 @@ pub fn syntax_from_value(
         return Ok(Always(Box::new(subformula), bound));
     }
 
-    if value.instance_of(&bombadil.eventually, context)? {
+    if is_instance(&prototypes.eventually) {
         let subformula_value = object.get(js_string!("subformula"), context)?;
         let subformula =
             syntax_from_value(&subformula_value, bombadil, context)?;
@@ -185,6 +196,58 @@ pub struct BombadilExports {
     pub eventually: JsValue,
     pub runtime: JsObject,
     pub action_generator: JsValue,
+    prototypes: OnceCell<FormulaPrototypes>,
+}
+
+/// The `prototype` objects of the formula classes.
+#[derive(Debug)]
+pub struct FormulaPrototypes {
+    pub pure: JsObject,
+    pub thunk: JsObject,
+    pub not: JsObject,
+    pub and: JsObject,
+    pub or: JsObject,
+    pub implies: JsObject,
+    pub next: JsObject,
+    pub always: JsObject,
+    pub eventually: JsObject,
+}
+
+impl BombadilExports {
+    pub fn prototypes(
+        &self,
+        context: &mut Context,
+    ) -> Result<&FormulaPrototypes> {
+        if let Some(prototypes) = self.prototypes.get() {
+            return Ok(prototypes);
+        }
+        let mut prototype_of = |class: &JsValue| -> Result<JsObject> {
+            class
+                .as_object()
+                .ok_or(SpecificationError::OtherError(format!(
+                    "formula class is not an object: {}",
+                    class.display()
+                )))?
+                .get(js_string!("prototype"), context)?
+                .as_object()
+                .ok_or(SpecificationError::OtherError(format!(
+                    "formula class has no prototype object: {}",
+                    class.display()
+                )))
+        };
+        let prototypes = FormulaPrototypes {
+            pure: prototype_of(&self.pure)?,
+            thunk: prototype_of(&self.thunk)?,
+            not: prototype_of(&self.not)?,
+            and: prototype_of(&self.and)?,
+            or: prototype_of(&self.or)?,
+            implies: prototype_of(&self.implies)?,
+            next: prototype_of(&self.next)?,
+            always: prototype_of(&self.always)?,
+            eventually: prototype_of(&self.eventually)?,
+        };
+        Ok(self.prototypes.get_or_init(|| prototypes))
+    }
 }
 
 impl BombadilExports {
@@ -216,6 +279,7 @@ impl BombadilExports {
                 ),
             )?,
             action_generator: get_export("ActionGenerator")?,
+            prototypes: OnceCell::new(),
         })
     }
 
@@ -245,6 +309,7 @@ impl BombadilExports {
                 ),
             )?,
             action_generator: get_export("ActionGenerator")?,
+            prototypes: OnceCell::new(),
         })
     }
 }
