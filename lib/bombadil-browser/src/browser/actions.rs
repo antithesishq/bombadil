@@ -12,16 +12,83 @@ use cdp_protocol::cdp::browser_protocol::{dom, emulation, input, page};
 use cdp_protocol::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParamsBuilder,
 };
+use crossbeam_channel as mpmc;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
+use crate::browser::screenshots::BeginFrameControl;
 use crate::geometry::Point;
 use crate::js_action::JsAction;
 use bombadil_browser_keys::{key_name, key_text};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ActionOptions {
     pub device_scale_factor: f64,
+    pub begin_frame_control: Option<BeginFrameControl>,
+}
+
+/// Scroll with a single wheel event. Together with
+/// `--disable-smooth-scrolling` this scrolls instantly, rather than
+/// animating over many frames like a synthesized scroll gesture.
+fn mouse_wheel(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    origin: Point,
+    delta_y: f64,
+) -> Result<()> {
+    mouse_continuous(
+        connection,
+        session_id,
+        options,
+        input::DispatchMouseEventParams::builder()
+            .r#type(input::DispatchMouseEventType::MouseWheel)
+            .x(origin.x)
+            .y(origin.y)
+            .delta_x(0.0)
+            .delta_y(delta_y)
+            .build()
+            .map_err(|err| anyhow!(err))?,
+    )
+}
+
+/// Dispatch a continuous mouse event (move or wheel). Chrome holds these
+/// until the next frame, so under begin frame control we drive frames, one
+/// at a time, until the event is acknowledged. Discrete events (presses,
+/// releases, keys) are delivered immediately and must not overlap with a
+/// frame, as that can leave the frame pending forever.
+fn mouse_continuous(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    params: input::DispatchMouseEventParams,
+) -> Result<()> {
+    match &options.begin_frame_control {
+        Some(begin_frame_control) => {
+            let pending = connection.request(params, Some(session_id))?;
+            let (done_tx, done_rx) = mpmc::bounded(1);
+            thread::spawn(move || {
+                let _ = done_tx.send(pending.wait());
+            });
+            loop {
+                begin_frame_control.frame()?;
+                match done_rx.recv_timeout(Duration::from_millis(1)) {
+                    Ok(result) => {
+                        result?;
+                        break;
+                    }
+                    Err(mpmc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpmc::RecvTimeoutError::Disconnected) => {
+                        bail!("mouse move response channel disconnected")
+                    }
+                }
+            }
+        }
+        None => {
+            connection.send(params, Some(session_id))?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -143,27 +210,13 @@ impl BrowserAction {
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(*distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, -distance,
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(-distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, *distance,
                 )?;
             }
             BrowserAction::Click { point, .. } => {
@@ -172,13 +225,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.send(
+                mouse_continuous(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -205,13 +260,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                connection.send(
+                mouse_continuous(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -229,15 +286,16 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            BrowserAction::TypeText { text, delay_millis } => {
-                let delay = Duration::from_millis(*delay_millis);
-                for char in text.chars() {
-                    thread::sleep(delay);
-                    connection.post(
-                        input::InsertTextParams::new(char),
-                        Some(session_id),
-                    )?;
-                }
+            // TODO: experiment, insert all text at once and ignore the
+            // per-character delay.
+            BrowserAction::TypeText {
+                text,
+                delay_millis: _,
+            } => {
+                connection.send(
+                    input::InsertTextParams::new(text.as_str()),
+                    Some(session_id),
+                )?;
             }
             BrowserAction::PressKey { code } => {
                 let Some(name) = key_name(*code) else {
@@ -338,13 +396,15 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    connection.send(
+                    mouse_continuous(
+                        connection,
+                        session_id,
+                        &options,
                         dispatch(
                             input::DispatchMouseEventType::MouseMoved,
                             point,
                             1,
                         )?,
-                        Some(session_id),
                     )?;
                 }
                 connection.send(

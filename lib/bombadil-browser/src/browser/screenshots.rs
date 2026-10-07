@@ -1,12 +1,14 @@
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::SystemTime;
 use std::time::{Duration, UNIX_EPOCH};
-use std::{sync::Arc, time::SystemTime};
 
 use anyhow::{Result, anyhow};
 use base64::Engine;
 use cdp::Binary;
-use cdp_protocol::cdp::browser_protocol::page;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
+use cdp_protocol::cdp::browser_protocol::{headless_experimental, page};
 use crossbeam_channel as mpmc;
 
 use crate::browser::state::{Screenshot, ScreenshotFormat};
@@ -45,6 +47,137 @@ pub fn screenshot_capture(
         format: SCREENSHOT_FORMAT,
         data,
     })
+}
+
+/// Interval between frames driven by the background pump, roughly
+/// matching a 60Hz display.
+const PUMP_INTERVAL: Duration = Duration::from_millis(16);
+
+/// Drives frames of a target created with begin frame control enabled.
+///
+/// Like a regular browser, the target renders continuously: a background
+/// pump drives frames at [`PUMP_INTERVAL`], as pages can depend on
+/// rendering in many ways (e.g. an `<object>` only starts loading during a
+/// rendering update, and delays the load event). The pump is paused only
+/// where frames would interfere, see [`BeginFrameControl::paused`].
+///
+/// Chrome rejects a `beginFrame` while another is in flight ("Another
+/// frame is pending"), so all frames for a target go through one lock.
+#[derive(Clone)]
+pub struct BeginFrameControl {
+    connection: cdp::Connection,
+    session_id: SessionId,
+    lock: Arc<Mutex<()>>,
+    pauses: Arc<AtomicUsize>,
+}
+
+impl std::fmt::Debug for BeginFrameControl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BeginFrameControl")
+            .field("session_id", &self.session_id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl BeginFrameControl {
+    pub fn new(connection: cdp::Connection, session_id: SessionId) -> Self {
+        BeginFrameControl {
+            connection,
+            session_id,
+            lock: Arc::new(Mutex::new(())),
+            pauses: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn begin_frame(
+        &self,
+        params: headless_experimental::BeginFrameParams,
+    ) -> Result<headless_experimental::BeginFrameReturns> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| anyhow!("begin frame lock poisoned"))?;
+        self.connection.send(params, Some(&self.session_id))
+    }
+
+    /// Start the background pump, running until `terminated` is set.
+    pub fn start_pump(&self, terminated: Arc<AtomicBool>) {
+        let this = self.clone();
+        thread::spawn(move || {
+            while !terminated.load(Ordering::SeqCst) {
+                if let Err(error) = this.pump_frame() {
+                    if !terminated.load(Ordering::SeqCst) {
+                        log::warn!("begin frame pump stopped: {error:#}");
+                    }
+                    break;
+                }
+                thread::sleep(PUMP_INTERVAL);
+            }
+        });
+    }
+
+    fn pump_frame(&self) -> Result<()> {
+        let _guard = self
+            .lock
+            .lock()
+            .map_err(|_| anyhow!("begin frame lock poisoned"))?;
+        // Checked while holding the lock, so that once `paused` has taken
+        // the lock no new pump frame can start until it's resumed.
+        if self.pauses.load(Ordering::SeqCst) > 0 {
+            return Ok(());
+        }
+        self.connection.send(
+            headless_experimental::BeginFrameParams::default(),
+            Some(&self.session_id),
+        )?;
+        Ok(())
+    }
+
+    /// Run `f` with the background pump paused. Explicit frames (`frame`,
+    /// `capture`) still go through. This is for discrete input events, as
+    /// frames overlapping them can get stuck, and for settling and
+    /// capturing, which drive their own frames.
+    pub fn paused<T>(&self, f: impl FnOnce() -> T) -> T {
+        struct Resume<'a>(&'a AtomicUsize);
+        impl Drop for Resume<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        self.pauses.fetch_add(1, Ordering::SeqCst);
+        let _resume = Resume(&self.pauses);
+        // Wait for any in-flight pump frame to finish.
+        drop(self.lock.lock());
+        f()
+    }
+
+    /// Drive a single frame through the compositor, without capturing it.
+    /// Returns whether the frame had damage, i.e. whether anything changed
+    /// on screen.
+    pub fn frame(&self) -> Result<bool> {
+        Ok(self
+            .begin_frame(headless_experimental::BeginFrameParams::default())?
+            .has_damage)
+    }
+
+    /// Drive a single frame through the compositor and capture it.
+    /// Returns `None` if Chrome failed to capture the frame (e.g. during
+    /// renderer initialization).
+    pub fn capture(&self) -> Result<Option<Binary>> {
+        let result = self.begin_frame(
+            headless_experimental::BeginFrameParams::builder()
+                .screenshot(
+                    headless_experimental::ScreenshotParams::builder()
+                        .format(SCREENSHOT_FORMAT)
+                        .quality(SCREENSHOT_QUALITY)
+                        .optimize_for_speed(true)
+                        .build(),
+                )
+                .build(),
+        )?;
+        log::debug!("begin frame: has_damage={}", result.has_damage);
+        Ok(result.screenshot_data)
+    }
 }
 
 pub fn screencast_start(

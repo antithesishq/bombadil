@@ -97,6 +97,11 @@ pub enum BrowserCommand {
         /// Disable Chromium sandboxing
         #[arg(long, default_value_t = false)]
         no_sandbox: bool,
+        /// Which kind of Chrome/Chromium build to run. `headless-shell`
+        /// (chrome-headless-shell) controls rendering frame by frame, which
+        /// is faster but experimental, and implies `--headless`
+        #[arg(long, value_enum, default_value_t = ChromeVariant::Full)]
+        chrome_variant: ChromeVariant,
     },
     /// Run a test with an externally managed browser or Electron app (e.g. `chromium
     /// --remote-debugging-port=9992`)
@@ -125,6 +130,11 @@ pub enum BrowserCommand {
         /// Disable Chromium sandboxing
         #[arg(long, default_value_t = false)]
         no_sandbox: bool,
+        /// Which kind of Chrome/Chromium build to run. `headless-shell`
+        /// (chrome-headless-shell) controls rendering frame by frame, which
+        /// is faster but experimental, and implies `--headless`
+        #[arg(long, value_enum, default_value_t = ChromeVariant::Full)]
+        chrome_variant: ChromeVariant,
     },
     /// Launch Bombadil Inspect to inspect a trace file
     #[command(after_help = INSPECT_EXAMPLES)]
@@ -138,6 +148,23 @@ pub enum BrowserCommand {
         #[arg(long, default_value_t = false)]
         no_open: bool,
     },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ChromeVariant {
+    Full,
+    HeadlessShell,
+}
+
+impl From<ChromeVariant> for chromium::locate::ChromeVariant {
+    fn from(variant: ChromeVariant) -> Self {
+        match variant {
+            ChromeVariant::Full => chromium::locate::ChromeVariant::Full,
+            ChromeVariant::HeadlessShell => {
+                chromium::locate::ChromeVariant::HeadlessShell
+            }
+        }
+    }
 }
 
 #[derive(Args)]
@@ -268,6 +295,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             shared,
             headless,
             no_sandbox,
+            chrome_variant,
         } => {
             let mode = resolve_test_mode(&shared)?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
@@ -287,13 +315,20 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             if no_sandbox {
                 reproduce_args.push("--no-sandbox".into());
             }
+            if chrome_variant == ChromeVariant::HeadlessShell {
+                reproduce_args.push("--chrome-variant=headless-shell".into());
+            }
 
             let browser_options =
                 browser_options_from_run_shared(&shared, &output_path);
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
-                    executable: chromium::locate::executable()?,
-                    headless,
+                    executable: chromium::locate::executable(
+                        chrome_variant.into(),
+                    )?,
+                    // chrome-headless-shell has no headed mode.
+                    headless: headless
+                        || chrome_variant == ChromeVariant::HeadlessShell,
                     no_sandbox,
                 },
             };
@@ -340,6 +375,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
         BrowserCommand::Fuzz {
             headless,
             no_sandbox,
+            chrome_variant,
             run_shared_options,
             fuzz_options,
         } => {
@@ -353,8 +389,12 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             );
             let debugger_options = DebuggerOptions::Managed {
                 launch_options: LaunchOptions {
-                    executable: chromium::locate::executable()?,
-                    headless,
+                    executable: chromium::locate::executable(
+                        chrome_variant.into(),
+                    )?,
+                    // chrome-headless-shell has no headed mode.
+                    headless: headless
+                        || chrome_variant == ChromeVariant::HeadlessShell,
                     no_sandbox,
                 },
             };
