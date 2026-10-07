@@ -84,6 +84,23 @@ impl Display for Expect {
     }
 }
 
+/// The Chrome variant to run tests with, chosen by the
+/// `BOMBADIL_TEST_CHROME_VARIANT` environment variable (`full` or
+/// `headless-shell`, defaulting to `full`).
+fn chrome_variant(
+    requires_full_browser: bool,
+) -> chromium::locate::ChromeVariant {
+    use chromium::locate::ChromeVariant;
+    if requires_full_browser {
+        return ChromeVariant::Full;
+    }
+    match std::env::var("BOMBADIL_TEST_CHROME_VARIANT").as_deref() {
+        Ok("headless-shell") => ChromeVariant::HeadlessShell,
+        Ok("full") | Err(_) => ChromeVariant::Full,
+        Ok(other) => panic!("unknown BOMBADIL_TEST_CHROME_VARIANT: {other}"),
+    }
+}
+
 struct BrowserIntegrationTest<'a> {
     seed: u64,
     name: &'a str,
@@ -97,6 +114,7 @@ struct BrowserIntegrationTest<'a> {
     allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
     file_origin: bool,
     blocks_hit_expected: bool,
+    requires_full_browser: bool,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -118,6 +136,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             allow_urls: None,
             file_origin: false,
             blocks_hit_expected: false,
+            requires_full_browser: false,
         }
     }
 
@@ -152,6 +171,13 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn specification(mut self, specification: &'a str) -> Self {
         self.specification = Some(specification);
+        self
+    }
+
+    /// Run with full Chrome/Chromium rather than chrome-headless-shell, for
+    /// features the latter lacks.
+    fn requires_full_browser(mut self) -> Self {
+        self.requires_full_browser = true;
         self
     }
 
@@ -212,6 +238,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             allow_urls,
             file_origin,
             blocks_hit_expected,
+            requires_full_browser,
         } = self;
         setup();
         let _guard = acquire();
@@ -398,7 +425,10 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
-                executable: chromium::locate::executable().unwrap(),
+                executable: chromium::locate::executable(chrome_variant(
+                    requires_full_browser,
+                ))
+                .unwrap(),
                 headless: true,
                 no_sandbox: true,
             },
@@ -1142,6 +1172,8 @@ export const geolocationGranted = now(() => {
 });
 "##,
         )
+        // chrome-headless-shell always reports notifications as denied.
+        .requires_full_browser()
         .grant_permissions(vec![
             "notifications".to_string(),
             "geolocation".to_string(),
