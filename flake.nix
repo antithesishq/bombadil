@@ -185,10 +185,6 @@
                   (pkgs.callPackage lib/nix/chrome-headless-shell.nix { })
                 ];
             }
-            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-              # override how chromiumoxide finds the chromium executable
-              CHROME = pkgs.lib.getExe pkgs.chromium;
-            }
           );
 
           manual = pkgs.mkShell {
