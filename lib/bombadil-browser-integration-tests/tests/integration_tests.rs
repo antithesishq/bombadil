@@ -1069,11 +1069,13 @@ import { actions,extract } from "@antithesishq/bombadil/browser";
 export const waits = actions(() => ["Wait"]);
 
 const sse_messages = extract((state) => {
-  return state.document.querySelector('#sse-message>li') !== null;
+  return Array.from(
+    state.document.querySelectorAll('#sse-message>li')
+  ).map((item) => item.textContent);
 });
 
 export const sseMessageReceived = eventually(
-  () => sse_messages.current === true
+  () => sse_messages.current.includes("message: hi!")
 ).within(10, "seconds");
 "#,
         )
@@ -1091,9 +1093,6 @@ import { actions, extract } from "@antithesishq/bombadil/browser";
 
 export const waits = actions(() => ["Wait"]);
 
-// The page picks a name at random and exposes it as data-name on the
-// conversation container; every message exchanged over the WebSocket is
-// appended as "<who>: <text>" (see tests/ws-message/index.html).
 const conversation = extract((state) => {
   const container = state.document.querySelector('#ws-conversation');
   const messages = Array.from(
