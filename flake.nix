@@ -181,6 +181,7 @@
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
                   pkgs.chromium
+                  (pkgs.callPackage lib/nix/chrome-headless-shell.nix { })
                 ];
             }
             // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
