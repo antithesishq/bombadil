@@ -10,6 +10,7 @@ members = [
   "lib/bombadil-inspect",
   "lib/bombadil-schema",
   "lib/bombadil-terminal",
+  "lib/cli-reference",
   "lib/cdp",
   "lib/cdp/types",
   "lib/cdp/pdl",

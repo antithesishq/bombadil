@@ -47,9 +47,47 @@ const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
 const DEFAULT_DEVICE_SCALE_FACTOR: f64 = 1.0;
 
+const TEST_EXAMPLES: &str = "\
+Examples:
+  # Test a website using the default specification
+  bombadil browser test https://example.com
+
+  # Use a custom specification and stop at the first violation
+  bombadil browser test --exit-on-violation https://example.com spec.ts
+
+  # Run headless for five minutes
+  bombadil browser test --headless --time-limit 5m https://example.com
+
+  # Grant specific Chrome permissions
+  bombadil browser test --chrome-grant-permissions geolocation,notifications https://example.com
+
+  # Speed up a timer-heavy app by automatically advancing virtual time in Chrome
+  bombadil browser test --chrome-virtual-time-policy Advance https://example.com
+
+  # Reproduce a test run (best-effort, fails on divergence)
+  bombadil browser test --reproduce my-test https://example.com
+";
+
+const TEST_EXTERNAL_EXAMPLES: &str = "\
+Examples:
+  # Start Chromium (or an Electron app) with remote debugging enabled, and launch a test against the existing open target
+  chromium --remote-debugging-port=9222 https://example.com
+  bombadil browser test-external --remote-debugger http://localhost:9222 https://example.com
+";
+
+const INSPECT_EXAMPLES: &str = "\
+Examples:
+  # Inspect the trace in an output directory named `my-test`
+  bombadil browser inspect my-test
+
+  # Serve on another port, without trying to open a browser
+  bombadil browser inspect --port 8080 --no-open my-test/trace.jsonl
+";
+
 #[derive(clap::Subcommand)]
 pub enum BrowserCommand {
     /// Run a test with a browser managed by Bombadil
+    #[command(after_help = TEST_EXAMPLES)]
     Test {
         #[clap(flatten)]
         shared: RunSharedOptions,
@@ -62,6 +100,7 @@ pub enum BrowserCommand {
     },
     /// Run a test with an externally managed browser or Electron app (e.g. `chromium
     /// --remote-debugging-port=9992`)
+    #[command(after_help = TEST_EXTERNAL_EXAMPLES)]
     TestExternal {
         #[clap(flatten)]
         shared: RunSharedOptions,
@@ -88,6 +127,7 @@ pub enum BrowserCommand {
         no_sandbox: bool,
     },
     /// Launch Bombadil Inspect to inspect a trace file
+    #[command(after_help = INSPECT_EXAMPLES)]
     Inspect {
         /// Path to trace.jsonl file or directory containing it
         trace_path: PathBuf,
@@ -117,7 +157,7 @@ pub struct RunSharedOptions {
     #[arg(long)]
     pub output_path: Option<PathBuf>,
 
-    /// Overwrite any existing trace at --output-path. Without this flag,
+    /// Overwrite any existing trace at `--output-path`. Without this flag,
     /// Bombadil refuses to write when trace.jsonl already exists.
     #[arg(long)]
     pub output_path_overwrite: bool,
@@ -145,12 +185,11 @@ pub struct RunSharedOptions {
     pub instrument_javascript: InstrumentationConfig,
 
     /// Maximum time to run the test. Accepts a number with a unit suffix:
-    /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+    /// s (seconds), m (minutes), h (hours), or d (days).
     #[arg(long, value_parser = duration::parse_duration)]
     pub time_limit: Option<Duration>,
 
     /// Comma-separated list of Chrome permissions to grant.
-    /// Examples: local-network-access, geolocation, notifications.
     #[arg(
         long,
         default_value = "local-network-access,local-network,loopback-network"
@@ -158,8 +197,8 @@ pub struct RunSharedOptions {
     pub chrome_grant_permissions: String,
 
     /// Optional virtual time policy for Chrome, used to speed up execution
-    /// of timer-heavy applications.
-    /// Examples: Advance, Pause, PauseIfNetworkFetchesPending.
+    /// of timer-heavy applications. One of: Advance, Pause,
+    /// PauseIfNetworkFetchesPending.
     #[arg(long)]
     pub chrome_virtual_time_policy: Option<VirtualTimePolicy>,
 
@@ -178,12 +217,12 @@ pub struct RunSharedOptions {
     /// Exploration boundary as Chrome extension match patterns, e.g.
     /// `*://*.example.com/*`. Replaces the implicit origin match pattern.
     /// For the pattern syntax, see
-    /// <https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns>
+    /// [Match patterns](https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
     #[arg(long = "allow-url", value_name = "MATCH_PATTERN", value_parser = MatchPattern::parse)]
     pub allow_urls: Vec<MatchPattern>,
 
     /// Reproduce a previous test run from a trace file, instead of random exploration.
-    /// Mutually exclusive with --time-limit and --exit-on-violation.
+    /// Mutually exclusive with `--time-limit` and `--exit-on-violation`.
     #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
     pub reproduce: Option<PathBuf>,
 }
@@ -197,7 +236,7 @@ pub struct FuzzOptions {
     #[arg(long, value_parser = duration::parse_duration, default_value = "5m")]
     pub time_limit_fuzz: Duration,
     /// Maximum time to run an individual linear run. Accepts a number with a unit suffix:
-    /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+    /// s (seconds), m (minutes), h (hours), or d (days).
     #[arg(long, value_parser = duration::parse_duration, default_value = "30s")]
     pub time_limit_run: Duration,
 }
