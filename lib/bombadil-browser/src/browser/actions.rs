@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
@@ -12,11 +12,10 @@ use cdp_protocol::cdp::browser_protocol::{dom, emulation, input, page};
 use cdp_protocol::cdp::js_protocol::runtime::{
     CallArgument, CallFunctionOnParamsBuilder,
 };
-use crossbeam_channel as mpmc;
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
-use crate::browser::screenshots::BeginFrameControl;
+use crate::browser::screenshots::FrameControl;
 use crate::geometry::Point;
 use crate::js_action::JsAction;
 use bombadil_browser_keys::{key_name, key_text};
@@ -24,12 +23,10 @@ use bombadil_browser_keys::{key_name, key_text};
 #[derive(Clone, Debug)]
 pub struct ActionOptions {
     pub device_scale_factor: f64,
-    pub begin_frame_control: Option<BeginFrameControl>,
+    pub frame_control: Option<FrameControl>,
 }
 
-/// Scroll with a single wheel event. Together with
-/// `--disable-smooth-scrolling` this scrolls instantly, rather than
-/// animating over many frames like a synthesized scroll gesture.
+/// Scroll with a single wheel event.
 fn mouse_wheel(
     connection: &cdp::Connection,
     session_id: &SessionId,
@@ -37,7 +34,7 @@ fn mouse_wheel(
     origin: Point,
     delta_y: f64,
 ) -> Result<()> {
-    mouse_continuous(
+    mouse_event(
         connection,
         session_id,
         options,
@@ -52,34 +49,28 @@ fn mouse_wheel(
     )
 }
 
-/// Dispatch a continuous mouse event (move or wheel). Chrome holds these
-/// until the next frame, so under begin frame control we drive frames, one
-/// at a time, until the event is acknowledged. Discrete events (presses,
-/// releases, keys) are delivered immediately and must not overlap with a
-/// frame, as that can leave the frame pending forever.
-fn mouse_continuous(
+/// Dispatch a mouse event. When we do explicit frame control we request new frames
+/// until the event request is finished.
+fn mouse_event(
     connection: &cdp::Connection,
     session_id: &SessionId,
     options: &ActionOptions,
     params: input::DispatchMouseEventParams,
 ) -> Result<()> {
-    match &options.begin_frame_control {
-        Some(begin_frame_control) => {
+    match &options.frame_control {
+        Some(frame_control) => {
             let pending = connection.request(params, Some(session_id))?;
-            let (done_tx, done_rx) = mpmc::bounded(1);
-            thread::spawn(move || {
-                let _ = done_tx.send(pending.wait());
-            });
             loop {
-                begin_frame_control.frame()?;
-                match done_rx.recv_timeout(Duration::from_millis(1)) {
-                    Ok(result) => {
-                        result?;
+                frame_control.frame()?;
+                match pending
+                    .wait_deadline(Instant::now() + Duration::from_millis(1))
+                {
+                    Ok(Some(_)) => {
                         break;
                     }
-                    Err(mpmc::RecvTimeoutError::Timeout) => continue,
-                    Err(mpmc::RecvTimeoutError::Disconnected) => {
-                        bail!("mouse move response channel disconnected")
+                    Ok(None) => continue, // timeout
+                    Err(error) => {
+                        bail!("mouse move response failed: {error}")
                     }
                 }
             }
@@ -225,7 +216,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                mouse_continuous(
+                mouse_event(
                     connection,
                     session_id,
                     &options,
@@ -260,7 +251,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                mouse_continuous(
+                mouse_event(
                     connection,
                     session_id,
                     &options,
@@ -396,7 +387,7 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    mouse_continuous(
+                    mouse_event(
                         connection,
                         session_id,
                         &options,

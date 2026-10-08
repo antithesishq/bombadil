@@ -82,8 +82,10 @@ impl Chromium {
         }
 
         // Begin frame control only works in chrome-headless-shell, and only
-        // with these flags set at launch. Detect it by name, while targets
-        // still probe for support (e.g. it's not available on macOS).
+        // with these flags set at launch. Detect it by name.
+        //
+        // Later on, targets still have to probe for support (it's not available
+        // in chrome-headless-shell on macOS).
         let begin_frame_control =
             locate::is_headless_shell(&launch_options.executable);
         if begin_frame_control {

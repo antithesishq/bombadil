@@ -49,39 +49,36 @@ pub fn screenshot_capture(
     })
 }
 
-/// Interval between frames driven by the background pump, roughly
-/// matching a 60Hz display.
-const PUMP_INTERVAL: Duration = Duration::from_millis(16);
+/// Interval between frames driven by the background loop.
+const FRAME_LOOP_INTERVAL: Duration = Duration::from_millis(16);
 
-/// Drives frames of a target created with begin frame control enabled.
+/// Drives frames of a target created with `begin_frame_control` enabled.
 ///
-/// Like a regular browser, the target renders continuously: a background
-/// pump drives frames at [`PUMP_INTERVAL`], as pages can depend on
-/// rendering in many ways (e.g. an `<object>` only starts loading during a
-/// rendering update, and delays the load event). The pump is paused only
-/// where frames would interfere, see [`BeginFrameControl::paused`].
+/// A background loop requests frames at a fixed interval, as pages can depend
+/// on rendering in many ways and block CDP calls. The loop is paused only
+/// where frames would interfere, see [`FrameControl::paused`].
 ///
 /// Chrome rejects a `beginFrame` while another is in flight ("Another
 /// frame is pending"), so all frames for a target go through one lock.
 #[derive(Clone)]
-pub struct BeginFrameControl {
+pub struct FrameControl {
     connection: cdp::Connection,
     session_id: SessionId,
     lock: Arc<Mutex<()>>,
     pauses: Arc<AtomicUsize>,
 }
 
-impl std::fmt::Debug for BeginFrameControl {
+impl std::fmt::Debug for FrameControl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("BeginFrameControl")
+        f.debug_struct("FrameControl")
             .field("session_id", &self.session_id)
             .finish_non_exhaustive()
     }
 }
 
-impl BeginFrameControl {
+impl FrameControl {
     pub fn new(connection: cdp::Connection, session_id: SessionId) -> Self {
-        BeginFrameControl {
+        FrameControl {
             connection,
             session_id,
             lock: Arc::new(Mutex::new(())),
@@ -100,29 +97,29 @@ impl BeginFrameControl {
         self.connection.send(params, Some(&self.session_id))
     }
 
-    /// Start the background pump, running until `terminated` is set.
-    pub fn start_pump(&self, terminated: Arc<AtomicBool>) {
+    /// Start the background loop, running until `terminated` is set.
+    pub fn start_background_loop(&self, terminated: Arc<AtomicBool>) {
         let this = self.clone();
         thread::spawn(move || {
             while !terminated.load(Ordering::SeqCst) {
-                if let Err(error) = this.pump_frame() {
+                if let Err(error) = this.request_frame() {
                     if !terminated.load(Ordering::SeqCst) {
-                        log::warn!("begin frame pump stopped: {error:#}");
+                        log::warn!("background frame loop stopped: {error:#}");
                     }
                     break;
                 }
-                thread::sleep(PUMP_INTERVAL);
+                thread::sleep(FRAME_LOOP_INTERVAL);
             }
         });
     }
 
-    fn pump_frame(&self) -> Result<()> {
+    fn request_frame(&self) -> Result<()> {
         let _guard = self
             .lock
             .lock()
             .map_err(|_| anyhow!("begin frame lock poisoned"))?;
         // Checked while holding the lock, so that once `paused` has taken
-        // the lock no new pump frame can start until it's resumed.
+        // the lock no new background loop frame can start until it's resumed.
         if self.pauses.load(Ordering::SeqCst) > 0 {
             return Ok(());
         }
@@ -133,8 +130,8 @@ impl BeginFrameControl {
         Ok(())
     }
 
-    /// Run `f` with the background pump paused. Explicit frames (`frame`,
-    /// `capture`) still go through. This is for discrete input events, as
+    /// Run `f` with the background loop paused. Explicit frame requests still go through.
+    /// This is for discrete input events, as
     /// frames overlapping them can get stuck, and for settling and
     /// capturing, which drive their own frames.
     pub fn paused<T>(&self, f: impl FnOnce() -> T) -> T {
@@ -146,23 +143,20 @@ impl BeginFrameControl {
         }
         self.pauses.fetch_add(1, Ordering::SeqCst);
         let _resume = Resume(&self.pauses);
-        // Wait for any in-flight pump frame to finish.
+        // Wait for any in-flight loop frame to finish.
         drop(self.lock.lock());
         f()
     }
 
-    /// Drive a single frame through the compositor, without capturing it.
-    /// Returns whether the frame had damage, i.e. whether anything changed
-    /// on screen.
+    /// Request a single frame without capturing it. Returns whether the frame had
+    /// "damage", which means something on-screen changed.
     pub fn frame(&self) -> Result<bool> {
         Ok(self
             .begin_frame(headless_experimental::BeginFrameParams::default())?
             .has_damage)
     }
 
-    /// Drive a single frame through the compositor and capture it.
-    /// Returns `None` if Chrome failed to capture the frame (e.g. during
-    /// renderer initialization).
+    /// Request a single frame and capture it (if possible).
     pub fn capture(&self) -> Result<Option<Binary>> {
         let result = self.begin_frame(
             headless_experimental::BeginFrameParams::builder()

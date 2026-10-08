@@ -24,7 +24,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
-use crate::browser::screenshots::{BeginFrameControl, ScreencastFrame};
+use crate::browser::screenshots::{FrameControl, ScreencastFrame};
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, ConsoleEntry, Exception, Screenshot,
@@ -140,7 +140,7 @@ struct BrowserContext {
     frame_id: FrameId,
     session_id: SessionId,
     latest_frame: Arc<Mutex<Option<Arc<ScreencastFrame>>>>,
-    begin_frame_control: Option<BeginFrameControl>,
+    frame_control: Option<FrameControl>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
@@ -178,12 +178,12 @@ impl Browser {
         let (browser_events_tx, browser_events_rx) =
             mpmc::bounded::<BrowserEvent>(1);
 
-        let (target_id, session_id, begin_frame_control) = if browser_options
+        let (target_id, session_id, frame_control) = if browser_options
             .create_target
             && chromium.begin_frame_control
         {
-            // Ask for begin frame control, and fall back if the browser
-            // rejects it outright.
+            // Ask for frame control and fall back if unsupported (e.g. regular
+            // chromium/chrome or chrome-headless-shell on macOS).
             let target_id = match connection.send(
                 target::CreateTargetParams {
                     enable_begin_frame_control: Some(true),
@@ -215,7 +215,7 @@ impl Browser {
             // Other browsers ignore the flag, so probe with a single frame
             // to see whether we actually got begin frame control.
             let begin_frame_control =
-                BeginFrameControl::new(connection.clone(), session_id.clone());
+                FrameControl::new(connection.clone(), session_id.clone());
             let begin_frame_control = match begin_frame_control.frame() {
                 Ok(_) => Some(begin_frame_control),
                 Err(error) => {
@@ -243,11 +243,11 @@ impl Browser {
             let (target_id, session_id) = find_page(&connection)?;
             (target_id, session_id, None)
         };
-        log::info!("begin frame control: {}", begin_frame_control.is_some());
+        log::info!("frame control: {}", frame_control.is_some());
 
         let terminated = Arc::new(AtomicBool::new(false));
-        if let Some(begin_frame_control) = &begin_frame_control {
-            begin_frame_control.start_pump(terminated.clone());
+        if let Some(frame_control) = &frame_control {
+            frame_control.start_background_loop(terminated.clone());
         }
 
         let frame_id = connection
@@ -258,9 +258,7 @@ impl Browser {
 
         let latest_frame = Arc::new(Mutex::new(None));
 
-        // With begin frame control there are no frames unless we drive
-        // them, so the screencast would never produce anything.
-        if begin_frame_control.is_none() {
+        if frame_control.is_none() {
             screenshots::screencast_start(
                 &connection,
                 &session_id,
@@ -385,7 +383,7 @@ impl Browser {
             frame_id: frame_id.clone(),
             session_id: session_id.clone(),
             latest_frame,
-            begin_frame_control,
+            frame_control,
             origin: origin.clone(),
             browser_options: browser_options.clone(),
         };
@@ -822,7 +820,7 @@ fn apply_action(
 ) {
     thread::spawn(move || {
         log::debug!("applying: {:?}", browser_action);
-        let begin_frame_control = action_options.begin_frame_control.clone();
+        let begin_frame_control = action_options.frame_control.clone();
         let apply = || {
             browser_action.apply(
                 &connection,
@@ -1088,7 +1086,7 @@ fn process_event(
                     .browser_options
                     .emulation
                     .device_scale_factor,
-                begin_frame_control: context.begin_frame_control.clone(),
+                frame_control: context.frame_control.clone(),
             };
             // We can't block on running the action, in case it
             // synchronously throws an uncaught exception blocking the
@@ -1295,7 +1293,7 @@ fn start_quiescence_timer(
     quiescence::next_state(
         context.connection.clone(),
         context.session_id.clone(),
-        context.begin_frame_control.clone(),
+        context.frame_control.clone(),
         move |result| match result {
             Ok(quiescence::QuiescedState { elapsed, frame }) => {
                 if let Some(frame) = frame {
@@ -1371,13 +1369,10 @@ fn capture_browser_state(
                 data,
             });
         }
-        None if let Some(begin_frame_control) =
-            &context.begin_frame_control =>
-        {
-            // Page.captureScreenshot hangs under begin frame control.
+        None if let Some(frame_control) = &context.frame_control => {
             log::info!("no frame available, forcing begin frame capture");
             let Some(data) =
-                begin_frame_control.paused(|| begin_frame_control.capture())?
+                frame_control.paused(|| frame_control.capture())?
             else {
                 log::debug!("begin frame produced no screenshot");
                 return retry_with_timer(state.shared, context);
