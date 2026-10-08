@@ -9,6 +9,7 @@
   python3,
   npm-package,
   typescript-reference,
+  cli-reference,
 }:
 let
   version = (builtins.fromTOML (builtins.readFile ../../Cargo.toml)).workspace.package.version;
@@ -70,6 +71,7 @@ stdenvNoCC.mkDerivation {
     esbuild
     (python3.withPackages (p: [ p.beautifulsoup4 ]))
     typescript-reference
+    cli-reference
   ];
 
   OSFONTDIR = "${ibm-plex}/share/fonts/opentype";

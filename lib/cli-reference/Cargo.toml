@@ -1,0 +1,13 @@
+[package]
+name = "cli-reference"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "cli-reference"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+bombadil-cli = { path = "../bombadil-cli" }
+clap.workspace = true
