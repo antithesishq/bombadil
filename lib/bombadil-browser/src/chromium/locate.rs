@@ -8,16 +8,13 @@ const HEADLESS_SHELL_WINDOWS: &str = "chrome-headless-shell.exe";
 /// Which kind of Chrome/Chromium build to run.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ChromeVariant {
-    /// Regular Chrome or Chromium.
+    /// Regular Chrome or Chromium
     #[default]
     Full,
-    /// chrome-headless-shell, which supports begin frame control for faster
-    /// and more precise rendering, but lacks some browser features (e.g.
-    /// notifications).
+    /// `chrome-headless-shell`
     HeadlessShell,
 }
 
-/// Whether the executable is chrome-headless-shell.
 pub fn is_headless_shell(executable: &Path) -> bool {
     // Resolve symlinks, e.g. a `chrome` link to chrome-headless-shell.
     let executable = executable
@@ -32,19 +29,19 @@ pub fn is_headless_shell(executable: &Path) -> bool {
 /// `CHROME` environment variable takes priority if it points at an
 /// executable of that variant.
 pub fn executable(variant: ChromeVariant) -> Result<PathBuf> {
-    let matches = |p: &Path| {
-        is_headless_shell(p) == (variant == ChromeVariant::HeadlessShell)
+    let matches = |path: &Path| {
+        is_headless_shell(path) == (variant == ChromeVariant::HeadlessShell)
     };
 
-    if let Some(p) = env::var_os("CHROME") {
-        let p = PathBuf::from(p);
-        if is_executable(&p) {
-            if matches(&p) {
-                return Ok(p);
+    if let Some(path) = env::var_os("CHROME") {
+        let path = PathBuf::from(path);
+        if is_executable(&path) {
+            if matches(&path) {
+                return Ok(path);
             }
             log::warn!(
                 "ignoring CHROME ({}), which is not the {} that --chrome-variant asks for",
-                p.display(),
+                path.display(),
                 match variant {
                     ChromeVariant::Full => "full Chrome or Chromium",
                     ChromeVariant::HeadlessShell => HEADLESS_SHELL,
@@ -63,6 +60,7 @@ pub fn executable(variant: ChromeVariant) -> Result<PathBuf> {
         ],
         ChromeVariant::HeadlessShell => &[HEADLESS_SHELL],
     };
+
     // Names take priority over PATH order.
     if let Some(path_var) = env::var_os("PATH") {
         for name in candidates_in_path {

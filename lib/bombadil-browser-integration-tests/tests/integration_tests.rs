@@ -84,9 +84,6 @@ impl Display for Expect {
     }
 }
 
-/// The Chrome variant to run tests with, chosen by the
-/// `BOMBADIL_TEST_CHROME_VARIANT` environment variable (`full` or
-/// `headless-shell`, defaulting to `full`).
 fn chrome_variant(
     requires_full_browser: bool,
 ) -> chromium::locate::ChromeVariant {
@@ -174,8 +171,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
-    /// Run with full Chrome/Chromium rather than chrome-headless-shell, for
-    /// features the latter lacks.
+    /// Run with full Chrome/Chromium rather than chrome-headless-shell.
     fn requires_full_browser(mut self) -> Self {
         self.requires_full_browser = true;
         self

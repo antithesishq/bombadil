@@ -45,8 +45,9 @@ pub fn syntax_from_value(
                 value.display()
             )))?;
 
-    // The formula classes are never subclassed, so comparing prototypes
-    // is equivalent to `instanceof`, and much cheaper in boa.
+    // The formula classes are never subclassed, so we compare
+    // the prototypes rather than doing more expensive instanceof
+    // checks.
     let prototypes = bombadil.prototypes(context)?;
     let prototype = object.prototype();
     let is_instance = |class_prototype: &JsObject| {
