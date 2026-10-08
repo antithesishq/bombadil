@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::browser::{
-    screenshots::{BeginFrameControl, ScreencastFrame, screencast_frames},
+    screenshots::{FrameControl, ScreencastFrame, screencast_frames},
     state::Exception,
 };
 
@@ -24,17 +24,17 @@ pub struct QuiescedState {
 /// possible and only await pending work in the JS event queue, and
 /// the subsequent rendered frame.
 ///
-/// With begin frame control, instead of waiting for a
-/// requestAnimationFrame and the screencast, we drive frames until
-/// rendering settles and capture the last one directly.
+/// With explicit frame control, instead of waiting for a
+/// requestAnimationFrame and screencast frames, we request frames until
+/// rendering settles and capture the last frame directly.
 pub fn next_state<F: FnOnce(Result<QuiescedState>) + Send + 'static>(
     connection: cdp::Connection,
     session_id: SessionId,
-    begin_frame_control: Option<BeginFrameControl>,
+    frame_control: Option<FrameControl>,
     on_quiesced: F,
 ) -> Result<()> {
-    if let Some(begin_frame_control) = begin_frame_control {
-        return next_state_begin_frame(begin_frame_control, on_quiesced);
+    if let Some(frame_control) = frame_control {
+        return next_state_begin_frame(frame_control, on_quiesced);
     }
 
     let start = SystemTime::now();
@@ -113,9 +113,9 @@ const SETTLE_FRAMES_MAX: usize = 3;
 /// Drive frames until one has no damage, i.e. rendering has settled. A
 /// screenshot frame always has damage, and leaves damage behind for the
 /// next frame too, so these frames are not captured.
-fn settle(begin_frame_control: &BeginFrameControl) -> Result<()> {
+fn settle(frame_control: &FrameControl) -> Result<()> {
     for frames in 1..=SETTLE_FRAMES_MAX {
-        if !begin_frame_control.frame()? {
+        if !frame_control.frame()? {
             log::debug!("settled after {frames} frame(s)");
             return Ok(());
         }
@@ -127,21 +127,19 @@ fn settle(begin_frame_control: &BeginFrameControl) -> Result<()> {
 }
 
 fn next_state_begin_frame<F: FnOnce(Result<QuiescedState>) + Send + 'static>(
-    begin_frame_control: BeginFrameControl,
+    frame_control: FrameControl,
     on_quiesced: F,
 ) -> Result<()> {
     let start = SystemTime::now();
     thread::spawn(move || {
         let run = || -> Result<QuiescedState> {
-            // A failed frame shouldn't stall the state machine, so we
-            // still report quiescence and let capture fall back to the
-            // latest frame. The pump is paused so that its frames don't
-            // compete with settling and capturing.
-            let data = begin_frame_control.paused(|| {
-                if let Err(error) = settle(&begin_frame_control) {
+            // In the case we can't produce a new frame, we still
+            // report quiescence to keep going.
+            let data = frame_control.paused(|| {
+                if let Err(error) = settle(&frame_control) {
                     log::error!("begin frame failed: {error:#}");
                 }
-                match begin_frame_control.capture() {
+                match frame_control.capture() {
                     Ok(data) => data,
                     Err(error) => {
                         log::error!("begin frame failed: {error:#}");

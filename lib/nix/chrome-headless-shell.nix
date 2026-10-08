@@ -1,17 +1,24 @@
 {
   alsa-lib,
+  atk,
   at-spi2-atk,
   at-spi2-core,
-  atk,
   autoPatchelfHook,
   dbus,
   dejavu_fonts,
   expat,
   fetchurl,
   glib,
-  libgbm,
-  libxkbcommon,
   liberation_ttf,
+  libgbm,
+  libx11,
+  libxcb,
+  libxcomposite,
+  libxdamage,
+  libxext,
+  libxfixes,
+  libxkbcommon,
+  libxrandr,
   makeFontsConf,
   makeWrapper,
   nspr,
@@ -19,7 +26,6 @@
   stdenv,
   udev,
   unzip,
-  xorg,
 }:
 stdenv.mkDerivation rec {
   pname = "chrome-headless-shell";
@@ -51,13 +57,13 @@ stdenv.mkDerivation rec {
     nss
     stdenv.cc.cc.lib
     udev
-    xorg.libX11
-    xorg.libXcomposite
-    xorg.libXdamage
-    xorg.libXext
-    xorg.libXfixes
-    xorg.libXrandr
-    xorg.libxcb
+    libx11
+    libxcomposite
+    libxdamage
+    libxext
+    libxfixes
+    libxrandr
+    libxcb
   ];
 
   unpackPhase = ''
