@@ -247,7 +247,6 @@ impl BrowserAction {
                 let build_params = |event_type, text: Option<&str>| {
                     let mut builder = input::DispatchKeyEventParams::builder()
                         .r#type(event_type)
-                        .native_virtual_key_code(*code as i64)
                         .windows_virtual_key_code(*code as i64)
                         .code(name)
                         .key(name);
