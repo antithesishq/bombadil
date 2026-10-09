@@ -23,7 +23,7 @@ use std::{
     sync::Once,
     time::{Duration, SystemTime},
 };
-use std::{io::Write, sync::OnceLock};
+use std::{io::Write, sync::OnceLock, thread};
 use tempfile::{NamedTempFile, TempDir};
 use tokio_stream::StreamExt as _;
 use tower_http::services::ServeDir;
@@ -431,21 +431,42 @@ impl<'a> BrowserIntegrationTest<'a> {
             allow_urls,
         };
 
+        let timeout = time_limit.map_or(Duration::from_secs(120), |limit| {
+            (limit * 2).max(Duration::from_secs(60))
+        });
         log::info!("starting runner with infrastructure safety timeout");
-        let run_result = runner::launch(
-            RunId::default(),
-            origin,
-            specification,
-            browser_options,
-            debugger_options,
-            trace_writer.clone(),
-            Arc::new(AtomicBool::new(false)),
-            &mut strategy,
-        );
+        let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+        {
+            let trace_writer = trace_writer.clone();
+            thread::spawn(move || {
+                let run_result = runner::launch(
+                    RunId::default(),
+                    origin,
+                    specification,
+                    browser_options,
+                    debugger_options,
+                    trace_writer,
+                    Arc::new(AtomicBool::new(false)),
+                    &mut strategy,
+                );
+                let _ = result_tx.send((run_result, strategy.violations_count));
+            });
+        }
+        let (run_result, violations_count) =
+            match result_rx.recv_timeout(timeout) {
+                Ok(result) => result,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => panic!(
+                    "test infrastructure timeout: test hung for {:?}",
+                    timeout
+                ),
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    panic!("runner thread panicked")
+                }
+            };
 
         let outcome = match run_result {
             Err(error) => Outcome::Error(error),
-            Ok(_) if strategy.violations_count == 0 => Outcome::Success,
+            Ok(_) if violations_count == 0 => Outcome::Success,
             Ok(_) => {
                 let violations = trace_writer.violations.lock().unwrap();
                 let violations: Vec<String> = violations

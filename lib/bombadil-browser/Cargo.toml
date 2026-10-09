@@ -35,6 +35,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 env_logger.workspace = true
 indoc.workspace = true

@@ -27,7 +27,14 @@ pub struct LaunchOptions {
 
 pub struct Chromium {
     pub web_socket_remote_debugger: Url,
-    process_child: Option<process::Child>,
+    _process: Option<ChromiumProcess>,
+}
+
+/// Kills the process on drop, then removes its directories.
+struct ChromiumProcess {
+    child: process::Child,
+    _user_data_directory: TempDir,
+    _crash_dumps_dir: TempDir,
 }
 
 impl Chromium {
@@ -38,7 +45,7 @@ impl Chromium {
                     remote_debugger,
                     5,
                 )?,
-            process_child: None,
+            _process: None,
         })
     }
 
@@ -102,6 +109,10 @@ impl Chromium {
         command.arg("--disable-domain-reliability");
         command.arg("--no-pings");
         command.arg("--disable-crash-reporter");
+        command.arg("--use-mock-keychain");
+        command.arg("--disable-background-timer-throttling");
+        command.arg("--disable-backgrounding-occluded-windows");
+        command.arg("--disable-renderer-backgrounding");
 
         let remote_debugging_port: u16 = available_port().ok_or(anyhow!("failed to find available port for remote debugging server in chromium"))?;
         command
@@ -116,11 +127,15 @@ impl Chromium {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        let mut child = command.spawn()?;
+        let mut process = ChromiumProcess {
+            child: command.spawn()?,
+            _user_data_directory: user_data_directory,
+            _crash_dumps_dir: crash_dumps_dir,
+        };
 
         let (listening_tx, listening_rx) = mpmc::bounded(1);
         {
-            let stderr = child.stderr.take().ok_or(anyhow!(
+            let stderr = process.child.stderr.take().ok_or(anyhow!(
                 "failed to get stderr from chromium/chrome process"
             ))?;
             thread::spawn(move || {
@@ -139,7 +154,7 @@ impl Chromium {
             });
         }
 
-        if listening_rx.recv_timeout(Duration::from_secs(5)).is_err() {
+        if listening_rx.recv_timeout(Duration::from_secs(30)).is_err() {
             bail!(
                 "timed out while waiting for chrome/chromium to log 'DevTools listening on ...' message"
             );
@@ -156,28 +171,37 @@ impl Chromium {
                     &remote_debugger,
                     5,
                 )?,
-            process_child: Some(child),
+            _process: Some(process),
         })
     }
 }
 
-impl Drop for Chromium {
+impl Drop for ChromiumProcess {
     fn drop(&mut self) {
-        if let Some(mut child) = self.process_child.take() {
-            if let Err(error) = child.kill() {
-                log::error!(
-                    "failed to kill chromium/chrome process: {}",
-                    error
-                );
+        let child = &mut self.child;
+        // Kill the whole process group, including helper processes.
+        #[cfg(unix)]
+        let result = {
+            // SAFETY: the child leads its own process group.
+            let pid = child.id() as libc::pid_t;
+            if unsafe { libc::killpg(pid, libc::SIGKILL) } == 0 {
+                Ok(())
             } else {
-                log::info!("killed chromium/chrome process");
+                Err(std::io::Error::last_os_error())
             }
-            if let Err(error) = child.wait() {
-                log::error!(
-                    "failed to await killed chromium/chrome process: {}",
-                    error
-                );
-            }
+        };
+        #[cfg(not(unix))]
+        let result = child.kill();
+        if let Err(error) = result {
+            log::error!("failed to kill chromium/chrome process: {}", error);
+        } else {
+            log::info!("killed chromium/chrome process");
+        }
+        if let Err(error) = child.wait() {
+            log::error!(
+                "failed to await killed chromium/chrome process: {}",
+                error
+            );
         }
     }
 }

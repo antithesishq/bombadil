@@ -36,6 +36,7 @@
           import nixpkgs {
             inherit system;
             overlays = [ rust-overlay.overlays.default ];
+            config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "google-chrome";
           }
         );
         rustToolchainWasm = pkgs.rust-bin.stable.latest.default.override {
@@ -120,10 +121,7 @@
         };
 
         checks = {
-          inherit (bombadil) clippy fmt npm-package;
-        }
-        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          inherit (bombadil) tests-unit tests-browser;
+          inherit (bombadil) clippy fmt npm-package tests-unit tests-browser;
         };
 
         devShells = {

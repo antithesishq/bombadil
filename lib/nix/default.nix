@@ -10,6 +10,7 @@
   apple-sdk ? null,
   cctools ? null,
   chromium,
+  google-chrome,
   freefont_ttf,
   makeFontsConf,
   cacert,
@@ -230,9 +231,10 @@ in
     commonArgs
     // {
       inherit cargoArtifacts;
-      nativeCheckInputs = [ chromium ];
+      nativeCheckInputs = [ (if stdenv.isDarwin then google-chrome else chromium) ];
       pname = "bombadil-tests-browser";
       cargoExtraArgs = "-p bombadil-browser-integration-tests";
+      cargoTestExtraArgs = lib.optionalString stdenv.isDarwin "-- --test-threads=1";
       preCheck = testPreCheck;
     }
   );

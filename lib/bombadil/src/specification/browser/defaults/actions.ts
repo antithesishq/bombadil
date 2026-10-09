@@ -244,7 +244,7 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
 
   if (type === "file") return [];
 
-  const delayMillis: Range = [1, 100];
+  const delayMillis: Range = [1, 5];
 
   const keycodes = weighted([
     [1, { PressKey: { code: 8 } }],
