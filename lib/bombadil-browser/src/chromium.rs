@@ -28,6 +28,10 @@ pub struct LaunchOptions {
 pub struct Chromium {
     pub web_socket_remote_debugger: Url,
     process_child: Option<process::Child>,
+    // Held so the directories outlive the browser process; removed on drop,
+    // after the process has been killed.
+    _user_data_directory: Option<TempDir>,
+    _crash_dumps_dir: Option<TempDir>,
 }
 
 impl Chromium {
@@ -39,6 +43,8 @@ impl Chromium {
                     5,
                 )?,
             process_child: None,
+            _user_data_directory: None,
+            _crash_dumps_dir: None,
         })
     }
 
@@ -157,6 +163,8 @@ impl Chromium {
                     5,
                 )?,
             process_child: Some(child),
+            _user_data_directory: Some(user_data_directory),
+            _crash_dumps_dir: Some(crash_dumps_dir),
         })
     }
 }
@@ -164,7 +172,24 @@ impl Chromium {
 impl Drop for Chromium {
     fn drop(&mut self) {
         if let Some(mut child) = self.process_child.take() {
-            if let Err(error) = child.kill() {
+            // Kill the whole process group, not just the main process, so
+            // that helper processes (renderer, GPU, network service) don't
+            // outlive it. These linger on macOS and keep writing to the user
+            // data directory.
+            #[cfg(unix)]
+            let result = {
+                // SAFETY: plain syscall; the child was spawned as the leader
+                // of its own process group, so its pid is the group id.
+                let pid = child.id() as libc::pid_t;
+                if unsafe { libc::killpg(pid, libc::SIGKILL) } == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            };
+            #[cfg(not(unix))]
+            let result = child.kill();
+            if let Err(error) = result {
                 log::error!(
                     "failed to kill chromium/chrome process: {}",
                     error

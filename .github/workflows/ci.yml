@@ -134,26 +134,42 @@ jobs:
       - run: nix build .#checks.x86_64-linux.clippy
 
   check-tests-unit:
-    name: Check (tests, unit)
-    runs-on: ubuntu-latest
+    name: Check (tests, unit, ${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: macos-15
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
         with:
-          scope: check-tests-unit
+          scope: check-tests-unit-${{ matrix.system }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#checks.x86_64-linux.tests-unit
+      - run: nix build .#checks.${{ matrix.system }}.tests-unit
 
   check-tests-browser:
-    name: Check (tests, browser)
-    runs-on: ubuntu-latest
+    name: Check (tests, browser, ${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: macos-15
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
         with:
-          scope: check-tests-browser
+          scope: check-tests-browser-${{ matrix.system }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#checks.x86_64-linux.tests-browser
+      - run: nix build .#checks.${{ matrix.system }}.tests-browser
 
   build-npm-package:
     runs-on: ubuntu-latest
