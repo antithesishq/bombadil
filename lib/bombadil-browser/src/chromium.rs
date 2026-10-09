@@ -27,7 +27,15 @@ pub struct LaunchOptions {
 
 pub struct Chromium {
     pub web_socket_remote_debugger: Url,
-    process_child: Option<process::Child>,
+    _process: Option<ChromiumProcess>,
+}
+
+/// A launched browser process and its temporary directories. Dropping it
+/// kills the process and then removes the directories.
+struct ChromiumProcess {
+    child: process::Child,
+    _user_data_directory: TempDir,
+    _crash_dumps_dir: TempDir,
 }
 
 impl Chromium {
@@ -38,7 +46,7 @@ impl Chromium {
                     remote_debugger,
                     5,
                 )?,
-            process_child: None,
+            _process: None,
         })
     }
 
@@ -116,11 +124,17 @@ impl Chromium {
                 .collect::<Vec<_>>()
                 .join(" ")
         );
-        let mut child = command.spawn()?;
+        // Owned from here on so that any early return below kills the
+        // process instead of orphaning it.
+        let mut process = ChromiumProcess {
+            child: command.spawn()?,
+            _user_data_directory: user_data_directory,
+            _crash_dumps_dir: crash_dumps_dir,
+        };
 
         let (listening_tx, listening_rx) = mpmc::bounded(1);
         {
-            let stderr = child.stderr.take().ok_or(anyhow!(
+            let stderr = process.child.stderr.take().ok_or(anyhow!(
                 "failed to get stderr from chromium/chrome process"
             ))?;
             thread::spawn(move || {
@@ -156,28 +170,41 @@ impl Chromium {
                     &remote_debugger,
                     5,
                 )?,
-            process_child: Some(child),
+            _process: Some(process),
         })
     }
 }
 
-impl Drop for Chromium {
+impl Drop for ChromiumProcess {
     fn drop(&mut self) {
-        if let Some(mut child) = self.process_child.take() {
-            if let Err(error) = child.kill() {
-                log::error!(
-                    "failed to kill chromium/chrome process: {}",
-                    error
-                );
+        let child = &mut self.child;
+        // Kill the whole process group, not just the main process, so
+        // that helper processes (renderer, GPU, network service) don't
+        // outlive it. These linger on macOS and keep writing to the user
+        // data directory.
+        #[cfg(unix)]
+        let result = {
+            // SAFETY: plain syscall; the child was spawned as the leader
+            // of its own process group, so its pid is the group id.
+            let pid = child.id() as libc::pid_t;
+            if unsafe { libc::killpg(pid, libc::SIGKILL) } == 0 {
+                Ok(())
             } else {
-                log::info!("killed chromium/chrome process");
+                Err(std::io::Error::last_os_error())
             }
-            if let Err(error) = child.wait() {
-                log::error!(
-                    "failed to await killed chromium/chrome process: {}",
-                    error
-                );
-            }
+        };
+        #[cfg(not(unix))]
+        let result = child.kill();
+        if let Err(error) = result {
+            log::error!("failed to kill chromium/chrome process: {}", error);
+        } else {
+            log::info!("killed chromium/chrome process");
+        }
+        if let Err(error) = child.wait() {
+            log::error!(
+                "failed to await killed chromium/chrome process: {}",
+                error
+            );
         }
     }
 }
