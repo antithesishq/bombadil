@@ -499,6 +499,7 @@ dependencies = [
  "html5ever",
  "indoc",
  "insta",
+ "libc",
  "log",
  "oxc",
  "oxc_str",
