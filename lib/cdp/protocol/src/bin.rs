@@ -22,6 +22,7 @@ fn main() {
             "DOM",
             "Emulation",
             "Fetch",
+            "HeadlessExperimental",
             "Input",
             "Network",
             "Page",

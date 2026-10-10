@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::browser::{
-    screenshots::{ScreencastFrame, screencast_frames},
+    screenshots::{FrameControl, ScreencastFrame, screencast_frames},
     state::Exception,
 };
 
@@ -23,11 +23,20 @@ pub struct QuiescedState {
 /// Await the next quiesced browser state. This tries to be as fast as
 /// possible and only await pending work in the JS event queue, and
 /// the subsequent rendered frame.
+///
+/// With explicit frame control, instead of waiting for a
+/// requestAnimationFrame and screencast frames, we request frames until
+/// rendering settles and capture the last frame directly.
 pub fn next_state<F: FnOnce(Result<QuiescedState>) + Send + 'static>(
     connection: cdp::Connection,
     session_id: SessionId,
+    frame_control: Option<FrameControl>,
     on_quiesced: F,
 ) -> Result<()> {
+    if let Some(frame_control) = frame_control {
+        return next_state_begin_frame(frame_control, on_quiesced);
+    }
+
     let start = SystemTime::now();
     let frames_rx = screencast_frames(&connection)?;
 
@@ -92,6 +101,62 @@ pub fn next_state<F: FnOnce(Result<QuiescedState>) + Send + 'static>(
             })
         };
 
+        on_quiesced(run());
+    });
+    Ok(())
+}
+
+/// Upper bound on frames driven while settling, as pages with continuous
+/// animations never stop producing damage.
+const SETTLE_FRAMES_MAX: usize = 3;
+
+/// Drive frames until one has no damage, i.e. rendering has settled. A
+/// screenshot frame always has damage, and leaves damage behind for the
+/// next frame too, so these frames are not captured.
+fn settle(frame_control: &FrameControl) -> Result<()> {
+    for frames in 1..=SETTLE_FRAMES_MAX {
+        if !frame_control.frame()? {
+            log::debug!("settled after {frames} frame(s)");
+            return Ok(());
+        }
+    }
+    log::debug!(
+        "not settled after {SETTLE_FRAMES_MAX} frames, capturing anyway"
+    );
+    Ok(())
+}
+
+fn next_state_begin_frame<F: FnOnce(Result<QuiescedState>) + Send + 'static>(
+    frame_control: FrameControl,
+    on_quiesced: F,
+) -> Result<()> {
+    let start = SystemTime::now();
+    thread::spawn(move || {
+        let run = || -> Result<QuiescedState> {
+            // In the case we can't produce a new frame, we still
+            // report quiescence to keep going.
+            let data = frame_control.paused(|| {
+                if let Err(error) = settle(&frame_control) {
+                    log::error!("begin frame failed: {error:#}");
+                }
+                match frame_control.capture() {
+                    Ok(data) => data,
+                    Err(error) => {
+                        log::error!("begin frame failed: {error:#}");
+                        None
+                    }
+                }
+            });
+            let timestamp = SystemTime::now();
+            if data.is_none() {
+                log::debug!("begin frame produced no screenshot");
+            }
+            Ok(QuiescedState {
+                elapsed: timestamp.duration_since(start).unwrap_or_default(),
+                frame: data
+                    .map(|data| Arc::new(ScreencastFrame { timestamp, data })),
+            })
+        };
         on_quiesced(run());
     });
     Ok(())

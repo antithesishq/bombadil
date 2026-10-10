@@ -2,42 +2,79 @@ use anyhow::{Result, bail};
 use std::env;
 use std::path::{Path, PathBuf};
 
-/// Try to locate a Chrome or Chromium executable on the system.
-pub fn executable() -> Result<PathBuf> {
-    if let Some(p) = env::var_os("CHROME") {
-        let p = PathBuf::from(p);
-        if is_executable(&p) {
-            return Ok(p);
+const HEADLESS_SHELL: &str = "chrome-headless-shell";
+
+/// Which kind of Chrome/Chromium build to run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ChromeVariant {
+    /// Regular Chrome or Chromium
+    #[default]
+    Full,
+    /// `chrome-headless-shell`
+    HeadlessShell,
+}
+
+pub fn is_headless_shell(executable: &Path) -> bool {
+    // Resolve symlinks, e.g. a `chrome` link to chrome-headless-shell.
+    let executable = executable
+        .canonicalize()
+        .unwrap_or_else(|_| executable.to_path_buf());
+    executable
+        .file_name()
+        .is_some_and(|name| name == HEADLESS_SHELL)
+}
+
+/// Try to locate an executable of the given variant on the system. The
+/// `CHROME` environment variable takes priority if it points at an
+/// executable of that variant.
+pub fn executable(variant: ChromeVariant) -> Result<PathBuf> {
+    let matches = |path: &Path| {
+        is_headless_shell(path) == (variant == ChromeVariant::HeadlessShell)
+    };
+
+    if let Some(path) = env::var_os("CHROME") {
+        let path = PathBuf::from(path);
+        if is_executable(&path) && matches(&path) {
+            return Ok(path);
         }
     }
 
-    // 2. Search PATH for common binary names
-    let candidates_in_path = [
-        "google-chrome-stable",
-        "google-chrome",
-        "chromium-browser",
-        "chromium",
-        "chrome",
-    ];
+    let candidates_in_path: &[&str] = match variant {
+        ChromeVariant::Full => &[
+            "google-chrome-stable",
+            "google-chrome",
+            "chromium-browser",
+            "chromium",
+            "chrome",
+        ],
+        ChromeVariant::HeadlessShell => &[HEADLESS_SHELL],
+    };
+
+    // Names take priority over PATH order.
     if let Some(path_var) = env::var_os("PATH") {
-        for dir in env::split_paths(&path_var) {
-            for name in &candidates_in_path {
+        for name in candidates_in_path {
+            for dir in env::split_paths(&path_var) {
                 let full = exe_name(dir.join(name));
-                if is_executable(&full) {
+                if is_executable(&full) && matches(&full) {
                     return Ok(full);
                 }
             }
         }
     }
 
-    // 3. Platform-specific standard install locations
-    for p in platform_locations() {
-        if is_executable(&p) {
-            return Ok(p);
+    match variant {
+        ChromeVariant::Full => {
+            for p in platform_locations() {
+                if is_executable(&p) && matches(&p) {
+                    return Ok(p);
+                }
+            }
+            bail!("failed to locate chromium/chrome executable")
         }
+        ChromeVariant::HeadlessShell => bail!(
+            "failed to locate {HEADLESS_SHELL} executable (set CHROME or put it on PATH)"
+        ),
     }
-
-    bail!("failed to locate chromium/chrome executable")
 }
 
 #[cfg(target_os = "windows")]

@@ -6,6 +6,7 @@ use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::js_protocol::runtime;
 use cdp_protocol::cdp::{
     browser_protocol::{
+        headless_experimental,
         page::{self, CaptureScreenshotFormat},
         performance,
     },
@@ -186,6 +187,15 @@ impl From<ScreenshotFormat> for CaptureScreenshotFormat {
         match val {
             ScreenshotFormat::Png => CaptureScreenshotFormat::Png,
             ScreenshotFormat::Jpeg => CaptureScreenshotFormat::Jpeg,
+        }
+    }
+}
+
+impl From<ScreenshotFormat> for headless_experimental::ScreenshotParamsFormat {
+    fn from(val: ScreenshotFormat) -> Self {
+        match val {
+            ScreenshotFormat::Jpeg => Self::Jpeg,
+            ScreenshotFormat::Png => Self::Png,
         }
     }
 }

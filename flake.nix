@@ -86,7 +86,12 @@
             '';
         });
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib craneLibStatic ghosttySrc libhegelC;
+          inherit
+            craneLib
+            craneLibStatic
+            ghosttySrc
+            libhegelC
+            ;
         };
       in
       {
@@ -177,11 +182,8 @@
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
                   pkgs.chromium
+                  (pkgs.callPackage lib/nix/chrome-headless-shell.nix { })
                 ];
-            }
-            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-              # override how chromiumoxide finds the chromium executable
-              CHROME = pkgs.lib.getExe pkgs.chromium;
             }
           );
 

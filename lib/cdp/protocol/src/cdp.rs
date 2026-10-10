@@ -41147,6 +41147,242 @@ pub mod browser_protocol {
             }
         }
     }
+    #[doc = "This domain provides experimental commands only supported in headless mode."]
+    pub mod headless_experimental {
+        use serde::{Deserialize, Serialize};
+        #[doc = "Encoding options for a screenshot.\n[ScreenshotParams](https://chromedevtools.github.io/devtools-protocol/tot/HeadlessExperimental/#type-ScreenshotParams)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct ScreenshotParams {
+            #[doc = "Image compression format (defaults to png)."]
+            #[serde(rename = "format")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            #[serde(default)]
+            #[serde(
+                deserialize_with = "super::super::de::deserialize_from_str_optional"
+            )]
+            pub format: Option<ScreenshotParamsFormat>,
+            #[doc = "Compression quality from range [0..100] (jpeg and webp only)."]
+            #[serde(rename = "quality")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub quality: Option<i64>,
+            #[doc = "Optimize image encoding for speed, not for resulting size (defaults to false)"]
+            #[serde(rename = "optimizeForSpeed")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub optimize_for_speed: Option<bool>,
+        }
+        #[doc = "Image compression format (defaults to png)."]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum ScreenshotParamsFormat {
+            #[serde(rename = "jpeg")]
+            Jpeg,
+            #[serde(rename = "png")]
+            Png,
+            #[serde(rename = "webp")]
+            Webp,
+        }
+        impl AsRef<str> for ScreenshotParamsFormat {
+            fn as_ref(&self) -> &str {
+                match self {
+                    ScreenshotParamsFormat::Jpeg => "jpeg",
+                    ScreenshotParamsFormat::Png => "png",
+                    ScreenshotParamsFormat::Webp => "webp",
+                }
+            }
+        }
+        impl ::std::str::FromStr for ScreenshotParamsFormat {
+            type Err = String;
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    "jpeg" | "Jpeg" => Ok(ScreenshotParamsFormat::Jpeg),
+                    "png" | "Png" => Ok(ScreenshotParamsFormat::Png),
+                    "webp" | "Webp" => Ok(ScreenshotParamsFormat::Webp),
+                    _ => Err(s.to_string()),
+                }
+            }
+        }
+        impl ScreenshotParams {
+            pub fn builder() -> ScreenshotParamsBuilder {
+                ScreenshotParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct ScreenshotParamsBuilder {
+            format: Option<ScreenshotParamsFormat>,
+            quality: Option<i64>,
+            optimize_for_speed: Option<bool>,
+        }
+        impl ScreenshotParamsBuilder {
+            pub fn format(
+                mut self,
+                format: impl Into<ScreenshotParamsFormat>,
+            ) -> Self {
+                self.format = Some(format.into());
+                self
+            }
+            pub fn quality(mut self, quality: impl Into<i64>) -> Self {
+                self.quality = Some(quality.into());
+                self
+            }
+            pub fn optimize_for_speed(
+                mut self,
+                optimize_for_speed: impl Into<bool>,
+            ) -> Self {
+                self.optimize_for_speed = Some(optimize_for_speed.into());
+                self
+            }
+            pub fn build(self) -> ScreenshotParams {
+                ScreenshotParams {
+                    format: self.format,
+                    quality: self.quality,
+                    optimize_for_speed: self.optimize_for_speed,
+                }
+            }
+        }
+        impl ScreenshotParams {
+            pub const IDENTIFIER: &'static str =
+                "HeadlessExperimental.ScreenshotParams";
+        }
+        #[doc = "Sends a BeginFrame to the target and returns when the frame was completed. Optionally captures a\nscreenshot from the resulting frame. Requires that the target was created with enabled\nBeginFrameControl. Designed for use with --run-all-compositor-stages-before-draw, see also\nhttps://goo.gle/chrome-headless-rendering for more background.\n[beginFrame](https://chromedevtools.github.io/devtools-protocol/tot/HeadlessExperimental/#method-beginFrame)"]
+        #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+        pub struct BeginFrameParams {
+            #[doc = "Timestamp of this BeginFrame in Renderer TimeTicks (milliseconds of uptime). If not set,\nthe current time will be used."]
+            #[serde(rename = "frameTimeTicks")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub frame_time_ticks: Option<f64>,
+            #[doc = "The interval between BeginFrames that is reported to the compositor, in milliseconds.\nDefaults to a 60 frames/second interval, i.e. about 16.666 milliseconds."]
+            #[serde(rename = "interval")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub interval: Option<f64>,
+            #[doc = "Whether updates should not be committed and drawn onto the display. False by default. If\ntrue, only side effects of the BeginFrame will be run, such as layout and animations, but\nany visual updates may not be visible on the display or in screenshots."]
+            #[serde(rename = "noDisplayUpdates")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub no_display_updates: Option<bool>,
+            #[doc = "If set, a screenshot of the frame will be captured and returned in the response. Otherwise,\nno screenshot will be captured. Note that capturing a screenshot can fail, for example,\nduring renderer initialization. In such a case, no screenshot data will be returned."]
+            #[serde(rename = "screenshot")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub screenshot: Option<ScreenshotParams>,
+        }
+        impl BeginFrameParams {
+            pub fn builder() -> BeginFrameParamsBuilder {
+                BeginFrameParamsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct BeginFrameParamsBuilder {
+            frame_time_ticks: Option<f64>,
+            interval: Option<f64>,
+            no_display_updates: Option<bool>,
+            screenshot: Option<ScreenshotParams>,
+        }
+        impl BeginFrameParamsBuilder {
+            pub fn frame_time_ticks(
+                mut self,
+                frame_time_ticks: impl Into<f64>,
+            ) -> Self {
+                self.frame_time_ticks = Some(frame_time_ticks.into());
+                self
+            }
+            pub fn interval(mut self, interval: impl Into<f64>) -> Self {
+                self.interval = Some(interval.into());
+                self
+            }
+            pub fn no_display_updates(
+                mut self,
+                no_display_updates: impl Into<bool>,
+            ) -> Self {
+                self.no_display_updates = Some(no_display_updates.into());
+                self
+            }
+            pub fn screenshot(
+                mut self,
+                screenshot: impl Into<ScreenshotParams>,
+            ) -> Self {
+                self.screenshot = Some(screenshot.into());
+                self
+            }
+            pub fn build(self) -> BeginFrameParams {
+                BeginFrameParams {
+                    frame_time_ticks: self.frame_time_ticks,
+                    interval: self.interval,
+                    no_display_updates: self.no_display_updates,
+                    screenshot: self.screenshot,
+                }
+            }
+        }
+        impl BeginFrameParams {
+            pub const IDENTIFIER: &'static str =
+                "HeadlessExperimental.beginFrame";
+        }
+        impl cdp_types::Method for BeginFrameParams {
+            fn identifier(&self) -> cdp_types::MethodId {
+                Self::IDENTIFIER.into()
+            }
+        }
+        impl cdp_types::MethodType for BeginFrameParams {
+            fn method_id() -> cdp_types::MethodId
+            where
+                Self: Sized,
+            {
+                Self::IDENTIFIER.into()
+            }
+        }
+        #[doc = "Sends a BeginFrame to the target and returns when the frame was completed. Optionally captures a\nscreenshot from the resulting frame. Requires that the target was created with enabled\nBeginFrameControl. Designed for use with --run-all-compositor-stages-before-draw, see also\nhttps://goo.gle/chrome-headless-rendering for more background.\n[beginFrame](https://chromedevtools.github.io/devtools-protocol/tot/HeadlessExperimental/#method-beginFrame)"]
+        #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct BeginFrameReturns {
+            #[doc = "Whether the BeginFrame resulted in damage and, thus, a new frame was committed to the\ndisplay. Reported for diagnostic uses, may be removed in the future."]
+            #[serde(rename = "hasDamage")]
+            pub has_damage: bool,
+            #[doc = "Base64-encoded image data of the screenshot, if one was requested and successfully taken."]
+            #[serde(rename = "screenshotData")]
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub screenshot_data: Option<cdp_types::Binary>,
+        }
+        impl BeginFrameReturns {
+            pub fn new(has_damage: impl Into<bool>) -> Self {
+                Self {
+                    has_damage: has_damage.into(),
+                    screenshot_data: None,
+                }
+            }
+        }
+        impl BeginFrameReturns {
+            pub fn builder() -> BeginFrameReturnsBuilder {
+                BeginFrameReturnsBuilder::default()
+            }
+        }
+        #[derive(Default, Clone)]
+        pub struct BeginFrameReturnsBuilder {
+            has_damage: Option<bool>,
+            screenshot_data: Option<cdp_types::Binary>,
+        }
+        impl BeginFrameReturnsBuilder {
+            pub fn has_damage(mut self, has_damage: impl Into<bool>) -> Self {
+                self.has_damage = Some(has_damage.into());
+                self
+            }
+            pub fn screenshot_data(
+                mut self,
+                screenshot_data: impl Into<cdp_types::Binary>,
+            ) -> Self {
+                self.screenshot_data = Some(screenshot_data.into());
+                self
+            }
+            pub fn build(self) -> Result<BeginFrameReturns, String> {
+                Ok(BeginFrameReturns {
+                    has_damage: self.has_damage.ok_or_else(|| {
+                        format!(
+                            "Field `{}` is mandatory.",
+                            std::stringify!(has_damage)
+                        )
+                    })?,
+                    screenshot_data: self.screenshot_data,
+                })
+            }
+        }
+        impl cdp_types::Command for BeginFrameParams {
+            type Response = BeginFrameReturns;
+        }
+    }
     #[doc = "Input/Output operations for streams produced by DevTools."]
     pub mod io {
         use serde::{Deserialize, Serialize};

@@ -27,6 +27,10 @@ pub struct LaunchOptions {
 
 pub struct Chromium {
     pub web_socket_remote_debugger: Url,
+    /// Whether the browser was launched with the rendering flags that begin
+    /// frame control needs. Whether targets actually get it is probed when
+    /// they're created.
+    pub begin_frame_control: bool,
     process_child: Option<process::Child>,
 }
 
@@ -38,6 +42,7 @@ impl Chromium {
                     remote_debugger,
                     5,
                 )?,
+            begin_frame_control: false,
             process_child: None,
         })
     }
@@ -76,6 +81,21 @@ impl Chromium {
             command.arg("--headless");
         }
 
+        // Begin frame control only works in chrome-headless-shell, and only
+        // with these flags set at launch. Detect it by name.
+        //
+        // Later on, targets still have to probe for support (it's not available
+        // in chrome-headless-shell on macOS).
+        let begin_frame_control =
+            locate::is_headless_shell(&launch_options.executable);
+        if begin_frame_control {
+            command.arg("--run-all-compositor-stages-before-draw");
+            command.arg("--disable-new-content-rendering-timeout");
+            command.arg("--disable-threaded-animation");
+            command.arg("--disable-threaded-scrolling");
+            command.arg("--disable-checker-imaging");
+        }
+
         command.arg(format!(
             "--user-data-dir={}",
             user_data_directory
@@ -93,6 +113,10 @@ impl Chromium {
                 .to_str()
                 .expect("invalid tmp dir path"),
         ));
+
+        // Scroll instantly instead of animating, so scroll actions settle
+        // within a single frame.
+        command.arg("--disable-smooth-scrolling");
 
         command.arg("--enable-logging");
         command.arg("--v=1");
@@ -156,6 +180,7 @@ impl Chromium {
                     &remote_debugger,
                     5,
                 )?,
+            begin_frame_control,
             process_child: Some(child),
         })
     }
