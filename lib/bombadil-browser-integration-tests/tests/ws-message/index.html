@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head><title>WebSocket conversation</title></head>
+<body>
+
+    <ul id="ws-conversation"></ul>
+
+    <script>
+
+    const names = ["John Doe", "Jane Doe"];
+    const fullName = names[Math.floor(Math.random() * names.length)];
+
+    const conversation = document.getElementById("ws-conversation");
+    conversation.dataset.name = fullName;
+
+    function log(who, text) {
+        const item = document.createElement("li");
+        item.className = who;
+        item.textContent = `${who}: ${text}`;
+        conversation.appendChild(item);
+    }
+
+    const socket = new WebSocket(`ws://${location.host}/ws`);
+
+    socket.onopen = () => log("browser", "connected");
+
+    socket.onmessage = (event) => {
+        log("server", event.data);
+        if (event.data === "What's your name?: ") {
+            const answer = `My name is ${fullName}`;
+            log("browser", answer);
+            socket.send(answer);
+        }
+    };
+
+    socket.onerror = () => log("browser", "websocket error");
+    socket.onclose = (event) => log("browser", `disconnected (code ${event.code})`);
+    </script>
+</body>
+</html>
