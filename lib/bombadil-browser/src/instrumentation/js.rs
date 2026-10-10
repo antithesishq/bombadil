@@ -338,7 +338,43 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boa_engine::{Context, Source, object::builtins::JsUint8Array};
+    use hegel::{
+        TestCase,
+        generators::{booleans, integers},
+    };
     use insta::assert_snapshot;
+
+    fn coverage_hits(source_id: SourceId, source: &str) -> u32 {
+        let code = instrument_source_code(source_id, source, SourceType::cjs())
+            .unwrap();
+        let mut context = Context::default();
+        context
+            .eval(Source::from_bytes("var window = globalThis;"))
+            .unwrap();
+        context.eval(Source::from_bytes(&code)).unwrap();
+        let edges = context
+            .eval(Source::from_bytes("__bombadil__.edges_current"))
+            .unwrap();
+        JsUint8Array::from_object(edges.as_object().unwrap())
+            .unwrap()
+            .to_vec(&mut context)
+            .unwrap()
+            .into_iter()
+            .map(u32::from)
+            .sum()
+    }
+
+    #[hegel::test(test_cases = 32)]
+    fn generated_source_ids_record_coverage(tc: TestCase) {
+        let source_id = SourceId(tc.draw(integers::<u64>()));
+        let first = tc.draw(booleans());
+        let second = tc.draw(booleans());
+        let source = format!(
+            "if ({first}) {{}} else {{}}\nif ({second}) {{}} else {{}}"
+        );
+        assert_eq!(coverage_hits(source_id, &source), 2);
+    }
 
     #[test]
     fn test_instrument_source_code_ternary() {

@@ -36,6 +36,7 @@ tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
+boa_engine.workspace = true
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
