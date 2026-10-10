@@ -154,14 +154,24 @@ impl Instrumenter {
             SPAN,
             ctx.ast.expression_binary(
                 SPAN,
-                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
-                ast::BinaryOperator::BitwiseXOR,
-                antithesis_member(LOCATION_PREVIOUS),
+                ctx.ast.expression_binary(
+                    SPAN,
+                    branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+                    ast::BinaryOperator::BitwiseXOR,
+                    antithesis_member(LOCATION_PREVIOUS),
+                ),
+                ast::BinaryOperator::ShiftRightZeroFill,
+                ctx.ast.expression_numeric_literal(
+                    SPAN,
+                    0.0,
+                    None,
+                    ast::NumberBase::Decimal,
+                ),
             ),
             ast::BinaryOperator::Remainder,
             ctx.ast.expression_numeric_literal(
                 SPAN,
-                (64 * 1024u32) as f64,
+                EDGE_MAP_SIZE as f64,
                 None,
                 ast::NumberBase::Decimal,
             ),
@@ -218,7 +228,7 @@ impl Instrumenter {
     /// in a block with these two at the start:
     ///
     /// ```not_rust
-    /// antithesis.coverage[(<id> ^ antithesis.previous) % 65536] += 1;
+    /// antithesis.coverage[((<id> ^ antithesis.previous) >>> 0) % 65536] += 1;
     /// antithesis.previous = <id> >> 1;
     /// ```
     ///
