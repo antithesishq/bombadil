@@ -484,6 +484,7 @@ dependencies = [
  "antithesis-fuzzer",
  "anyhow",
  "base64 0.22.1",
+ "boa_engine",
  "bombadil",
  "bombadil-browser-keys",
  "bombadil-ltl",
