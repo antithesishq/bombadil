@@ -1,5 +1,6 @@
 [build]
 target = "index.html"
+no_sri = true
 
 [[proxy]]
 backend = "http://localhost:1073/api"

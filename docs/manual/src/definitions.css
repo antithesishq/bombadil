@@ -1,0 +1,20 @@
+dl {
+  margin-bottom: 1rem;
+}
+
+dt {
+  margin-top: 1rem;
+  font-weight: 600;
+}
+
+dt code {
+  font-size: .875rem;
+}
+
+dd {
+  margin-left: 1rem;
+}
+
+dd p {
+  margin: .25rem 0 .5rem;
+}

@@ -569,10 +569,11 @@ There are currently only extras modules for the browser driver, and none for the
 
 ## Examples
 
-::: browser
 These are full, runnable examples of properties and action generators you might
 need in your own testing with Bombadil. Think of them as design patterns for
 properties. Each example is a self-contained specification file.
+
+::: browser
 
 ### Invariant: max notification count
 
@@ -718,11 +719,11 @@ would catch as a violation.
 :::
 
 ::: terminal
-These are full, runnable examples of properties and action generators you might need in your own testing with Bombadil. Think of them as design patterns for properties. Each example is a self-contained specification file.
 
 ### Successful exit
 
-A simple property that fails if the process terminates with a non-zero exit code. This is one of the default properties for the terminal.
+A simple property that fails if the process terminates with a non-zero exit
+code. This is one of the default properties for the terminal.
 
 ```typescript
 import { not, always, Formula } from "@antithesishq/bombadil";
@@ -740,9 +741,11 @@ export const exitSuccess: Formula = always(
 );
 ```
 
-### No Replacement Chars
+### No replacement chars
 
-A property that checks whether or not a replacement unicode character (U+FFFD) has been detected. That character is what a terminal shows when a program emits malformed UTF-8. This is one of the default properties for the terminal.
+A property that checks whether or not a replacement unicode character (U+FFFD)
+has been detected. That character is what a terminal shows when a program emits
+malformed UTF-8. This is one of the default properties for the terminal.
 
 ```typescript
 import { always, Formula } from "@antithesishq/bombadil";

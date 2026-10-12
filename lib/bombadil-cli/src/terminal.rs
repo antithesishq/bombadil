@@ -32,9 +32,22 @@ mod defaults {
     pub const QUIESCENCE_TIMEOUT_MS: u64 = 5;
 }
 
+const TEST_EXAMPLES: &str = "\
+Examples:
+  # Test a program using the default specification
+  bombadil terminal test my-tui --arg value
+
+  # Use a custom specification and stop after one minute
+  bombadil terminal test --specification tui.spec.ts --time-limit 1m my-tui
+
+  # Reproduce a previous test run (best-effort, fails on divergence)
+  bombadil terminal test --reproduce my-test my-tui --arg value
+";
+
 #[derive(clap::Subcommand)]
 pub enum Command {
-    /// [EXPERIMENTAL] Test the given program against a TypeScript specification
+    /// (EXPERIMENTAL) Test the given program against a TypeScript specification
+    #[command(after_help = TEST_EXAMPLES)]
     Test {
         /// Path to a TypeScript specification file (uses the
         /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will
@@ -45,7 +58,7 @@ pub enum Command {
         #[arg(long)]
         exit_on_violation: bool,
         /// Maximum time to run the test. Accepts a number with a unit suffix:
-        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        /// s (seconds), m (minutes), h (hours), or d (days).
         #[arg(long, value_parser = duration::parse_duration)]
         time_limit: Option<Duration>,
         /// Terminal columns at startup
@@ -67,7 +80,7 @@ pub enum Command {
         /// fresh temporary directory.
         #[arg(long)]
         output_path: Option<PathBuf>,
-        /// Overwrite any existing trace at --output-path. Without this
+        /// Overwrite any existing trace at `--output-path`. Without this
         /// flag, Bombadil refuses to write when trace.jsonl already exists.
         #[arg(long)]
         output_path_overwrite: bool,
@@ -82,7 +95,7 @@ pub enum Command {
         command: Vec<String>,
     },
 
-    /// [EXPERIMENTAL] Fuzz (running many short test runs) the given program against a
+    /// (EXPERIMENTAL) Fuzz (running many short test runs) the given program against a
     /// TypeScript specification
     #[command(hide = true)]
     Fuzz {
@@ -95,11 +108,11 @@ pub enum Command {
         #[arg(long)]
         exit_on_violation: bool,
         /// Maximum time to run an individual test run. Accepts a number with a unit suffix:
-        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        /// s (seconds), m (minutes), h (hours), or d (days).
         #[arg(long, value_parser = duration::parse_duration, default_value = "10s")]
         time_limit_run: Duration,
         /// Maximum time to run the full fuzzing campaign. Accepts a number with a unit suffix:
-        /// s (seconds), m (minutes), h (hours), or d (days). Examples: 30s, 5m, 2h, 1d.
+        /// s (seconds), m (minutes), h (hours), or d (days).
         #[arg(long, value_parser = duration::parse_duration, default_value = "5m")]
         time_limit_fuzz: Duration,
 
@@ -130,7 +143,7 @@ pub enum Command {
         /// fresh temporary directory.
         #[arg(long)]
         output_path: Option<PathBuf>,
-        /// Overwrite any existing trace at --output-path. Without this
+        /// Overwrite any existing trace at `--output-path`. Without this
         /// flag, Bombadil refuses to write when trace.jsonl already exists.
         #[arg(long)]
         output_path_overwrite: bool,

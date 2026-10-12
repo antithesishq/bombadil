@@ -38,3 +38,15 @@ hr {
     border: 0;
     margin: 1rem 0;
 }
+
+
+/* before app WASM has loaded and run */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+}
+

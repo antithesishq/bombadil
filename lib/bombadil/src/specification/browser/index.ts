@@ -142,6 +142,10 @@ export function registerCustomAction<Args extends JSON[]>(
 
 // Fingerprints
 
+/**
+ * DOM element fingerprint. String fields are either non-blank or `null`, and
+ * `structuralPath` is set iff all other nullable fields are `null`.
+ */
 export type Fingerprint = {
   testId: string | null;
   id: string | null;
@@ -156,48 +160,55 @@ export type Fingerprint = {
   structuralPath: string | null;
 };
 
-export function getFingerprint(el: Element): Fingerprint {
-  const tag = el.tagName.toLowerCase();
+function nonBlank(value: string | null | undefined): string | null {
+  return value && value.trim().length > 0 ? value : null;
+}
+
+export function getFingerprint(element: Element): Fingerprint {
+  const attribute = (name: string) => nonBlank(element.getAttribute(name));
+
+  const tag = element.tagName.toLowerCase();
 
   const testId =
-    el.getAttribute("data-testid") ??
-    el.getAttribute("data-test-id") ??
-    el.getAttribute("data-cy") ??
-    el.getAttribute("data-test");
+    attribute("data-testid") ??
+    attribute("data-test-id") ??
+    attribute("data-cy") ??
+    attribute("data-test");
 
-  const id = el.getAttribute("id");
-  const role = el.getAttribute("role");
+  const id = attribute("id");
+  const role = attribute("role");
 
+  const labelledBy = attribute("aria-labelledby");
   const accessibleName =
-    el.getAttribute("aria-label") ??
-    (el.getAttribute("aria-labelledby")
-      ? document
-          .getElementById(el.getAttribute("aria-labelledby")!)
-          ?.textContent?.trim()
+    attribute("aria-label") ??
+    (labelledBy
+      ? nonBlank(document.getElementById(labelledBy)?.textContent?.trim())
       : null) ??
-    el.getAttribute("title");
+    attribute("title");
 
-  const href = el.getAttribute("href");
-  const nameAttr = el.getAttribute("name");
-  const placeholder = el.getAttribute("placeholder");
-  const inputType = el.getAttribute("type");
+  const href = attribute("href");
+  const nameAttr = attribute("name");
+  const placeholder = attribute("placeholder");
+  const inputType = attribute("type");
 
-  const rawText = el.textContent?.trim();
-  const textContent =
-    rawText && rawText.length > 0 && rawText.length <= 200 ? rawText : null;
+  const rawText = nonBlank(element.textContent?.trim());
+  const textContent = rawText && rawText.length <= 200 ? rawText : null;
 
-  const hasStrongIdentifier =
-    testId ||
-    id ||
-    role ||
-    accessibleName ||
-    href ||
-    nameAttr ||
-    placeholder ||
-    inputType ||
-    textContent;
+  const hasIdentifier = [
+    testId,
+    id,
+    role,
+    accessibleName,
+    href,
+    nameAttr,
+    placeholder,
+    inputType,
+    textContent,
+  ].some((value) => value !== null);
 
-  const structuralPath = hasStrongIdentifier ? null : getStructuralPath(el);
+  const structuralPath = hasIdentifier
+    ? null
+    : (nonBlank(getStructuralPath(element)) ?? tag);
 
   return {
     tag,

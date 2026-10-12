@@ -1,11 +1,24 @@
-import { always, eventually } from "@antithesishq/bombadil";
+import { always, eventually, now, weighted } from "@antithesishq/bombadil";
+import { ActionGenerator, branch, leaf } from "@antithesishq/bombadil/actions";
 import {
   actions,
+  ActionTemplate,
   extract,
   getFingerprint,
 } from "@antithesishq/bombadil/browser";
-import { lastAction } from "@antithesishq/bombadil/browser/defaults/actions";
-export * from "@antithesishq/bombadil/browser/defaults";
+import {
+  lastAction,
+  clicks,
+  navigation,
+} from "@antithesishq/bombadil/browser/defaults/actions";
+
+const loadingText = extract(
+  (state) => state.document.querySelector(".loading")?.textContent ?? null,
+);
+
+function isLoading() {
+  return loadingText.current !== null;
+}
 
 const actionEntries = extract((state) =>
   [...state.document.querySelectorAll(".actions li")].map((element) => ({
@@ -16,8 +29,8 @@ const actionEntries = extract((state) =>
   })),
 );
 
-function isLoading() {
-  return actionEntries.current.length === 0;
+function hasActions() {
+  return actionEntries.current.length > 0;
 }
 
 const timelineRect = extract((state) => {
@@ -34,7 +47,7 @@ const timelineRect = extract((state) => {
   };
 });
 
-export const clickTimeline = actions(() => {
+const clickTimeline = actions(() => {
   const rect = timelineRect.current;
   if (!rect || isLoading()) return [];
   return [
@@ -79,8 +92,10 @@ const tickLabels = extract((state) =>
   ),
 );
 
-export const eventuallyShowsActions = always(
-  eventually(() => actionEntries.current.length > 0).within(2, "seconds"),
+export const eventuallyLoadsAndShowsActions = always(
+  now(() => isLoading()).implies(
+    eventually(() => !isLoading() && hasActions()).within(2, "seconds"),
+  ),
 );
 
 // Regression guard for #171: the timeline axis must span exactly the action
@@ -132,4 +147,15 @@ export const clickTimelineMovesCursorCorrectly = always(() => {
     xRelative >= Math.floor(cursorSpan.current.left) &&
     xRelative <= Math.ceil(cursorSpan.current.right)
   );
+});
+
+export const allActions = actions(() => {
+  if (isLoading() || !hasActions()) {
+    return leaf("Wait");
+  }
+  return weighted([
+    [10, clickTimeline],
+    [10, clicks],
+    [1, navigation],
+  ]).generate();
 });

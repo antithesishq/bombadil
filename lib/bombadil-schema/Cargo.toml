@@ -12,3 +12,4 @@ stdx = { path = "../stdx" }
 
 [dev-dependencies]
 insta.workspace = true
+hegeltest.workspace = true

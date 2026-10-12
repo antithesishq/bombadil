@@ -206,6 +206,16 @@ in
     }
   );
 
+  cli-reference = craneLib.buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      doCheck = false;
+      pname = "cli-reference";
+      cargoExtraArgs = "-p cli-reference";
+    }
+  );
+
   tests-unit = craneLib.cargoTest (
     commonArgs
     // {

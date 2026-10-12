@@ -74,3 +74,32 @@ details .code-block nav,
 details .code-block pre {
   background-color: var(--color-bg);
 }
+
+/* Shell command listings are wrapped on whitespace */
+pre.bash {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+pre.bash > code > span {
+  position: relative;
+  display: block;
+  /* Indent everything but the first line */
+  padding-left: 4ch;
+  text-indent: -4ch;
+}
+
+/* Prefix each wrap with a leading arrow, similar to how Latex does 
+ * it for PDF output 
+ */
+pre.bash > code > span::before {
+  content: "↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪\A↪";
+  position: absolute;
+  top: 1lh;
+  bottom: 0;
+  left: 1ch;
+  overflow: hidden;
+  white-space: pre;
+  text-indent: 0;
+  color: var(--color-fg-muted);
+}

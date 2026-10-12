@@ -189,8 +189,10 @@ const lines = extract((state) => {
     return lines;
 });
 
-export const eventuallyReady = eventually(
-    () => lines.current.every(line => line.includes("y")),
+export const eventuallyReady = eventually(() => 
+    // Last line may be blank.
+    lines.current.slice(0, lines.current.length - 1)
+        .every(line => line.includes("y")),
 );
 
 export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);

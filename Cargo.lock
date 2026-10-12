@@ -618,6 +618,7 @@ name = "bombadil-schema"
 version = "0.7.8"
 dependencies = [
  "bitflags 2.13.2",
+ "hegeltest",
  "insta",
  "serde",
  "serde_json",
@@ -845,6 +846,15 @@ name = "clap_lex"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
+
+[[package]]
+name = "cli-reference"
+version = "0.7.8"
+dependencies = [
+ "anyhow",
+ "bombadil-cli",
+ "clap",
+]
 
 [[package]]
 name = "cmake"
