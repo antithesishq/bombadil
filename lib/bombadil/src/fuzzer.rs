@@ -90,9 +90,14 @@ pub struct FuzzOptions<
     D: InterfaceDriver + Send + Sync + 'static,
     Writer: OutputWriter<D::Session>,
     Rng: TryRng + RngExt,
+    MakeStrategy,
 > {
     pub rng: Rng,
     pub driver: Arc<D>,
+    /// Creates the driver-specific strategy that each run uses. It
+    /// decides when a run stops and which actions are allowed, but
+    /// its choice of action is ignored. It should not print.
+    pub strategy: MakeStrategy,
     pub output_writer: Writer,
     pub interrupted: Arc<AtomicBool>,
     pub time_limit_fuzz: Duration,
@@ -105,17 +110,20 @@ pub fn fuzz<
     D: InterfaceDriver + Send + Sync + 'static,
     Writer: OutputWriter<D::Session> + Send + Sync + 'static,
     Rng: TryRng + RngExt,
+    Inner: RunStrategy<D::Session>,
+    MakeStrategy: Fn() -> Inner + Send + Sync + 'static,
 >(
     FuzzOptions {
         mut rng,
         driver,
+        strategy,
         interrupted,
         time_limit_fuzz,
         time_limit_run,
         swarm,
         parallelism,
         output_writer,
-    }: FuzzOptions<D, Writer, Rng>,
+    }: FuzzOptions<D, Writer, Rng, MakeStrategy>,
 ) -> Result<()>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
@@ -124,6 +132,7 @@ where
     let fuzz_deadline = fuzz_start + time_limit_fuzz;
 
     let output_writer = Arc::new(Mutex::new(output_writer));
+    let strategy = Arc::new(strategy);
     let (worker_tx, worker_rx) = mpmc::unbounded();
     let run_id_next = Arc::new(AtomicU64::new(0));
 
@@ -133,6 +142,7 @@ where
         let worker_id = WorkerId(i);
         let run_id_next = run_id_next.clone();
         let driver = driver.clone();
+        let strategy = strategy.clone();
         let output_writer = output_writer.clone();
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
@@ -140,6 +150,7 @@ where
         let handle = thread::spawn(move || {
             let fuzz_worker_thread = FuzzWorkerThread {
                 driver,
+                strategy,
                 output_writer,
                 worker_tx,
                 interrupted,
@@ -355,8 +366,13 @@ where
     })
 }
 
-struct FuzzWorkerThread<D: InterfaceDriver, Writer: OutputWriter<D::Session>> {
+struct FuzzWorkerThread<
+    D: InterfaceDriver,
+    Writer: OutputWriter<D::Session>,
+    MakeStrategy,
+> {
     driver: Arc<D>,
+    strategy: Arc<MakeStrategy>,
     output_writer: Arc<Mutex<Writer>>,
     worker_tx: mpmc::Sender<WorkerMessage<D::Session>>,
     interrupted: Arc<AtomicBool>,
@@ -368,8 +384,12 @@ struct FuzzWorkerThread<D: InterfaceDriver, Writer: OutputWriter<D::Session>> {
     swarm: bool,
 }
 
-impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
-    FuzzWorkerThread<D, Writer>
+impl<
+    D: InterfaceDriver,
+    Writer: OutputWriter<D::Session>,
+    Inner: RunStrategy<D::Session>,
+    MakeStrategy: Fn() -> Inner,
+> FuzzWorkerThread<D, Writer, MakeStrategy>
 {
     #[hotpath::measure]
     fn run(self) {
@@ -405,6 +425,7 @@ impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
                 .expect("driver initiate failed");
 
             let mut strategy = FuzzStrategy {
+                inner: (self.strategy)(),
                 worker_id: self.worker_id,
                 run_id,
                 rng: StdRng::seed_from_u64(run_seed),
@@ -475,6 +496,9 @@ pub enum ExitReason {
     Stalled,
     Interrupted,
     AllDefinite,
+    /// The wrapped driver-specific strategy stopped the run (e.g. because
+    /// the program under test exited).
+    Stopped,
 }
 
 enum FuzzMode {
@@ -482,7 +506,8 @@ enum FuzzMode {
     RandomWalk,
 }
 
-struct FuzzStrategy<Rng, Session: InterfaceSession> {
+struct FuzzStrategy<Rng, Session: InterfaceSession, Inner> {
+    inner: Inner,
     worker_id: WorkerId,
     run_id: RunId,
     rng: Rng,
@@ -495,8 +520,8 @@ struct FuzzStrategy<Rng, Session: InterfaceSession> {
     excluded: HashMap<u64, Vec<Session::ActionTemplate>>,
 }
 
-impl<Rng: TryRng + RngExt, Session: InterfaceSession>
-    FuzzStrategy<Rng, Session>
+impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
+    FuzzStrategy<Rng, Session, Inner>
 {
     const SWARM_HASH_BIT_WIDTH: usize = 32;
 
@@ -525,16 +550,6 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession>
         _state: &Session::State,
         tree: Tree<Session::ActionTemplate>,
     ) -> Result<Session::Action> {
-        // TODO: somehow inject the following old behavior for browser fuzzing specifically. Some
-        // set of "tactics" that can filter the action tree?
-
-        // let tree = if is_within_domain(&state.url, &self.origin) {
-        //     tree
-        // } else {
-        //     tree.filter(&|a| matches!(a, BrowserAction::Back))
-        // }
-        //
-
         if log::log_enabled!(log::Level::Debug)
             && let FuzzMode::Swarm {
                 seed,
@@ -575,8 +590,11 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession>
     }
 }
 
-impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
-    for FuzzStrategy<Rng, Session>
+impl<
+    Session: InterfaceSession,
+    Rng: TryRng + RngExt,
+    Inner: RunStrategy<Session>,
+> RunStrategy<Session> for FuzzStrategy<Rng, Session, Inner>
 {
     type StopValue = ExitReason;
 
@@ -585,8 +603,8 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
         &mut self,
         state: &Session::State,
         tree: Tree<Session::ActionTemplate>,
-        _last_action: Option<&Session::Action>,
-        _snapshots: &[Snapshot],
+        last_action: Option<&Session::Action>,
+        snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
     ) -> anyhow::Result<ControlFlow<Self::StopValue, Session::Action>> {
         if properties.all_definite {
@@ -599,7 +617,20 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
             return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
         }
 
-        let action = self.pick_action(state, tree)?;
+        let violations = properties.violations.to_vec();
+        let tree_constrained = self.inner.constrain(state, tree.clone());
+        if let ControlFlow::Stop(_) = self.inner.on_new_state(
+            state,
+            tree,
+            last_action,
+            snapshots,
+            properties,
+        )? {
+            log::info!("wrapped strategy stopped, stopping");
+            return Ok(ControlFlow::Stop(ExitReason::Stopped));
+        }
+
+        let action = self.pick_action(state, tree_constrained)?;
 
         let time_relative = std::time::Duration::from_micros(
             state
@@ -613,7 +644,7 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
             run_id: self.run_id,
             time_relative,
             action_selected: action.clone(),
-            violations: properties.violations.to_vec(),
+            violations,
         }) {
             log::error!("failed to send worker message: {:#}", error);
         }
@@ -635,5 +666,13 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
 
     fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
         Ok(ExitReason::Interrupted)
+    }
+
+    fn constrain(
+        &self,
+        state: &Session::State,
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        self.inner.constrain(state, tree)
     }
 }

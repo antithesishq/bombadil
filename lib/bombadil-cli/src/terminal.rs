@@ -431,6 +431,16 @@ pub fn run(command: Command) {
                 fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
+                    strategy: || TerminalStrategy {
+                        rng: AntithesisRng,
+                        mode: TerminalTestMode::RandomWalk,
+                        test_start: None,
+                        violations_count: 0,
+                        exit_on_violation: false,
+                        deadline: None,
+                        states_seen: 0,
+                        quiet: true,
+                    },
                     interrupted,
                     time_limit_fuzz,
                     time_limit_run,

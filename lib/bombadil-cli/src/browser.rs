@@ -733,6 +733,7 @@ fn browser_fuzz(
         overwrite: shared_options.output_path_overwrite,
     };
 
+    let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let driver = Arc::new(BrowserDriver {
         origin: shared_options.target.origin.url,
         browser_options,
@@ -743,6 +744,16 @@ fn browser_fuzz(
     fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
+        strategy: move || TestStrategy {
+            rng: AntithesisRng,
+            mode: TestMode::RandomWalk,
+            exit_on_violation: false,
+            test_start: None,
+            deadline: None,
+            violations_count: 0,
+            allow_urls: allow_urls.clone(),
+            quiet: true,
+        },
         interrupted,
         time_limit_fuzz: fuzz_options.time_limit_fuzz,
         time_limit_run: fuzz_options.time_limit_run,
