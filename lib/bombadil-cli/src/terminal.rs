@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
-use std::{collections::VecDeque, path::PathBuf, process::exit};
+use std::{
+    collections::VecDeque, num::NonZeroUsize, path::PathBuf, process::exit,
+};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
@@ -119,6 +121,9 @@ pub enum Command {
         /// Whether to apply swarm testing to actions. Otherwise all actions are enabled.
         #[arg(long)]
         swarm: bool,
+        /// Number of test runs to execute in parallel.
+        #[arg(long, default_value = "1")]
+        parallelism: NonZeroUsize,
 
         /// Terminal columns at startup
         #[arg(long, default_value_t = defaults::COLUMNS)]
@@ -328,6 +333,7 @@ pub fn run(command: Command) {
             time_limit_run,
             time_limit_fuzz,
             swarm,
+            parallelism,
             columns,
             rows,
             scrollback_lines_max,
@@ -405,6 +411,7 @@ pub fn run(command: Command) {
                     time_limit_fuzz,
                     time_limit_run,
                     swarm,
+                    parallelism,
                     output_writer,
                 })?;
 

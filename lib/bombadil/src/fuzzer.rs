@@ -6,6 +6,7 @@ use std::{
     fmt::{Display, Write as _},
     hash::{DefaultHasher, Hasher},
     io::Write,
+    num::NonZeroUsize,
     sync::{
         Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -31,7 +32,6 @@ use crate::{
     tree::Tree,
 };
 
-const FUZZ_WORKER_COUNT: usize = 8;
 const FUZZ_WORKER_ACTIONS_COUNT_MAX: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
@@ -98,6 +98,7 @@ pub struct FuzzOptions<
     pub time_limit_fuzz: Duration,
     pub time_limit_run: Duration,
     pub swarm: bool,
+    pub parallelism: NonZeroUsize,
 }
 
 pub fn fuzz<
@@ -112,6 +113,7 @@ pub fn fuzz<
         time_limit_fuzz,
         time_limit_run,
         swarm,
+        parallelism,
         output_writer,
     }: FuzzOptions<D, Writer, Rng>,
 ) -> Result<()>
@@ -125,8 +127,8 @@ where
     let (worker_tx, worker_rx) = mpmc::unbounded();
     let run_id_next = Arc::new(AtomicU64::new(0));
 
-    let mut workers: Vec<Worker<D>> = Vec::with_capacity(FUZZ_WORKER_COUNT);
-    for i in 0..FUZZ_WORKER_COUNT {
+    let mut workers: Vec<Worker<D>> = Vec::with_capacity(parallelism.get());
+    for i in 0..parallelism.get() {
         let worker_tx = worker_tx.clone();
         let worker_id = WorkerId(i);
         let run_id_next = run_id_next.clone();
