@@ -169,8 +169,8 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
             return self.stop(ExitReason::Terminated(status.clone()));
         }
 
-        if let Some(deadline) = self.deadline
-            && state.timestamp >= deadline
+        if let Some(deadline) = self.deadline()
+            && state.timestamp() >= deadline
         {
             log::info!("time limit reached, stopping");
             return self.stop(ExitReason::TimeLimit);
@@ -191,6 +191,18 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
         Ok(ControlFlow::Continue(action))
     }
 
+    fn deadline(&self) -> Option<bombadil_schema::Time> {
+        self.deadline.map(bombadil_schema::Time::from_system_time)
+    }
+
+    fn on_time_limit(&mut self) -> Result<Self::StopValue> {
+        Ok(ExitReason::TimeLimit)
+    }
+
+    fn on_stalled(&mut self) -> Result<Self::StopValue> {
+        Ok(ExitReason::Stalled)
+    }
+
     fn on_interrupted(&mut self) -> Result<Self::StopValue> {
         Ok(ExitReason::Interrupted)
     }
@@ -199,6 +211,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
 pub enum ExitReason {
     ExitOnViolation,
     TimeLimit,
+    Stalled,
     Interrupted,
     Terminated(ProcessExitStatus),
     Reproduced,

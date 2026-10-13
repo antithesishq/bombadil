@@ -1,6 +1,6 @@
 use std::fmt::Display;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use std::{fmt::Debug, hash::Hasher};
 
 use anyhow::Result;
@@ -122,9 +122,16 @@ pub trait InterfaceSession {
         + ActionTemplate<Self::Action>;
     type State: RunState + Debug;
 
+    /// Amount of time we'll wait for `next_event` to return an event
+    /// before considering the driver stalled.
+    const STALL_TIMEOUT: Duration;
+
     fn terminate(&mut self) -> Result<()>;
 
-    fn next_event(&mut self) -> Option<DriverEvent<Self::State>>;
+    fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<DriverEvent<Self::State>>;
 
     fn apply(
         &mut self,
@@ -145,4 +152,5 @@ pub trait InterfaceSession {
 pub enum DriverEvent<S> {
     StateChanged(Arc<S>),
     Error(Arc<anyhow::Error>),
+    Timeout,
 }

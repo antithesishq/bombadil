@@ -428,13 +428,19 @@ impl InterfaceSession for TerminalSession {
     type ActionTemplate = TerminalActionTemplate;
     type State = TerminalState;
 
+    // `next_event` always returns within the quiescence timeout.
+    const STALL_TIMEOUT: Duration = Duration::MAX;
+
     fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();
         Ok(())
     }
 
     #[hotpath::measure]
-    fn next_event(&mut self) -> Option<DriverEvent<TerminalState>> {
+    fn next_event(
+        &mut self,
+        _timeout: Duration,
+    ) -> Option<DriverEvent<TerminalState>> {
         let received = self.drain_output(self.quiescence_timeout);
         if received {
             self.last_output_at = Instant::now();

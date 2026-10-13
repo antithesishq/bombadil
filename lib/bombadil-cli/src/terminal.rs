@@ -271,6 +271,9 @@ pub fn run(command: Command) {
                     bombadil_terminal::ExitReason::TimeLimit => {
                         println!("Exited after time limit hit")
                     }
+                    bombadil_terminal::ExitReason::Stalled => {
+                        println!("Exited after the terminal stalled")
+                    }
                     bombadil_terminal::ExitReason::Interrupted => {
                         println!("Exited after SIGINT")
                     }

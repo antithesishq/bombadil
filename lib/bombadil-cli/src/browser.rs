@@ -600,6 +600,9 @@ fn browser_test(
             ExitReason::TimeLimit => {
                 format!("Test finished after time limit{findings}!")
             }
+            ExitReason::Stalled => {
+                format!("Test stopped after the browser stalled{findings}!")
+            }
             ExitReason::Interrupted => {
                 format!("Test was interrupted by SIGINT{findings}!",)
             }
@@ -639,6 +642,9 @@ fn browser_test(
 
     if test_result.violations_count > 0 {
         std::process::exit(2);
+    }
+    if let ExitReason::Stalled = test_result.exit_reason {
+        std::process::exit(1);
     }
 
     Ok(())

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime};
 
 use antithesis_sdk::assert::{AssertType, assert_raw};
 use anyhow::Result;
@@ -55,12 +56,22 @@ pub trait RunStrategy<Session: InterfaceSession> {
         properties: PropertiesState,
     ) -> Result<ControlFlow<Self::StopValue, Session::Action>>;
 
+    fn deadline(&self) -> Option<Time>;
+
+    /// Called when the deadline passes while waiting for the driver.
+    fn on_time_limit(&mut self) -> Result<Self::StopValue>;
+
+    /// Called when the driver produces no event within its stall timeout.
+    fn on_stalled(&mut self) -> Result<Self::StopValue>;
+
     fn on_interrupted(&mut self) -> Result<Self::StopValue>;
 }
 
 pub trait RunState {
     fn timestamp(&self) -> Time;
 }
+
+const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
 pub fn run<
     Session: InterfaceSession,
@@ -99,17 +110,18 @@ fn run_test<
     let mut last_action: Option<Session::Action> = None;
     let mut violations = Vec::new();
 
+    let mut waiting_since = Instant::now();
+
     while !interrupted.load(Ordering::SeqCst) {
-        let event = driver.next_event();
-
-        if antithesis::is_in_guest() {
-            // This lets the Antithesis fuzzer know of a new state in our loop,
-            // so that it can fork and change the entropy to explore the SUT.
-            antithesis_fuzzer::mark_state_boundary();
-        }
-
-        match event {
+        match driver.next_event(POLL_INTERVAL) {
             Some(DriverEvent::StateChanged(state)) => {
+                if antithesis::is_in_guest() {
+                    // This lets the Antithesis fuzzer know of a new state in
+                    // our loop, so that it can fork and change the entropy to
+                    // explore the SUT.
+                    antithesis_fuzzer::mark_state_boundary();
+                }
+
                 let snapshots = driver
                     .extract_snapshots(state.clone(), last_action.as_ref())?;
                 for value in snapshots.iter() {
@@ -187,7 +199,25 @@ fn run_test<
                         log::info!("picked action: {:?}", action);
                         driver.apply(action.clone(), state.clone())?;
                         last_action = Some(action);
+                        waiting_since = Instant::now();
                     }
+                }
+            }
+            Some(DriverEvent::Timeout) => {
+                if strategy.deadline().is_some_and(|deadline| {
+                    Time::from_system_time(SystemTime::now()) >= deadline
+                }) {
+                    log::warn!(
+                        "time limit reached while waiting for driver, stopping"
+                    );
+                    return strategy.on_time_limit();
+                }
+                if waiting_since.elapsed() >= Session::STALL_TIMEOUT {
+                    log::error!(
+                        "driver stalled: no event for {:?}, stopping",
+                        Session::STALL_TIMEOUT
+                    );
+                    return strategy.on_stalled();
                 }
             }
             Some(DriverEvent::Error(error)) => {

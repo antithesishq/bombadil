@@ -384,6 +384,18 @@ impl RunStrategy<TerminalSession> for IntegrationTestStrategy {
         ))
     }
 
+    fn deadline(&self) -> Option<bombadil_schema::Time> {
+        None
+    }
+
+    fn on_time_limit(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn on_stalled(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     fn on_interrupted(&mut self) -> Result<()> {
         Ok(())
     }

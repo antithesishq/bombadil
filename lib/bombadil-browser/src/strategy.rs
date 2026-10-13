@@ -39,6 +39,7 @@ pub struct TestStrategy<Rng> {
 pub enum ExitReason {
     ExitOnViolation,
     TimeLimit,
+    Stalled,
     Interrupted,
     Reproduced,
     AllDefinite,
@@ -196,8 +197,8 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             }));
         }
 
-        if let Some(deadline) = self.deadline
-            && state.timestamp >= deadline
+        if let Some(deadline) = self.deadline()
+            && state.timestamp() >= deadline
         {
             log::info!("time limit reached, stopping");
             return Ok(ControlFlow::Stop(TestResult {
@@ -216,6 +217,24 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
         println!("{} {}", Formatted(&elapsed), Formatted(&action));
 
         Ok(ControlFlow::Continue(action))
+    }
+
+    fn deadline(&self) -> Option<bombadil_schema::Time> {
+        self.deadline.map(bombadil_schema::Time::from_system_time)
+    }
+
+    fn on_time_limit(&mut self) -> anyhow::Result<Self::StopValue> {
+        Ok(TestResult {
+            exit_reason: ExitReason::TimeLimit,
+            violations_count: self.violations_count,
+        })
+    }
+
+    fn on_stalled(&mut self) -> anyhow::Result<Self::StopValue> {
+        Ok(TestResult {
+            exit_reason: ExitReason::Stalled,
+            violations_count: self.violations_count,
+        })
     }
 
     fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {

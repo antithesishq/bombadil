@@ -130,7 +130,7 @@ enum StateRequestReason {
     Quiesced,
 }
 
-const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct BrowserContext {
     sender: mpmc::Sender<BrowserEvent>,
@@ -435,8 +435,11 @@ impl Browser {
     }
 
     #[hotpath::measure]
-    pub fn next_event(&mut self) -> Option<BrowserEvent> {
-        self.browser_events_rx.recv().ok()
+    pub fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<BrowserEvent, mpmc::RecvTimeoutError> {
+        self.browser_events_rx.recv_timeout(timeout)
     }
 
     pub fn apply(

@@ -472,6 +472,7 @@ impl<D: InterfaceDriver, Writer: OutputWriter<D::Session>>
 #[derive(Clone, Copy, Debug)]
 pub enum ExitReason {
     TimeLimit,
+    Stalled,
     Interrupted,
     AllDefinite,
 }
@@ -618,6 +619,18 @@ impl<Session: InterfaceSession, Rng: TryRng + RngExt> RunStrategy<Session>
         }
 
         Ok(ControlFlow::Continue(action))
+    }
+
+    fn deadline(&self) -> Option<Time> {
+        Some(self.test_deadline)
+    }
+
+    fn on_time_limit(&mut self) -> anyhow::Result<Self::StopValue> {
+        Ok(ExitReason::TimeLimit)
+    }
+
+    fn on_stalled(&mut self) -> anyhow::Result<Self::StopValue> {
+        Ok(ExitReason::Stalled)
     }
 
     fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
