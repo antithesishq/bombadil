@@ -42,6 +42,7 @@ use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
 
+use crate::shrink::{self, ShrinkOptions};
 use crate::{duration, inspect_server, output_path};
 
 const DEFAULT_WIDTH: u16 = 1024;
@@ -76,6 +77,15 @@ Examples:
   bombadil browser test-external --remote-debugger http://localhost:9222 https://example.com
 ";
 
+const SHRINK_EXAMPLES: &str = "\
+Examples:
+  # Shrink the trace in `my-test`, which violates a single property
+  bombadil browser shrink --headless --trace my-test https://example.com
+
+  # Shrink for a specific property, using four parallel browsers
+  bombadil browser shrink --headless --trace my-test --property noErrors --parallelism 4 https://example.com spec.ts
+";
+
 const INSPECT_EXAMPLES: &str = "\
 Examples:
   # Inspect the trace in an output directory named `my-test`
@@ -92,12 +102,8 @@ pub enum BrowserCommand {
     Test {
         #[clap(flatten)]
         shared: RunSharedOptions,
-        /// Whether the browser should run in a visible window or not
-        #[arg(long, default_value_t = false)]
-        headless: bool,
-        /// Disable Chromium sandboxing
-        #[arg(long, default_value_t = false)]
-        no_sandbox: bool,
+        #[clap(flatten)]
+        launch_options: ManagedBrowserOptions,
     },
     /// Run a test with an externally managed browser or Electron app (e.g. `chromium
     /// --remote-debugging-port=9992`)
@@ -120,12 +126,19 @@ pub enum BrowserCommand {
         run_shared_options: RunSharedOptions,
         #[clap(flatten)]
         fuzz_options: FuzzOptions,
-        /// Whether the browser should run in a visible window or not
-        #[arg(long, default_value_t = false)]
-        headless: bool,
-        /// Disable Chromium sandboxing
-        #[arg(long, default_value_t = false)]
-        no_sandbox: bool,
+        #[clap(flatten)]
+        launch_options: ManagedBrowserOptions,
+    },
+    /// Shrink a trace with a property violation into a smaller one that
+    /// still violates it (best-effort)
+    #[command(after_help = SHRINK_EXAMPLES)]
+    Shrink {
+        #[clap(flatten)]
+        target: TargetOptions,
+        #[clap(flatten)]
+        shrink_options: ShrinkOptions,
+        #[clap(flatten)]
+        launch_options: ManagedBrowserOptions,
     },
     /// Launch Bombadil Inspect to inspect a trace file
     #[command(after_help = INSPECT_EXAMPLES)]
@@ -143,16 +156,8 @@ pub enum BrowserCommand {
 
 #[derive(Args)]
 pub struct RunSharedOptions {
-    /// Starting URL of the test. Without `--allow-url`, exploration stays on
-    /// the origin's scheme, host and port. For a `file://` origin it stays on
-    /// that exact file. With one or more `--allow-url` entries, those define the
-    /// exploration boundary instead (include the origin there if it should
-    /// remain allowed).
-    pub origin: Origin,
-
-    /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
-    /// package on NPM
-    pub specification_file: Option<PathBuf>,
+    #[clap(flatten)]
+    pub target: TargetOptions,
 
     /// Where to store output data (trace, screenshots, etc.)
     #[arg(long)]
@@ -166,6 +171,31 @@ pub struct RunSharedOptions {
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
+
+    /// Maximum time to run the test. Accepts a number with a unit suffix:
+    /// s (seconds), m (minutes), h (hours), or d (days).
+    #[arg(long, value_parser = duration::parse_duration)]
+    pub time_limit: Option<Duration>,
+
+    /// Reproduce a previous test run from a trace file, instead of random exploration.
+    /// Mutually exclusive with `--time-limit` and `--exit-on-violation`.
+    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
+    pub reproduce: Option<PathBuf>,
+}
+
+/// What to test and how to set up the browser.
+#[derive(Args)]
+pub struct TargetOptions {
+    /// Starting URL of the test. Without `--allow-url`, exploration stays on
+    /// the origin's scheme, host and port. For a `file://` origin it stays on
+    /// that exact file. With one or more `--allow-url` entries, those define the
+    /// exploration boundary instead (include the origin there if it should
+    /// remain allowed).
+    pub origin: Origin,
+
+    /// A custom specification in TypeScript or JavaScript, using the `@antithesishq/bombadil`
+    /// package on NPM
+    pub specification_file: Option<PathBuf>,
 
     /// Browser viewport width in pixels
     #[arg(long, default_value_t = DEFAULT_WIDTH)]
@@ -184,11 +214,6 @@ pub struct RunSharedOptions {
     /// Comma-separated list of: "files", "inline"
     #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
     pub instrument_javascript: InstrumentationConfig,
-
-    /// Maximum time to run the test. Accepts a number with a unit suffix:
-    /// s (seconds), m (minutes), h (hours), or d (days).
-    #[arg(long, value_parser = duration::parse_duration)]
-    pub time_limit: Option<Duration>,
 
     /// Comma-separated list of Chrome permissions to grant.
     #[arg(
@@ -221,11 +246,40 @@ pub struct RunSharedOptions {
     /// [Match patterns](https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
     #[arg(long = "allow-url", value_name = "MATCH_PATTERN", value_parser = MatchPattern::parse)]
     pub allow_urls: Vec<MatchPattern>,
+}
 
-    /// Reproduce a previous test run from a trace file, instead of random exploration.
-    /// Mutually exclusive with `--time-limit` and `--exit-on-violation`.
-    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
-    pub reproduce: Option<PathBuf>,
+/// How to launch a browser managed by Bombadil.
+#[derive(Args)]
+pub struct ManagedBrowserOptions {
+    /// Whether the browser should run in a visible window or not
+    #[arg(long, default_value_t = false)]
+    headless: bool,
+    /// Disable Chromium sandboxing
+    #[arg(long, default_value_t = false)]
+    no_sandbox: bool,
+}
+
+impl ManagedBrowserOptions {
+    fn debugger_options(&self) -> Result<DebuggerOptions> {
+        Ok(DebuggerOptions::Managed {
+            launch_options: LaunchOptions {
+                executable: chromium::locate::executable()?,
+                headless: self.headless,
+                no_sandbox: self.no_sandbox,
+            },
+        })
+    }
+
+    fn reproduce_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        if self.headless {
+            args.push("--headless".into());
+        }
+        if self.no_sandbox {
+            args.push("--no-sandbox".into());
+        }
+        args
+    }
 }
 
 #[derive(Args)]
@@ -270,8 +324,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
     match command {
         BrowserCommand::Test {
             shared,
-            headless,
-            no_sandbox,
+            launch_options,
         } => {
             let mode = resolve_test_mode(&shared)?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
@@ -284,23 +337,12 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 output_path::resolve_output_path(&shared.output_path)?;
 
             let mut reproduce_args =
-                reproduce_command_args("browser test", &shared);
-            if headless {
-                reproduce_args.push("--headless".into());
-            }
-            if no_sandbox {
-                reproduce_args.push("--no-sandbox".into());
-            }
+                reproduce_command_args("browser test", &shared.target);
+            reproduce_args.extend(launch_options.reproduce_args());
 
             let browser_options =
-                browser_options_from_run_shared(&shared, &output_path);
-            let debugger_options = DebuggerOptions::Managed {
-                launch_options: LaunchOptions {
-                    executable: chromium::locate::executable()?,
-                    headless,
-                    no_sandbox,
-                },
-            };
+                browser_options_from_target(&shared.target, &output_path);
+            let debugger_options = launch_options.debugger_options()?;
             browser_test(
                 mode,
                 reproduce_args,
@@ -320,7 +362,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 output_path::resolve_output_path(&shared.output_path)?;
 
             let mut reproduce_args =
-                reproduce_command_args("browser test-external", &shared);
+                reproduce_command_args("browser test-external", &shared.target);
             reproduce_args.push(format!("--remote-debugger {remote_debugger}"));
             if create_target {
                 reproduce_args.push("--create-target".into());
@@ -328,7 +370,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_run_shared(&shared, &output_path)
+                ..browser_options_from_target(&shared.target, &output_path)
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
@@ -342,8 +384,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             )
         }
         BrowserCommand::Fuzz {
-            headless,
-            no_sandbox,
+            launch_options,
             run_shared_options,
             fuzz_options,
         } => {
@@ -351,17 +392,11 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 &run_shared_options.output_path,
             )?;
 
-            let browser_options = browser_options_from_run_shared(
-                &run_shared_options,
+            let browser_options = browser_options_from_target(
+                &run_shared_options.target,
                 &output_path,
             );
-            let debugger_options = DebuggerOptions::Managed {
-                launch_options: LaunchOptions {
-                    executable: chromium::locate::executable()?,
-                    headless,
-                    no_sandbox,
-                },
-            };
+            let debugger_options = launch_options.debugger_options()?;
             browser_fuzz(
                 output_path,
                 run_shared_options,
@@ -370,6 +405,15 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 fuzz_options,
             )
         }
+        BrowserCommand::Shrink {
+            target,
+            shrink_options,
+            launch_options,
+        } => browser_shrink(
+            target,
+            shrink_options,
+            launch_options.debugger_options()?,
+        ),
         BrowserCommand::Inspect {
             trace_path,
             port,
@@ -425,63 +469,95 @@ fn parse_instrumentation_config(
     })
 }
 
-fn browser_options_from_run_shared(
-    shared: &RunSharedOptions,
+fn browser_options_from_target(
+    target: &TargetOptions,
     output_path: &Path,
 ) -> BrowserOptions {
     BrowserOptions {
         create_target: true,
         emulation: Emulation {
-            width: shared.width,
-            height: shared.height,
-            device_scale_factor: shared.device_scale_factor,
+            width: target.width,
+            height: target.height,
+            device_scale_factor: target.device_scale_factor,
         },
-        instrumentation: shared.instrument_javascript.clone(),
+        instrumentation: target.instrument_javascript.clone(),
         downloads_directory: output_path.join("downloads"),
-        grant_permissions: shared
+        grant_permissions: target
             .chrome_grant_permissions
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect(),
-        virtual_time_policy: shared.chrome_virtual_time_policy.clone(),
-        extra_headers: shared.headers.iter().cloned().collect(),
-        cookies: shared.cookies.clone(),
+        virtual_time_policy: target.chrome_virtual_time_policy.clone(),
+        extra_headers: target.headers.iter().cloned().collect(),
+        cookies: target.cookies.clone(),
+    }
+}
+
+/// Load a user-provided specification, or use the defaults provided by Bombadil.
+fn load_specification(target: &TargetOptions) -> Specification {
+    if let Some(path) = &target.specification_file {
+        let path = if path.is_relative() && !path.starts_with(".") {
+            PathBuf::from(".").join(path)
+        } else {
+            path.clone()
+        };
+        log::info!("loading specification from file: {}", path.display());
+        Specification {
+            module_specifier: path.display().to_string(),
+        }
+    } else {
+        log::info!("using default specification");
+        Specification {
+            module_specifier: "@antithesishq/bombadil/browser/defaults"
+                .to_string(),
+        }
+    }
+}
+
+fn resolve_allow_urls(target: &TargetOptions) -> Result<Vec<MatchPattern>> {
+    if target.allow_urls.is_empty() {
+        Ok(vec![
+            MatchPattern::from_origin(&target.origin.url)
+                .map_err(|reason| anyhow!("invalid allow url: {reason}"))?,
+        ])
+    } else {
+        Ok(target.allow_urls.clone())
     }
 }
 
 fn reproduce_command_args(
     subcommand: &str,
-    shared: &RunSharedOptions,
+    target: &TargetOptions,
 ) -> Vec<String> {
     let mut args = vec![
         subcommand.to_string(),
-        shell_quote(shared.origin.url.as_str()),
+        shell_quote(target.origin.url.as_str()),
     ];
-    if let Some(path) = &shared.specification_file {
+    if let Some(path) = &target.specification_file {
         args.push(path.display().to_string());
     }
-    if shared.width != DEFAULT_WIDTH {
-        args.push(format!("--width {}", shared.width));
+    if target.width != DEFAULT_WIDTH {
+        args.push(format!("--width {}", target.width));
     }
-    if shared.height != DEFAULT_HEIGHT {
-        args.push(format!("--height {}", shared.height));
+    if target.height != DEFAULT_HEIGHT {
+        args.push(format!("--height {}", target.height));
     }
-    if (shared.device_scale_factor - DEFAULT_DEVICE_SCALE_FACTOR).abs()
+    if (target.device_scale_factor - DEFAULT_DEVICE_SCALE_FACTOR).abs()
         > f64::EPSILON
     {
         args.push(format!(
             "--device-scale-factor {}",
-            shared.device_scale_factor
+            target.device_scale_factor
         ));
     }
-    for (key, value) in &shared.headers {
+    for (key, value) in &target.headers {
         args.push(format!("--header {key}={value}"));
     }
-    for cookie in &shared.cookies {
+    for cookie in &target.cookies {
         args.push(format!("--cookie {cookie}"));
     }
-    for allow_url in &shared.allow_urls {
+    for allow_url in &target.allow_urls {
         args.push(format!("--allow-url '{allow_url}'"));
     }
     args
@@ -519,24 +595,7 @@ fn browser_test(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
-    // Load a user-provided specification, or use the defaults provided by Bombadil.
-    let specification = if let Some(path) = &shared_options.specification_file {
-        let path = if path.is_relative() && !path.starts_with(".") {
-            PathBuf::from(".").join(path)
-        } else {
-            path.clone()
-        };
-        log::info!("loading specification from file: {}", path.display());
-        Specification {
-            module_specifier: path.display().to_string(),
-        }
-    } else {
-        log::info!("using default specification");
-        Specification {
-            module_specifier: "@antithesishq/bombadil/browser/defaults"
-                .to_string(),
-        }
-    };
+    let specification = load_specification(&shared_options.target);
 
     let is_reproduce = shared_options.reproduce.is_some();
 
@@ -547,15 +606,8 @@ fn browser_test(
         );
     }
 
-    let origin = shared_options.origin.url;
-    let allow_urls = if shared_options.allow_urls.is_empty() {
-        vec![
-            MatchPattern::from_origin(&origin)
-                .map_err(|reason| anyhow!("invalid allow url: {reason}"))?,
-        ]
-    } else {
-        shared_options.allow_urls
-    };
+    let allow_urls = resolve_allow_urls(&shared_options.target)?;
+    let origin = shared_options.target.origin.url;
 
     let run_options = RunOptions {
         run_id: RunId::default(),
@@ -663,24 +715,7 @@ fn browser_fuzz(
         );
     };
 
-    // Load a user-provided specification, or use the defaults provided by Bombadil.
-    let specification = if let Some(path) = &shared_options.specification_file {
-        let path = if path.is_relative() && !path.starts_with(".") {
-            PathBuf::from(".").join(path)
-        } else {
-            path.clone()
-        };
-        log::info!("loading specification from file: {}", path.display());
-        Specification {
-            module_specifier: path.display().to_string(),
-        }
-    } else {
-        log::info!("using default specification");
-        Specification {
-            module_specifier: "@antithesishq/bombadil/browser/defaults"
-                .to_string(),
-        }
-    };
+    let specification = load_specification(&shared_options.target);
 
     let interrupted = Arc::new(AtomicBool::new(false));
     {
@@ -699,7 +734,7 @@ fn browser_fuzz(
     };
 
     let driver = Arc::new(BrowserDriver {
-        origin: shared_options.origin.url,
+        origin: shared_options.target.origin.url,
         browser_options,
         debugger_options,
         specification_bundle,
@@ -825,6 +860,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         deadline,
         violations_count: 0,
         allow_urls,
+        quiet: false,
     };
 
     bombadil_browser::runner::launch(
@@ -837,4 +873,57 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         interrupted,
         &mut strategy,
     )
+}
+
+fn browser_shrink(
+    target: TargetOptions,
+    shrink_options: ShrinkOptions,
+    debugger_options: DebuggerOptions,
+) -> Result<()> {
+    let options = shrink_options.resolve::<browser::BrowserAction>()?;
+    let specification = load_specification(&target);
+    let allow_urls = resolve_allow_urls(&target)?;
+    let browser_options =
+        browser_options_from_target(&target, &options.output_path);
+    let driver = Arc::new(BrowserDriver {
+        origin: target.origin.url.clone(),
+        browser_options,
+        debugger_options,
+        specification_bundle: Arc::from(bundle(
+            ".",
+            &specification.module_specifier,
+        )?),
+    });
+
+    let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
+        driver,
+        strategy: move || TestStrategy {
+            rng: AntithesisRng,
+            mode: TestMode::RandomWalk,
+            exit_on_violation: false,
+            test_start: None,
+            deadline: None,
+            violations_count: 0,
+            allow_urls: allow_urls.clone(),
+            quiet: true,
+        },
+        trace_writer: |path| FileTraceWriter::initialize(path, false),
+        trace: options.trace.map_actions(|action| action.to_internal()),
+        property_name: options.property_name,
+        output_path: options.output_path.clone(),
+        output_path_overwrite: options.output_path_overwrite,
+        parallelism: options.parallelism,
+        interrupted: options.interrupted,
+        time_limit: options.time_limit,
+        settings: options.settings,
+    })?;
+    shrink::print_result(&result);
+    println!(
+        "Inspect the shrunk trace using:\n\n  {}\n",
+        styled::maybe_italic(format!(
+            "bombadil browser inspect {}",
+            options.output_path.display()
+        ))
+    );
+    Ok(())
 }

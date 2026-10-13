@@ -65,6 +65,16 @@ pub trait RunStrategy<Session: InterfaceSession> {
     fn on_stalled(&mut self) -> Result<Self::StopValue>;
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue>;
+
+    /// Restrict the actions available in a state. The runner applies this
+    /// to the action tree before passing it to `on_new_state`.
+    fn constrain(
+        &self,
+        _state: &Session::State,
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        tree
+    }
 }
 
 pub trait RunState {
@@ -185,9 +195,10 @@ fn run_test<
                     properties.violations,
                 )?;
 
+                let actions = strategy.constrain(&state, step_result.actions);
                 let control = strategy.on_new_state(
                     &state,
-                    step_result.actions,
+                    actions,
                     last_action.as_ref(),
                     &snapshots,
                     properties,

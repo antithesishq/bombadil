@@ -98,3 +98,16 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+# The JS engine evaluating specifications is very slow unoptimised, which
+# dominates tests that run the verifier many times.
+[profile.dev.package.boa_ast]
+opt-level = 2
+[profile.dev.package.boa_engine]
+opt-level = 2
+[profile.dev.package.boa_gc]
+opt-level = 2
+[profile.dev.package.boa_interner]
+opt-level = 2
+[profile.dev.package.boa_string]
+opt-level = 2

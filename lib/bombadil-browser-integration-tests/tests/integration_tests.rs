@@ -455,6 +455,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             exit_on_violation: true,
             violations_count: 0,
             allow_urls,
+            quiet: false,
         };
 
         let timeout = time_limit.map_or(Duration::from_secs(120), |limit| {

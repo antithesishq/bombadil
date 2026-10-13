@@ -26,6 +26,7 @@ use std::io::{BufRead, BufReader};
 use tempfile::TempDir;
 
 use crate::duration;
+use crate::shrink::{self, ShrinkOptions};
 
 mod defaults {
     pub const COLUMNS: u16 = 100;
@@ -45,6 +46,44 @@ Examples:
   # Reproduce a previous test run (best-effort, fails on divergence)
   bombadil terminal test --reproduce my-test my-tui --arg value
 ";
+
+const SHRINK_EXAMPLES: &str = "\
+Examples:
+  # Shrink the trace in `my-test`, which violates a single property
+  bombadil terminal shrink --trace my-test my-tui --arg value
+
+  # Shrink for a specific property, running four programs in parallel
+  bombadil terminal shrink --trace my-test --property noCrash --parallelism 4 --specification tui.spec.ts my-tui
+";
+
+/// The program under test and how to run it.
+#[derive(clap::Args)]
+pub struct ProgramArgs {
+    /// Path to a TypeScript specification file (uses the
+    /// `@antithesishq/bombadil/terminal` API). Unless specified, Bombadil will
+    /// use the default specification for terminal UIs.
+    #[arg(long = "specification")]
+    specification_file: Option<PathBuf>,
+    /// Terminal columns at startup
+    #[arg(long, default_value_t = defaults::COLUMNS)]
+    columns: u16,
+    /// Terminal rows at startup
+    #[arg(long, default_value_t = defaults::ROWS)]
+    rows: u16,
+    /// Maximum line count to keep in scrollback buffer
+    #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
+    scrollback_lines_max: u16,
+    /// How long to wait (in milliseconds) for the program to stop emitting
+    /// output before extracting the next state. Lower values increase
+    /// throughput but risk sampling mid-render; higher values give the
+    /// program more time to finish drawing.
+    #[arg(long, default_value_t = defaults::QUIESCENCE_TIMEOUT_MS)]
+    quiescence_timeout_ms: u64,
+    /// The command to run as the system under test. Everything after
+    /// `--` is forwarded as program + arguments.
+    #[clap(trailing_var_arg = true)]
+    command: Vec<String>,
+}
 
 #[derive(clap::Subcommand)]
 pub enum Command {
@@ -95,6 +134,16 @@ pub enum Command {
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
+    },
+
+    /// (EXPERIMENTAL) Shrink a trace with a property violation into a
+    /// smaller one that still violates it (best-effort, as with reproduce)
+    #[command(after_help = SHRINK_EXAMPLES)]
+    Shrink {
+        #[clap(flatten)]
+        shrink_options: ShrinkOptions,
+        #[clap(flatten)]
+        program: ProgramArgs,
     },
 
     /// (EXPERIMENTAL) Fuzz (running many short test runs) the given program against a
@@ -157,6 +206,15 @@ pub enum Command {
 
 pub fn run(command: Command) {
     match command {
+        Command::Shrink {
+            shrink_options,
+            program,
+        } => {
+            if let Err(error) = terminal_shrink(shrink_options, program) {
+                eprintln!("\n\nterminal shrink failed: {error:#}");
+                exit(1);
+            }
+        }
         Command::Test {
             specification_file,
             exit_on_violation,
@@ -176,26 +234,7 @@ pub fn run(command: Command) {
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
 
-                let specification = if let Some(path) = specification_file {
-                    // Prepend "./" for relative paths that don't already start with "."
-                    // so the bundler treats them as paths rather than bare specifiers.
-                    let path = if path.is_relative() && !path.starts_with(".") {
-                        PathBuf::from(".").join(path)
-                    } else {
-                        path.clone()
-                    };
-
-                    Specification {
-                        module_specifier: path.display().to_string(),
-                    }
-                } else {
-                    log::info!("using default specification");
-                    Specification {
-                        module_specifier:
-                            "@antithesishq/bombadil/terminal/defaults"
-                                .to_string(),
-                    }
-                };
+                let specification = load_specification(specification_file);
 
                 let output_path = resolve_output_path(output_path)?;
 
@@ -237,6 +276,7 @@ pub fn run(command: Command) {
                     exit_on_violation,
                     deadline,
                     states_seen: 0,
+                    quiet: false,
                 };
                 let (mut session, verifier) =
                     driver.new_session(RunId::default())?;
@@ -357,26 +397,7 @@ pub fn run(command: Command) {
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
 
-                let specification = if let Some(path) = specification_file {
-                    // Prepend "./" for relative paths that don't already start with "."
-                    // so the bundler treats them as paths rather than bare specifiers.
-                    let path = if path.is_relative() && !path.starts_with(".") {
-                        PathBuf::from(".").join(path)
-                    } else {
-                        path.clone()
-                    };
-
-                    Specification {
-                        module_specifier: path.display().to_string(),
-                    }
-                } else {
-                    log::info!("using default specification");
-                    Specification {
-                        module_specifier:
-                            "@antithesishq/bombadil/terminal/defaults"
-                                .to_string(),
-                    }
-                };
+                let specification = load_specification(specification_file);
 
                 let output_path = resolve_output_path(output_path)?;
 
@@ -471,4 +492,85 @@ fn load_reproduce_actions(
         }
     }
     Ok(actions)
+}
+
+fn terminal_shrink(
+    shrink_options: ShrinkOptions,
+    program: ProgramArgs,
+) -> Result<()> {
+    let ProgramArgs {
+        specification_file,
+        columns,
+        rows,
+        scrollback_lines_max,
+        quiescence_timeout_ms,
+        command,
+    } = program;
+    let (program, arguments) = match &command[..] {
+        [program, args @ ..] => (program.clone(), args.to_vec()),
+        _ => bail!("expected `<program> [args...]` after `--`"),
+    };
+    let options = shrink_options
+        .resolve::<bombadil_schema::terminal::TerminalAction>()?;
+    let driver = Arc::new(TerminalDriver::new(
+        load_specification(specification_file),
+        TerminalProgramOptions {
+            size: TerminalSize { columns, rows },
+            scrollback_lines_max: scrollback_lines_max as usize,
+            quiescence_timeout: Duration::from_millis(quiescence_timeout_ms),
+            program,
+            arguments,
+        },
+    )?);
+
+    let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
+        driver,
+        strategy: || TerminalStrategy {
+            rng: AntithesisRng,
+            mode: TerminalTestMode::RandomWalk,
+            test_start: None,
+            violations_count: 0,
+            exit_on_violation: false,
+            deadline: None,
+            states_seen: 0,
+            quiet: true,
+        },
+        trace_writer: |path| TerminalTraceWriter::initialize(path, false),
+        trace: options.trace.map_actions(|action| action.to_internal()),
+        property_name: options.property_name,
+        output_path: options.output_path.clone(),
+        output_path_overwrite: options.output_path_overwrite,
+        parallelism: options.parallelism,
+        interrupted: options.interrupted,
+        time_limit: options.time_limit,
+        settings: options.settings,
+    })?;
+    shrink::print_result(&result);
+    println!(
+        "Shrunk trace written to: {}\n",
+        options.output_path.display()
+    );
+    Ok(())
+}
+
+/// Load a user-provided specification, or use the defaults provided by Bombadil.
+fn load_specification(specification_file: Option<PathBuf>) -> Specification {
+    if let Some(path) = specification_file {
+        // Prepend "./" for relative paths that don't already start with "."
+        // so the bundler treats them as paths rather than bare specifiers.
+        let path = if path.is_relative() && !path.starts_with(".") {
+            PathBuf::from(".").join(path)
+        } else {
+            path
+        };
+        Specification {
+            module_specifier: path.display().to_string(),
+        }
+    } else {
+        log::info!("using default specification");
+        Specification {
+            module_specifier: "@antithesishq/bombadil/terminal/defaults"
+                .to_string(),
+        }
+    }
 }

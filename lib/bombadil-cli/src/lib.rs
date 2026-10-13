@@ -2,6 +2,7 @@ mod browser;
 mod duration;
 mod inspect_server;
 mod output_path;
+mod shrink;
 #[cfg(feature = "terminal")]
 mod terminal;
 

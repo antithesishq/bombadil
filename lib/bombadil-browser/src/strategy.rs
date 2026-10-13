@@ -33,6 +33,7 @@ pub struct TestStrategy<Rng> {
     pub deadline: Option<SystemTime>,
     pub allow_urls: Vec<MatchPattern>,
     pub violations_count: u64,
+    pub quiet: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -60,7 +61,7 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
         &self,
         state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
-    ) -> Result<Tree<BrowserActionTemplate>> {
+    ) -> Tree<BrowserActionTemplate> {
         if self.is_url_allowed(&state.url) {
             // Preemptively drop clicks that'd take us to a disallowed URL.
             tree.filter(&|a| match a {
@@ -87,16 +88,15 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
             // backwards navigation if possible.
             tree.filter(&|a| matches!(a, BrowserAction::Back))
         }
-        .prune()
-        .ok_or_else(|| anyhow::anyhow!("no actions available"))
     }
 
     fn pick_action(
         &mut self,
-        state: &BrowserState,
         tree: Tree<BrowserActionTemplate>,
     ) -> Result<BrowserAction> {
-        let tree = self.exclude_disallowed_urls(state, tree)?;
+        let tree = tree
+            .prune()
+            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TestMode::RandomWalk => {
                 let template = tree.pick(&mut self.rng)?.clone();
@@ -158,19 +158,21 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
         );
 
         self.violations_count += properties.violations.len() as u64;
-        for violation in properties.violations {
-            log::info!("violation of property `{}`", violation.name);
-            let api_violation = violation.to_schema();
-            let markup = markup::render_violation(&api_violation);
-            let text = styled::markup_to_styled(&markup, test_start);
-            println!(
-                "\n{}\n\n{}\n",
-                styled::maybe_red(styled::maybe_bold(format!(
-                    "{} was violated:",
-                    violation.name
-                ))),
-                text
-            );
+        if !self.quiet {
+            for violation in properties.violations {
+                log::info!("violation of property `{}`", violation.name);
+                let api_violation = violation.to_schema();
+                let markup = markup::render_violation(&api_violation);
+                let text = styled::markup_to_styled(&markup, test_start);
+                println!(
+                    "\n{}\n\n{}\n",
+                    styled::maybe_red(styled::maybe_bold(format!(
+                        "{} was violated:",
+                        violation.name
+                    ))),
+                    text
+                );
+            }
         }
 
         if self.violations_count > 0 && self.exit_on_violation {
@@ -207,14 +209,16 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             }));
         }
 
-        let action = self.pick_action(state, tree)?;
+        let action = self.pick_action(tree)?;
         let elapsed = std::time::Duration::from_micros(
             state
                 .timestamp()
                 .as_micros()
                 .saturating_sub(test_start.as_micros()),
         );
-        println!("{} {}", Formatted(&elapsed), Formatted(&action));
+        if !self.quiet {
+            println!("{} {}", Formatted(&elapsed), Formatted(&action));
+        }
 
         Ok(ControlFlow::Continue(action))
     }
@@ -235,6 +239,14 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             exit_reason: ExitReason::Stalled,
             violations_count: self.violations_count,
         })
+    }
+
+    fn constrain(
+        &self,
+        state: &BrowserState,
+        tree: Tree<BrowserActionTemplate>,
+    ) -> Tree<BrowserActionTemplate> {
+        self.exclude_disallowed_urls(state, tree)
     }
 
     fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
