@@ -523,6 +523,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "stdx-derive",
  "tempfile",
  "url",
 ]
@@ -4698,6 +4699,10 @@ version = "0.7.8"
 dependencies = [
  "hegeltest",
 ]
+
+[[package]]
+name = "stdx-derive"
+version = "0.7.8"
 
 [[package]]
 name = "str_indices"

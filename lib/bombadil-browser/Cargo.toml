@@ -44,3 +44,4 @@ env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
 hegeltest.workspace = true
+stdx-derive = { path = "../stdx-derive" }

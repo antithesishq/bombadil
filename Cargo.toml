@@ -17,6 +17,7 @@ members = [
   "lib/cdp/protocol",
   "lib/small-string",
   "lib/stdx",
+  "lib/stdx-derive",
   "lib/typescript-reference",
 ]
 resolver = "2"
