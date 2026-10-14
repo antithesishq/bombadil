@@ -43,7 +43,7 @@ use bombadil_browser::{
     driver::{BrowserSession, DebuggerOptions},
     match_pattern::MatchPattern,
     runner,
-    strategy::TestStrategy,
+    strategy::{ExitReason, TestResult, TestStrategy},
 };
 
 static INIT: Once = Once::new();
@@ -88,6 +88,7 @@ struct BrowserIntegrationTest<'a> {
     name: &'a str,
     expect: Expect,
     time_limit: Option<Duration>,
+    state_interval_max: Option<Duration>,
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
@@ -103,6 +104,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             name,
             expect: Expect::Success,
             time_limit: None,
+            state_interval_max: None,
             specification: None,
             grant_permissions: vec![
                 "local-network-access".to_string(),
@@ -129,6 +131,13 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn time_limit(mut self, duration: Duration) -> Self {
         self.time_limit = Some(duration);
+        self
+    }
+
+    /// Fail if no state is captured within this interval, including up to the
+    /// end of the test.
+    fn state_interval_max(mut self, interval: Duration) -> Self {
+        self.state_interval_max = Some(interval);
         self
     }
 
@@ -186,6 +195,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             name,
             expect,
             time_limit,
+            state_interval_max,
             specification,
             grant_permissions,
             extra_headers,
@@ -210,6 +220,16 @@ impl<'a> BrowserIntegrationTest<'a> {
                     (header::CONTENT_TYPE, "application/octet-stream"),
                 ],
                 content,
+            )
+                .into_response()
+        }
+
+        async fn delay_handler(Path(millis): Path<u64>) -> Response {
+            tokio::time::sleep(Duration::from_millis(millis)).await;
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html")],
+                "<p>delayed</p>",
             )
                 .into_response()
         }
@@ -290,6 +310,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         runtime.spawn(async move {
             let app = Router::new()
                 .route("/test-file", get(download_testfile))
+                .route("/delay/{millis}", get(delay_handler))
                 .route("/secret/{*path}", get(secret_handler))
                 .route("/sse", get(sse_handler))
                 .route("/ws", get(ws_handler))
@@ -382,6 +403,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         #[derive(Default, Clone)]
         struct ViolationsCollectingTraceWriter {
             violations: CollectedViolations,
+            state_times: Arc<Mutex<Vec<SystemTime>>>,
         }
 
         impl TraceWriter<BrowserSession> for ViolationsCollectingTraceWriter {
@@ -392,6 +414,10 @@ impl<'a> BrowserIntegrationTest<'a> {
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
             ) -> anyhow::Result<()> {
+                self.state_times
+                    .lock()
+                    .expect("failed to acquire lock for state times")
+                    .push(SystemTime::now());
                 self.violations
                     .lock()
                     .expect("failed to acquire lock for collected violations")
@@ -464,8 +490,34 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
             };
 
+        let test_end = SystemTime::now();
+        let state_interval_longest = {
+            let state_times = trace_writer.state_times.lock().unwrap();
+            std::iter::once(test_start)
+                .chain(state_times.iter().copied())
+                .chain(std::iter::once(test_end))
+                .collect::<Vec<_>>()
+                .windows(2)
+                .map(|pair| pair[1].duration_since(pair[0]).unwrap_or_default())
+                .max()
+                .unwrap_or_default()
+        };
+
         let outcome = match run_result {
             Err(error) => Outcome::Error(error),
+            Ok(TestResult {
+                exit_reason: ExitReason::Stalled,
+                ..
+            }) => Outcome::Error(anyhow!("browser stalled")),
+            Ok(_)
+                if state_interval_max
+                    .is_some_and(|max| state_interval_longest > max) =>
+            {
+                Outcome::Error(anyhow!(
+                    "no new state for {:?}, the browser likely stalled",
+                    state_interval_longest
+                ))
+            }
             Ok(_) if violations_count == 0 => Outcome::Success,
             Ok(_) => {
                 let violations = trace_writer.violations.lock().unwrap();
@@ -1486,6 +1538,33 @@ export const _actions = actions(() => {
 // export const eventuallyDone = eventually(() => lastAction.current == "Forward");
 export const ok = always(() => true);
 "##,
+        )
+        .run();
+}
+
+/// Load events can arrive while the page is paused for state capture.
+#[test]
+fn test_load_while_paused() {
+    BrowserIntegrationTest::new("load-while-paused")
+        .time_limit(Duration::from_secs(30))
+        .state_interval_max(Duration::from_secs(10))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+const complete = extract((state) => state.document.readyState === "complete");
+
+// Every full load is a chance for load events to arrive while paused.
+export const reloads = actions(() => (complete.current ? ["Reload"] : ["Wait"]));
+
+// Keeps the page paused for longer.
+export const slow = always(() => {
+  const start = Date.now();
+  while (Date.now() - start < 100) {}
+  return true;
+});
+"#,
         )
         .run();
 }
