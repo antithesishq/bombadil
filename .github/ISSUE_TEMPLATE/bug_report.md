@@ -7,6 +7,14 @@ assignees: ''
 
 ---
 
+<!-- 
+Please write the issue yourself, instead of using an LLM to write it for you. We
+value human communication. You may however include LLM output inside <details> 
+blocks, clearly marked as such.
+
+See: https://github.com/antithesishq/bombadil/blob/main/docs/development/gen-ai-policy.md
+-->
+
 **Describe the bug**
 A clear and concise description of what the bug is.
 
