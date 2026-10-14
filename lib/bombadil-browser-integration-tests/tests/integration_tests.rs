@@ -1562,6 +1562,31 @@ export const ok = always(() => true);
 }
 
 #[test]
+fn test_debugger_in_handler() {
+    BrowserIntegrationTest::new("debugger-in-handler")
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const count = extract((state) =>
+  parseInt(state.document.querySelector("\#counter").textContent, 10)
+);
+
+// Each click pauses with a `debugger;` statement. We expect the browser driver to resume and
+// continue.
+export const handlerCompletes = eventually(() => count.current >= 3).within(
+  10,
+  "seconds"
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_load_while_paused() {
     BrowserIntegrationTest::new("load-while-paused")
         .time_limit(Duration::from_secs(30))

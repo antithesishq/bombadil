@@ -54,6 +54,8 @@ struct InnerStateShared {
     exceptions: Vec<Exception>,
     screenshot: Option<Screenshot>,
     execution_context_id: Option<String>,
+    // Consecutive failed captures, reset on success.
+    capture_failures: u32,
 }
 
 #[derive(Debug)]
@@ -141,6 +143,8 @@ enum StateRequestReason {
 }
 
 pub(crate) const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+const CAPTURE_FAILURES_MAX: u32 = 5;
 
 struct BrowserContext {
     sender: mpmc::Sender<BrowserEvent>,
@@ -870,6 +874,14 @@ fn process_event(
                 capture_browser_state(state, context)?
             }
         }
+        // Only our own capture pause is expected. Other pauses are immediately resumed.
+        (state, InnerEvent::Paused { .. })
+            if !matches!(state.kind, Pausing) =>
+        {
+            log::debug!("resuming unexpected pause during {:?}", state.kind);
+            resume_ignoring_errors(context);
+            state
+        }
         (
             state,
             InnerEvent::Paused {
@@ -921,18 +933,19 @@ fn process_event(
                 generation,
                 screenshot,
                 execution_context_id,
+                capture_failures,
             } = state.shared;
             let generation = generation.next();
 
             let screenshot = screenshot
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
 
-            let browser_state = BrowserState::current(
+            let result = BrowserState::current(
                 &context.connection,
                 &context.session_id,
                 &call_frame_id,
-                console_entries,
-                exceptions,
+                console_entries.clone(),
+                exceptions.clone(),
                 screenshot,
                 generation,
             )
@@ -941,21 +954,49 @@ fn process_event(
                     "state capture failed: generation={}, session={:?}, call_frame={:?}",
                     generation, context.session_id, call_frame_id,
                 )
-            })?;
+            });
 
-            context
-                .sender
-                .send(BrowserEvent::StateChanged(browser_state))?;
+            match result {
+                Ok(browser_state) => {
+                    context
+                        .sender
+                        .send(BrowserEvent::StateChanged(browser_state))?;
 
-            InnerState {
-                kind: Paused,
-                shared: InnerStateShared {
-                    generation,
-                    console_entries: vec![],
-                    exceptions: vec![],
-                    screenshot: None,
-                    execution_context_id,
-                },
+                    InnerState {
+                        kind: Paused,
+                        shared: InnerStateShared {
+                            generation,
+                            console_entries: vec![],
+                            exceptions: vec![],
+                            screenshot: None,
+                            execution_context_id,
+                            capture_failures: 0,
+                        },
+                    }
+                }
+                // The page can navigate away mid-capture, e.g. after a
+                // reload, destroying the paused call frame.
+                Err(error) if capture_failures < CAPTURE_FAILURES_MAX => {
+                    log::warn!("{error:#}, retrying");
+                    resume_ignoring_errors(context);
+                    start_quiescence_timer(
+                        generation,
+                        context,
+                        "capture failed",
+                    )?;
+                    InnerState {
+                        kind: Running,
+                        shared: InnerStateShared {
+                            generation,
+                            console_entries,
+                            exceptions,
+                            screenshot: None,
+                            execution_context_id,
+                            capture_failures: capture_failures + 1,
+                        },
+                    }
+                }
+                Err(error) => return Err(error),
             }
         }
         (
@@ -1055,6 +1096,11 @@ fn process_event(
                 kind: Acting,
                 shared,
             }
+        }
+        // Follows our resume of an unexpected pause or failed capture.
+        (state, InnerEvent::Resumed) => {
+            log::debug!("ignoring Resumed during {:?}", state.kind);
+            state
         }
         (
             InnerState {
@@ -1310,6 +1356,16 @@ fn start_quiescence_timer(
             }
         },
     )
+}
+
+// The pause stackframe might be gone, like on a navigation.
+fn resume_ignoring_errors(context: &BrowserContext) {
+    if let Err(error) = context.connection.post(
+        debugger::ResumeParams::builder().build(),
+        Some(&context.session_id),
+    ) {
+        log::debug!("failed to resume: {error:#}");
+    }
 }
 
 fn capture_browser_state(

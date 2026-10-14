@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Debugger in Handler</title>
+  </head>
+  <body>
+    <button>Increment</button>
+    <p id="counter">0</p>
+
+    <script>
+      const counter = document.querySelector("#counter");
+      let count = 0;
+      document.querySelector("button").addEventListener("click", () => {
+        debugger;
+        count++;
+        counter.textContent = count;
+      });
+    </script>
+  </body>
+</html>
