@@ -1225,34 +1225,35 @@ fn start_quiescence_timer(
     quiescence::next_state(
         context.connection.clone(),
         context.session_id.clone(),
-        move |result| match result {
-            Ok(quiescence::QuiescedState { elapsed, frame }) => {
-                if let Some(frame) = frame {
-                    log::debug!("using screencast frame from quiesced state");
-                    *latest_frame
-                        .lock()
-                        .expect("failed to acquire lock from latest_frame") =
-                        Some(frame.clone());
-                } else {
-                    log::debug!(
-                        "failed to select new screencast frame for '{reason}' and generation {generation}"
-                    );
-                }
-                if let Err(error) =
-                    events_tx.send(InnerEvent::Quiesced(generation))
-                {
-                    log::error!(
-                        "failed sending Quiesced message for generation {generation}: {error:#}"
-                    );
-                } else {
+        move |result| {
+            match result {
+                Ok(quiescence::QuiescedState { elapsed, frame }) => {
+                    if let Some(frame) = frame {
+                        log::debug!(
+                            "using screencast frame from quiesced state"
+                        );
+                        *latest_frame.lock().expect(
+                            "failed to acquire lock from latest_frame",
+                        ) = Some(frame.clone());
+                    } else {
+                        log::debug!(
+                            "failed to select new screencast frame for '{reason}' and generation {generation}"
+                        );
+                    }
                     log::debug!(
                         "quiescence timer ({reason}) fired for generation {generation} after {elapsed:?}"
                     );
                 }
+                Err(error) => {
+                    log::warn!(
+                        "quiescence timer ({reason}) failed for generation {generation}, sending Quiesced anyway to avoid stall: {error:#}"
+                    );
+                }
             }
-            Err(error) => {
+            if let Err(error) = events_tx.send(InnerEvent::Quiesced(generation))
+            {
                 log::error!(
-                    "quiescence timer failed for generation {generation}: {error:#}"
+                    "failed sending Quiesced message for generation {generation}: {error:#}"
                 );
             }
         },
