@@ -1542,7 +1542,6 @@ export const ok = always(() => true);
         .run();
 }
 
-/// Load events can arrive while the page is paused for state capture.
 #[test]
 fn test_load_while_paused() {
     BrowserIntegrationTest::new("load-while-paused")

@@ -625,8 +625,10 @@ fn forward_inner_events(
                             ))
                         } else { None }
                     },
-                    page::EventFrameStoppedLoading: _ => {
-                        Some(InnerEvent::Loaded)
+                    page::EventFrameStoppedLoading: event => {
+                        if event.frame_id == frame_id {
+                            Some(InnerEvent::Loaded)
+                        } else { None }
                     },
                     browser::EventDownloadWillBegin: event => {
                         if event.frame_id == frame_id {
@@ -1062,12 +1064,28 @@ fn process_event(
             log::debug!("ignoring stale ActionApplied");
             state
         }
-        (InnerState { shared, .. }, InnerEvent::Loaded) => {
+        // Navigations that don't commit (i.e. don't replace the
+        // frame with a new document) only signal `Loaded`. This
+        // includes same-document history navigations and 204
+        // responses.
+        (
+            InnerState {
+                kind: Navigating { .. } | Loading,
+                shared,
+            },
+            InnerEvent::Loaded,
+        ) => {
             start_quiescence_timer(shared.generation, context, "loaded")?;
             InnerState {
                 kind: Running,
                 shared,
             }
+        }
+        // Full loads signal `Loaded` twice. Also note that a cross-site
+        // iframe can delay the main frame's load events until we've paused.
+        (state, InnerEvent::Loaded) => {
+            log::debug!("ignoring Loaded during {:?}", state.kind);
+            state
         }
         (
             InnerState { shared, kind },
