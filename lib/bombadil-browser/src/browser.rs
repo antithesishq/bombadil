@@ -66,7 +66,10 @@ enum InnerStateKind {
     Pausing,
     Paused,
     Resuming(Box<BrowserAction>),
-    Navigating { url: String },
+    Navigating {
+        url: String,
+        navigation_type: Option<page::FrameStartedNavigatingNavigationType>,
+    },
     Loading,
     Running,
     Acting,
@@ -80,9 +83,14 @@ impl std::fmt::Debug for InnerStateKind {
             Self::Resuming(action) => {
                 f.debug_tuple("Resuming").field(action).finish()
             }
-            Self::Navigating { url } => {
-                f.debug_struct("Navigating").field("url", url).finish()
-            }
+            Self::Navigating {
+                url,
+                navigation_type,
+            } => f
+                .debug_struct("Navigating")
+                .field("url", url)
+                .field("navigation_type", navigation_type)
+                .finish(),
             Self::Loading => write!(f, "Loading"),
             Self::Running => write!(f, "Running"),
             Self::Acting => write!(f, "Acting"),
@@ -105,6 +113,8 @@ enum InnerEvent {
         frame_id: FrameId,
         // Only available after EventFrameRequestedNavigation.
         reason: Option<page::ClientNavigationReason>,
+        // Only available after EventFrameStartedNavigating.
+        navigation_type: Option<page::FrameStartedNavigatingNavigationType>,
         url: String,
     },
     FrameNavigated(FrameId, NavigationType),
@@ -352,6 +362,7 @@ impl Browser {
             kind: if browser_options.create_target {
                 InnerStateKind::Navigating {
                     url: context.origin.clone().into(),
+                    navigation_type: None,
                 }
             } else {
                 start_quiescence_timer(
@@ -604,6 +615,7 @@ fn forward_inner_events(
                             Some(InnerEvent::FrameNavigating {
                                 frame_id: nav.frame_id.clone(),
                                 reason: Some(nav.reason.clone()),
+                                navigation_type: None,
                                 url: nav.url.clone(),
                             })
                         } else { None }
@@ -613,6 +625,7 @@ fn forward_inner_events(
                             Some (InnerEvent::FrameNavigating{
                                 frame_id:nav.frame_id.clone(), 
                                 reason: None, 
+                                navigation_type: Some(nav.navigation_type.clone()),
                                 url: nav.url.clone(),
                             })
                         } else { None }
@@ -1064,6 +1077,25 @@ fn process_event(
             log::debug!("ignoring stale ActionApplied");
             state
         }
+        // A back/forward cache restore signals `Loaded` before
+        // `FrameNavigated`, while the previous document is still current.
+        (
+            InnerState {
+                kind:
+                    kind @ Navigating {
+                        navigation_type:
+                            Some(
+                                page::FrameStartedNavigatingNavigationType::HistoryDifferentDocument,
+                            ),
+                        ..
+                    },
+                shared,
+            },
+            InnerEvent::Loaded,
+        ) => {
+            log::debug!("ignoring Loaded during {:?}", kind);
+            InnerState { kind, shared }
+        }
         // Navigations that don't commit (i.e. don't replace the
         // frame with a new document) only signal `Loaded`. This
         // includes same-document history navigations and 204
@@ -1092,14 +1124,16 @@ fn process_event(
             InnerEvent::FrameNavigating {
                 frame_id,
                 reason,
+                navigation_type,
                 url,
             },
         ) => {
             if frame_id == context.frame_id {
                 log::debug!(
-                    "navigating to {} due to {:?} (current state is {:?}, {})",
+                    "navigating to {} due to {:?} ({:?}, current state is {:?}, {})",
                     url,
                     reason,
+                    navigation_type,
                     kind,
                     shared.generation,
                 );
@@ -1114,7 +1148,10 @@ fn process_event(
                     }
                 });
                 InnerState {
-                    kind: Navigating { url },
+                    kind: Navigating {
+                        url,
+                        navigation_type,
+                    },
                     shared,
                 }
             } else {
@@ -1142,17 +1179,14 @@ fn process_event(
         (state, InnerEvent::DownloadWillBegin { .. }) => state,
         (
             InnerState {
-                kind: Navigating { url },
+                kind: kind @ Navigating { .. },
                 mut shared,
             },
             InnerEvent::ConsoleEntry(_),
         ) => {
             // NOTE: clearing between page navigations, but we could retain logs
             shared.console_entries.clear();
-            InnerState {
-                kind: Navigating { url },
-                shared,
-            }
+            InnerState { kind, shared }
         }
         (mut state, InnerEvent::ConsoleEntry(entry)) => {
             state.shared.console_entries.push(entry);

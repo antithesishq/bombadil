@@ -1543,6 +1543,25 @@ export const ok = always(() => true);
 }
 
 #[test]
+fn test_back_forward_cache() {
+    BrowserIntegrationTest::new("back-forward")
+        .time_limit(Duration::from_secs(10))
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { weighted } from "@antithesishq/bombadil/browser";
+import { clicks, back, forward } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const history = weighted([[1, clicks], [3, back], [3, forward]]);
+
+export const ok = always(() => true);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_load_while_paused() {
     BrowserIntegrationTest::new("load-while-paused")
         .time_limit(Duration::from_secs(30))
