@@ -1,5 +1,40 @@
 # The Bombadil Changelog
 
+## 0.7.9
+
+Major updates:
+
+* browser: deprecate delayMillis for TypeText action (#385)
+* runner: add global timeout for stall detection (#370)
+* fuzzer: accept --parallelism option (#371)
+* browser: add --allow-url exploration boundary (#353)
+
+Minor updates:
+
+* docs: add LLM usage notes in issue and PR templates (#378)
+* browser: quote URLs in reproduction commands (#275)
+* inspect: show loading message and tolerate in spec (#364)
+* docs: generate CLI reference in manual (#357)
+
+Bug fixes:
+
+* browser: tolerate state capture failure and resume on unexpected pauses (#383)
+* browser: wait for commit on cross-document history navigations (#381)
+* browser: only act on main-frame load events while navigating or loading (#380)
+* browser: missing match arms in action accepts function (#379)
+* browser: send quiesced event also on quiescence errors (#377)
+* browser: preserve directive prologues during js instrumentation (#375)
+* browser: negative coverage index (#367)
+* browser: match button replay fingerprints (#356)
+* browser: generate valid numbers for input type=number (#351)
+
+Internal:
+
+* ci: run tests on macos too (#366)
+* browser: Integrations tests for SSE and WS (#336)
+* test: fix flaky terminal test (#363)
+* docs: add terminal examples  (#352, #337)
+
 ## 0.7.8
 
 Major updates:
