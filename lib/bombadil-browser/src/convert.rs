@@ -53,10 +53,10 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                 point: position.to_schema(),
                 delay_millis: None,
             },
-            BrowserAction::TypeText { text, delay_millis } => {
+            BrowserAction::TypeText { text } => {
                 browser::BrowserAction::TypeText {
                     text: text.clone(),
-                    delay_millis: *delay_millis,
+                    delay_millis: None,
                 }
             }
             BrowserAction::PressKey { code } => {
@@ -126,11 +126,8 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                 fingerprint: fingerprint.clone(),
                 point: point.to_internal(),
             },
-            browser::BrowserAction::TypeText { text, delay_millis } => {
-                BrowserAction::TypeText {
-                    text: text.clone(),
-                    delay_millis: *delay_millis,
-                }
+            browser::BrowserAction::TypeText { text, .. } => {
+                BrowserAction::TypeText { text: text.clone() }
             }
             browser::BrowserAction::PressKey { code } => {
                 BrowserAction::PressKey { code: *code }

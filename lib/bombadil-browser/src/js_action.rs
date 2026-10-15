@@ -31,7 +31,8 @@ pub enum JsAction {
     #[serde(rename_all = "camelCase")]
     TypeText {
         text: JsStringGenerator,
-        delay_millis: JsRange,
+        #[deprecated]
+        delay_millis: Option<JsRange>,
     },
     #[serde(rename_all = "camelCase")]
     PressKey {
@@ -103,12 +104,18 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                     point: point.try_into()?,
                 }
             }
-            JsAction::TypeText { text, delay_millis } => {
-                let delay_millis: RangeInclusive<u64> =
-                    delay_millis.try_into()?;
+            JsAction::TypeText {
+                text,
+                #[allow(deprecated)]
+                delay_millis,
+            } => {
+                if delay_millis.is_some() {
+                    log::warn!(
+                        "`delay_millis` on a `TypeText` action is deprecated and has no effect, and will be removed in a future version"
+                    );
+                }
                 BrowserAction::TypeText {
                     text: text.try_into()?,
-                    delay_millis,
                 }
             }
             JsAction::PressKey { code } => {
@@ -309,11 +316,12 @@ mod tests {
         let json = r#"{"TypeText": {"text": "Email", "delayMillis": 43.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
         match action {
+            #[allow(deprecated)]
             JsAction::TypeText {
                 delay_millis,
                 text: JsStringGenerator::Email,
             } => {
-                assert_eq!(delay_millis, JsRange::Fixed(43.0));
+                assert_eq!(delay_millis, Some(JsRange::Fixed(43.0)));
             }
             _ => panic!("expected TypeText with Email"),
         }
@@ -328,15 +336,40 @@ mod tests {
         }
     }
 
+    fn mouse_drag_with_delay(delay_millis: JsRange) -> JsAction {
+        JsAction::MouseDrag {
+            from: JsPoint {
+                x: JsRange::Fixed(0.0),
+                y: JsRange::Fixed(0.0),
+            },
+            to: JsPoint {
+                x: JsRange::Fixed(1.0),
+                y: JsRange::Fixed(1.0),
+            },
+            steps: JsRange::Fixed(1.0),
+            delay_millis,
+        }
+    }
+
     #[test]
     fn test_to_browser_action_does_not_silently_truncate_floats() {
-        let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
-            delay_millis: JsRange::Fixed(43.9),
-        };
+        let js_action = mouse_drag_with_delay(JsRange::Fixed(43.9));
         let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("fractional"));
+    }
+
+    #[test]
+    fn test_type_text_ignores_deprecated_delay_millis() {
+        let json = r#"{"TypeText": {"text": "Email", "delayMillis": 43.9}}"#;
+        let action: JsAction = serde_json::from_str(json).unwrap();
+        let result: Result<BrowserActionTemplate> = action.try_into();
+        assert!(matches!(result, Ok(BrowserAction::TypeText { .. })));
+
+        let json = r#"{"TypeText": {"text": "Email"}}"#;
+        let action: JsAction = serde_json::from_str(json).unwrap();
+        let result: Result<BrowserActionTemplate> = action.try_into();
+        assert!(matches!(result, Ok(BrowserAction::TypeText { .. })));
     }
 
     #[test]
@@ -359,18 +392,12 @@ mod tests {
 
     #[test]
     fn test_to_browser_action_validates_delay_millis() {
-        let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
-            delay_millis: JsRange::Fixed(-10.0),
-        };
+        let js_action = mouse_drag_with_delay(JsRange::Fixed(-10.0));
         let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("negative"));
 
-        let js_action = JsAction::TypeText {
-            text: JsStringGenerator::Text(JsRange::Range((0.0, 10.0))),
-            delay_millis: JsRange::Fixed(f64::NAN),
-        };
+        let js_action = mouse_drag_with_delay(JsRange::Fixed(f64::NAN));
         let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("finite"));

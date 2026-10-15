@@ -250,7 +250,8 @@ pub enum BrowserAction {
     },
     TypeText {
         text: String,
-        delay_millis: u64,
+        #[deprecated]
+        delay_millis: Option<u64>,
     },
     PressKey {
         code: u8,

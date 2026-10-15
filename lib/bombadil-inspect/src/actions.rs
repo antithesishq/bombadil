@@ -111,17 +111,14 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
-                BrowserAction::TypeText { text, delay_millis } => (
+                BrowserAction::TypeText { text, .. } => (
                     html!(
                         <>
                             <span class="action-name">{"Type"}</span>
                             <span class="text">{format!("{text:?}")}</span>
                         </>
                     ),
-                    Some(vec![
-                        ("Text", format!("{text:?}")),
-                        ("Delay", delay_millis.to_string()),
-                    ]),
+                    Some(vec![("Text", format!("{text:?}"))]),
                 ),
                 BrowserAction::PressKey { code, .. } => (
                     html!(

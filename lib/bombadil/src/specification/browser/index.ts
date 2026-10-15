@@ -30,7 +30,15 @@ export type Action<Number = number, String = string> =
         delayMillis?: Range;
       };
     }
-  | { TypeText: { text: String; delayMillis: Range } }
+  | {
+      TypeText: {
+        text: String;
+        /**
+         * @deprecated has no effect
+         */
+        delayMillis?: Range;
+      };
+    }
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: Number } }
   | { ScrollDown: { origin: Point; distance: Number } }

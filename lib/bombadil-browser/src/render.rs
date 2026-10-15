@@ -71,16 +71,12 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                     content_str
                 )
             }
-            BrowserAction::TypeText { text, delay_millis } => {
+            BrowserAction::TypeText { text } => {
                 write!(
                     f,
-                    "{} {} (delay: {})",
+                    "{} {}",
                     styled::maybe_bold("Typing".to_string()),
                     styled::maybe_blue(format!("{}", Formatted(text))),
-                    styled::maybe_blue(format!(
-                        "{}ms",
-                        Formatted(delay_millis)
-                    ))
                 )
             }
             BrowserAction::PressKey { code } => {

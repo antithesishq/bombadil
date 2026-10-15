@@ -40,7 +40,6 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     },
     TypeText {
         text: Text,
-        delay_millis: U64,
     },
     PressKey {
         code: u8,
@@ -230,10 +229,8 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            BrowserAction::TypeText { text, delay_millis } => {
-                let delay = Duration::from_millis(*delay_millis);
+            BrowserAction::TypeText { text } => {
                 for char in text.chars() {
-                    thread::sleep(delay);
                     connection.post(
                         input::InsertTextParams::new(char),
                         Some(session_id),
@@ -415,12 +412,9 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     point: point.generate(rng),
                 }
             }
-            BrowserAction::TypeText { text, delay_millis } => {
-                BrowserAction::TypeText {
-                    text: text.generate(rng),
-                    delay_millis: rng.random_range(delay_millis.clone()),
-                }
-            }
+            BrowserAction::TypeText { text } => BrowserAction::TypeText {
+                text: text.generate(rng),
+            },
             BrowserAction::PressKey { code } => {
                 BrowserAction::PressKey { code: *code }
             }
@@ -498,10 +492,8 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 },
             ) => candidate_fingerprint.matches(original_fingerprint),
             (
-                BrowserAction::TypeText {
-                    text: generator, ..
-                },
-                BrowserAction::TypeText { text: original, .. },
+                BrowserAction::TypeText { text: generator },
+                BrowserAction::TypeText { text: original },
             ) => generator.accepts(original),
             (
                 BrowserAction::PressKey {
@@ -600,7 +592,7 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::DoubleClick { fingerprint, .. } => {
                 ("DoubleClick", fingerprint).hash(hasher);
             }
-            BrowserAction::TypeText { text, .. } => {
+            BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
             }
             BrowserAction::PressKey { code } => {
@@ -682,7 +674,6 @@ mod tests {
             ..Default::default()
         };
         let length = small_range(tc, 0);
-        let delay = small_range(tc, 0);
         let drag_delay = small_range(tc, 0);
 
         vec![
@@ -701,8 +692,6 @@ mod tests {
                     length: u16::from(*length.start())
                         ..=u16::from(*length.end()),
                 },
-                delay_millis: u64::from(*delay.start())
-                    ..=u64::from(*delay.end()),
             },
             PressKey {
                 code: tc.draw(integers().min_value(65).max_value(90)),
