@@ -28,7 +28,7 @@ use tempfile::TempDir;
 
 use bombadil::{
     antithesis,
-    driver::{NoopTraceWriter, RunId, TraceWriter},
+    driver::{RunId, TraceWriter},
     fuzzer,
     specification::{bundler::bundle, verifier::Specification},
     styled,
@@ -621,17 +621,13 @@ fn browser_test(
         exit_on_violation: shared_options.exit_on_violation,
     };
 
-    let test_result = if antithesis::is_in_guest() {
-        run_with_writer(run_options, NoopTraceWriter)?
-    } else {
-        run_with_writer(
-            run_options,
-            FileTraceWriter::initialize(
-                output_path.clone(),
-                shared_options.output_path_overwrite,
-            )?,
-        )?
-    };
+    let test_result = run_with_writer(
+        run_options,
+        FileTraceWriter::initialize(
+            output_path.clone(),
+            shared_options.output_path_overwrite,
+        )?,
+    )?;
 
     let heading = {
         let TestResult {

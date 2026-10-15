@@ -1,10 +1,8 @@
 use std::collections::VecDeque;
 
-use anyhow::{Result, anyhow, bail};
-use rand::{RngExt, TryRng, seq::IndexedRandom};
+use anyhow::{Result, bail};
+use rand::{RngExt, TryRng};
 use serde::{Deserialize, Serialize};
-
-use crate::antithesis;
 
 pub type Weight = u16;
 
@@ -75,14 +73,6 @@ impl<T> Tree<T> {
     }
 
     pub fn pick<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
-        if antithesis::is_in_guest() {
-            self.pick_unweighted(rng)
-        } else {
-            self.pick_weighted(rng)
-        }
-    }
-
-    fn pick_weighted<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
         match self {
             Tree::Leaf { value } => Ok(value),
             Tree::Branch { branches } => {
@@ -101,13 +91,6 @@ impl<T> Tree<T> {
                 bail!("BUG: no pick available")
             }
         }
-    }
-
-    fn pick_unweighted<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
-        self.values()
-            .choose(rng)
-            .copied()
-            .ok_or(anyhow!("no values to pick in tree"))
     }
 
     pub fn values(&self) -> Vec<&T> {

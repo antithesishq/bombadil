@@ -7,7 +7,7 @@ use std::{
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{InterfaceDriver, NoopTraceWriter, RunId};
+use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
@@ -281,27 +281,17 @@ pub fn run(command: Command) {
                 let (mut session, verifier) =
                     driver.new_session(RunId::default())?;
 
-                let exit_reason = if antithesis::is_in_guest() {
-                    runner::run(
-                        &mut session,
-                        &mut strategy,
-                        verifier,
-                        &mut NoopTraceWriter,
-                        interrupted,
-                    )?
-                } else {
-                    let mut trace_writer = TerminalTraceWriter::initialize(
-                        output_path.clone(),
-                        output_path_overwrite,
-                    )?;
-                    runner::run(
-                        &mut session,
-                        &mut strategy,
-                        verifier,
-                        &mut trace_writer,
-                        interrupted,
-                    )?
-                };
+                let mut trace_writer = TerminalTraceWriter::initialize(
+                    output_path.clone(),
+                    output_path_overwrite,
+                )?;
+                let exit_reason = runner::run(
+                    &mut session,
+                    &mut strategy,
+                    verifier,
+                    &mut trace_writer,
+                    interrupted,
+                )?;
 
                 println!();
                 match exit_reason {
