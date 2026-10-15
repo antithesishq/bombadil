@@ -52,7 +52,8 @@ enum WorkerMessage<Session: InterfaceSession> {
         run_id: RunId,
         time_relative: Duration,
         violations: Vec<PropertyViolation>,
-        action_selected: Session::Action,
+        /// None for the last state of a run, which has no next action.
+        action_selected: Option<Session::Action>,
     },
 }
 
@@ -218,9 +219,11 @@ where
                 let mut state =
                     fuzz_state.write().expect("failed to acquire state lock");
 
-                state.workers[worker_index]
-                    .actions
-                    .push((time_relative, action_selected));
+                if let Some(action_selected) = action_selected {
+                    state.workers[worker_index]
+                        .actions
+                        .push((time_relative, action_selected));
+                }
                 state.workers[worker_index].violations_count +=
                     violations.len() as u64;
                 for violation in violations {
@@ -544,6 +547,30 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
             .prune()
     }
 
+    fn send_step(
+        &self,
+        state: &Session::State,
+        action_selected: Option<Session::Action>,
+        violations: Vec<PropertyViolation>,
+    ) {
+        let time_relative = std::time::Duration::from_micros(
+            state
+                .timestamp()
+                .as_micros()
+                .saturating_sub(self.test_start.as_micros()),
+        );
+
+        if let Err(error) = self.worker_tx.send(WorkerMessage::Step {
+            worker_id: self.worker_id,
+            run_id: self.run_id,
+            time_relative,
+            action_selected,
+            violations,
+        }) {
+            log::error!("failed to send worker message: {:#}", error);
+        }
+    }
+
     #[hotpath::measure]
     fn pick_action(
         &mut self,
@@ -627,27 +654,15 @@ impl<
             properties,
         )? {
             log::info!("wrapped strategy stopped, stopping");
+            // The last state can still violate properties, e.g. when the
+            // program printed a panic and exited.
+            self.send_step(state, None, violations);
             return Ok(ControlFlow::Stop(ExitReason::Stopped));
         }
 
         let action = self.pick_action(state, tree_constrained)?;
 
-        let time_relative = std::time::Duration::from_micros(
-            state
-                .timestamp()
-                .as_micros()
-                .saturating_sub(self.test_start.as_micros()),
-        );
-
-        if let Err(error) = self.worker_tx.send(WorkerMessage::Step {
-            worker_id: self.worker_id,
-            run_id: self.run_id,
-            time_relative,
-            action_selected: action.clone(),
-            violations,
-        }) {
-            log::error!("failed to send worker message: {:#}", error);
-        }
+        self.send_step(state, Some(action.clone()), violations);
 
         Ok(ControlFlow::Continue(action))
     }
