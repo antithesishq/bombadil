@@ -801,7 +801,7 @@ fn apply_action(
                 log::debug!("applied: {:?}", browser_action);
             }
             Ok(Err(error)) => {
-                log::error!(
+                log::info!(
                     "failed to apply action {:?}: {:?}",
                     browser_action,
                     error
@@ -820,7 +820,7 @@ fn apply_action(
         if let Err(error) =
             events_tx.send(InnerEvent::ActionApplied(generation))
         {
-            log::error!("failed to send ActionApplied: {error}");
+            log::debug!("failed to send ActionApplied: {error}");
         }
     });
 }
@@ -1190,7 +1190,7 @@ fn process_event(
                     if let Err(err) =
                         sender.send(InnerEvent::NavigationTimedOut(generation))
                     {
-                        log::warn!("failed to send NavigationTimedOut: {err}");
+                        log::debug!("failed to send NavigationTimedOut: {err}");
                     }
                 });
                 InnerState {
