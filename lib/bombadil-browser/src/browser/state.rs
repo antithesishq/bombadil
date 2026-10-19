@@ -202,7 +202,8 @@ impl From<ScreenshotFormat> for page::StartScreencastFormat {
 #[derive(Clone)]
 pub struct Screenshot {
     pub format: ScreenshotFormat,
-    pub data: Vec<u8>,
+    /// Shared rather than copied when handed to the trace writer.
+    pub data: std::sync::Arc<Vec<u8>>,
 }
 
 impl std::fmt::Debug for Screenshot {

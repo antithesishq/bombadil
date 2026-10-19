@@ -19,18 +19,18 @@ use crate::{duration, output_path};
 /// Options shared by the shrink commands of all drivers.
 #[derive(clap::Args)]
 pub struct ShrinkOptions {
-    /// Trace to shrink: a terminal trace file, or a browser trace file/run directory
+    /// Trace FILE to shrink (any filename, not a directory)
     #[arg(long = "trace", value_name = "TRACE_PATH")]
     pub trace_path: PathBuf,
     /// Name of the property to shrink for. Required if the trace has
     /// violations of more than one property.
     #[arg(long)]
     pub property: Option<String>,
-    /// Where to store the shrunk trace: a file for terminal, a directory
-    /// for browser. Defaults to a fresh path in system temp.
+    /// Trace FILE to write. Defaults to a unique file in system temp.
+    /// Parent directories must already exist. Must not alias the input.
     #[arg(long)]
     pub output_path: Option<PathBuf>,
-    /// Overwrite any existing trace at `--output-path`.
+    /// Overwrite any existing file at `--output-path`.
     #[arg(long)]
     pub output_path_overwrite: bool,
     /// Maximum time to shrink for, after which the smallest trace found
@@ -65,27 +65,16 @@ pub struct ResolvedShrinkOptions<A> {
 
 impl ShrinkOptions {
     /// `load_trace` reads the driver's trace from the trace path as
-    /// given: a trace file, or the run directory containing it.
+    /// given: a trace file, never a directory.
     pub fn resolve<A>(
         self,
         load_trace: impl FnOnce(&Path) -> Result<TraceActions<A>>,
-        output_is_file: bool,
     ) -> Result<ResolvedShrinkOptions<A>> {
-        let (trace, trace_directory) =
-            load_trace_at(&self.trace_path, load_trace)?;
-        let output_path = if output_is_file {
-            output_path::resolve_output_file(&self.output_path)?
-        } else {
-            output_path::resolve_output_path(&self.output_path)?
-        };
-        if output_is_file && same_file(&self.trace_path, &output_path) {
+        let trace = load_trace(&self.trace_path)?;
+        let output_path = output_path::resolve_output_path(&self.output_path)?;
+        if same_file(&self.trace_path, &output_path) {
             bail!(
                 "the output path must differ from the trace file being shrunk"
-            );
-        }
-        if !output_is_file && same_directory(&trace_directory, &output_path) {
-            bail!(
-                "the output path must differ from the directory of the trace being shrunk"
             );
         }
 
@@ -114,25 +103,6 @@ impl ShrinkOptions {
     }
 }
 
-/// The trace at `trace_path` (a file, whatever its name, or a run
-/// directory), read with `load_trace`, and the directory it is in.
-fn load_trace_at<A>(
-    trace_path: &Path,
-    load_trace: impl FnOnce(&Path) -> Result<TraceActions<A>>,
-) -> Result<(TraceActions<A>, PathBuf)> {
-    Ok((
-        load_trace(trace_path)?,
-        output_path::resolve_trace_directory(trace_path),
-    ))
-}
-
-fn same_directory(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
-    }
-}
-
 fn same_file(a: &Path, b: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -141,7 +111,10 @@ fn same_file(a: &Path, b: &Path) -> bool {
             return a.dev() == b.dev() && a.ino() == b.ino();
         }
     }
-    same_directory(a, b)
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
 }
 
 pub fn print_result(result: &ShrinkResult) {
@@ -183,45 +156,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn file_output_can_be_a_sibling_but_not_an_alias() {
-        let directory = tempfile::tempdir().unwrap();
-        let input = directory.path().join("input.custom");
-        std::fs::write(&input, b"trace").unwrap();
-        assert!(same_file(&input, &input));
-        assert!(!same_file(&input, &directory.path().join("output.custom")));
-        let hardlink = directory.path().join("hardlink");
-        std::fs::hard_link(&input, &hardlink).unwrap();
-        assert!(same_file(&input, &hardlink));
-        #[cfg(unix)]
-        {
-            let symlink = directory.path().join("symlink");
-            std::os::unix::fs::symlink(&input, &symlink).unwrap();
-            assert!(same_file(&input, &symlink));
-        }
-    }
-
-    /// The loader gets the trace file as named, so `--trace` takes a file
-    /// of any name, as `--reproduce` does, as well as a run directory.
-    #[test]
-    fn loads_the_trace_path_as_given() {
+    fn sibling_output_is_allowed_but_aliases_are_not() {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("run-k2.bin");
         std::fs::write(&file, b"").unwrap();
-        for (path, trace_directory) in [
-            (file.clone(), directory.path()),
-            (directory.path().to_path_buf(), directory.path()),
-        ] {
-            let mut loaded = None;
-            let (_, resolved) = load_trace_at::<()>(&path, |path| {
-                loaded = Some(path.to_path_buf());
-                Ok(TraceActions {
-                    actions: vec![],
-                    violations_earliest: Default::default(),
-                })
-            })
-            .unwrap();
-            assert_eq!(loaded.as_deref(), Some(path.as_path()));
-            assert_eq!(resolved, trace_directory);
+        assert!(same_file(&file, &file));
+        assert!(!same_file(&file, &directory.path().join("shrunk.bin")));
+        let link = directory.path().join("hardlink");
+        std::fs::hard_link(&file, &link).unwrap();
+        assert!(same_file(&file, &link));
+        #[cfg(unix)]
+        {
+            let link = directory.path().join("symlink");
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            assert!(same_file(&file, &link));
         }
     }
 }

@@ -1,4 +1,5 @@
 mod browser;
+mod browser_trace;
 mod duration;
 mod inspect_server;
 mod output_path;
@@ -31,7 +32,7 @@ enum Command {
         #[command(subcommand)]
         command: terminal::Command,
     },
-    /// Show the states of a binary trace (`trace.bin`)
+    /// Show the states of a binary trace file (any filename)
     Trace(trace::TraceArgs),
 }
 

@@ -23,7 +23,7 @@ use bombadil_terminal::trace::{
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 
 use crate::duration;
-use crate::output_path::resolve_output_file;
+use crate::output_path::resolve_output_path;
 use crate::shrink::{self, ShrinkOptions};
 
 mod defaults {
@@ -233,7 +233,7 @@ pub fn run(command: Command) {
 
                 let specification = load_specification(specification_file);
 
-                let output_path = resolve_output_file(&output_path)?;
+                let output_path = resolve_output_path(&output_path)?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(
@@ -386,7 +386,7 @@ pub fn run(command: Command) {
 
                 let specification = load_specification(specification_file);
 
-                let output_path = resolve_output_file(&output_path)?;
+                let output_path = resolve_output_path(&output_path)?;
 
                 let output_writer = TerminalOutputWriter {
                     root_path: output_path.clone(),
@@ -482,7 +482,7 @@ fn terminal_shrink(
         [program, args @ ..] => (program.clone(), args.to_vec()),
         _ => bail!("expected `<program> [args...]` after `--`"),
     };
-    let options = shrink_options.resolve(load_trace_actions, true)?;
+    let options = shrink_options.resolve(load_trace_actions)?;
     let driver = Arc::new(TerminalDriver::new(
         load_specification(specification_file),
         TerminalProgramOptions {

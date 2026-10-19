@@ -1406,7 +1406,7 @@ fn capture_browser_state(
                 .map_err(|e| anyhow!("screencast base64 decode failed: {e}"))?;
             state.shared.screenshot = Some(Screenshot {
                 format: screenshots::SCREENSHOT_FORMAT,
-                data,
+                data: data.into(),
             });
         }
         None => {
