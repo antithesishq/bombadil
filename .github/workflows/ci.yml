@@ -382,7 +382,20 @@ jobs:
             echo "::error::bombadil exited with unexpected code $exit_code (expected 0 or 2)"
             exit "$exit_code"
           fi
-          test -s docker-smoke-output/trace.jsonl
+          test -s docker-smoke-output/trace.bin
+          # Read the whole trace, which warns if it wasn't finished.
+          docker run --rm \
+            -v "$PWD/docker-smoke-output:/output:ro" \
+            "$IMAGE_TAG" \
+            trace /output \
+            > trace-check.out 2> trace-check.err \
+            || { cat trace-check.err; exit 1; }
+          cat trace-check.err
+          if grep -q 'not finished' trace-check.err; then exit 1; fi
+          if ! grep -q '^#0 ' trace-check.out; then
+            echo "the trace holds no states" >&2
+            exit 1
+          fi
       - name: Upload docker smoke test output
         if: failure()
         uses: actions/upload-artifact@v4

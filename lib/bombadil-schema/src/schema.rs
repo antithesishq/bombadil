@@ -91,7 +91,9 @@ pub struct Rect {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
-    pub index: usize,
+    /// `u64` rather than `usize`, so a trace reads the same on 32-bit
+    /// targets (the inspect page is wasm32).
+    pub index: u64,
     pub name: Option<String>,
     pub value: serde_json::Value,
     pub time: Time,

@@ -82,6 +82,19 @@ the transition caused by the selected action. A transition shows state before
 and state after. Along with screenshots, you see violations and all captured
 snapshot values per state.
 
+To look at a trace in the terminal instead, `bombadil trace` lists its states
+with their actions, URLs and violations. With `--screenshots`, it also writes
+each state's screenshot to a directory, named by the state's index:
+
+```bash
+bombadil trace my-test --screenshots my-test-screenshots
+```
+
+Pick states with `--state` (`--state 40..50` shows states 40 to 49), or print
+one JSON object per state with `--json` to process the trace with tools like
+`jq`. Running `--screenshots` again leaves the screenshots already written as
+they are.
+
 :::
 
 ::: terminal

@@ -30,7 +30,9 @@ pub struct ShrinkOptions {
     /// directory.
     #[arg(long)]
     pub output_path: Option<PathBuf>,
-    /// Overwrite any existing trace at `--output-path`.
+    /// Overwrite any existing trace at `--output-path`. A legacy
+    /// trace.jsonl there is removed, and if it is a browser trace, its
+    /// screenshots directory.
     #[arg(long)]
     pub output_path_overwrite: bool,
     /// Maximum time to shrink for, after which the smallest trace found

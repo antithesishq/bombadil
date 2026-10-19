@@ -9,6 +9,9 @@ pub struct BrowserStateSummary {
     pub url: String,
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
+    /// In a `trace.bin`, the screenshot's format (file extension, e.g.
+    /// `jpeg`), with the image as the state's payload. In a legacy
+    /// `trace.jsonl`, the path of the screenshot file.
     pub screenshot: String,
     pub resources: Resources,
 }

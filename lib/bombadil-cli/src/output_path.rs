@@ -1,7 +1,9 @@
 use anyhow::{Result, bail};
-use bombadil_trace::{TraceDriver, trace_driver};
+use bombadil_trace::{TRACE_FILE_NAME, TraceDriver, trace_driver};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
+
+use crate::browser_trace::{BrowserTraceFile, JSON_TRACE_FILE_NAME};
 
 /// Resolve a user-provided path (file or directory) to the trace
 /// output directory. If the path points to a file, returns its parent.
@@ -22,25 +24,33 @@ fn file_directory(path: &Path) -> PathBuf {
     }
 }
 
-/// The browser trace file for a user-provided trace path: the file as
-/// given, or a directory's `trace.jsonl`, refusing binary traces so they
-/// aren't misread as JSON lines.
-pub fn resolve_browser_trace_file(path: &Path) -> Result<PathBuf> {
+/// The browser trace at a user-provided trace path: the file as given, or
+/// a run directory's `trace.bin`, or else its legacy `trace.jsonl`.
+/// Refuses other drivers' binary traces so they aren't misread, and a
+/// path with no trace.
+pub fn resolve_browser_trace_file(path: &Path) -> Result<BrowserTraceFile> {
+    let in_directory = |name: &str| {
+        if path.is_dir() {
+            path.join(name)
+        } else {
+            path.to_path_buf()
+        }
+    };
     match trace_driver(path)? {
-        None => {}
-        Some(TraceDriver::Browser) => bail!(
-            "{} is a binary browser trace, which this version can't read",
-            path.display()
-        ),
+        Some(TraceDriver::Browser) => {
+            Ok(BrowserTraceFile::Binary(in_directory(TRACE_FILE_NAME)))
+        }
         Some(driver) => bail!(
             "{} holds a trace written by the {driver} driver, not a browser trace",
             path.display()
         ),
-    }
-    if path.is_dir() {
-        Ok(path.join("trace.jsonl"))
-    } else {
-        Ok(path.to_path_buf())
+        None => {
+            let file = in_directory(JSON_TRACE_FILE_NAME);
+            if !file.is_file() {
+                bail!("no browser trace at {}", path.display());
+            }
+            Ok(BrowserTraceFile::Json(file))
+        }
     }
 }
 
@@ -69,46 +79,73 @@ mod tests {
         assert_eq!(file_directory(Path::new("/trace.bin")), Path::new("/"));
     }
 
+    /// Writes a binary trace by `driver` with no states at `path`.
+    fn write_binary_trace(path: &Path, driver: TraceDriver) {
+        let mut file = Vec::new();
+        bombadil_trace::write_envelope(&mut file, driver).unwrap();
+        std::fs::write(path, file).unwrap();
+    }
+
     /// A browser trace file is read as given, whatever its name; a
-    /// directory's is its `trace.jsonl`.
+    /// directory's is its `trace.bin`, or else its legacy `trace.jsonl`.
     #[test]
     fn browser_trace_file_is_the_path_as_given() {
         let directory = tempfile::tempdir().unwrap();
         let renamed = directory.path().join("x.jsonl");
         std::fs::write(&renamed, "").unwrap();
-        assert_eq!(resolve_browser_trace_file(&renamed).unwrap(), renamed);
+        assert_eq!(
+            resolve_browser_trace_file(&renamed).unwrap(),
+            BrowserTraceFile::Json(renamed.clone())
+        );
+        let json_trace = directory.path().join(JSON_TRACE_FILE_NAME);
+        std::fs::write(&json_trace, "").unwrap();
         assert_eq!(
             resolve_browser_trace_file(directory.path()).unwrap(),
-            directory.path().join("trace.jsonl")
+            BrowserTraceFile::Json(json_trace)
+        );
+
+        let binary_trace = directory.path().join(TRACE_FILE_NAME);
+        write_binary_trace(&binary_trace, TraceDriver::Browser);
+        assert_eq!(
+            resolve_browser_trace_file(directory.path()).unwrap(),
+            BrowserTraceFile::Binary(binary_trace)
+        );
+        let renamed = directory.path().join("run-1.bin");
+        write_binary_trace(&renamed, TraceDriver::Browser);
+        assert_eq!(
+            resolve_browser_trace_file(&renamed).unwrap(),
+            BrowserTraceFile::Binary(renamed.clone())
         );
     }
 
-    /// Binary traces aren't read as JSON lines: a terminal one, or a
-    /// browser one, in a directory or passed directly.
+    /// Other drivers' binary traces aren't read as browser traces, in a
+    /// directory or passed directly, and a path without a trace is
+    /// refused.
     #[test]
-    fn browser_trace_file_refuses_binary_traces() {
-        for (driver, message) in [
-            (
-                TraceDriver::Terminal,
-                "holds a trace written by the terminal driver, not a browser trace",
-            ),
-            (
-                TraceDriver::Browser,
-                "is a binary browser trace, which this version can't read",
-            ),
-        ] {
-            let directory = tempfile::tempdir().unwrap();
-            let trace = directory.path().join(bombadil_trace::TRACE_FILE_NAME);
-            let mut file = Vec::new();
-            bombadil_trace::write_envelope(&mut file, driver).unwrap();
-            std::fs::write(&trace, file).unwrap();
-            for path in [directory.path(), trace.as_path()] {
-                let error = resolve_browser_trace_file(path).err().unwrap();
-                assert_eq!(
-                    error.to_string(),
-                    format!("{} {message}", path.display())
-                );
-            }
+    fn browser_trace_file_refuses_other_traces() {
+        let directory = tempfile::tempdir().unwrap();
+        let trace = directory.path().join(TRACE_FILE_NAME);
+        write_binary_trace(&trace, TraceDriver::Terminal);
+        for path in [directory.path(), trace.as_path()] {
+            let error = resolve_browser_trace_file(path).err().unwrap();
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "{} holds a trace written by the terminal driver, not a \
+                     browser trace",
+                    path.display()
+                )
+            );
+        }
+
+        let empty = tempfile::tempdir().unwrap();
+        let missing = empty.path().join("missing.jsonl");
+        for path in [empty.path(), missing.as_path()] {
+            let error = resolve_browser_trace_file(path).err().unwrap();
+            assert_eq!(
+                error.to_string(),
+                format!("no browser trace at {}", path.display())
+            );
         }
     }
 }
