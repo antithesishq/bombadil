@@ -76,21 +76,22 @@
 //!
 //! # Creating a trace
 //!
-//! Unless asked to overwrite, the writer creates `trace.bin` only if no
-//! file has that name, so of two runs writing to the same directory one
+//! Unless asked to overwrite, the writer creates the named file only if no
+//! file has that name, so of two runs writing to the same path one
 //! fails instead of replacing the other's trace. It writes and flushes
 //! the envelope there, and removes the file if that fails.
 //!
 //! To overwrite, it writes and flushes the envelope to a temporary file
-//! next to `trace.bin` (`trace.bin.<pid>.<n>.tmp`, numbered within the
+//! next to the target (`.bombadil-<pid>-<n>.tmp`, numbered within the
 //! process, never reusing a name that is taken), then renames it over
-//! `trace.bin` and keeps writing to the same open file. Renaming is the
+//! the target and keeps writing to the same open file. Renaming is the
 //! last step that can fail, so a failure leaves the trace being
 //! overwritten as it was. A run killed before that step can leave a
-//! `trace.bin.*.tmp` file behind.
+//! `.bombadil-*.tmp` file behind. The temporary basename is independent of
+//! the target's name, so even a maximum-length filename can be overwritten.
 //!
-//! Either way, a failure to create a trace leaves no new file behind,
-//! though the run directory may have been created.
+//! Either way, a failure to create a trace leaves no new file behind.
+//! The writer never creates directories, including missing parents.
 //!
 //! END means the writer was finished explicitly: it is written only by
 //! [`TraceFileWriter::finish`]. A writer dropped without it, e.g. on a
@@ -111,8 +112,22 @@ pub use reader::{
 pub use record::write_record;
 pub use writer::TraceFileWriter;
 
-/// File name of a binary trace in a run directory.
+/// Conventional trace filename, useful for fixtures. Readers accept any name.
 pub const TRACE_FILE_NAME: &str = "trace.bin";
+
+/// A numbered sibling for a fuzz run: `run.bin` becomes `run-0.bin`.
+pub fn numbered_trace_path(
+    base: &std::path::Path,
+    run: u64,
+) -> std::path::PathBuf {
+    let mut name = base.file_stem().unwrap_or_default().to_os_string();
+    name.push(format!("-{run}"));
+    if let Some(extension) = base.extension() {
+        name.push(".");
+        name.push(extension);
+    }
+    base.with_file_name(name)
+}
 
 /// How a writer's error starts when it repeats an earlier write failure,
 /// as every call after one does.

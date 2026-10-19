@@ -14,7 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
 use crate::{
-    TRACE_FILE_NAME, TraceDriver, WRITER_FAILED_EARLIER, envelope::driver_code,
+    TraceDriver, WRITER_FAILED_EARLIER, envelope::driver_code,
     record::check_payload_length, tag, write_envelope, write_record,
 };
 
@@ -62,12 +62,12 @@ struct PendingState<M> {
 }
 
 impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
-    /// Creates `trace.bin` in `run_path`, and `run_path` if needed,
+    /// Creates the trace file at `run_path`, without creating parents,
     /// written by `driver`. Replaces an existing trace only if
     /// `overwrite` is set.
     ///
     /// If this fails it leaves no new file behind, and an existing trace
-    /// as it was, though it may have created `run_path`.
+    /// as it was.
     pub fn create(
         run_path: &Path,
         driver: TraceDriver,
@@ -85,10 +85,7 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
         wrap: impl FnOnce(File) -> W,
     ) -> Result<Self> {
         driver_code(driver)?;
-        std::fs::create_dir_all(run_path).with_context(|| {
-            format!("failed to create {}", run_path.display())
-        })?;
-        let trace_path = run_path.join(TRACE_FILE_NAME);
+        let trace_path = run_path.to_path_buf();
         // The file this call created, and removes if it fails.
         let (path, file) = if overwrite {
             create_temp(run_path)?
@@ -239,7 +236,7 @@ fn create_new_trace(trace_path: &Path) -> Result<File> {
     {
         Ok(file) => Ok(file),
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => bail!(
-            "{TRACE_FILE_NAME} already exists at {}. \
+            "trace already exists at {}. \
              Use --output-path-overwrite to overwrite, or choose a different --output-path.",
             trace_path.display(),
         ),
@@ -256,14 +253,17 @@ static TEMP_FILES_CREATED: AtomicU64 = AtomicU64::new(0);
 // How many taken names `create_temp` skips before giving up.
 const TEMP_ATTEMPTS_MAX: u32 = 64;
 
-/// Where an overwriting trace is written in `run_path` until it is
-/// renamed to `trace.bin`: the `n`th temporary file of this process.
+/// A short, collision-safe sibling, independent of the target's name.
 fn temp_path(run_path: &Path, n: u64) -> PathBuf {
     let pid = std::process::id();
-    run_path.join(format!("{TRACE_FILE_NAME}.{pid}.{n}.tmp"))
+    let parent = run_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    parent.join(format!(".bombadil-{pid}-{n}.tmp"))
 }
 
-/// Creates a new temporary file in `run_path` and returns its path. A
+/// Creates a new temporary sibling of `run_path` and returns its path. A
 /// name that is taken, e.g. by a killed run whose process had the same
 /// id (as is common in containers), is skipped rather than reused, since
 /// it may belong to a live writer.
@@ -282,7 +282,7 @@ fn create_temp(run_path: &Path) -> Result<(PathBuf, File)> {
         }
     }
     bail!(
-        "failed to create a temporary trace file in {}: the last \
+        "failed to create a temporary trace file beside {}: the last \
          {TEMP_ATTEMPTS_MAX} names tried were taken",
         run_path.display(),
     )
@@ -383,7 +383,7 @@ fn trace_write_error(error: io::Error) -> anyhow::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{State, open_trace};
+    use crate::{State, TRACE_FILE_NAME, open_trace};
     use serde::Deserialize;
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -395,17 +395,20 @@ mod tests {
     fn written_states_reach_the_file_without_finishing() {
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
         .unwrap();
         // The envelope is there before any state.
-        assert!(open_trace::<Metadata>(directory.path()).is_ok());
+        assert!(
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .is_ok()
+        );
         writer.write_state(Metadata { n: 0 }, None).unwrap();
         // The writer flushes once it is idle; wait for that.
         let read = || {
-            open_trace::<Metadata>(directory.path())
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap()
                 .collect::<Result<Vec<_>>>()
                 .unwrap()
@@ -428,7 +431,7 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
@@ -439,7 +442,9 @@ mod tests {
         assert!(error.contains("failed to encode trace state"), "{error}");
         assert!(writer.finish().is_err());
         // The trace isn't marked as finished after a failure.
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap();
         assert_eq!(reader.by_ref().count(), 0);
         assert!(!reader.finished());
     }
@@ -489,7 +494,7 @@ mod tests {
     fn drop_writes_queued_states_without_end() {
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
@@ -506,7 +511,9 @@ mod tests {
         // Without `finish`, as on a panic or an early return.
         drop(writer);
 
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap();
         let states = reader
             .by_ref()
             .collect::<Result<Vec<State<Metadata>>>>()
@@ -545,7 +552,7 @@ mod tests {
         ] {
             let directory = tempfile::tempdir().unwrap();
             let mut writer = TraceFileWriter::create(
-                directory.path(),
+                &directory.path().join(TRACE_FILE_NAME),
                 TraceDriver::Terminal,
                 false,
             )
@@ -573,7 +580,7 @@ mod tests {
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let drivers = [TraceDriver::Terminal, TraceDriver::Browser];
         let threads = drivers.map(|driver| {
-            let run_path = directory.path().to_path_buf();
+            let run_path = directory.path().join(TRACE_FILE_NAME);
             let barrier = barrier.clone();
             std::thread::spawn(move || {
                 barrier.wait();
@@ -588,7 +595,9 @@ mod tests {
         });
         let results = threads.map(|thread| thread.join().unwrap());
 
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap();
         let driver = reader.driver;
         let numbers: Vec<_> = reader
             .by_ref()
@@ -619,7 +628,7 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
@@ -663,7 +672,7 @@ mod tests {
         for driver in [TraceDriver::Unknown(0), TraceDriver::Unknown(2)] {
             let error = format!("{:#}", create(driver).err().unwrap());
             assert!(error.contains("invalid trace driver code"), "{error}");
-            // Checked before anything is created, even the run directory.
+            // Checked before any file is created.
             assert!(!run_path.exists());
         }
         create(TraceDriver::Terminal).unwrap().finish().unwrap();
@@ -673,7 +682,7 @@ mod tests {
     fn refuses_oversized_payloads_up_front() {
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
@@ -684,10 +693,11 @@ mod tests {
             .unwrap_err();
         assert!(format!("{error:#}").contains("too large"), "{error:#}");
         writer.finish().unwrap();
-        let states = open_trace::<Metadata>(directory.path())
-            .unwrap()
-            .collect::<Result<Vec<_>>>()
-            .unwrap();
+        let states =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap()
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
         assert!(states.is_empty());
     }
 
@@ -696,7 +706,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let create = |driver, overwrite| {
             TraceFileWriter::<Metadata>::create(
-                directory.path(),
+                &directory.path().join(TRACE_FILE_NAME),
                 driver,
                 overwrite,
             )
@@ -716,7 +726,9 @@ mod tests {
         writer.write_state(Metadata { n: 2 }, None).unwrap();
         writer.finish().unwrap();
         assert_eq!(files(directory.path()), [TRACE_FILE_NAME]);
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap();
         assert_eq!(reader.driver, TraceDriver::Browser);
         let numbers: Vec<_> = reader
             .by_ref()
@@ -873,11 +885,110 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_files_and_numbered_siblings_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let base = directory.path().join("run.custom");
+        for n in 0..3 {
+            let path = crate::numbered_trace_path(&base, n);
+            assert_eq!(path, directory.path().join(format!("run-{n}.custom")));
+            let mut writer =
+                TraceFileWriter::create(&path, TraceDriver::Browser, false)
+                    .unwrap();
+            writer.write_state(Metadata { n: n as u32 }, None).unwrap();
+            writer.finish().unwrap();
+            assert_eq!(
+                open_trace::<Metadata>(&path)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .metadata
+                    .n,
+                n as u32
+            );
+            assert!(
+                TraceFileWriter::<Metadata>::create(
+                    &path,
+                    TraceDriver::Browser,
+                    false
+                )
+                .is_err()
+            );
+            let before = std::fs::read(&path).unwrap();
+            assert!(
+                TraceFileWriter::<Metadata>::create_with(
+                    &path,
+                    TraceDriver::Browser,
+                    true,
+                    |_| Failing { write: true }
+                )
+                .is_err()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        assert_eq!(
+            files(directory.path()),
+            ["run-0.custom", "run-1.custom", "run-2.custom"]
+        );
+        assert!(
+            TraceFileWriter::<Metadata>::create(
+                directory.path(),
+                TraceDriver::Browser,
+                false
+            )
+            .is_err()
+        );
+        let missing = directory.path().join("missing");
+        assert!(
+            TraceFileWriter::<Metadata>::create(
+                &missing.join("run.bin"),
+                TraceDriver::Browser,
+                true
+            )
+            .is_err()
+        );
+        assert!(!missing.exists());
+        // Bare filenames must stage beside that filename, not inside it.
+        assert_eq!(
+            temp_path(Path::new("run.custom"), 7).parent(),
+            Some(Path::new("."))
+        );
+        assert_eq!(
+            crate::numbered_trace_path(Path::new("run"), 3),
+            Path::new("run-3")
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn overwrites_a_trace_with_a_name_max_length_filename() {
+        let directory = tempfile::tempdir().unwrap();
+        let name = "x".repeat(255);
+        let path = directory.path().join(&name);
+        for (n, overwrite) in [(1, false), (2, true)] {
+            let mut writer = TraceFileWriter::create(
+                &path,
+                TraceDriver::Terminal,
+                overwrite,
+            )
+            .unwrap();
+            writer.write_state(Metadata { n }, None).unwrap();
+            writer.finish().unwrap();
+            let mut reader = open_trace::<Metadata>(&path).unwrap();
+            let states = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
+            assert_eq!(states.len(), 1);
+            assert_eq!(states[0].metadata.n, n);
+            assert!(reader.finished());
+            assert_eq!(files(directory.path()), std::slice::from_ref(&name));
+        }
+    }
+
+    #[test]
     fn create_leaves_nothing_behind_if_it_fails() {
         let directory = tempfile::tempdir().unwrap();
         let create = |overwrite, write| {
             TraceFileWriter::<Metadata>::create_with(
-                directory.path(),
+                &directory.path().join(TRACE_FILE_NAME),
                 TraceDriver::Terminal,
                 overwrite,
                 |_| Failing { write },
@@ -891,7 +1002,7 @@ mod tests {
 
         // An existing trace survives a failed overwrite.
         let mut writer = TraceFileWriter::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             false,
         )
@@ -913,7 +1024,7 @@ mod tests {
         std::fs::write(trace_path.join("kept"), b"kept").unwrap();
         assert!(
             TraceFileWriter::<Metadata>::create(
-                directory.path(),
+                &directory.path().join(TRACE_FILE_NAME),
                 TraceDriver::Terminal,
                 true,
             )
@@ -930,13 +1041,13 @@ mod tests {
         // time take them.
         let next = TEMP_FILES_CREATED.load(Ordering::Relaxed);
         let taken: Vec<_> = (next..next + 3)
-            .map(|n| temp_path(directory.path(), n))
+            .map(|n| temp_path(&directory.path().join(TRACE_FILE_NAME), n))
             .collect();
         for path in &taken {
             std::fs::write(path, b"taken").unwrap();
         }
         let mut writer = TraceFileWriter::<Metadata>::create(
-            directory.path(),
+            &directory.path().join(TRACE_FILE_NAME),
             TraceDriver::Terminal,
             true,
         )
@@ -948,7 +1059,9 @@ mod tests {
             std::fs::remove_file(path).unwrap();
         }
         assert_eq!(files(directory.path()), [TRACE_FILE_NAME]);
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader =
+            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+                .unwrap();
         assert_eq!(reader.by_ref().count(), 1);
         assert!(reader.finished());
     }

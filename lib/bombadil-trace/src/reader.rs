@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    ENVELOPE_LEN, RECORD_HEADER_LEN, TRACE_FILE_NAME, TraceDriver,
+    ENVELOPE_LEN, RECORD_HEADER_LEN, TraceDriver,
     envelope::read_envelope,
     record::{RawRecord, RecordHeader, RecordReader},
     tag,
@@ -58,28 +58,19 @@ struct PendingState<M> {
     record: usize,
 }
 
-/// Opens a trace file, or the trace in a run directory.
+/// Opens a trace file. Directories are not trace inputs.
 pub fn open_trace<M: DeserializeOwned>(
     path: &Path,
 ) -> Result<StateReader<BufReader<File>, M>> {
-    let path = trace_file(path);
-    let file = File::open(&path).with_context(|| {
+    let file = File::open(path).with_context(|| {
         format!("failed to open trace file {}", path.display())
     })?;
     StateReader::new(BufReader::new(file))
         .with_context(|| format!("failed to read {}", path.display()))
 }
 
-fn trace_file(path: &Path) -> std::path::PathBuf {
-    if path.is_dir() {
-        path.join(TRACE_FILE_NAME)
-    } else {
-        path.to_path_buf()
-    }
-}
-
 /// Reads the payload at `offset` (a [`State::payload_offset`]) of the
-/// trace file at `path`, or of the trace in a run directory, as with
+/// trace file at `path`, as with
 /// [`open_trace`].
 ///
 /// Checks that the file is a bombadil trace in the supported format
@@ -91,8 +82,7 @@ fn trace_file(path: &Path) -> std::path::PathBuf {
 /// whatever the path names since, keep it open and use
 /// [`read_payload_from`].
 pub fn read_payload_at(path: &Path, offset: u64) -> Result<Vec<u8>> {
-    let path = trace_file(path);
-    File::open(&path)
+    File::open(path)
         .map_err(anyhow::Error::from)
         .and_then(|file| read_payload(&file, offset))
         .with_context(|| {
@@ -366,6 +356,7 @@ impl<R: Read, M: DeserializeOwned> Iterator for StateReader<R, M> {
 mod tests {
     use super::*;
     use crate::{
+        TRACE_FILE_NAME,
         test_log::{capture_warnings, warned},
         write_envelope, write_record,
     };
@@ -443,8 +434,8 @@ mod tests {
             "{error}"
         );
 
-        // A run directory reads its trace.bin, as with `open_trace`.
-        assert_eq!(read_payload_at(directory.path(), offset).unwrap(), b"two");
+        assert!(read_payload_at(directory.path(), offset).is_err());
+        assert!(open_trace::<Metadata>(directory.path()).is_err());
 
         // A header with a matching checksum is still checked.
         let mut file = three_states();

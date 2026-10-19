@@ -101,8 +101,6 @@ pub struct ShrinkResult {
     pub elapsed: Duration,
 }
 
-const ATTEMPTS_DIRECTORY_NAME: &str = ".shrink-attempts";
-
 /// Acceptable risk of discarding a failing candidate that happened not to
 /// reproduce in any of its tries.
 const CANDIDATE_MISS_PROBABILITY_MAX: f64 = 0.1;
@@ -144,18 +142,26 @@ where
         actions.into()
     };
 
-    if output_path.join("trace.jsonl").try_exists()? && !output_path_overwrite {
+    if output_path.is_file() && !output_path_overwrite {
         bail!(
-            "trace.jsonl already exists at {}. \
+            "trace already exists at {}. \
              Use --output-path-overwrite to overwrite, or choose a different --output-path.",
             output_path.display(),
         );
     }
-    let attempts_path = output_path.join(ATTEMPTS_DIRECTORY_NAME);
-    if attempts_path.try_exists()? {
-        std::fs::remove_dir_all(&attempts_path)?;
+    // The browser still writes a JSON trace and screenshots in a directory.
+    if output_path.is_dir() {
+        let trace_path = output_path.join("trace.jsonl");
+        if trace_path.try_exists()? && !output_path_overwrite {
+            bail!(
+                "trace.jsonl already exists at {}. \
+                 Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                trace_path.display(),
+            );
+        }
     }
-    std::fs::create_dir_all(&attempts_path)?;
+    let attempts = tempfile::TempDir::with_prefix("bombadil-shrink-")?;
+    let attempts_path = attempts.path().to_path_buf();
 
     let bound = Arc::new(AtomicUsize::new(trace_length_truncated + 1));
     let worker_shared = Arc::new(WorkerShared {
@@ -212,6 +218,7 @@ where
         confirmation_hit_count_min: 1,
         pool: Vec::new(),
         files_best: Vec::new(),
+        overwrite: output_path_overwrite,
         pending: BTreeMap::new(),
         retries: VecDeque::new(),
         tried: HashMap::new(),
@@ -270,9 +277,8 @@ where
             log::error!("shrink worker panicked");
         }
     }
-    let attempts_removed = std::fs::remove_dir_all(&attempts_path);
     let exit_reason = loop_result?;
-    attempts_removed?;
+    attempts.close()?;
 
     let Some(best) = coordinator.pool.first() else {
         bail!("shrinking stopped before calibration finished");
@@ -383,8 +389,8 @@ where
                 &mut writer,
                 self.interrupted.clone(),
             )
-            // Drops (and flushes) the writer before the coordinator moves
-            // the run directory.
+            // The runner finishes the writer, so the trace is complete
+            // before the coordinator moves the run directory.
         })();
         if let Err(error) = &outcome {
             log::warn!("shrink run {} failed: {:#}", job.run_id, error);
@@ -524,6 +530,8 @@ struct Coordinator {
     pool: Vec<PoolEntry>,
     /// Files in the output directory that belong to the result.
     files_best: Vec<OsString>,
+    /// File results replace earlier improvements after first publication.
+    overwrite: bool,
     pending: BTreeMap<RunId, Pending>,
     retries: VecDeque<Sequence>,
     /// Dispatch counts by sequence hash.
@@ -548,7 +556,7 @@ impl Coordinator {
 
     fn remove_run_directory(&self, run_id: RunId) {
         let directory = self.run_directory(run_id);
-        if let Err(error) = std::fs::remove_dir_all(&directory)
+        if let Err(error) = remove_attempt(&directory)
             && error.kind() != std::io::ErrorKind::NotFound
         {
             log::warn!("failed to remove {}: {}", directory.display(), error);
@@ -792,7 +800,7 @@ impl Coordinator {
         let mut successes = successes.into_iter();
         let (executed, directory) = successes.next().expect("hit_count > 0");
         for (_, directory) in successes {
-            let _ = std::fs::remove_dir_all(directory);
+            let _ = remove_attempt(&directory);
         }
         println!(
             "Reproduced in {hit_count}/{run_count} calibration run(s), retrying candidates up to {} time(s)",
@@ -873,7 +881,7 @@ impl Coordinator {
             }
             self.retries.retain(|sequence| sequence.len() < length);
         } else {
-            let _ = std::fs::remove_dir_all(&pending.directory);
+            let _ = remove_attempt(&pending.directory);
             let position = self
                 .pool
                 .iter()
@@ -885,32 +893,126 @@ impl Coordinator {
         Ok(())
     }
 
-    /// Replace the result in the output directory with a run's trace.
+    /// Publish a terminal file or the browser's current multi-file directory.
     fn promote(&mut self, directory: &Path) -> Result<()> {
-        let previous = self.attempts_path.join("previous");
-        std::fs::create_dir_all(&previous)?;
-        for name in self.files_best.drain(..) {
-            std::fs::rename(
-                self.output_path.join(&name),
-                previous.join(&name),
-            )?;
+        if directory.is_file() {
+            let parent = self
+                .output_path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            let mut staged = tempfile::Builder::new()
+                .prefix(".bombadil-shrink-")
+                .suffix(".tmp")
+                .tempfile_in(parent)?;
+            std::io::copy(&mut std::fs::File::open(directory)?, &mut staged)?;
+            staged.as_file().sync_all()?;
+            if self.overwrite {
+                staged
+                    .persist(&self.output_path)
+                    .map_err(|error| error.error)?;
+            } else {
+                staged
+                    .persist_noclobber(&self.output_path)
+                    .map_err(|error| error.error)?;
+            }
+            self.overwrite = true;
+            std::fs::remove_file(directory)?;
+            return Ok(());
         }
+        std::fs::create_dir_all(&self.output_path)?;
+        // Copy the complete replacement onto the output filesystem before
+        // touching a published result. The backup and installation then use
+        // only same-filesystem renames, even when attempts live elsewhere.
+        let staged = tempfile::Builder::new()
+            .prefix(".bombadil-shrink-")
+            .tempdir_in(&self.output_path)?;
+        let replacement = staged.path().join("replacement");
+        let previous = staged.path().join("previous");
+        std::fs::create_dir(&replacement)?;
+        std::fs::create_dir(&previous)?;
+        let mut names = Vec::new();
         for entry in std::fs::read_dir(directory)? {
             let name = entry?.file_name();
-            let target = self.output_path.join(&name);
-            // Left over from an earlier shrink, when overwriting.
-            if target.is_dir() {
-                std::fs::remove_dir_all(&target)?;
-            } else if target.try_exists()? {
-                std::fs::remove_file(&target)?;
-            }
-            std::fs::rename(directory.join(&name), &target)?;
-            self.files_best.push(name);
+            copy_attempt(&directory.join(&name), &replacement.join(&name))?;
+            names.push(name);
         }
-        std::fs::remove_dir(directory)?;
-        std::fs::remove_dir_all(&previous)?;
+        let mut backed_up = Vec::new();
+        let mut installed = Vec::new();
+        let installation = (|| -> Result<()> {
+            for name in self.files_best.iter().chain(&names) {
+                if backed_up.contains(name) {
+                    continue;
+                }
+                let target = self.output_path.join(name);
+                match target.symlink_metadata() {
+                    Ok(_) => {
+                        std::fs::rename(&target, previous.join(name))?;
+                        backed_up.push(name.clone());
+                    }
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            for name in &names {
+                std::fs::rename(
+                    replacement.join(name),
+                    self.output_path.join(name),
+                )?;
+                installed.push(name.clone());
+            }
+            Ok(())
+        })();
+        if let Err(error) = installation {
+            let rollback = (|| -> Result<()> {
+                for name in installed.iter().rev() {
+                    remove_attempt(&self.output_path.join(name))?;
+                }
+                for name in backed_up.iter().rev() {
+                    std::fs::rename(
+                        previous.join(name),
+                        self.output_path.join(name),
+                    )?;
+                }
+                Ok(())
+            })();
+            if let Err(rollback) = rollback {
+                let kept = staged.keep();
+                return Err(error.context(format!(
+                    "failed to restore previous result: {rollback:#}; backup retained at {}",
+                    kept.display()
+                )));
+            }
+            return Err(error);
+        }
+        self.files_best = names;
+        staged.close()?;
+        std::fs::remove_dir_all(directory)?;
         Ok(())
     }
+}
+
+fn remove_attempt(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+
+fn copy_attempt(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            copy_attempt(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(from, to)?;
+        std::fs::File::open(to)?.sync_all()?;
+    }
+    Ok(())
 }
 
 /// Deletes chunks of decreasing size, like ddmin and afl-tmin. For each

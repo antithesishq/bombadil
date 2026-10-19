@@ -40,6 +40,7 @@ libc.workspace = true
 
 [dev-dependencies]
 boa_engine.workspace = true
+bombadil-trace = { path = "../bombadil-trace" }
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
