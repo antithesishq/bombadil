@@ -408,7 +408,7 @@ export const sendCommand = actions(() => {
 
 The actions you return must be possible to perform in the current state. Your
 action generators should therefore depend on [cells](#extractors) and validate
-your actions before returning them[, as done with `canvasCenter` in the previous
+your actions before returning them[, as done with `canvas` in the previous
 example. Another example is the `back` action generator provided by Bombadil,
 which checks that there's a history entry to go back to, otherwise returning `[]`]{.browser}.
 
