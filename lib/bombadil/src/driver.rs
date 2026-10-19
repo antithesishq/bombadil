@@ -70,6 +70,12 @@ pub trait TraceWriter<Session: InterfaceSession> {
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
     ) -> Result<()>;
+
+    /// Completes the trace after the last state, reporting any failure to
+    /// write it. Called once by the runner when a run ends.
+    fn finish(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl<Session: InterfaceSession> TraceWriter<Session>
@@ -83,6 +89,10 @@ impl<Session: InterfaceSession> TraceWriter<Session>
         violations: &[PropertyViolation],
     ) -> Result<()> {
         (**self).write(state, last_action, snapshots, violations)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        (**self).finish()
     }
 }
 

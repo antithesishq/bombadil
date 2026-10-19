@@ -242,8 +242,12 @@ escape sequences. It also checks a few common properties, like that the program
 exits with a zero exit code and that it doesn't print any byte sequences the
 terminal can't render.
 
-::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
-so we can't easily inspect the results at this point.
-:::
+The test results are in `my-test/trace.bin`. To see what happened, show each
+state of the test with its screen:
+
+```bash
+bombadil trace my-test --screen
+```
+
+See [Inspecting test results] for more.
 :::

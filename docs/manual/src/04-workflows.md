@@ -62,7 +62,7 @@ reproducing the violation. Calibration can be controlled with
 `--calibration-runs` and `--confirmation-runs-max` if needed. At the end of
 shrinking, you get a new trace in the output directory, configured with
 `--output-path` and `--output-path-overwrite`, that can be
-[[reproduced][Reproducing violations] or [inspected][Inspecting test results]]{.browser}[[reproduced][Reproducing violations]]{.terminal}.
+[reproduced][Reproducing violations] or [inspected][Inspecting test results].
 
 ## Inspecting test results
 
@@ -86,9 +86,19 @@ snapshot values per state.
 
 ::: terminal
 
-::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
-so results can't easily be inspected at this point.
-:::
+When you've run a test and found one or more violations, you likely want to
+understand what happened. The `bombadil trace` command shows a trace in the
+terminal, one state at a time:
+
+```bash
+bombadil trace my-test --screen
+```
+
+Each state lists the action that led to it, the time since the first state,
+and the properties it violated. With `--screen`, you also see the terminal
+screen as the properties saw it. Pick states with `--state` (`--state 40..50`
+shows states 40 to 49), keep the screen's colors with `--color`, or print one
+JSON object per state with `--json` (with `--screen`, including the screen) to
+process the trace with tools like `jq`.
 
 :::

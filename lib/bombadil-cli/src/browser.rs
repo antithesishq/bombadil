@@ -163,7 +163,8 @@ pub struct RunSharedOptions {
     pub output_path: Option<PathBuf>,
 
     /// Overwrite any existing trace at `--output-path`. Without this flag,
-    /// Bombadil refuses to write when trace.jsonl already exists.
+    /// Bombadil refuses to write when trace.jsonl or trace.bin already
+    /// exists.
     #[arg(long)]
     pub output_path_overwrite: bool,
 
@@ -408,11 +409,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             target,
             shrink_options,
             launch_options,
-        } => browser_shrink(
-            target,
-            shrink_options,
-            launch_options.debugger_options()?,
-        ),
+        } => browser_shrink(target, shrink_options, launch_options),
         BrowserCommand::Inspect {
             trace_path,
             port,
@@ -571,7 +568,7 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
             let trace_file_path =
-                output_path::resolve_trace_directory(path).join("trace.jsonl");
+                output_path::resolve_browser_trace_file(path)?;
             let trace_file = File::open(&trace_file_path)?;
             let mut actions: Vec<BrowserAction> = vec![];
             for line in BufReader::new(trace_file).lines() {
@@ -884,9 +881,15 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
 fn browser_shrink(
     target: TargetOptions,
     shrink_options: ShrinkOptions,
-    debugger_options: DebuggerOptions,
+    launch_options: ManagedBrowserOptions,
 ) -> Result<()> {
-    let options = shrink_options.resolve::<browser::BrowserAction>()?;
+    // Check the trace before looking for a browser to run it in.
+    let options = shrink_options.resolve(|trace_path| {
+        bombadil::shrink::load_trace_actions::<browser::BrowserAction>(
+            &output_path::resolve_browser_trace_file(trace_path)?,
+        )
+    })?;
+    let debugger_options = launch_options.debugger_options()?;
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =

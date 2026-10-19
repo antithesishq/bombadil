@@ -16,6 +16,7 @@ static INSPECT_ASSETS: Dir =
 #[derive(Clone)]
 struct AppState {
     trace_directory: PathBuf,
+    trace_file: PathBuf,
 }
 
 pub async fn serve(
@@ -23,10 +24,19 @@ pub async fn serve(
     port: u16,
     open_browser: bool,
 ) -> Result<()> {
+    // Fail before serving rather than when the page asks for the trace.
+    let trace_file =
+        crate::output_path::resolve_browser_trace_file(&trace_path)?;
+    if !trace_file.is_file() {
+        anyhow::bail!("no browser trace at {}", trace_file.display());
+    }
     let trace_directory =
         crate::output_path::resolve_trace_directory(&trace_path);
 
-    let state = AppState { trace_directory };
+    let state = AppState {
+        trace_directory,
+        trace_file,
+    };
 
     let app = Router::new()
         .route("/api/trace", get(trace_handler))
@@ -52,7 +62,7 @@ pub async fn serve(
 async fn trace_handler(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<BrowserTraceEntry>>, axum::http::StatusCode> {
-    let trace_file = state.trace_directory.join("trace.jsonl");
+    let trace_file = &state.trace_file;
     // TODO: this should be streamed line-by-line over a websocket or SSE
     // rather than loaded into memory and sent as JSON. OK for now, but
     // worth revisiting when we do "live inspect mode".

@@ -274,11 +274,13 @@ struct FakeTraceWriter {
 
 impl FakeTraceWriter {
     fn new(directory: PathBuf) -> Result<Self> {
+        Self::with_file_name(directory, "trace.jsonl")
+    }
+
+    fn with_file_name(directory: PathBuf, file_name: &str) -> Result<Self> {
         std::fs::create_dir_all(&directory)?;
         Ok(FakeTraceWriter {
-            writer: BufWriter::new(File::create(
-                directory.join("trace.jsonl"),
-            )?),
+            writer: BufWriter::new(File::create(directory.join(file_name))?),
         })
     }
 }
@@ -464,4 +466,116 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             );
         }
     }
+}
+
+/// Shrinks a short deterministic trace into `output`, with the driver
+/// writing its trace as `trace_file`.
+fn shrink_into(
+    output: &std::path::Path,
+    overwrite: bool,
+    trace_file: &'static str,
+) -> Result<super::ShrinkResult> {
+    let triggers = BTreeSet::from([1]);
+    let executed = replay(&[0, 1], &triggers).expect("bug is triggered");
+    let trace = TraceActions {
+        actions: executed.iter().map(|&action| FakeAction(action)).collect(),
+        violations_earliest: BTreeMap::from([(
+            PROPERTY_NAME.to_string(),
+            executed.len(),
+        )]),
+    };
+    let steps_max = executed.len() as u64 + 1;
+    shrink(ShrinkOptions {
+        driver: Arc::new(FakeDriver {
+            bundle_code: bundle_code(),
+            triggers,
+            flakiness: Flakiness::Deterministic,
+            seed: 0,
+        }),
+        strategy: move || FakeStrategy { steps_max },
+        trace_writer: move |directory| {
+            FakeTraceWriter::with_file_name(directory, trace_file)
+        },
+        trace,
+        property_name: None,
+        output_path: output.to_path_buf(),
+        output_path_overwrite: overwrite,
+        parallelism: NonZeroUsize::new(1).unwrap(),
+        interrupted: Arc::new(AtomicBool::new(false)),
+        time_limit: Some(Duration::from_secs(60)),
+        settings: ShrinkSettings {
+            calibration_runs: NonZeroUsize::new(2).unwrap(),
+            ..ShrinkSettings::default()
+        },
+    })
+}
+
+/// An existing trace, binary or JSON lines, is refused without
+/// overwriting, and left as it was.
+#[test]
+fn refuses_an_existing_trace_without_overwriting() {
+    for existing in ["trace.bin", "trace.jsonl"] {
+        let output = tempfile::tempdir().unwrap();
+        std::fs::write(output.path().join(existing), "previous").unwrap();
+        let error = shrink_into(output.path(), false, "trace.bin")
+            .err()
+            .unwrap();
+        assert!(
+            error
+                .to_string()
+                .starts_with(&format!("{existing} already exists at")),
+            "{error:#}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(output.path().join(existing)).unwrap(),
+            "previous"
+        );
+    }
+}
+
+/// Overwriting with a binary trace removes a legacy `trace.jsonl`, but a
+/// driver writing `trace.jsonl` itself keeps its fresh one.
+#[test]
+fn overwriting_replaces_a_legacy_json_trace() {
+    let output = tempfile::tempdir().unwrap();
+    let json_trace = output.path().join("trace.jsonl");
+    std::fs::write(&json_trace, "previous").unwrap();
+    shrink_into(output.path(), true, "trace.bin").unwrap();
+    assert!(output.path().join("trace.bin").is_file());
+    assert!(!json_trace.exists(), "the legacy trace.jsonl is left over");
+
+    let output = tempfile::tempdir().unwrap();
+    let json_trace = output.path().join("trace.jsonl");
+    std::fs::write(&json_trace, "previous").unwrap();
+    shrink_into(output.path(), true, "trace.jsonl").unwrap();
+    let shrunk = load_trace_actions::<FakeAction>(&json_trace).unwrap();
+    assert!(!shrunk.actions.is_empty());
+}
+
+/// Failing to remove the stale trace of the other format is reported.
+#[test]
+fn overwriting_reports_failing_to_remove_a_stale_trace() {
+    let output = tempfile::tempdir().unwrap();
+    let stale = output.path().join("trace.jsonl");
+    std::fs::create_dir_all(stale.join("non-empty")).unwrap();
+    let error = shrink_into(output.path(), true, "trace.bin").err().unwrap();
+    assert!(
+        format!("{error:#}")
+            .contains(&format!("failed to remove {}", stale.display())),
+        "{error:#}"
+    );
+}
+
+/// Overwriting with a JSON lines trace, as the browser writes, removes a
+/// terminal `trace.bin` left over from an earlier run.
+#[test]
+fn overwriting_replaces_a_stale_binary_trace() {
+    let output = tempfile::tempdir().unwrap();
+    std::fs::write(output.path().join("trace.bin"), "previous").unwrap();
+    shrink_into(output.path(), true, "trace.jsonl").unwrap();
+    assert!(output.path().join("trace.jsonl").is_file());
+    assert!(
+        !output.path().join("trace.bin").exists(),
+        "the stale trace.bin is left over"
+    );
 }
