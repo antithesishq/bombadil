@@ -434,6 +434,132 @@ export const inputs = weighted([
 ```
 :::
 
+### Transforming action generators
+
+Rather than writing a generator from scratch, you can often adapt an existing
+one, such as the ones provided as [defaults][Default properties and action generators].
+[Action generators](#actiongenerator) have `map`, `filter`, and `flatMap`
+methods that work similarly to those in `Array`. Weights are preserved when
+transforming a generator. Use `isAction` to check what kind of action you're
+dealing with, which also narrows its type.
+
+The difference between the two mapping methods is what the function returns.
+With `map`, each action is replaced by a single other action. With `flatMap`,
+each action is replaced by an array of actions, picked uniformly, or by another
+action generator. Returning an empty array from `flatMap` drops the action.
+
+::: browser
+Here's the default `clicks` generator, restricted to elements outside of a
+sidebar:
+
+```typescript
+import { extract, weighted, type Point } from "@antithesishq/bombadil/browser";
+import { isAction, type Range } from "@antithesishq/bombadil/actions";
+import {
+    clicks,
+    inputs,
+    scroll,
+} from "@antithesishq/bombadil/browser/defaults/actions";
+
+const sidebar = extract((state) => {
+    const element = state.document.querySelector("#sidebar");
+    if (!element) return null;
+    const { left, top, right, bottom } = element.getBoundingClientRect();
+    return { left, top, right, bottom };
+});
+
+function inSidebar({ x, y }: Point<Range>): boolean {
+    const rect = sidebar.current;
+    return (
+        rect !== null &&
+        typeof x === "number" &&
+        typeof y === "number" &&
+        x >= rect.left &&
+        x <= rect.right &&
+        y >= rect.top &&
+        y <= rect.bottom
+    );
+}
+
+export const myActions = weighted([
+    [
+        100,
+        clicks.filter(
+            (action) =>
+                !(isAction(action, "Click") && inSidebar(action.Click.point)),
+        ),
+    ],
+    [100, inputs],
+    [50, scroll],
+]);
+```
+
+::: {.callout .callout-warning}
+Only export the filtered `clicks` and not the original definition.
+Otherwise Bombadil will still be able to click in the sidebar.
+:::
+
+The `map` method replaces each action, here turning every click into a
+double-click:
+
+```typescript
+export const doubleClicks = clicks.map((action) =>
+    isAction(action, "Click") ? { DoubleClick: action.Click } : action,
+);
+```
+:::
+
+::: terminal
+Here's the default `typeBasicInput` generator, never typing Enter. It uses
+`flatMap` to drop actions whose charset ends up empty:
+
+```typescript
+import { CharSet, isAction } from "@antithesishq/bombadil/actions";
+import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
+
+export const typeWithoutEnter = typeBasicInput.flatMap((action) => {
+    if (!(isAction(action, "TypeText") && CharSet.is(action.TypeText))) {
+        return [action];
+    }
+    const set = action.TypeText.CharSet.filter(
+        (entry) =>
+            !(CharSet.Entry.is(entry, "Literal") && entry.Literal === "\r"),
+    );
+    return set.length > 0 ? [{ TypeText: { CharSet: set } }] : [];
+});
+```
+
+::: {.callout .callout-warning}
+Only export the transformed `typeBasicInput` and not the original definition.
+Otherwise Bombadil will still be able to type Enter.
+:::
+
+:::
+
+To enable a generator only in certain states, use `when` with a boolean, a
+cell, or a function returning a boolean. When the condition is false, the
+generator isn't run at all:
+
+::: browser
+```typescript
+export const clicksUnlessModal = clicks.when(() => !modalOpen.current);
+```
+:::
+
+::: terminal
+```typescript
+import { extract } from "@antithesishq/bombadil/terminal";
+import { typeBasicInput } from "@antithesishq/bombadil/terminal/defaults";
+
+const idle = extract(
+    (state) =>
+        !state.grid.rowText(state.grid.size.rows - 1).includes("Loading"),
+);
+
+export const typeWhenIdle = typeBasicInput.when(idle);
+```
+:::
+
 ## Custom actions
 
 :::: browser
