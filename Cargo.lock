@@ -571,6 +571,7 @@ dependencies = [
  "bombadil-ltl",
  "bombadil-schema",
  "bombadil-terminal",
+ "bombadil-trace",
  "clap",
  "ctrlc",
  "env_logger",

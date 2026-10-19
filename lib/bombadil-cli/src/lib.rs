@@ -5,6 +5,7 @@ mod output_path;
 mod shrink;
 #[cfg(feature = "terminal")]
 mod terminal;
+mod trace;
 
 use anyhow::Result;
 
@@ -30,6 +31,8 @@ enum Command {
         #[command(subcommand)]
         command: terminal::Command,
     },
+    /// Show the states of a binary trace (`trace.bin`)
+    Trace(trace::TraceArgs),
 }
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -40,5 +43,6 @@ pub fn run(cli: Cli) -> Result<()> {
             terminal::run(command);
             Ok(())
         }
+        Command::Trace(args) => trace::run(args),
     }
 }
