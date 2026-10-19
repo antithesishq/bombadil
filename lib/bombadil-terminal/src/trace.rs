@@ -1,26 +1,39 @@
-use std::{
-    io::{self, BufWriter, Write},
-    path::PathBuf,
-    sync::mpsc,
-    thread::JoinHandle,
-};
+//! Terminal traces: `trace.bin` files (see [`bombadil_trace`]) written by
+//! the terminal driver.
+//!
+//! Each state's metadata is a [`TerminalTraceEntry`] (action, cursor, exit
+//! status, extractor snapshots, violations), and its payload is ghostty's
+//! binary snapshot of the whole terminal (`GHOSTSNP`), holding the grid,
+//! scrollback and modes. The payload is left out when no snapshot could be
+//! encoded for that state. Each snapshot carries its own format version,
+//! which ghostty's decoder checks; that format has no cross-version
+//! compatibility guarantee yet.
+
+use std::{collections::BTreeMap, fs::File, io::BufReader, path::Path};
 
 use anyhow::{Result, anyhow};
-use bombadil::{driver::OutputWriter, specification::convert::ToSchema};
-use bombadil::{driver::RunId, specification::domain::Snapshot};
-use bombadil::{driver::TraceWriter, runner::PropertyViolation};
+use bombadil::shrink::TraceActions;
+use bombadil::{
+    driver::{OutputWriter, RunId, TraceWriter},
+    runner::PropertyViolation,
+    specification::{convert::ToSchema, domain::Snapshot},
+};
 use bombadil_schema::Time;
-use bombadil_schema::terminal::{TerminalCell, TerminalGrid};
-use serde_json as json;
-use std::fs::File;
+use bombadil_schema::terminal::{
+    self as schema, TerminalStateSummary, TerminalTraceEntry,
+};
+use bombadil_trace::{StateReader, TraceDriver, TraceFileWriter, open_trace};
+use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
 
 use crate::{
     driver::{TerminalAction, TerminalSession},
     state::TerminalState,
 };
 
+pub use bombadil_trace::TRACE_FILE_NAME;
+
 pub struct TerminalOutputWriter {
-    pub root_path: PathBuf,
+    pub root_path: std::path::PathBuf,
     pub overwrite: bool,
 }
 
@@ -30,170 +43,20 @@ impl OutputWriter<TerminalSession> for TerminalOutputWriter {
     fn trace_writer(&mut self, run_id: RunId) -> Result<Self::TraceWriter> {
         let run_path =
             self.root_path.join("runs").join(format!("{}", run_id.0));
-        TerminalTraceWriter::initialize(run_path, self.overwrite)
+        TerminalTraceWriter::initialize(&run_path, self.overwrite)
     }
 }
 
-/// Writes trace entries on a dedicated thread so that JSON
-/// serialization and disk I/O (hundreds of kilobytes per state) overlap
-/// with the test loop instead of stalling it. The bounded channel
-/// provides backpressure if the writer cannot keep up.
-pub struct TerminalTraceWriter {
-    sender: mpsc::SyncSender<Message>,
-    worker: Option<JoinHandle<Result<()>>>,
-}
-
-impl Drop for TerminalTraceWriter {
-    fn drop(&mut self) {
-        let _ = self.flush();
-    }
-}
-
-enum Message {
-    Entry(Box<OwnedEntry>),
-    Flush(mpsc::SyncSender<Result<()>>),
-}
-
-struct OwnedEntry {
-    state: TerminalState,
-    action: Option<TerminalAction>,
-    snapshots: Vec<bombadil_schema::Snapshot>,
-    violations: Vec<bombadil_schema::PropertyViolation>,
-}
-
-/// Writes a trace entry byte-identically to serializing
-/// `TerminalTraceEntry` with serde, but lays out the (large, highly
-/// repetitive) grid cell arrays manually: runs of identical cells are
-/// emitted by copying the previously serialized bytes instead of
-/// re-running serde for every cell. This is the hot path of the test
-/// loop, dominated by grid serialization.
-fn write_entry(
-    buffer: &mut Vec<u8>,
-    timestamp: Time,
-    action: Option<&TerminalAction>,
-    state: &TerminalState,
-    snapshots: &[bombadil_schema::Snapshot],
-    violations: &[bombadil_schema::PropertyViolation],
-) -> Result<()> {
-    buffer.extend_from_slice(b"{\"timestamp\":");
-    json::to_writer(&mut *buffer, &timestamp)?;
-    buffer.extend_from_slice(b",\"action\":");
-    json::to_writer(&mut *buffer, &action)?;
-    buffer.extend_from_slice(b",\"state\":{\"grid\":");
-    write_grid(buffer, &state.grid)?;
-    buffer.extend_from_slice(b",\"scrollback\":");
-    write_grid(buffer, &state.scrollback)?;
-    buffer.extend_from_slice(b",\"scroll_offset\":");
-    json::to_writer(&mut *buffer, &state.scroll_offset)?;
-    buffer.extend_from_slice(b",\"cursor\":");
-    json::to_writer(&mut *buffer, &state.cursor)?;
-    buffer.extend_from_slice(b",\"exit_status\":");
-    json::to_writer(&mut *buffer, &state.exit_status)?;
-    buffer.extend_from_slice(b"},\"snapshots\":");
-    json::to_writer(&mut *buffer, snapshots)?;
-    buffer.extend_from_slice(b",\"violations\":");
-    json::to_writer(&mut *buffer, violations)?;
-    buffer.push(b'}');
-    Ok(())
-}
-
-// Number of distinct cells whose serialized bytes are cached while
-// writing one grid. Text rows reuse a small alphabet of cells, so a
-// small ring cache turns almost every cell into a byte copy.
-const CELL_CACHE_SIZE: usize = 64;
-
-fn write_grid(buffer: &mut Vec<u8>, grid: &TerminalGrid) -> Result<()> {
-    buffer.extend_from_slice(b"{\"cells\":[");
-    // Ranges index into `buffer`, which only grows while a grid is
-    // written, so cached ranges stay valid for the whole call.
-    let mut cache: Vec<(&TerminalCell, std::ops::Range<usize>)> =
-        Vec::with_capacity(CELL_CACHE_SIZE);
-    let mut next_slot = 0;
-    let mut first = true;
-    for cell in grid {
-        if !first {
-            buffer.push(b',');
-        }
-        first = false;
-        match cache.iter().find(|(cached, _)| *cached == cell) {
-            Some((_, range)) => {
-                buffer.extend_from_within(range.clone());
-            }
-            None => {
-                let start = buffer.len();
-                json::to_writer(&mut *buffer, cell)?;
-                let entry = (cell, start..buffer.len());
-                if cache.len() < CELL_CACHE_SIZE {
-                    cache.push(entry);
-                } else {
-                    cache[next_slot] = entry;
-                    next_slot = (next_slot + 1) % CELL_CACHE_SIZE;
-                }
-            }
-        }
-    }
-    buffer.extend_from_slice(b"],\"size\":");
-    json::to_writer(&mut *buffer, &grid.size)?;
-    buffer.push(b'}');
-    Ok(())
-}
-
-// Bounds the number of in-flight entries (each a full grid clone) to
-// cap memory while letting the writer thread run behind the test loop.
-const PENDING_ENTRIES_MAX: usize = 32;
+pub struct TerminalTraceWriter(TraceFileWriter<TerminalTraceEntry>);
 
 impl TerminalTraceWriter {
-    pub fn initialize(run_path: PathBuf, overwrite: bool) -> Result<Self> {
-        std::fs::create_dir_all(&run_path)?;
-        let trace_path = run_path.join("trace.jsonl");
-        if trace_path.try_exists()? {
-            if !overwrite {
-                anyhow::bail!(
-                    "trace.jsonl already exists at {}. \
-                     Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-                    trace_path.display(),
-                );
-            }
-            std::fs::remove_file(&trace_path)?;
-        }
-        let trace_file = File::options()
-            .write(true)
-            .create_new(true)
-            .open(&trace_path)?;
-        log::info!("storing run trace in {}", run_path.display());
-        let (sender, receiver) = mpsc::sync_channel(PENDING_ENTRIES_MAX);
-        let worker = std::thread::Builder::new()
-            .name("bombadil-trace-writer".to_string())
-            .spawn(move || worker_loop(receiver, BufWriter::new(trace_file)))?;
-        Ok(Self {
-            sender,
-            worker: Some(worker),
-        })
+    pub fn initialize(run_path: &Path, overwrite: bool) -> Result<Self> {
+        TraceFileWriter::create(run_path, TraceDriver::Terminal, overwrite)
+            .map(TerminalTraceWriter)
     }
 
     pub fn flush(&mut self) -> Result<()> {
-        let (ack_sender, ack_receiver) = mpsc::sync_channel(1);
-        if self.sender.send(Message::Flush(ack_sender)).is_err() {
-            return Err(self.worker_failure());
-        }
-        match ack_receiver.recv() {
-            Ok(result) => result,
-            Err(_) => Err(self.worker_failure()),
-        }
-    }
-
-    /// Joins the worker thread to surface the error that made it exit.
-    fn worker_failure(&mut self) -> anyhow::Error {
-        match self.worker.take() {
-            Some(worker) => match worker.join() {
-                Ok(Ok(())) => {
-                    anyhow!("trace writer thread exited unexpectedly")
-                }
-                Ok(Err(error)) => error,
-                Err(_) => anyhow!("trace writer thread panicked"),
-            },
-            None => anyhow!("trace writer thread already failed"),
-        }
+        self.0.flush()
     }
 }
 
@@ -206,205 +69,219 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
     ) -> Result<()> {
-        let entry = Box::new(OwnedEntry {
-            state: state.clone(),
-            action: last_action.cloned(),
+        let entry = TerminalTraceEntry {
+            timestamp: Time::from_system_time(state.timestamp),
+            action: last_action.map(ToSchema::to_schema),
+            state: TerminalStateSummary {
+                scroll_offset: state.scroll_offset,
+                cursor: state.cursor.clone(),
+                exit_status: state.exit_status.clone(),
+            },
             snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: violations.iter().map(|v| v.to_schema()).collect(),
-        });
-        if self.sender.send(Message::Entry(entry)).is_err() {
-            return Err(self.worker_failure());
-        }
-        Ok(())
+        };
+        // The snapshot is shared with the state, not copied.
+        self.0.write_state(entry, state.terminal_snapshot.clone())
     }
 }
 
-fn worker_loop(
-    receiver: mpsc::Receiver<Message>,
-    mut trace_file: BufWriter<File>,
-) -> Result<()> {
-    let mut buffer = Vec::new();
-    while let Ok(message) = receiver.recv() {
-        match message {
-            Message::Entry(entry) => {
-                buffer.clear();
-                write_entry(
-                    &mut buffer,
-                    Time::from_system_time(entry.state.timestamp),
-                    entry.action.as_ref(),
-                    &entry.state,
-                    &entry.snapshots,
-                    &entry.violations,
-                )?;
-                buffer.push(b'\n');
-                trace_file.write_all(&buffer).map_err(trace_write_error)?;
-            }
-            Message::Flush(ack) => {
-                let result = trace_file.flush().map_err(trace_write_error);
-                // The flusher may have given up waiting; ignore that.
-                let _ = ack.send(result);
-            }
-        }
-    }
-    trace_file.flush().map_err(trace_write_error)?;
-    Ok(())
+pub type TerminalStates = StateReader<BufReader<File>, TerminalTraceEntry>;
+
+/// Opens a terminal trace file, or the trace in a run directory.
+pub fn open_terminal_trace(path: &Path) -> Result<TerminalStates> {
+    open_trace(path)?.expect_driver(TraceDriver::Terminal)
 }
 
-fn trace_write_error(error: io::Error) -> anyhow::Error {
-    let message = match error.kind() {
-        io::ErrorKind::QuotaExceeded => {
-            "try using `--output-path` to write traces outside \
-            of the temporary directory"
+/// The actions of a trace (file or run directory) and the earliest
+/// violation of each property, for shrinking.
+pub fn load_trace_actions(
+    path: &Path,
+) -> Result<TraceActions<schema::TerminalAction>> {
+    let mut actions = Vec::new();
+    let mut violations_earliest = BTreeMap::new();
+    for state in open_terminal_trace(path)? {
+        let entry = state?.metadata;
+        if let Some(action) = entry.action {
+            actions.push(action);
         }
-        _ => "failed to write to trace file",
-    };
+        for violation in entry.violations {
+            violations_earliest
+                .entry(violation.name)
+                .or_insert(actions.len());
+        }
+    }
+    Ok(TraceActions {
+        actions,
+        violations_earliest,
+    })
+}
 
-    anyhow!(error).context(message)
+/// Renders the active screen of a terminal snapshot as text, with its
+/// colors and styles as ANSI escape sequences if `color` is set.
+pub fn render_screen(snapshot: &[u8], color: bool) -> Result<String> {
+    let terminal = libghostty_vt::snapshot::Decoder::new_buf(snapshot)
+        .and_then(|decoder| decoder.decode())
+        .map_err(|error| {
+            anyhow!("failed to decode terminal snapshot: {error}")
+        })?;
+    let format = if color { Format::Vt } else { Format::Plain };
+    let mut formatter = Formatter::new(
+        &terminal,
+        FormatterOptions::new().with_format(format).with_trim(true),
+    )
+    .map_err(|error| anyhow!("failed to render terminal snapshot: {error}"))?;
+    let screen = formatter.format_alloc(None).map_err(|error| {
+        anyhow!("failed to render terminal snapshot: {error}")
+    })?;
+    Ok(String::from_utf8_lossy(&screen).into_owned())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::SystemTime;
+    use std::{sync::Arc, time::SystemTime};
 
     use bombadil_schema::terminal::{
-        TerminalAttributes, TerminalColor, TerminalCursor,
-        TerminalCursorPosition, TerminalCursorVisualStyle, TerminalSize,
-        TerminalStateSummary, TerminalStyle, TerminalTraceEntry,
-        TerminalUnderline,
+        TerminalColor, TerminalCursor, TerminalCursorPosition,
+        TerminalCursorVisualStyle, TerminalGrid, TerminalSize,
     };
-    use hegel::Generator;
-    use hegel::TestCase;
-    use hegel::generators::{booleans, integers, just, one_of, text, vecs};
-    use small_string::SmallString;
+    use bombadil_trace::{tag, write_envelope, write_record};
 
     use super::*;
 
-    #[hegel::composite]
-    fn generate_color(tc: &TestCase) -> TerminalColor {
-        tc.draw(
-            one_of([
-                just(TerminalColor::None).boxed(),
-                just(TerminalColor::Palette(tc.draw(integers()))).boxed(),
-                just(TerminalColor::RGB {
-                    r: tc.draw(integers()),
-                    g: tc.draw(integers()),
-                    b: tc.draw(integers()),
-                })
-                .boxed(),
-            ])
-            .print_as_debug(),
-        )
-    }
-
-    #[hegel::composite]
-    fn generate_underline(tc: &TestCase) -> TerminalUnderline {
-        tc.draw(
-            one_of([
-                just(TerminalUnderline::None).boxed(),
-                just(TerminalUnderline::Single).boxed(),
-                just(TerminalUnderline::Double).boxed(),
-                just(TerminalUnderline::Curly).boxed(),
-                just(TerminalUnderline::Dotted).boxed(),
-                just(TerminalUnderline::Dashed).boxed(),
-            ])
-            .print_as_debug(),
-        )
-    }
-
-    #[hegel::composite]
-    fn generate_style(tc: &TestCase) -> TerminalStyle {
-        TerminalStyle {
-            foreground_color: tc.draw(generate_color().print_as_debug()),
-            background_color: tc.draw(generate_color().print_as_debug()),
-            underline_color: tc.draw(generate_color().print_as_debug()),
-            underline: tc.draw(generate_underline().print_as_debug()),
-            attributes: TerminalAttributes(tc.draw(integers())),
-        }
-    }
-
-    #[hegel::composite]
-    fn generate_cell(tc: &TestCase) -> TerminalCell {
-        let style = tc.draw(generate_style().print_as_debug());
-
-        tc.draw(
-            one_of([
-                just(TerminalCell::Occupied {
-                    contents: SmallString::from(tc.draw(text().max_size(1))),
-                    wide: tc.draw(booleans()),
-                    style: style.clone(),
-                })
-                .boxed(),
-                just(TerminalCell::Continuation {
-                    style: style.clone(),
-                })
-                .boxed(),
-                just(TerminalCell::Empty {
-                    style: style.clone(),
-                })
-                .boxed(),
-            ])
-            .print_as_debug(),
-        )
-    }
-
-    #[hegel::test(test_cases = 10)]
-    fn test_matches_builtin(tc: TestCase) {
+    fn state(terminal_snapshot: Option<Vec<u8>>) -> TerminalState {
         let size = TerminalSize {
-            columns: tc.draw(integers().min_value(1).max_value(10)),
-            rows: tc.draw(integers().min_value(1).max_value(10)),
+            columns: 10,
+            rows: 2,
         };
-        let cells = tc.draw(
-            vecs(generate_cell().print_as_debug())
-                .min_size(size.cell_count() as usize)
-                .max_size(size.cell_count() as usize),
-        );
-        let scrollback_rows = tc.draw(integers());
-        let state = TerminalState {
+        TerminalState {
             timestamp: SystemTime::now(),
-            grid: TerminalGrid::from_cells(size, cells),
+            grid: TerminalGrid::with_size(size),
             scrollback: TerminalGrid::with_size(TerminalSize {
-                rows: scrollback_rows,
+                rows: 0,
                 ..size
             }),
-            scroll_offset: tc.draw(integers().max_value(scrollback_rows))
-                as u32,
+            scroll_offset: 3,
             cursor: TerminalCursor {
-                position: TerminalCursorPosition {
-                    column: tc.draw(integers().max_value(size.columns)),
-                    row: tc.draw(integers().max_value(size.rows)),
-                },
-                visible: tc.draw(booleans()),
+                position: TerminalCursorPosition { column: 5, row: 0 },
+                visible: true,
                 blinking: false,
                 visual_style: TerminalCursorVisualStyle::Block,
                 color: TerminalColor::None,
             },
             exit_status: None,
             last_action: None,
-        };
+            terminal_snapshot: terminal_snapshot.map(Arc::new),
+        }
+    }
+
+    fn snapshot(input: &[u8]) -> Vec<u8> {
+        let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
+        terminal.set_continuation_max_bytes(1024).unwrap();
+        terminal.vt_write(input);
+        let mut snapshot = Vec::new();
+        terminal.encode_snapshot(&mut snapshot).unwrap();
+        snapshot
+    }
+
+    #[test]
+    fn test_trace_round_trip() {
+        // End mid-escape-sequence so the snapshot has to carry it.
+        let snapshot = snapshot(b"hello\x1b[3");
+        let directory = tempfile::tempdir().unwrap();
         let action = TerminalAction::TypeText {
             text: "hi".to_string(),
         };
-        let timestamp = Time::from_system_time(state.timestamp);
+        let mut writer =
+            TerminalTraceWriter::initialize(directory.path(), false).unwrap();
+        writer
+            .write(&state(Some(snapshot.clone())), Some(&action), &[], &[])
+            .unwrap();
+        writer.write(&state(None), None, &[], &[]).unwrap();
+        drop(writer);
 
-        let mut buffer = Vec::new();
-        write_entry(&mut buffer, timestamp, Some(&action), &state, &[], &[])
-            .expect("manual serialization failed");
+        let states = open_terminal_trace(directory.path())
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(states.len(), 2);
+        assert!(matches!(
+            &states[0].metadata.action,
+            Some(schema::TerminalAction::TypeText { text }) if text == "hi"
+        ));
+        assert_eq!(states[0].metadata.state.scroll_offset, 3);
+        assert!(states[1].payload.is_none());
 
-        let derived = json::to_string(&TerminalTraceEntry {
-            timestamp,
-            action: Some(action.to_schema()),
-            state: TerminalStateSummary {
-                grid: state.grid.clone(),
-                scrollback: state.scrollback.clone(),
-                scroll_offset: state.scroll_offset,
-                cursor: state.cursor.clone(),
-                exit_status: state.exit_status,
-            },
-            snapshots: vec![],
-            violations: vec![],
-        })
-        .expect("derived serialization failed");
+        let restored_snapshot = states[0].payload.as_ref().unwrap();
+        assert_eq!(restored_snapshot, &snapshot);
+        let mut restored =
+            libghostty_vt::snapshot::Decoder::new_buf(restored_snapshot)
+                .unwrap()
+                .decode()
+                .unwrap();
+        assert_eq!(restored.cursor_x().unwrap(), 5);
+        restored.vt_write(b"1mX");
+        assert_eq!(restored.cursor_x().unwrap(), 6);
+    }
 
-        assert_eq!(String::from_utf8(buffer).unwrap(), derived);
+    #[test]
+    fn test_rejects_other_drivers() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut file = Vec::new();
+        write_envelope(&mut file, TraceDriver::Browser).unwrap();
+        std::fs::write(directory.path().join(TRACE_FILE_NAME), file).unwrap();
+        let error = open_terminal_trace(directory.path()).err().unwrap();
+        assert!(
+            error.to_string().contains(
+                "not a terminal trace (written by the browser driver)"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn test_load_trace_actions_for_shrinking() {
+        let state = |action: &str, violated: &[&str]| {
+            let violations = violated
+                .iter()
+                .map(|name| {
+                    format!(
+                        r#"{{"name":"{name}","violation":{{"False":{{"time":0,"condition":"c","snapshots":[]}}}}}}"#
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                r#"{{"timestamp":0,"action":{action},"state":{{"scroll_offset":0,"cursor":{{"position":{{"column":0,"row":0}},"visible":true,"blinking":false,"visual_style":"Block","color":"None"}},"exit_status":null}},"snapshots":[],"violations":[{violations}]}}"#
+            )
+        };
+        let mut file = Vec::new();
+        write_envelope(&mut file, TraceDriver::Terminal).unwrap();
+        for metadata in [
+            state("null", &[]),
+            state(r#"{"ScrollUp":{}}"#, &["p"]),
+            state(r#"{"ScrollDown":{}}"#, &["q"]),
+            state(r#"{"ScrollUp":{}}"#, &["p"]),
+        ] {
+            write_record(&mut file, tag::STATE, &[metadata.as_bytes()])
+                .unwrap();
+        }
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join(TRACE_FILE_NAME), &file).unwrap();
+
+        let trace = load_trace_actions(directory.path()).unwrap();
+        assert_eq!(trace.actions.len(), 3);
+        assert_eq!(trace.select_property(Some("p")).unwrap(), ("p".into(), 1));
+        assert_eq!(trace.select_property(Some("q")).unwrap(), ("q".into(), 2));
+    }
+
+    #[test]
+    fn test_render_screen() {
+        let snapshot = snapshot(b"hello\r\n\x1b[31mred\x1b[0m");
+        assert_eq!(render_screen(&snapshot, false).unwrap(), "hello\nred");
+        let colored = render_screen(&snapshot, true).unwrap();
+        assert!(
+            colored.contains("red") && colored.contains("\x1b["),
+            "{colored:?}"
+        );
     }
 }

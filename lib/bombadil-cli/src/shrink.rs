@@ -10,19 +10,16 @@ use std::{
 
 use anyhow::{Result, bail};
 use bombadil::{
-    shrink::{
-        self, ShrinkExitReason, ShrinkResult, ShrinkSettings, TraceActions,
-    },
+    shrink::{ShrinkExitReason, ShrinkResult, ShrinkSettings, TraceActions},
     styled,
 };
-use serde::de::DeserializeOwned;
 
 use crate::{duration, output_path};
 
 /// Options shared by the shrink commands of all drivers.
 #[derive(clap::Args)]
 pub struct ShrinkOptions {
-    /// Trace to shrink (file path or directory containing `trace.jsonl`)
+    /// Trace to shrink (trace file, or the run directory containing it)
     #[arg(long = "trace", value_name = "TRACE_PATH")]
     pub trace_path: PathBuf,
     /// Name of the property to shrink for. Required if the trace has
@@ -67,13 +64,15 @@ pub struct ResolvedShrinkOptions<A> {
 }
 
 impl ShrinkOptions {
-    pub fn resolve<A: DeserializeOwned>(
+    /// `load_trace` reads the driver's trace from the trace's run
+    /// directory.
+    pub fn resolve<A>(
         self,
+        load_trace: impl FnOnce(&Path) -> Result<TraceActions<A>>,
     ) -> Result<ResolvedShrinkOptions<A>> {
         let trace_directory =
             output_path::resolve_trace_directory(&self.trace_path);
-        let trace =
-            shrink::load_trace_actions(&trace_directory.join("trace.jsonl"))?;
+        let trace = load_trace(&trace_directory)?;
         let output_path = output_path::resolve_output_path(&self.output_path)?;
         if same_directory(&trace_directory, &output_path) {
             bail!(

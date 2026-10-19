@@ -572,7 +572,7 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
             let trace_file_path =
-                output_path::resolve_trace_directory(path).join("trace.jsonl");
+                output_path::resolve_browser_trace_file(path)?;
             let trace_file = File::open(&trace_file_path)?;
             let mut actions: Vec<BrowserAction> = vec![];
             for line in BufReader::new(trace_file).lines() {
@@ -891,7 +891,11 @@ fn browser_shrink(
     shrink_options: ShrinkOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
-    let options = shrink_options.resolve::<browser::BrowserAction>()?;
+    let options = shrink_options.resolve(|directory| {
+        bombadil::shrink::load_trace_actions::<browser::BrowserAction>(
+            &output_path::resolve_browser_trace_file(directory)?,
+        )
+    })?;
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =

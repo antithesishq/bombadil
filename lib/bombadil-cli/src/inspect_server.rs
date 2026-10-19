@@ -23,6 +23,12 @@ pub async fn serve(
     port: u16,
     open_browser: bool,
 ) -> Result<()> {
+    // Fail before serving rather than when the page asks for the trace.
+    let trace_file =
+        crate::output_path::resolve_browser_trace_file(&trace_path)?;
+    if !trace_file.is_file() {
+        anyhow::bail!("no browser trace at {}", trace_file.display());
+    }
     let trace_directory =
         crate::output_path::resolve_trace_directory(&trace_path);
 

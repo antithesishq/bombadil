@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use bombadil_trace::{State, TRACE_FILE_NAME, open_trace};
+use bombadil_trace::{State, TRACE_FILE_NAME, TraceDriver, open_trace};
 use serde_json::{Value, json};
 
 use crate::output_path;
@@ -24,6 +24,13 @@ pub struct TraceArgs {
     /// size
     #[arg(long)]
     json: bool,
+    /// Show each state's screen (terminal traces)
+    #[arg(long)]
+    screen: bool,
+    /// Show screens with their colors and styles, as ANSI escape sequences
+    /// (implies --screen)
+    #[arg(long)]
+    color: bool,
 }
 
 /// States to show, by index.
@@ -83,6 +90,10 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
         );
     }
     let states = open_trace::<Value>(&args.trace_path)?;
+    let show_screen = args.screen || args.color;
+    if show_screen && states.driver != TraceDriver::Terminal {
+        bail!("--screen only applies to terminal traces");
+    }
     let range = args
         .state
         .as_ref()
@@ -101,19 +112,29 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
         if state.index >= range.end {
             break;
         }
+        let screen = match (&state.payload, show_screen) {
+            (Some(snapshot), true) => {
+                Some(render_screen(snapshot, args.color)?)
+            }
+            _ => None,
+        };
         if args.json {
             let payload_bytes = state.payload.as_ref().map(Vec::len);
-            serde_json::to_writer(
-                &mut *out,
-                &json!({
-                    "index": state.index,
-                    "metadata": state.metadata,
-                    "payload_bytes": payload_bytes,
-                }),
-            )?;
+            let mut line = json!({
+                "index": state.index,
+                "metadata": state.metadata,
+                "payload_bytes": payload_bytes,
+            });
+            if show_screen {
+                line["screen"] = json!(screen);
+            }
+            serde_json::to_writer(&mut *out, &line)?;
             writeln!(out)?;
         } else {
             write_state(out, &state, time, start_time)?;
+            for line in screen.iter().flat_map(|screen| screen.lines()) {
+                writeln!(out, "       | {line}")?;
+            }
         }
     }
     Ok(())
@@ -169,6 +190,16 @@ fn describe_action(action: &Value) -> String {
     }
 }
 
+#[cfg(feature = "terminal")]
+fn render_screen(snapshot: &[u8], color: bool) -> Result<String> {
+    bombadil_terminal::trace::render_screen(snapshot, color)
+}
+
+#[cfg(not(feature = "terminal"))]
+fn render_screen(_snapshot: &[u8], _color: bool) -> Result<String> {
+    bail!("this build of bombadil has no terminal support")
+}
+
 fn format_bytes(bytes: usize) -> String {
     if bytes < 1024 {
         format!("{bytes} B")
@@ -184,6 +215,8 @@ impl TraceArgs {
             trace_path,
             state: None,
             json: false,
+            screen: false,
+            color: false,
         }
     }
 }

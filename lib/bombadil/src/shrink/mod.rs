@@ -144,12 +144,16 @@ where
         actions.into()
     };
 
-    if output_path.join("trace.jsonl").try_exists()? && !output_path_overwrite {
-        bail!(
-            "trace.jsonl already exists at {}. \
-             Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-            output_path.display(),
-        );
+    // Drivers write either a JSON or a binary trace.
+    for trace_file in ["trace.jsonl", "trace.bin"] {
+        if output_path.join(trace_file).try_exists()? && !output_path_overwrite
+        {
+            bail!(
+                "{trace_file} already exists at {}. \
+                 Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                output_path.display(),
+            );
+        }
     }
     let attempts_path = output_path.join(ATTEMPTS_DIRECTORY_NAME);
     if attempts_path.try_exists()? {

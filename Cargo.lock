@@ -639,6 +639,7 @@ dependencies = [
  "boa_engine",
  "bombadil",
  "bombadil-schema",
+ "bombadil-trace",
  "bytes",
  "env_logger",
  "hegeltest",
