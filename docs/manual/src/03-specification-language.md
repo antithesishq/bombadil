@@ -138,6 +138,10 @@ The browser defaults include properties checking for uncaught exceptions,
 unhandled promise rejections, error logs, HTTP 4xx and 5xx responses, and more.
 On the actions side, there are generators for general navigation and
 interaction with semantic HTML elements.
+
+Bombadil drives a single page. The default `clicks` generator skips links with
+`target="_blank"`, and a tab or popup that the page opens anyway is closed
+right away, so the page sees its new window close.
 :::
 
 ::: terminal

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Opens Tabs Test</title>
+</head>
+<body>
+    <h1>Opens Tabs Test</h1>
+    <div id="counter">0</div>
+    <button id="popup">Open a popup</button>
+    <button id="blank">Follow a link to a new tab</button>
+    <a id="link" href="index.html" target="_blank" hidden>New tab</a>
+    <script>
+        let count = 0;
+        const counterElement = document.getElementById('counter');
+
+        function counted(open) {
+            return () => {
+                open();
+                count++;
+                counterElement.textContent = count;
+            };
+        }
+
+        document.getElementById('popup').addEventListener(
+            'click',
+            counted(() => window.open('index.html')),
+        );
+        document.getElementById('blank').addEventListener(
+            'click',
+            counted(() => document.getElementById('link').click()),
+        );
+    </script>
+</body>
+</html>
