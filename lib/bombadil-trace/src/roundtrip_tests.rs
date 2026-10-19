@@ -87,7 +87,12 @@ fn written(tc: &TestCase) -> Written {
 /// Writes `states` with a [`TraceFileWriter`] for `driver`, finished, to
 /// `trace.bin` in `directory`.
 fn write_trace(directory: &Path, driver: TraceDriver, states: &[Written]) {
-    let mut writer = TraceFileWriter::create(directory, driver, false).unwrap();
+    let mut writer = TraceFileWriter::create(
+        &directory.join(TRACE_FILE_NAME),
+        driver,
+        false,
+    )
+    .unwrap();
     for state in states {
         let payload = state.payload.clone().map(|payload| Arc::new(payload.0));
         writer.write_state(state.metadata.clone(), payload).unwrap();
@@ -170,7 +175,7 @@ fn reads_back_what_was_written(tc: TestCase) {
     assert_eq!(file_length, end + RECORD_HEADER_LEN as u64);
 
     for without_payloads in [false, true] {
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
+        let mut reader = open_trace::<Metadata>(&path).unwrap();
         if without_payloads {
             reader = reader.without_payloads();
         }

@@ -5,7 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
     specification::domain::Snapshot,
@@ -60,11 +60,13 @@ impl FileTraceWriter {
             if !overwrite {
                 anyhow::bail!(
                     "trace.jsonl already exists at {}. \
-                     Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                         Use --output-path-overwrite to overwrite, or choose a different --output-path.",
                     trace_file_path.display(),
                 );
             }
-            std::fs::remove_file(&trace_file_path)?;
+            std::fs::remove_file(&trace_file_path).with_context(|| {
+                format!("failed to remove {}", trace_file_path.display())
+            })?;
         }
         let screenshots_path = run_path.join("screenshots");
         std::fs::create_dir_all(&screenshots_path)?;
@@ -115,5 +117,48 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
         self.trace_file.flush()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_an_independent_terminal_trace() {
+        let directory = tempfile::tempdir().unwrap();
+        let binary_trace = directory.path().join("trace.bin");
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &binary_trace,
+            bombadil_trace::TraceDriver::Terminal,
+            false,
+        )
+        .unwrap();
+        writer
+            .write_state(json::json!({"action": null}), None)
+            .unwrap();
+        writer.finish().unwrap();
+        let before = std::fs::read(&binary_trace).unwrap();
+        drop(
+            FileTraceWriter::initialize(directory.path().into(), false)
+                .unwrap(),
+        );
+        assert_eq!(std::fs::read(&binary_trace).unwrap(), before);
+        let error =
+            FileTraceWriter::initialize(directory.path().to_path_buf(), false)
+                .err()
+                .unwrap();
+        assert!(
+            error
+                .to_string()
+                .starts_with("trace.jsonl already exists at"),
+            "{error}"
+        );
+        assert_eq!(std::fs::read(&binary_trace).unwrap(), before);
+
+        FileTraceWriter::initialize(directory.path().to_path_buf(), true)
+            .unwrap();
+        assert_eq!(std::fs::read(&binary_trace).unwrap(), before);
+        assert!(directory.path().join("trace.jsonl").is_file());
     }
 }

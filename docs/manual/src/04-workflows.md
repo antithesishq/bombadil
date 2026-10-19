@@ -10,8 +10,8 @@ If Bombadil finds a bug in a project you're working on, you might want to
 reproduce that test case when working on a bug fix. That is, have Bombadil
 perform the same sequence of actions to reach the same state.
 
-Use the `--reproduce` option and point it to the output directory of the
-original test run:
+Use the `--reproduce` option and point it to the original test run's output:
+a trace file for terminal tests, or a run directory for browser tests.
 
 ::: browser
 ```bash
@@ -60,9 +60,10 @@ It's important that the shrink invocation uses the same options as the original
 Shrinking begins with a calibration phase that tries to assess the flakiness of
 reproducing the violation. Calibration can be controlled with
 `--calibration-runs` and `--confirmation-runs-max` if needed. At the end of
-shrinking, you get a new trace in the output directory, configured with
+shrinking, you get a new trace at the output path (a file for terminal tests,
+a directory for browser tests), configured with
 `--output-path` and `--output-path-overwrite`, that can be
-[[reproduced][Reproducing violations] or [inspected][Inspecting test results]]{.browser}[[reproduced][Reproducing violations]]{.terminal}.
+[reproduced][Reproducing violations] or [inspected][Inspecting test results].
 
 ## Inspecting test results
 
@@ -86,9 +87,26 @@ snapshot values per state.
 
 ::: terminal
 
-::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
-so results can't easily be inspected at this point.
-:::
+When you've run a test and found one or more violations, you likely want to
+understand what happened. The `bombadil trace` command shows a trace in the
+terminal, one state at a time:
+
+```bash
+bombadil trace my-test --screen
+```
+
+Each state lists the action that led to it, the time since the first state,
+and the properties it violated. With `--screen`, you also see the terminal
+screen as the properties saw it. Pick states with `--state` (`--state 40..50`
+shows states 40 to 49), keep the screen's colors with `--color`, or print one
+JSON object per state with `--json` (with `--screen`, including the screen) to
+process the trace with tools like `jq`.
+
+Terminal trace inputs and outputs are files, not run directories; filenames
+need no particular extension. Parent directories must already exist. Fuzzing
+uses numbered siblings: `--output-path run.bin` writes `run-0.bin`,
+`run-1.bin`, and so on. Shrinking permits a sibling output but rejects an
+input alias, including symbolic links and hard links. Use
+`--output-path-overwrite` to replace an existing output file.
 
 :::

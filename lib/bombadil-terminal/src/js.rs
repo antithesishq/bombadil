@@ -229,6 +229,12 @@ fn row_text_at(
     let Some(row_index) = row_index_arg(args, grid, context)? else {
         return Ok(JsValue::undefined());
     };
+    Ok(JsString::from(row_text(grid, row_index).as_str()).into())
+}
+
+/// The text of row `row_index` of `grid`, as `rowText` gives it: a space
+/// per empty cell.
+pub(crate) fn row_text(grid: &TerminalGrid, row_index: u16) -> String {
     let mut text = String::with_capacity(grid.size.columns as usize);
     for column_index in 0..grid.size.columns {
         match &grid[(row_index, column_index)] {
@@ -240,7 +246,7 @@ fn row_text_at(
             TerminalCell::Continuation { .. } => {}
         }
     }
-    Ok(JsString::from(text.as_str()).into())
+    text
 }
 
 #[hotpath::measure]

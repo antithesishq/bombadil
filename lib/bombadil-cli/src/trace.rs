@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
-use bombadil_trace::{State, open_trace};
+use bombadil_trace::{State, TraceDriver, open_trace};
 use serde::{
     Deserialize, Deserializer,
     de::{IgnoredAny, MapAccess, Visitor},
@@ -18,16 +18,23 @@ use serde_json::value::RawValue;
 
 #[derive(clap::Args)]
 pub struct TraceArgs {
-    /// Trace file (`trace.bin`), or the run directory containing it
+    /// Trace FILE to read (any filename, not a directory)
     trace_path: PathBuf,
     /// Only show this state, or a range of states such as `40..50` (from
     /// 40 up to but not including 50), `40..` or `..50`
     #[arg(long, value_name = "INDEX|START..END")]
     state: Option<StateRange>,
     /// Print one JSON object per state: its index, metadata and payload
-    /// size
+    /// size, and with --screen its screen (a string, or null without one)
     #[arg(long)]
     json: bool,
+    /// Show each state's screen (terminal traces)
+    #[arg(long)]
+    screen: bool,
+    /// Show screens with their colors and styles, as ANSI escape sequences
+    /// (implies --screen)
+    #[arg(long)]
+    color: bool,
 }
 
 /// States to show, by index.
@@ -93,8 +100,16 @@ fn ignore_broken_pipe(result: Result<()>) -> Result<()> {
 
 /// Writes the states to `out`.
 fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
-    let mut states =
-        open_trace::<Box<RawValue>>(&args.trace_path)?.without_payloads();
+    let show_screen = args.screen || args.color;
+    let states = open_trace::<Box<RawValue>>(&args.trace_path)?;
+    if show_screen && states.driver != TraceDriver::Terminal {
+        bail!("--screen only applies to terminal traces");
+    }
+    let mut states = if show_screen {
+        states
+    } else {
+        states.without_payloads()
+    };
     let range = args
         .state
         .as_ref()
@@ -118,19 +133,52 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
         if state.index < range.start {
             continue;
         }
+        let screen = match (&state.payload, show_screen) {
+            (Some(snapshot), true) => {
+                let scroll_offset = read_scroll_offset(state.metadata.get());
+                Some(if args.json && !args.color {
+                    // Escaped as JSON below. With color, the styled text
+                    // is filtered as in text mode, so a JSON reader
+                    // printing it gets SGR sequences only.
+                    render_screen(snapshot, scroll_offset, false)?
+                } else {
+                    printable_screen(snapshot, scroll_offset, args.color)?
+                })
+            }
+            _ => None,
+        };
         if args.json {
             // The metadata as written, so its numbers aren't rounded.
-            let line = format!(
-                r#"{{"index":{},"metadata":{},"payload_bytes":{}}}"#,
+            let mut line = format!(
+                r#"{{"index":{},"metadata":{},"payload_bytes":{}"#,
                 state.index,
                 state.metadata.get(),
                 state
                     .payload_length
                     .map_or("null".to_string(), |length| length.to_string())
             );
+            if show_screen {
+                // A string of the screen's lines, or null without one.
+                let screen = screen.as_ref().map(|lines| lines.join("\n"));
+                line.push_str(r#","screen":"#);
+                line.push_str(&serde_json::to_string(&screen)?);
+            }
+            line.push('}');
             writeln!(out, "{}", escape_json_line(&line))?;
         } else {
             write_state(out, &state, time, start_time)?;
+            match &screen {
+                Some(screen) => {
+                    for line in screen {
+                        writeln!(out, "       | {line}")?;
+                    }
+                }
+                None if show_screen => writeln!(
+                    out,
+                    "       (no screen: no terminal snapshot was recorded)"
+                )?,
+                None => {}
+            }
         }
     }
     if args.state.is_some() && states_read <= range.start {
@@ -426,6 +474,103 @@ impl<'de: 'a, 'a> Deserialize<'de> for Members<'a> {
     }
 }
 
+/// The `state.scroll_offset` of a terminal state's metadata: where its
+/// viewport was, in rows from the top of the scrollback. `None` if it
+/// isn't there as a number, so the screen is shown at the bottom (the
+/// active screen) rather than at the top of the scrollback.
+fn read_scroll_offset(json: &str) -> Option<usize> {
+    #[derive(Deserialize)]
+    struct Metadata<'a> {
+        #[serde(borrow)]
+        state: &'a RawValue,
+    }
+    #[derive(Deserialize)]
+    struct State {
+        scroll_offset: usize,
+    }
+    let metadata: Metadata = read_object(json)?;
+    read_object::<State>(metadata.state.get()).map(|state| state.scroll_offset)
+}
+
+/// The screen of a terminal snapshot as lines of text, [`printable`] as
+/// it is the terminal's text. With `color`, the SGR sequences
+/// (`ESC [ … m`) the renderer styles it with are kept, and nothing else.
+fn printable_screen(
+    snapshot: &[u8],
+    scroll_offset: Option<usize>,
+    color: bool,
+) -> Result<Vec<String>> {
+    let plain = render_screen(snapshot, scroll_offset, false)?;
+    if !color {
+        return Ok(plain.iter().map(|line| printable(line)).collect());
+    }
+    let styled = render_screen(snapshot, scroll_offset, true)?;
+    if styled.len() != plain.len() {
+        bail!("failed to render terminal snapshot: rows differ with color");
+    }
+    Ok(plain
+        .iter()
+        .zip(&styled)
+        .map(|(plain, styled)| printable_styled(plain, styled))
+        .collect())
+}
+
+/// A line of the screen as `styled` (rendered with SGR sequences), with
+/// everything but those sequences [`printable`], and ending with a reset
+/// (unless it does already) so its style doesn't carry over. If the
+/// text itself (`plain`, the same line rendered without styles) has an
+/// escape character, an SGR sequence in `styled` may be text rather than
+/// styling, so the line is shown [`printable`] without styles instead.
+fn printable_styled(plain: &str, styled: &str) -> String {
+    if plain.contains('\x1b') {
+        return printable(plain);
+    }
+    let mut line = String::with_capacity(styled.len());
+    let mut styles = false;
+    let mut rest = styled;
+    while let Some(c) = rest.chars().next() {
+        if let Some(sgr) = sgr_prefix(rest) {
+            line.push_str(sgr);
+            styles = true;
+            rest = &rest[sgr.len()..];
+        } else {
+            line.push_str(&printable(&rest[..c.len_utf8()]));
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    if styles && !line.ends_with("\x1b[0m") && !line.ends_with("\x1b[m") {
+        line.push_str("\x1b[0m");
+    }
+    line
+}
+
+/// The SGR sequence `text` starts with, if any: `ESC [`, then digits,
+/// `;` and `:` only, then `m`.
+fn sgr_prefix(text: &str) -> Option<&str> {
+    let parameters = text.strip_prefix("\x1b[")?;
+    let length = parameters
+        .find(|c: char| !(c.is_ascii_digit() || c == ';' || c == ':'))?;
+    (parameters[length..].starts_with('m')).then(|| &text[..length + 3])
+}
+
+#[cfg(feature = "terminal")]
+fn render_screen(
+    snapshot: &[u8],
+    scroll_offset: Option<usize>,
+    color: bool,
+) -> Result<Vec<String>> {
+    bombadil_terminal::trace::render_screen(snapshot, scroll_offset, color)
+}
+
+#[cfg(not(feature = "terminal"))]
+fn render_screen(
+    _snapshot: &[u8],
+    _scroll_offset: Option<usize>,
+    _color: bool,
+) -> Result<Vec<String>> {
+    bail!("this build of bombadil has no terminal support")
+}
+
 fn format_bytes(bytes: usize) -> String {
     if bytes < 1024 {
         return format!("{bytes} B");
@@ -447,6 +592,8 @@ impl TraceArgs {
             trace_path,
             state: None,
             json: false,
+            screen: false,
+            color: false,
         }
     }
 }
@@ -504,7 +651,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         write_trace(directory.path(), true);
         assert_eq!(
-            output(&TraceArgs::new(directory.path().into())),
+            output(&TraceArgs::new(directory.path().join(TRACE_FILE_NAME))),
             "terminal trace\n\
              #0        +0.000s  (initial state)  (2.0 KB payload)\n\
              #1        +0.500s  TypeText {\"text\":\"hi\"}\n\
@@ -536,7 +683,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            output(&TraceArgs::new(directory.path().into())),
+            output(&TraceArgs::new(directory.path().join(TRACE_FILE_NAME))),
             "terminal trace\n\
              #0        +0.000s  \"Foo {\\\"x\\\":1}\"\n\
              \x20      violated: \"a, b\", \"c\\\"d\"\n\
@@ -575,7 +722,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            output(&TraceArgs::new(directory.path().into())),
+            output(&TraceArgs::new(directory.path().join(TRACE_FILE_NAME))),
             "terminal trace\n\
              #0        +0.000s  (initial state)\n\
              #1              ?  (unexpected metadata) [\"Back\"]\n\
@@ -613,7 +760,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            output(&TraceArgs::new(directory.path().into())),
+            output(&TraceArgs::new(directory.path().join(TRACE_FILE_NAME))),
             [
                 "terminal trace",
                 r#"#0              ?  (unexpected metadata) {"$serde_json::private::RawValue":"{\\"action\\":\\"Back\\"}"}"#,
@@ -643,7 +790,7 @@ mod tests {
         );
         let json = output(&TraceArgs {
             json: true,
-            ..TraceArgs::new(directory.path().into())
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
         });
         assert_eq!(
             json,
@@ -668,14 +815,14 @@ mod tests {
         for range in ["1", "..2"] {
             let args = TraceArgs {
                 state: Some(range.parse().unwrap()),
-                ..TraceArgs::new(directory.path().into())
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
             };
             assert!(output(&args).ends_with("  Back\n"), "{range}");
         }
         // The broken state is read past the range.
         let args = TraceArgs {
             state: Some("1..".parse().unwrap()),
-            ..TraceArgs::new(directory.path().into())
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
         };
         assert!(show(&args, &mut Vec::new()).is_err());
     }
@@ -697,7 +844,7 @@ mod tests {
     fn stops_quietly_on_a_broken_pipe() {
         let directory = tempfile::tempdir().unwrap();
         write_trace(directory.path(), true);
-        let args = TraceArgs::new(directory.path().into());
+        let args = TraceArgs::new(directory.path().join(TRACE_FILE_NAME));
         let mut broken = Failing(io::ErrorKind::BrokenPipe);
         ignore_broken_pipe(show(&args, &mut broken)).unwrap();
         let mut full = Failing(io::ErrorKind::StorageFull);
@@ -729,7 +876,7 @@ mod tests {
             output(&TraceArgs {
                 state: Some("0".parse().unwrap()),
                 json: true,
-                ..TraceArgs::new(directory.path().into())
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
             })
             .trim_end(),
         )
@@ -773,12 +920,12 @@ mod tests {
     fn refuses_states_of_an_empty_trace() {
         let directory = tempfile::tempdir().unwrap();
         write_states(directory.path(), &[]);
-        let args = TraceArgs::new(directory.path().into());
+        let args = TraceArgs::new(directory.path().join(TRACE_FILE_NAME));
         assert_eq!(output(&args), "terminal trace\n");
         for range in ["0", "..2", "0.."] {
             let args = TraceArgs {
                 state: Some(range.parse().unwrap()),
-                ..TraceArgs::new(directory.path().into())
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
             };
             let error = show(&args, &mut Vec::new()).unwrap_err();
             assert_eq!(
@@ -808,7 +955,7 @@ mod tests {
         write_trace(directory.path(), true);
         let args = TraceArgs {
             state: Some("4".parse().unwrap()),
-            ..TraceArgs::new(directory.path().into())
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
         };
         let error = show(&args, &mut Vec::new()).unwrap_err();
         assert_eq!(error.to_string(), "no state 4 in a trace of 4 states");
@@ -816,7 +963,7 @@ mod tests {
         write_states(directory.path(), &[br#"{"action":null}"#]);
         let args = TraceArgs {
             state: Some("1".parse().unwrap()),
-            ..TraceArgs::new(directory.path().into())
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
         };
         let error = show(&args, &mut Vec::new()).unwrap_err();
         assert_eq!(error.to_string(), "no state 1 in a trace of 1 state");
@@ -851,7 +998,7 @@ mod tests {
             '\u{e0041}',
         ];
 
-        let args = TraceArgs::new(directory.path().into());
+        let args = TraceArgs::new(directory.path().join(TRACE_FILE_NAME));
         let text = output(&args);
         assert!(
             text.contains(
@@ -943,10 +1090,284 @@ mod tests {
         let mut file = std::fs::read(&path).unwrap();
         file.truncate(file.len() - 1);
         std::fs::write(&path, file).unwrap();
-        let output = output(&TraceArgs::new(directory.path().into()));
+        let output =
+            output(&TraceArgs::new(directory.path().join(TRACE_FILE_NAME)));
         assert!(
             output.contains("#2 ") && !output.contains("#3 "),
             "{output}"
         );
+    }
+
+    #[test]
+    fn keeps_only_sgr_styling() {
+        // SGR sequences are kept, anything else in the styled rendering
+        // is escaped, and a reset ends the line.
+        assert_eq!(
+            printable_styled(
+                "ok",
+                "\x1b[0m\x1b[38;5;1;48:2::1:2:3mok\x1b]8;;x\x07\x1b[2J\x1b[m"
+            ),
+            "\x1b[0m\x1b[38;5;1;48:2::1:2:3mok\\u{1b}]8;;x\\u{7}\\u{1b}[2J\x1b[m"
+        );
+        assert_eq!(printable_styled("ok", "\x1b[1mok"), "\x1b[1mok\x1b[0m");
+        assert_eq!(printable_styled("a\u{202e}b", "a\u{202e}b"), "a\\u{202e}b");
+        // Text with an escape character of its own is shown without
+        // styles, as its SGR-like text can't be told from styling.
+        assert_eq!(
+            printable_styled("\x1b[31mx", "\x1b[0m\x1b[31mx\x1b[0m"),
+            "\\u{1b}[31mx"
+        );
+        assert_eq!(sgr_prefix("\x1b[1;2mx"), Some("\x1b[1;2m"));
+        assert_eq!(sgr_prefix("\x1b[mx"), Some("\x1b[m"));
+        for not_sgr in [
+            "\x1b[1;2",
+            "\x1b[?25h",
+            "\x1b[1 m",
+            "\x1b]0m",
+            "x",
+            // Private-parameter `m` sequences: not SGR.
+            "\x1b[>4;2m",
+            "\x1b[?1m",
+        ] {
+            assert_eq!(sgr_prefix(not_sgr), None, "{not_sgr:?}");
+        }
+    }
+
+    #[cfg(feature = "terminal")]
+    mod screens {
+        use super::*;
+
+        /// A 12×2 terminal's snapshot after `input`, scrolled to the top.
+        fn snapshot(input: &[u8]) -> Vec<u8> {
+            let mut terminal = libghostty_vt::Terminal::new(12, 2).unwrap();
+            terminal.vt_write(input);
+            terminal
+                .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Top);
+            let mut snapshot = Vec::new();
+            terminal.encode_snapshot(&mut snapshot).unwrap();
+            snapshot
+        }
+
+        /// Writes a finished terminal trace of states with these metadata
+        /// and snapshots.
+        fn write_screens(directory: &Path, states: &[(&str, Option<&[u8]>)]) {
+            let mut file = Vec::new();
+            write_envelope(&mut file, TraceDriver::Terminal).unwrap();
+            for (metadata, snapshot) in states {
+                match snapshot {
+                    Some(snapshot) => {
+                        write_record(
+                            &mut file,
+                            tag::STATE_WITH_PAYLOAD,
+                            &[metadata.as_bytes()],
+                        )
+                        .unwrap();
+                        write_record(
+                            &mut file,
+                            tag::STATE_PAYLOAD,
+                            &[snapshot],
+                        )
+                        .unwrap();
+                    }
+                    None => write_record(
+                        &mut file,
+                        tag::STATE,
+                        &[metadata.as_bytes()],
+                    )
+                    .unwrap(),
+                }
+            }
+            write_record(&mut file, tag::END, &[]).unwrap();
+            std::fs::write(directory.join(TRACE_FILE_NAME), file).unwrap();
+        }
+
+        fn screen_args(directory: &Path) -> TraceArgs {
+            TraceArgs {
+                screen: true,
+                ..TraceArgs::new(directory.join(TRACE_FILE_NAME))
+            }
+        }
+
+        #[test]
+        fn shows_screens_full_height_at_the_scroll_offset() {
+            let directory = tempfile::tempdir().unwrap();
+            // Three rows of scrollback above the two of the screen.
+            let snapshot = snapshot(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
+            let blank = self::snapshot(b"");
+            write_screens(
+                directory.path(),
+                &[
+                    (
+                        r#"{"action":null,"state":{"scroll_offset":0}}"#,
+                        Some(&snapshot),
+                    ),
+                    (
+                        r#"{"action":null,"state":{"scroll_offset":2}}"#,
+                        Some(&snapshot),
+                    ),
+                    // Missing or not a number: the bottom.
+                    (r#"{"action":null}"#, Some(&snapshot)),
+                    (
+                        r#"{"action":null,"state":{"scroll_offset":"0"}}"#,
+                        Some(&snapshot),
+                    ),
+                    (
+                        r#"{"action":null,"state":{"scroll_offset":0}}"#,
+                        Some(&blank),
+                    ),
+                    (r#"{"action":null}"#, None),
+                ],
+            );
+            let shown = output(&screen_args(directory.path()));
+            let screens: Vec<&str> = shown
+                .lines()
+                .filter(|line| !line.starts_with('#'))
+                .collect();
+            assert_eq!(
+                screens,
+                [
+                    "terminal trace",
+                    "       | one",
+                    "       | two",
+                    "       | three",
+                    "       | four",
+                    "       | four",
+                    "       | five",
+                    "       | four",
+                    "       | five",
+                    "       | ",
+                    "       | ",
+                    "       (no screen: no terminal snapshot was recorded)",
+                ],
+                "{shown}"
+            );
+        }
+
+        #[test]
+        fn escapes_screens() {
+            let directory = tempfile::tempdir().unwrap();
+            // Format characters and backslashes in the cells, and a link,
+            // a title and a C1 control that rendering must not pass on.
+            let snapshot = snapshot(
+                "\x1b]0;title\x07\x1b[31ma\u{202e}b\\c\x1b[0m\r\n\
+                 \x1b]8;;http://x\x1b\\d\u{9b}2Je\u{200b}\x1b]8;;\x1b\\"
+                    .as_bytes(),
+            );
+            write_screens(
+                directory.path(),
+                &[(
+                    r#"{"action":null,"state":{"scroll_offset":0}}"#,
+                    Some(&snapshot),
+                )],
+            );
+            let plain = output(&screen_args(directory.path()));
+            assert!(
+                plain.ends_with(
+                    "       | a\\u{202e}b\\\\c\n       | d2Je\\u{200b}\n"
+                ),
+                "{plain:?}"
+            );
+
+            let colored = output(&TraceArgs {
+                color: true,
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+            });
+            let lines: Vec<&str> = colored.lines().collect();
+            assert_eq!(lines.len(), 4, "{colored:?}");
+            // The styling, and the same escaped text without it.
+            assert!(lines[2].contains("\x1b[38;5;1m"), "{colored:?}");
+            assert!(lines[2].ends_with("\x1b[0m"), "{colored:?}");
+            for (line, text) in
+                lines[2..].iter().zip(["a\\u{202e}b\\\\c", "d2Je\\u{200b}"])
+            {
+                let mut without_sgr = line.to_string();
+                while let Some(start) = without_sgr.find('\x1b') {
+                    let sgr = sgr_prefix(&without_sgr[start..])
+                        .expect("only SGR escapes")
+                        .len();
+                    without_sgr.replace_range(start..start + sgr, "");
+                }
+                assert_eq!(without_sgr, format!("       | {text}"));
+            }
+            for evil in ['\x07', '\u{9b}', '\u{202e}', '\u{200b}'] {
+                assert!(!colored.contains(evil), "{colored:?}");
+            }
+            assert!(!colored.contains("\x1b]"), "{colored:?}");
+
+            // The JSON screen with --color is the same: SGR only.
+            let json = output(&TraceArgs {
+                json: true,
+                color: true,
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+            });
+            let json: Value = serde_json::from_str(json.trim_end()).unwrap();
+            let screen: Vec<&str> =
+                json["screen"].as_str().unwrap().split('\n').collect();
+            let shown: Vec<&str> = lines[2..]
+                .iter()
+                .map(|line| line.strip_prefix("       | ").unwrap())
+                .collect();
+            assert_eq!(screen, shown);
+        }
+
+        #[test]
+        fn adds_screens_to_json() {
+            let directory = tempfile::tempdir().unwrap();
+            let snapshot =
+                snapshot("\x1b[31mred\u{202e}\x1b[0m\r\nx".as_bytes());
+            write_screens(
+                directory.path(),
+                &[
+                    (
+                        r#"{"action":null,"state":{"scroll_offset":0}}"#,
+                        Some(&snapshot),
+                    ),
+                    (r#"{"action":null}"#, None),
+                ],
+            );
+            for color in [false, true] {
+                let json = output(&TraceArgs {
+                    json: true,
+                    color,
+                    ..screen_args(directory.path())
+                });
+                assert!(!json.contains(['\x1b', '\u{202e}']), "{json:?}");
+                let lines: Vec<Value> = json
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                assert_eq!(lines.len(), 2);
+                let screen = lines[0]["screen"].as_str().unwrap();
+                if color {
+                    assert!(screen.contains("\x1b[38;5;1mred"), "{screen:?}");
+                } else {
+                    assert_eq!(screen, "red\u{202e}\nx");
+                }
+                assert_eq!(lines[1]["screen"], Value::Null);
+                assert_eq!(lines[1]["metadata"]["action"], Value::Null);
+            }
+            // Without --screen, no screen member.
+            let json = output(&TraceArgs {
+                json: true,
+                ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+            });
+            assert!(!json.contains("screen"), "{json}");
+        }
+
+        #[test]
+        fn refuses_screens_of_other_traces() {
+            let directory = tempfile::tempdir().unwrap();
+            let mut file = Vec::new();
+            write_envelope(&mut file, TraceDriver::Browser).unwrap();
+            write_record(&mut file, tag::END, &[]).unwrap();
+            std::fs::write(directory.path().join(TRACE_FILE_NAME), file)
+                .unwrap();
+            let error = show(&screen_args(directory.path()), &mut Vec::new())
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "--screen only applies to terminal traces"
+            );
+        }
     }
 }
