@@ -1,8 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    fs::File,
     hash::{DefaultHasher, Hash, Hasher},
-    io::{BufWriter, Write},
+    io::Write,
     num::NonZeroUsize,
     path::PathBuf,
     sync::{Arc, OnceLock, atomic::AtomicBool},
@@ -268,25 +267,11 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     }
 }
 
-enum FakeTraceWriter {
-    Directory(BufWriter<File>),
-    File(bombadil_trace::TraceFileWriter<json::Value>),
-}
+struct FakeTraceWriter(bombadil_trace::TraceFileWriter<json::Value>);
 
 impl FakeTraceWriter {
-    fn new(directory: PathBuf) -> Result<Self> {
-        Self::with_file_name(directory, "trace.jsonl")
-    }
-
-    fn with_file_name(directory: PathBuf, file_name: &str) -> Result<Self> {
-        std::fs::create_dir_all(&directory)?;
-        Ok(Self::Directory(BufWriter::new(File::create(
-            directory.join(file_name),
-        )?)))
-    }
-
     fn file(path: PathBuf) -> Result<Self> {
-        Ok(Self::File(bombadil_trace::TraceFileWriter::create(
+        Ok(Self(bombadil_trace::TraceFileWriter::create(
             &path,
             bombadil_trace::TraceDriver::Terminal,
             false,
@@ -308,21 +293,11 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
             .collect();
         let metadata =
             json::json!({ "action": last_action, "violations": names });
-        match self {
-            Self::Directory(writer) => {
-                json::to_writer(&mut *writer, &metadata)?;
-                writeln!(writer)?;
-                Ok(())
-            }
-            Self::File(writer) => writer.write_state(metadata, None),
-        }
+        self.0.write_state(metadata, None)
     }
 
     fn finish(&mut self) -> Result<()> {
-        match self {
-            Self::Directory(writer) => Ok(writer.flush()?),
-            Self::File(writer) => writer.finish(),
-        }
+        self.0.finish()
     }
 }
 
@@ -396,10 +371,10 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             seed,
         }),
         strategy: move || FakeStrategy { steps_max },
-        trace_writer: FakeTraceWriter::new,
+        trace_writer: FakeTraceWriter::file,
         trace,
         property_name: None,
-        output_path: output.path().to_path_buf(),
+        output_path: output.path().join("result.custom"),
         output_path_overwrite: false,
         parallelism: NonZeroUsize::new(parallelism).unwrap(),
         interrupted: Arc::new(AtomicBool::new(false)),
@@ -416,7 +391,7 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             "unexpected error: {error:#}"
         );
         assert!(
-            !output.path().join("trace.jsonl").exists(),
+            !output.path().join("result.custom").exists(),
             "no trace should be written"
         );
         tc.event("calibration did not reproduce");
@@ -456,7 +431,7 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
     );
 
     let shrunk =
-        load_trace_actions::<FakeAction>(&output.path().join("trace.jsonl"))
+        load_trace_actions::<FakeAction>(&output.path().join("result.custom"))
             .unwrap();
     let shrunk_actions: Vec<u8> =
         shrunk.actions.iter().map(|action| action.0).collect();
@@ -488,18 +463,6 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
     }
 }
 
-/// Shrinks a short deterministic trace into `output`, with the driver
-/// writing its trace as `trace_file`.
-fn shrink_into(
-    output: &std::path::Path,
-    overwrite: bool,
-    trace_file: &'static str,
-) -> Result<super::ShrinkResult> {
-    shrink_with_writer(output, overwrite, move |directory| {
-        FakeTraceWriter::with_file_name(directory, trace_file)
-    })
-}
-
 fn shrink_with_writer(
     output: &std::path::Path,
     overwrite: bool,
@@ -508,7 +471,7 @@ fn shrink_with_writer(
     + Sync
     + 'static,
 ) -> Result<super::ShrinkResult> {
-    shrink_actions_with_writer(output, overwrite, trace_writer, &[0, 1])
+    shrink_actions_with_writer(output, overwrite, trace_writer, &[0, 2, 1])
 }
 
 fn shrink_actions_with_writer(
@@ -623,21 +586,6 @@ fn shrinks_across_filesystems_when_available() {
     let path = other.path().join("cross-filesystem.custom");
     shrink_with_writer(&path, false, FakeTraceWriter::file).unwrap();
     assert!(path.is_file());
-    // The still-directory-based browser also publishes independent attempts.
-    let browser = other.path().join("browser");
-    shrink_with_writer(&browser, false, |attempt| {
-        let writer = FakeTraceWriter::new(attempt.clone())?;
-        let screenshots = attempt.join("screenshots");
-        std::fs::create_dir(&screenshots)?;
-        std::fs::write(screenshots.join("0.png"), b"image")?;
-        Ok(writer)
-    })
-    .unwrap();
-    assert!(browser.join("trace.jsonl").is_file());
-    assert_eq!(
-        std::fs::read(browser.join("screenshots/0.png")).unwrap(),
-        b"image"
-    );
 }
 
 #[test]
@@ -660,9 +608,7 @@ fn file_publication_does_not_clobber_a_concurrent_creator() {
 
 #[test]
 fn attempts_are_independent_and_cleaned_after_success_and_failure() {
-    for (file, fail) in
-        [(false, false), (true, false), (false, true), (true, true)]
-    {
+    for fail in [false, true] {
         let output = tempfile::tempdir().unwrap();
         let path = output.path().join("result");
         let attempts = Arc::new(std::sync::Mutex::new(BTreeSet::new()));
@@ -675,11 +621,7 @@ fn attempts_are_independent_and_cleaned_after_success_and_failure() {
             if fail {
                 anyhow::bail!("injected attempt failure");
             }
-            if file {
-                FakeTraceWriter::file(attempt)
-            } else {
-                FakeTraceWriter::new(attempt)
-            }
+            FakeTraceWriter::file(attempt)
         });
         assert_eq!(result.is_err(), fail);
         let attempts = attempts.lock().unwrap();
@@ -691,97 +633,50 @@ fn attempts_are_independent_and_cleaned_after_success_and_failure() {
     }
 }
 
-/// Browser refusal is limited to its JSON trace, not independent files.
 #[test]
-fn refuses_an_existing_trace_without_overwriting() {
+fn refuses_directory_outputs_without_touching_contents() {
     let output = tempfile::tempdir().unwrap();
-    std::fs::write(output.path().join("trace.jsonl"), "previous").unwrap();
-    let error = shrink_into(output.path(), false, "trace.jsonl")
-        .err()
-        .unwrap();
-    assert!(
-        error
-            .to_string()
-            .starts_with("trace.jsonl already exists at"),
-        "{error:#}"
-    );
-    assert_eq!(
-        std::fs::read_to_string(output.path().join("trace.jsonl")).unwrap(),
-        "previous"
-    );
-}
-
-#[test]
-fn browser_publication_preserves_an_independent_terminal_trace() {
-    let output = tempfile::tempdir().unwrap();
-    let binary = output.path().join("trace.bin");
-    let mut writer = bombadil_trace::TraceFileWriter::create(
-        &binary,
-        bombadil_trace::TraceDriver::Terminal,
-        false,
-    )
-    .unwrap();
-    writer
-        .write_state(json::json!({"action": null}), None)
-        .unwrap();
-    writer.finish().unwrap();
-    let before = std::fs::read(&binary).unwrap();
+    let sibling = output.path().join("unrelated");
+    std::fs::write(&sibling, b"kept").unwrap();
     for overwrite in [false, true] {
-        shrink_into(output.path(), overwrite, "trace.jsonl").unwrap();
-        assert_eq!(std::fs::read(&binary).unwrap(), before);
-        assert!(shrink_into(output.path(), false, "trace.jsonl").is_err());
-        assert_eq!(std::fs::read(&binary).unwrap(), before);
+        let error =
+            shrink_with_writer(output.path(), overwrite, FakeTraceWriter::file)
+                .unwrap_err();
+        assert!(error.to_string().contains("not a directory"), "{error:#}");
+        assert_eq!(std::fs::read(&sibling).unwrap(), b"kept");
+        assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
     }
 }
 
 #[cfg(unix)]
 #[test]
-fn failed_replacement_copy_preserves_the_published_browser_result() {
+fn failed_replacement_preserves_the_published_trace() {
     let output = tempfile::tempdir().unwrap();
-    let target = output.path().to_path_buf();
+    let path = output.path().join("result.custom");
+    let target = path.clone();
     let original = Arc::new(std::sync::Mutex::new(None));
     let captured = original.clone();
-    let error = shrink_actions_with_writer(
-        output.path(),
-        false,
-        move |attempt| {
-            let published = target.join("trace.jsonl");
-            let replacing = published.is_file();
-            if replacing {
-                *captured.lock().unwrap() = Some(std::fs::read(&published)?);
-            }
-            let writer = FakeTraceWriter::new(attempt.clone())?;
-            let screenshots = attempt.join("screenshots");
-            std::fs::create_dir(&screenshots)?;
-            std::fs::write(
-                screenshots.join("0.png"),
-                if replacing { &b"new"[..] } else { &b"old"[..] },
-            )?;
-            if replacing {
-                // A deterministic copy failure on any filesystem, after the
-                // initial calibration result has already been published.
-                std::os::unix::fs::symlink(
-                    "missing",
-                    screenshots.join("broken.png"),
-                )?;
-            }
-            Ok(writer)
-        },
-        &[0, 2, 1],
-    )
+    let error = shrink_with_writer(&path, false, move |attempt| {
+        let writer = FakeTraceWriter::file(attempt.clone())?;
+        if target.is_file() {
+            *captured.lock().unwrap() = Some(std::fs::read(&target)?);
+            // The writer finishes its open file, but promotion cannot open
+            // the vanished attempt. A published result must remain intact.
+            std::fs::remove_file(&attempt)?;
+        }
+        Ok(writer)
+    })
     .unwrap_err();
     assert_eq!(
         error.downcast_ref::<std::io::Error>().unwrap().kind(),
         std::io::ErrorKind::NotFound
     );
     assert_eq!(
-        std::fs::read(output.path().join("trace.jsonl")).unwrap(),
+        std::fs::read(&path).unwrap(),
         original.lock().unwrap().as_ref().unwrap().as_slice()
     );
-    assert_eq!(
-        std::fs::read(output.path().join("screenshots/0.png")).unwrap(),
-        b"old"
-    );
-    assert!(!output.path().join("screenshots/broken.png").exists());
-    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 2);
+    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
+    let mut reader = bombadil_trace::open_trace::<json::Value>(&path).unwrap();
+    assert!(reader.by_ref().count() > 0);
+    assert!(reader.finished());
 }

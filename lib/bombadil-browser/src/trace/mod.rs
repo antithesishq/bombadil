@@ -1,4 +1,4 @@
-use std::{borrow::Cow, path::Path, time::SystemTime};
+use std::{borrow::Cow, time::SystemTime};
 
 use bombadil_schema::Time;
 use serde::Serialize;
@@ -21,7 +21,9 @@ pub struct TraceEntry<'a> {
     pub hash_previous: Option<u64>,
     pub hash_current: Option<u64>,
     pub action: Option<Cow<'a, BrowserAction>>,
-    pub screenshot: Cow<'a, Path>,
+    /// The screenshot's format (file extension); the image is the
+    /// state's payload in the trace.
+    pub screenshot: &'a str,
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
     pub resources: Cow<'a, Resources>,
@@ -38,7 +40,7 @@ impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
                 url: self.url.to_string(),
                 hash_previous: self.hash_previous,
                 hash_current: self.hash_current,
-                screenshot: self.screenshot.to_string_lossy().to_string(),
+                screenshot: self.screenshot.to_string(),
                 resources: self.resources.to_schema(),
             },
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),

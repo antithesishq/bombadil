@@ -2,11 +2,10 @@
 //! Needs a single property to target. It uses a calibration pass of the original
 //! trace to estimate reproducibility/flakiness, then uses that metric when verifying
 //! generated candidates. Writes the currently known smallest trace to the output
-//! direction as it searches.
+//! file as it searches.
 
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    ffi::OsString,
     hash::{DefaultHasher, Hash, Hasher},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -149,16 +148,11 @@ where
             output_path.display(),
         );
     }
-    // The browser still writes a JSON trace and screenshots in a directory.
     if output_path.is_dir() {
-        let trace_path = output_path.join("trace.jsonl");
-        if trace_path.try_exists()? && !output_path_overwrite {
-            bail!(
-                "trace.jsonl already exists at {}. \
-                 Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-                trace_path.display(),
-            );
-        }
+        bail!(
+            "output path must name a trace file, not a directory: {}",
+            output_path.display()
+        );
     }
     let attempts = tempfile::TempDir::with_prefix("bombadil-shrink-")?;
     let attempts_path = attempts.path().to_path_buf();
@@ -217,7 +211,6 @@ where
         candidate_tries_max: 1,
         confirmation_hit_count_min: 1,
         pool: Vec::new(),
-        files_best: Vec::new(),
         overwrite: output_path_overwrite,
         pending: BTreeMap::new(),
         retries: VecDeque::new(),
@@ -378,8 +371,8 @@ where
             bound: &self.bound,
         };
         let outcome = (|| {
-            let directory = self.attempts_path.join(job.run_id.to_string());
-            let mut writer = (self.trace_writer)(directory)?;
+            let path = self.attempts_path.join(job.run_id.to_string());
+            let mut writer = (self.trace_writer)(path)?;
             let (mut session, verifier) =
                 self.driver.new_session(job.run_id)?;
             runner::run(
@@ -390,7 +383,7 @@ where
                 self.interrupted.clone(),
             )
             // The runner finishes the writer, so the trace is complete
-            // before the coordinator moves the run directory.
+            // before the coordinator publishes the file.
         })();
         if let Err(error) = &outcome {
             log::warn!("shrink run {} failed: {:#}", job.run_id, error);
@@ -507,7 +500,7 @@ struct PoolEntry {
 
 struct Pending {
     sequence: Sequence,
-    directory: PathBuf,
+    path: PathBuf,
     hit_count: usize,
     run_count: usize,
     in_flight: usize,
@@ -526,10 +519,8 @@ struct Coordinator {
     calibration: Calibration,
     candidate_tries_max: usize,
     confirmation_hit_count_min: usize,
-    /// Smallest first. The first is the result in the output directory.
+    /// Smallest first. The first is the result in the output file.
     pool: Vec<PoolEntry>,
-    /// Files in the output directory that belong to the result.
-    files_best: Vec<OsString>,
     /// File results replace earlier improvements after first publication.
     overwrite: bool,
     pending: BTreeMap<RunId, Pending>,
@@ -550,16 +541,16 @@ impl Coordinator {
         run_id
     }
 
-    fn run_directory(&self, run_id: RunId) -> PathBuf {
+    fn run_path(&self, run_id: RunId) -> PathBuf {
         self.attempts_path.join(run_id.to_string())
     }
 
-    fn remove_run_directory(&self, run_id: RunId) {
-        let directory = self.run_directory(run_id);
-        if let Err(error) = remove_attempt(&directory)
+    fn remove_run(&self, run_id: RunId) {
+        let path = self.run_path(run_id);
+        if let Err(error) = std::fs::remove_file(&path)
             && error.kind() != std::io::ErrorKind::NotFound
         {
-            log::warn!("failed to remove {}: {}", directory.display(), error);
+            log::warn!("failed to remove {}: {}", path.display(), error);
         }
     }
 
@@ -658,9 +649,9 @@ impl Coordinator {
         let reproduced = matches!(outcome, Ok(RunOutcome::Reproduced));
         match job.kind {
             JobKind::Calibration => {
-                let directory = self.run_directory(job.run_id);
+                let path = self.run_path(job.run_id);
                 if !reproduced {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                 }
                 let Calibration::Pending {
                     run_count,
@@ -674,7 +665,7 @@ impl Coordinator {
                 *run_count += 1;
                 match outcome {
                     Ok(RunOutcome::Reproduced) => {
-                        successes.push((executed, directory))
+                        successes.push((executed, path))
                     }
                     Ok(_) => {}
                     Err(error) => errors.push(format!("{error:#}")),
@@ -687,7 +678,7 @@ impl Coordinator {
                 if reproduced {
                     self.on_success(job.run_id, executed);
                 } else {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                     let tries = self
                         .tried
                         .get(&sequence_hash(&job.sequence))
@@ -713,7 +704,7 @@ impl Coordinator {
                     // Failed earlier this time, a new candidate.
                     self.on_success(job.run_id, executed);
                 } else {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                 }
                 let confirmation_runs_max =
                     self.settings.confirmation_runs_max.get();
@@ -739,7 +730,7 @@ impl Coordinator {
                         pending.hit_count,
                         pending.run_count
                     );
-                    self.remove_run_directory(entry);
+                    self.remove_run(entry);
                 }
             }
         }
@@ -798,15 +789,15 @@ impl Coordinator {
         let mut successes = successes;
         successes.sort_by_key(|(executed, _)| executed.len());
         let mut successes = successes.into_iter();
-        let (executed, directory) = successes.next().expect("hit_count > 0");
-        for (_, directory) in successes {
-            let _ = remove_attempt(&directory);
+        let (executed, path) = successes.next().expect("hit_count > 0");
+        for (_, path) in successes {
+            let _ = std::fs::remove_file(&path);
         }
         println!(
             "Reproduced in {hit_count}/{run_count} calibration run(s), retrying candidates up to {} time(s)",
             self.candidate_tries_max
         );
-        self.promote(&directory)?;
+        self.promote(&path)?;
         self.bound.store(executed.len(), Ordering::SeqCst);
         println!("  {} actions", executed.len());
         self.pool.push(PoolEntry {
@@ -827,7 +818,7 @@ impl Coordinator {
                 .values()
                 .any(|pending| known(&pending.sequence))
         {
-            self.remove_run_directory(run_id);
+            self.remove_run(run_id);
             return;
         }
         log::info!("{} actions reproduced, confirming", executed.len());
@@ -835,7 +826,7 @@ impl Coordinator {
             run_id,
             Pending {
                 sequence: executed.into(),
-                directory: self.run_directory(run_id),
+                path: self.run_path(run_id),
                 hit_count: 0,
                 run_count: 0,
                 in_flight: 0,
@@ -857,7 +848,7 @@ impl Coordinator {
                 "  {length} actions (reproduced {}/{})",
                 entry.hit_count, entry.run_count
             );
-            self.promote(&pending.directory)?;
+            self.promote(&pending.path)?;
             self.bound.store(length, Ordering::SeqCst);
             self.pool.insert(0, entry);
             // Continue at the granularity reached.
@@ -877,11 +868,11 @@ impl Coordinator {
                 .collect();
             for run_id in obsolete {
                 self.pending.remove(&run_id);
-                self.remove_run_directory(run_id);
+                self.remove_run(run_id);
             }
             self.retries.retain(|sequence| sequence.len() < length);
         } else {
-            let _ = remove_attempt(&pending.directory);
+            let _ = std::fs::remove_file(&pending.path);
             let position = self
                 .pool
                 .iter()
@@ -893,126 +884,32 @@ impl Coordinator {
         Ok(())
     }
 
-    /// Publish a terminal file or the browser's current multi-file directory.
-    fn promote(&mut self, directory: &Path) -> Result<()> {
-        if directory.is_file() {
-            let parent = self
-                .output_path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            let mut staged = tempfile::Builder::new()
-                .prefix(".bombadil-shrink-")
-                .suffix(".tmp")
-                .tempfile_in(parent)?;
-            std::io::copy(&mut std::fs::File::open(directory)?, &mut staged)?;
-            staged.as_file().sync_all()?;
-            if self.overwrite {
-                staged
-                    .persist(&self.output_path)
-                    .map_err(|error| error.error)?;
-            } else {
-                staged
-                    .persist_noclobber(&self.output_path)
-                    .map_err(|error| error.error)?;
-            }
-            self.overwrite = true;
-            std::fs::remove_file(directory)?;
-            return Ok(());
-        }
-        std::fs::create_dir_all(&self.output_path)?;
-        // Copy the complete replacement onto the output filesystem before
-        // touching a published result. The backup and installation then use
-        // only same-filesystem renames, even when attempts live elsewhere.
-        let staged = tempfile::Builder::new()
+    /// Publish a complete trace through a sibling file on the output filesystem.
+    fn promote(&mut self, path: &Path) -> Result<()> {
+        let parent = self
+            .output_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut staged = tempfile::Builder::new()
             .prefix(".bombadil-shrink-")
-            .tempdir_in(&self.output_path)?;
-        let replacement = staged.path().join("replacement");
-        let previous = staged.path().join("previous");
-        std::fs::create_dir(&replacement)?;
-        std::fs::create_dir(&previous)?;
-        let mut names = Vec::new();
-        for entry in std::fs::read_dir(directory)? {
-            let name = entry?.file_name();
-            copy_attempt(&directory.join(&name), &replacement.join(&name))?;
-            names.push(name);
+            .suffix(".tmp")
+            .tempfile_in(parent)?;
+        std::io::copy(&mut std::fs::File::open(path)?, &mut staged)?;
+        staged.as_file().sync_all()?;
+        if self.overwrite {
+            staged
+                .persist(&self.output_path)
+                .map_err(|error| error.error)?;
+        } else {
+            staged
+                .persist_noclobber(&self.output_path)
+                .map_err(|error| error.error)?;
         }
-        let mut backed_up = Vec::new();
-        let mut installed = Vec::new();
-        let installation = (|| -> Result<()> {
-            for name in self.files_best.iter().chain(&names) {
-                if backed_up.contains(name) {
-                    continue;
-                }
-                let target = self.output_path.join(name);
-                match target.symlink_metadata() {
-                    Ok(_) => {
-                        std::fs::rename(&target, previous.join(name))?;
-                        backed_up.push(name.clone());
-                    }
-                    Err(error)
-                        if error.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(error) => return Err(error.into()),
-                }
-            }
-            for name in &names {
-                std::fs::rename(
-                    replacement.join(name),
-                    self.output_path.join(name),
-                )?;
-                installed.push(name.clone());
-            }
-            Ok(())
-        })();
-        if let Err(error) = installation {
-            let rollback = (|| -> Result<()> {
-                for name in installed.iter().rev() {
-                    remove_attempt(&self.output_path.join(name))?;
-                }
-                for name in backed_up.iter().rev() {
-                    std::fs::rename(
-                        previous.join(name),
-                        self.output_path.join(name),
-                    )?;
-                }
-                Ok(())
-            })();
-            if let Err(rollback) = rollback {
-                let kept = staged.keep();
-                return Err(error.context(format!(
-                    "failed to restore previous result: {rollback:#}; backup retained at {}",
-                    kept.display()
-                )));
-            }
-            return Err(error);
-        }
-        self.files_best = names;
-        staged.close()?;
-        std::fs::remove_dir_all(directory)?;
+        self.overwrite = true;
+        std::fs::remove_file(path)?;
         Ok(())
     }
-}
-
-fn remove_attempt(path: &Path) -> std::io::Result<()> {
-    if path.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    }
-}
-
-fn copy_attempt(from: &Path, to: &Path) -> std::io::Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir(to)?;
-        for entry in std::fs::read_dir(from)? {
-            let entry = entry?;
-            copy_attempt(&entry.path(), &to.join(entry.file_name()))?;
-        }
-    } else {
-        std::fs::copy(from, to)?;
-        std::fs::File::open(to)?.sync_all()?;
-    }
-    Ok(())
 }
 
 /// Deletes chunks of decreasing size, like ddmin and afl-tmin. For each

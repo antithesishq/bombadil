@@ -43,7 +43,7 @@ pub fn screenshot_capture(
         .map_err(|e| anyhow!("screenshot base64 decode failed: {e}"))?;
     Ok(Screenshot {
         format: SCREENSHOT_FORMAT,
-        data,
+        data: data.into(),
     })
 }
 

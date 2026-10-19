@@ -1,13 +1,8 @@
 //! Loading the actions and property violations of a recorded trace.
 
-use std::{
-    collections::BTreeMap,
-    fs::File,
-    io::{BufRead, BufReader},
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, bail};
 use serde::{Deserialize, de::DeserializeOwned};
 
 #[derive(Debug, Clone)]
@@ -33,35 +28,15 @@ struct ViolationName {
 pub fn load_trace_actions<A: DeserializeOwned>(
     trace_file_path: &Path,
 ) -> Result<TraceActions<A>> {
-    let file = File::open(trace_file_path).map_err(|error| {
-        anyhow!(
-            "failed to open trace file {}: {}",
-            trace_file_path.display(),
-            error
-        )
-    })?;
-    let mut reader = BufReader::new(file);
-    let mut line = String::new();
-    let mut line_number = 0;
+    let reader =
+        bombadil_trace::open_trace::<TraceEntryActionAndViolations<A>>(
+            trace_file_path,
+        )?
+        .without_payloads();
     let mut actions = Vec::new();
     let mut violations_earliest = BTreeMap::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line)? == 0 {
-            break;
-        }
-        line_number += 1;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let entry: TraceEntryActionAndViolations<A> =
-            serde_json::from_str(&line).with_context(|| {
-                format!(
-                    "failed to parse {}:{}",
-                    trace_file_path.display(),
-                    line_number
-                )
-            })?;
+    for state in reader {
+        let entry = state?.metadata;
         if let Some(action) = entry.action {
             actions.push(action);
         }
@@ -132,15 +107,26 @@ mod tests {
     #[test]
     fn loads_actions_and_earliest_violations() {
         let mut file = tempfile::NamedTempFile::new().unwrap();
-        use std::io::Write;
+        bombadil_trace::write_envelope(
+            &mut file,
+            bombadil_trace::TraceDriver::Browser,
+        )
+        .unwrap();
         for line in [
             r#"{"timestamp":0,"action":null,"state":{"big":[1,2,3]},"snapshots":[],"violations":[]}"#,
             r#"{"timestamp":1,"action":"a","state":{},"snapshots":[],"violations":[{"name":"p","violation":{}}]}"#,
             r#"{"timestamp":2,"action":"b","state":{},"snapshots":[],"violations":[{"name":"q","violation":{}}]}"#,
             r#"{"timestamp":3,"action":"c","state":{},"snapshots":[],"violations":[{"name":"p","violation":{}}]}"#,
         ] {
-            writeln!(file, "{line}").unwrap();
+            bombadil_trace::write_record(
+                &mut file,
+                bombadil_trace::tag::STATE,
+                &[line.as_bytes()],
+            )
+            .unwrap();
         }
+        bombadil_trace::write_record(&mut file, bombadil_trace::tag::END, &[])
+            .unwrap();
         let trace = load_trace_actions::<String>(file.path()).unwrap();
         assert_eq!(trace.actions, vec!["a", "b", "c"]);
         assert_eq!(trace.select_property(Some("p")).unwrap(), ("p".into(), 1));

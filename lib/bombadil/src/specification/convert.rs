@@ -153,7 +153,7 @@ impl ToSchema<bombadil_schema::EventuallyViolation>
 impl ToSchema<bombadil_schema::Snapshot> for Snapshot {
     fn to_schema(&self) -> bombadil_schema::Snapshot {
         bombadil_schema::Snapshot {
-            index: self.index,
+            index: self.index as u64,
             name: self.name.clone(),
             value: self.value.clone(),
             time: self.time,

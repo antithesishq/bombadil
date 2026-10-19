@@ -203,6 +203,10 @@ This will run until you shut it down using <kbd>Ctrl</kbd>+<kbd>C</kbd>. Any
 property violations will be logged as errors, and with the `--output-path`
 option you will get results to inspect afterwards.
 
+The trace is the file `my-test`, including its screenshots. Any filename is
+accepted, but its parent directory must already exist; an existing directory
+cannot be used as the output path.
+
 Launch the *Bombadil Inspect* tool to see what happened in the test you
 just ran:
 

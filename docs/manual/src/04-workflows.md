@@ -10,8 +10,8 @@ If Bombadil finds a bug in a project you're working on, you might want to
 reproduce that test case when working on a bug fix. That is, have Bombadil
 perform the same sequence of actions to reach the same state.
 
-Use the `--reproduce` option and point it to the original test run's output:
-a trace file for terminal tests, or a run directory for browser tests.
+Use the `--reproduce` option and point it to the trace file of the
+original test run:
 
 ::: browser
 ```bash
@@ -60,10 +60,18 @@ It's important that the shrink invocation uses the same options as the original
 Shrinking begins with a calibration phase that tries to assess the flakiness of
 reproducing the violation. Calibration can be controlled with
 `--calibration-runs` and `--confirmation-runs-max` if needed. At the end of
-shrinking, you get a new trace at the output path (a file for terminal tests,
-a directory for browser tests), configured with
+shrinking, you get a new trace file, configured with
 `--output-path` and `--output-path-overwrite`, that can be
 [reproduced][Reproducing violations] or [inspected][Inspecting test results].
+
+Trace inputs are always files, never directories. For a single test or shrink,
+`--output-path` names the actual trace file and accepts any filename; its parent
+directory must already exist. Without it, Bombadil chooses a unique file in
+system temp. For fuzz, the option is a file base: `run.bin` writes sibling files
+`run-0.bin`, `run-1.bin`, and so on, without per-run directories. Browser downloads
+use a separate temporary directory logged before the run and removed afterwards.
+Shrinking permits a sibling output but rejects an input alias, including symbolic
+links and hard links. Use `--output-path-overwrite` to replace an existing file.
 
 ## Inspecting test results
 
@@ -83,6 +91,19 @@ the transition caused by the selected action. A transition shows state before
 and state after. Along with screenshots, you see violations and all captured
 snapshot values per state.
 
+To look at a trace in the terminal instead, `bombadil trace` lists its states
+with their actions, URLs and violations. With `--screenshots`, it also writes
+each state's screenshot to a directory, named by the state's index:
+
+```bash
+bombadil trace my-test --screenshots my-test-screenshots
+```
+
+Pick states with `--state` (`--state 40..50` shows states 40 to 49), or print
+one JSON object per state with `--json` to process the trace with tools like
+`jq`. Running `--screenshots` again leaves the screenshots already written as
+they are.
+
 :::
 
 ::: terminal
@@ -101,12 +122,5 @@ screen as the properties saw it. Pick states with `--state` (`--state 40..50`
 shows states 40 to 49), keep the screen's colors with `--color`, or print one
 JSON object per state with `--json` (with `--screen`, including the screen) to
 process the trace with tools like `jq`.
-
-Terminal trace inputs and outputs are files, not run directories; filenames
-need no particular extension. Parent directories must already exist. Fuzzing
-uses numbered siblings: `--output-path run.bin` writes `run-0.bin`,
-`run-1.bin`, and so on. Shrinking permits a sibling output but rejects an
-input alias, including symbolic links and hard links. Use
-`--output-path-overwrite` to replace an existing output file.
 
 :::
