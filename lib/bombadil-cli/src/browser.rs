@@ -1,6 +1,6 @@
 use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use bombadil_browser::{
     browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
@@ -11,10 +11,7 @@ use bombadil_browser::{
     trace::writer::{FileOutputWriter, FileTraceWriter},
 };
 use clap::Args;
-use serde_json as json;
 use std::{
-    fs::File,
-    io::{BufRead, BufReader},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     str::FromStr,
@@ -33,17 +30,15 @@ use bombadil::{
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
-use bombadil_browser::{
-    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
-};
-use bombadil_schema::browser;
-
 use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
+use bombadil_browser::{
+    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
+};
 
 use crate::shrink::{self, ShrinkOptions};
-use crate::{duration, inspect_server, output_path};
+use crate::{browser_trace, duration, inspect_server, output_path};
 
 const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
@@ -92,7 +87,7 @@ Examples:
   bombadil browser inspect my-test
 
   # Serve on another port, without trying to open a browser
-  bombadil browser inspect --port 8080 --no-open my-test/trace.jsonl
+  bombadil browser inspect --port 8080 --no-open my-test/trace.bin
 ";
 
 #[derive(clap::Subcommand)]
@@ -143,7 +138,8 @@ pub enum BrowserCommand {
     /// Launch Bombadil Inspect to inspect a trace file
     #[command(after_help = INSPECT_EXAMPLES)]
     Inspect {
-        /// Path to trace.jsonl file or directory containing it
+        /// Trace file (`trace.bin`, or a legacy `trace.jsonl`), or the run
+        /// directory containing it
         trace_path: PathBuf,
         /// Port to bind the inspect server to
         #[arg(long, default_value_t = 1073)]
@@ -164,7 +160,7 @@ pub struct RunSharedOptions {
     pub output_path: Option<PathBuf>,
 
     /// Overwrite any existing trace at `--output-path`. Without this flag,
-    /// Bombadil refuses to write when trace.jsonl already exists.
+    /// Bombadil refuses to write when trace.bin already exists.
     #[arg(long)]
     pub output_path_overwrite: bool,
 
@@ -571,17 +567,11 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let trace_file_path =
-                output_path::resolve_browser_trace_file(path)?;
-            let trace_file = File::open(&trace_file_path)?;
-            let mut actions: Vec<BrowserAction> = vec![];
-            for line in BufReader::new(trace_file).lines() {
-                let line = line.context("failed to read line from trace")?;
-                let entry: browser::BrowserTraceEntry = json::from_str(&line)?;
-                if let Some(action) = entry.action {
-                    actions.push(action.to_internal());
-                }
-            }
+            let actions: Vec<BrowserAction> =
+                browser_trace::load_actions(path)?
+                    .iter()
+                    .map(ToInternal::to_internal)
+                    .collect();
             Ok(TestMode::Reproduce(actions.into()))
         }
     }
@@ -891,11 +881,7 @@ fn browser_shrink(
     shrink_options: ShrinkOptions,
     debugger_options: DebuggerOptions,
 ) -> Result<()> {
-    let options = shrink_options.resolve(|directory| {
-        bombadil::shrink::load_trace_actions::<browser::BrowserAction>(
-            &output_path::resolve_browser_trace_file(directory)?,
-        )
-    })?;
+    let options = shrink_options.resolve(browser_trace::load_trace_actions)?;
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =

@@ -1,5 +1,4 @@
-use anyhow::{Result, bail};
-use bombadil_trace::{TraceDriver, trace_driver};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -13,20 +12,6 @@ pub fn resolve_trace_directory(path: &Path) -> PathBuf {
     } else {
         path.to_path_buf()
     }
-}
-
-/// The browser trace file (`trace.jsonl`) for a user-provided trace path
-/// (file or directory), refusing other drivers' binary traces so they
-/// aren't misread.
-pub fn resolve_browser_trace_file(path: &Path) -> Result<PathBuf> {
-    match trace_driver(path)? {
-        None | Some(TraceDriver::Browser) => {}
-        Some(driver) => bail!(
-            "{} holds a {driver} trace, not a browser trace",
-            path.display()
-        ),
-    }
-    Ok(resolve_trace_directory(path).join("trace.jsonl"))
 }
 
 /// Resolve the output path for a test run. If the user didn't specify

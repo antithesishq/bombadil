@@ -31,6 +31,10 @@ pub struct TraceArgs {
     /// (implies --screen)
     #[arg(long)]
     color: bool,
+    /// Write each state's screenshot into this directory, named by the
+    /// state's index (browser traces)
+    #[arg(long, value_name = "DIRECTORY")]
+    screenshots: Option<PathBuf>,
 }
 
 /// States to show, by index.
@@ -94,6 +98,12 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
     if show_screen && states.driver != TraceDriver::Terminal {
         bail!("--screen only applies to terminal traces");
     }
+    if let Some(directory) = &args.screenshots {
+        if states.driver != TraceDriver::Browser {
+            bail!("--screenshots only applies to browser traces");
+        }
+        std::fs::create_dir_all(directory)?;
+    }
     let range = args
         .state
         .as_ref()
@@ -118,6 +128,18 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
             }
             _ => None,
         };
+        let screenshot_file = match (&args.screenshots, &state.payload) {
+            (Some(directory), Some(screenshot)) => {
+                let extension = state.metadata["state"]["screenshot"]
+                    .as_str()
+                    .unwrap_or("bin");
+                let file =
+                    directory.join(format!("{}.{extension}", state.index));
+                std::fs::write(&file, screenshot)?;
+                Some(file)
+            }
+            _ => None,
+        };
         if args.json {
             let payload_bytes = state.payload.as_ref().map(Vec::len);
             let mut line = json!({
@@ -128,12 +150,18 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
             if show_screen {
                 line["screen"] = json!(screen);
             }
+            if let Some(file) = &screenshot_file {
+                line["screenshot_file"] = json!(file);
+            }
             serde_json::to_writer(&mut *out, &line)?;
             writeln!(out)?;
         } else {
             write_state(out, &state, time, start_time)?;
             for line in screen.iter().flat_map(|screen| screen.lines()) {
                 writeln!(out, "       | {line}")?;
+            }
+            if let Some(file) = &screenshot_file {
+                writeln!(out, "       screenshot: {}", file.display())?;
             }
         }
     }
@@ -162,6 +190,9 @@ fn write_state(
     }
     writeln!(out)?;
 
+    if let Some(url) = state.metadata["state"]["url"].as_str() {
+        writeln!(out, "       url: {url}")?;
+    }
     let violations: Vec<&str> = state
         .metadata
         .get("violations")
@@ -217,6 +248,7 @@ impl TraceArgs {
             json: false,
             screen: false,
             color: false,
+            screenshots: None,
         }
     }
 }
@@ -290,6 +322,41 @@ mod tests {
         let error = show(&TraceArgs::new(directory.path().into()), &mut out)
             .unwrap_err();
         assert!(error.to_string().contains("JSON trace"), "{error}");
+    }
+
+    #[test]
+    fn extracts_browser_screenshots() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut file = Vec::new();
+        write_envelope(&mut file, TraceDriver::Browser).unwrap();
+        write_record(
+            &mut file,
+            tag::STATE,
+            &[br#"{"timestamp":0,"action":"Back","state":{"url":"https://example.com/","screenshot":"jpeg"},"violations":[]}"#],
+        )
+        .unwrap();
+        write_record(&mut file, tag::STATE_PAYLOAD, &[b"image"]).unwrap();
+        std::fs::write(directory.path().join(TRACE_FILE_NAME), file).unwrap();
+
+        let screenshots = directory.path().join("screenshots");
+        let args = TraceArgs {
+            screenshots: Some(screenshots.clone()),
+            ..TraceArgs::new(directory.path().into())
+        };
+        let output = output(&args);
+        assert!(output.contains("url: https://example.com/"), "{output}");
+        assert_eq!(
+            std::fs::read(screenshots.join("0.jpeg")).unwrap(),
+            b"image"
+        );
+
+        let args = TraceArgs {
+            screen: true,
+            ..TraceArgs::new(directory.path().into())
+        };
+        let mut out = Vec::new();
+        let error = show(&args, &mut out).unwrap_err();
+        assert!(error.to_string().contains("terminal traces"), "{error}");
     }
 
     #[test]

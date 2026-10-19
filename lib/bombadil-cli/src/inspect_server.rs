@@ -1,21 +1,34 @@
-use std::path::PathBuf;
+use std::{
+    io::{Read, Seek, SeekFrom},
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use axum::{
     Json, Router,
     extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
 };
 use bombadil_schema::browser::BrowserTraceEntry;
 use include_dir::{Dir, include_dir};
 
+use crate::browser_trace::{self, BrowserTraceFile};
+
 static INSPECT_ASSETS: Dir =
     include_dir!("$CARGO_MANIFEST_DIR/../../target/inspect");
 
+/// Where each state's screenshot is in a binary trace (offset and length).
+type ScreenshotLocations = Arc<Mutex<Vec<Option<(u64, usize)>>>>;
+
 #[derive(Clone)]
 struct AppState {
-    trace_directory: PathBuf,
+    trace: Arc<BrowserTraceFile>,
+    /// For a binary trace: where each state's screenshot is in the file
+    /// (offset and length), filled in when the trace is served.
+    screenshots: ScreenshotLocations,
 }
 
 pub async fn serve(
@@ -24,15 +37,12 @@ pub async fn serve(
     open_browser: bool,
 ) -> Result<()> {
     // Fail before serving rather than when the page asks for the trace.
-    let trace_file =
-        crate::output_path::resolve_browser_trace_file(&trace_path)?;
-    if !trace_file.is_file() {
-        anyhow::bail!("no browser trace at {}", trace_file.display());
-    }
-    let trace_directory =
-        crate::output_path::resolve_trace_directory(&trace_path);
+    let trace = browser_trace::resolve(&trace_path)?;
 
-    let state = AppState { trace_directory };
+    let state = AppState {
+        trace: Arc::new(trace),
+        screenshots: Arc::default(),
+    };
 
     let app = Router::new()
         .route("/api/trace", get(trace_handler))
@@ -57,42 +67,58 @@ pub async fn serve(
 
 async fn trace_handler(
     State(state): State<AppState>,
-) -> Result<Json<Vec<BrowserTraceEntry>>, axum::http::StatusCode> {
-    let trace_file = state.trace_directory.join("trace.jsonl");
-    // TODO: this should be streamed line-by-line over a websocket or SSE
-    // rather than loaded into memory and sent as JSON. OK for now, but
-    // worth revisiting when we do "live inspect mode".
-    let content =
-        tokio::fs::read_to_string(&trace_file)
-            .await
-            .map_err(|error| {
-                log::error!("Failed to read trace file: {}", error);
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+) -> Result<Json<Vec<BrowserTraceEntry>>, StatusCode> {
+    // TODO: this should be streamed over a websocket or SSE rather than
+    // loaded into memory and sent as JSON. OK for now, but worth
+    // revisiting when we do "live inspect mode".
+    tokio::task::spawn_blocking(move || read_entries(&state))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(Json)
+        .map_err(|error| {
+            log::error!("Failed to read trace: {error:#}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
+}
 
-    let entries: Vec<BrowserTraceEntry> = content
-        .lines()
-        .filter(|line| !line.is_empty())
-        .map(
-            |line| -> Result<BrowserTraceEntry, axum::http::StatusCode> {
-                let mut entry: BrowserTraceEntry = serde_json::from_str(line)
-                    .map_err(|error| {
-                    log::error!("Failed to parse trace entry: {}", error);
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
-                })?;
+/// The trace's entries, with each screenshot pointing at the screenshot
+/// endpoint.
+fn read_entries(state: &AppState) -> Result<Vec<BrowserTraceEntry>> {
+    match state.trace.as_ref() {
+        BrowserTraceFile::Json(file) => {
+            let mut entries = browser_trace::read_json(file)?;
+            for entry in &mut entries {
                 let filename = std::path::Path::new(&entry.state.screenshot)
                     .file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("")
                     .to_string();
-                entry.state.screenshot =
-                    format!("/api/screenshots/{}", filename);
-                Ok(entry)
-            },
-        )
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(Json(entries))
+                entry.state.screenshot = format!("/api/screenshots/{filename}");
+            }
+            Ok(entries)
+        }
+        BrowserTraceFile::Binary(file) => {
+            let mut entries = Vec::new();
+            let mut screenshots = Vec::new();
+            for trace_state in browser_trace::open_binary(file)? {
+                let trace_state = trace_state?;
+                let mut entry = trace_state.metadata;
+                let location = trace_state
+                    .payload_offset
+                    .zip(trace_state.payload.as_ref().map(Vec::len));
+                screenshots.push(location);
+                // The entry holds the screenshot's format; name it by the
+                // state's index.
+                entry.state.screenshot = format!(
+                    "/api/screenshots/{}.{}",
+                    trace_state.index, entry.state.screenshot
+                );
+                entries.push(entry);
+            }
+            *state.screenshots.lock().expect("screenshots lock") = screenshots;
+            Ok(entries)
+        }
+    }
 }
 
 async fn screenshot_handler(
@@ -102,13 +128,44 @@ async fn screenshot_handler(
     let sanitized = std::path::Path::new(&filename)
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
 
-    let path = state.trace_directory.join("screenshots").join(sanitized);
+    let data = match state.trace.as_ref() {
+        BrowserTraceFile::Json(file) => {
+            let directory = file.parent().unwrap_or(std::path::Path::new("."));
+            tokio::fs::read(directory.join("screenshots").join(&sanitized))
+                .await
+                .ok()
+        }
+        BrowserTraceFile::Binary(file) => {
+            let location = sanitized
+                .split_once('.')
+                .and_then(|(index, _)| index.parse::<usize>().ok())
+                .and_then(|index| {
+                    let screenshots =
+                        state.screenshots.lock().expect("screenshots lock");
+                    screenshots.get(index).copied().flatten()
+                });
+            match location {
+                Some((offset, length)) => {
+                    let file = file.clone();
+                    tokio::task::spawn_blocking(move || {
+                        read_at(&file, offset, length)
+                    })
+                    .await
+                    .ok()
+                    .and_then(Result::ok)
+                }
+                None => None,
+            }
+        }
+    };
 
-    match tokio::fs::read(&path).await {
-        Ok(data) => {
-            let mime = mime_guess::from_path(sanitized).first_or_octet_stream();
+    match data {
+        Some(data) => {
+            let mime =
+                mime_guess::from_path(&sanitized).first_or_octet_stream();
             (
                 [
                     (
@@ -120,8 +177,21 @@ async fn screenshot_handler(
             )
                 .into_response()
         }
-        Err(_) => axum::http::StatusCode::NOT_FOUND.into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// Reads `length` bytes at `offset`, e.g. one screenshot of a binary trace.
+fn read_at(
+    file: &std::path::Path,
+    offset: u64,
+    length: usize,
+) -> Result<Vec<u8>> {
+    let mut file = std::fs::File::open(file)?;
+    file.seek(SeekFrom::Start(offset))?;
+    let mut data = vec![0; length];
+    file.read_exact(&mut data)?;
+    Ok(data)
 }
 
 async fn serve_index() -> axum::response::Html<&'static str> {
@@ -143,6 +213,6 @@ async fn serve_assets(uri: axum::http::Uri) -> impl IntoResponse {
         )
             .into_response()
     } else {
-        axum::http::StatusCode::NOT_FOUND.into_response()
+        StatusCode::NOT_FOUND.into_response()
     }
 }

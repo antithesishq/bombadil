@@ -501,6 +501,7 @@ dependencies = [
  "bombadil-browser-keys",
  "bombadil-ltl",
  "bombadil-schema",
+ "bombadil-trace",
  "cdp",
  "cdp_protocol",
  "const_format",

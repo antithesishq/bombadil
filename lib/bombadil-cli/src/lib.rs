@@ -1,4 +1,5 @@
 mod browser;
+mod browser_trace;
 mod duration;
 mod inspect_server;
 mod output_path;

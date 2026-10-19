@@ -14,6 +14,7 @@ base64.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-trace = { path = "../bombadil-trace" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 cdp = { path = "../cdp" }
 cdp_protocol = { path = "../cdp/protocol" }
