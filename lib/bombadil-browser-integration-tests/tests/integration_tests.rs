@@ -1607,6 +1607,30 @@ export const ok = always(() => true);
 }
 
 #[test]
+fn test_opens_tabs() {
+    BrowserIntegrationTest::new("opens-tabs")
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const count = extract((state) =>
+  parseInt(state.document.querySelector("\#counter").textContent, 10)
+);
+
+// Each click opens a popup or a new tab. The driven page must stay in front.
+export const keepsGoing = eventually(() => count.current >= 10).within(
+  20,
+  "seconds"
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_debugger_in_handler() {
     BrowserIntegrationTest::new("debugger-in-handler")
         .state_interval_max(Duration::from_secs(5))
