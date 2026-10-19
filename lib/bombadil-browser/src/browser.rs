@@ -128,6 +128,8 @@ enum InnerEvent {
     ExecutionContextCreated(String, FrameId),
     ExecutionContextDestroyed(String),
     TargetDestroyed(TargetId),
+    /// Another page target appeared (a popup or a `target="_blank"` link).
+    TargetCreated(TargetId),
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Generation),
     ActionApplied(Generation),
@@ -552,6 +554,7 @@ fn forward_inner_events(
         page::EventFrameStoppedLoading::method_id(),
         browser::EventDownloadWillBegin::method_id(),
         target::EventTargetDestroyed::method_id(),
+        target::EventTargetCreated::method_id(),
         runtime::EventConsoleApiCalled::method_id(),
     ]);
 
@@ -660,6 +663,11 @@ fn forward_inner_events(
                     },
                     target::EventTargetDestroyed: event => {
                         Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
+                    },
+                    target::EventTargetCreated: event => {
+                        if event.target_info.r#type == "page" {
+                            Some(InnerEvent::TargetCreated(event.target_info.target_id.clone()))
+                        } else { None }
                     },
                     runtime::EventConsoleApiCalled: call => {
                         let level = match call.r#type {
@@ -1278,6 +1286,30 @@ fn process_event(
             } else {
                 state
             }
+        }
+        (state, InnerEvent::TargetCreated(target_id)) => {
+            // The page opened a second tab. Only the first page is driven, and
+            // a hidden page stops requestAnimationFrame, so every quiescence
+            // wait would time out. Close the newcomer and bring ours back.
+            if target_id != context.target_id {
+                log::warn!(
+                    "closing page target {target_id:?} opened by the page and \
+                     bringing the driven page back to front"
+                );
+                if let Err(error) = context
+                    .connection
+                    .post(target::CloseTargetParams::new(target_id), None)
+                {
+                    log::debug!("failed to close opened target: {error:#}");
+                }
+                if let Err(error) = context.connection.post(
+                    page::BringToFrontParams::default(),
+                    Some(&context.session_id),
+                ) {
+                    log::debug!("failed to bring page to front: {error:#}");
+                }
+            }
+            state
         }
         (state, InnerEvent::Quiesced(generation)) => {
             if state.shared.generation != generation {

@@ -113,6 +113,9 @@ impl Chromium {
         command.arg("--disable-background-timer-throttling");
         command.arg("--disable-backgrounding-occluded-windows");
         command.arg("--disable-renderer-backgrounding");
+        // Keep everything in the one page: a new tab in the foreground would
+        // hide the driven one, and every later quiescence wait would time out.
+        command.arg("--block-new-web-contents");
 
         let remote_debugging_port: u16 = available_port().ok_or(anyhow!("failed to find available port for remote debugging server in chromium"))?;
         command
