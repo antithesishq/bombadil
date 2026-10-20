@@ -261,7 +261,8 @@ fn show_into(
             _ => None,
         };
         if args.json {
-            // The metadata as written, so its numbers aren't rounded.
+            // The metadata as the writer encoded it (with snapshot values
+            // written once put back), so its numbers aren't rounded.
             let mut line = format!(
                 concat!(
                     r#"{{"index":{},"metadata":{},"#,
@@ -1336,6 +1337,58 @@ mod tests {
         for line in json.lines() {
             serde_json::from_str::<Value>(line).unwrap();
         }
+    }
+
+    /// Snapshot values written once show as recorded, in states after
+    /// the one holding them too.
+    #[test]
+    fn shows_snapshot_values_written_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let metadata = |n: u64| {
+            serde_json::json!({
+                "timestamp": n,
+                "action": null,
+                "snapshots": [{
+                    "index": 0,
+                    "name": "items",
+                    "value": [1.5, "a long enough value", {"value_from": 0}],
+                    "time": n,
+                }],
+            })
+        };
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            directory.path(),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for n in 0..5 {
+            writer.write_state(metadata(n), None).unwrap();
+        }
+        writer.finish().unwrap();
+        let trace =
+            std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&trace)
+                .matches("a long enough value")
+                .count(),
+            1
+        );
+        let json = output(&TraceArgs {
+            json: true,
+            state: Some("3..".parse().unwrap()),
+            ..TraceArgs::new(directory.path().into())
+        });
+        let expected: String = (3..5)
+            .map(|n| {
+                format!(
+                    "{{\"index\":{n},\"metadata\":{},\"payload_bytes\":null,\
+                     \"payload_from\":null}}\n",
+                    serde_json::to_string(&metadata(n)).unwrap()
+                )
+            })
+            .collect();
+        assert_eq!(json, expected);
     }
 
     #[test]

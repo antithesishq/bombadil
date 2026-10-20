@@ -20,6 +20,7 @@ use crate::{
     envelope::driver_code,
     reader::PositionalReader,
     record::{PayloadRef, check_payload_length, read_full},
+    snapshots::SnapshotDeduplicator,
     tag, write_envelope, write_record,
 };
 
@@ -47,6 +48,12 @@ const PENDING_STATES_MAX: usize = 32;
 /// and offset of each distinct payload, and of at most 4 distinct
 /// payloads with the same CRC-32 and length. Payloads of 12 bytes or
 /// fewer, no larger than a reference, are always written in full.
+///
+/// A snapshot value of the metadata identical to its extractor's last
+/// value written in full is written as a reference to the state that
+/// holds it, where that is shorter (see the [crate] docs). The thread
+/// keeps that last value of each extractor. Metadata with a snapshot
+/// entry that has a `value_from` member fails to encode.
 ///
 /// Once the thread has failed, every call fails: the first one with the
 /// error that stopped it, later ones with a copy of its message.
@@ -353,6 +360,7 @@ fn worker_loop<M: Serialize, W: Write>(
 ) -> Result<()> {
     let mut metadata = Vec::new();
     let mut payloads = WrittenPayloads::new(read_back);
+    let mut snapshots = SnapshotDeduplicator::default();
     let mut states_written: u64 = 0;
     // Where the next record starts in the file.
     let mut offset = ENVELOPE_LEN as u64;
@@ -375,7 +383,12 @@ fn worker_loop<M: Serialize, W: Write>(
                 metadata.clear();
                 serde_json::to_writer(&mut metadata, &state.metadata)
                     .map_err(anyhow::Error::from)
+                    // Before writing values once, so that readers, who
+                    // put them back, can hold metadata to the same bound.
                     .and_then(|()| Ok(check_payload_length(metadata.len())?))
+                    .and_then(|()| {
+                        snapshots.deduplicate(&mut metadata, states_written)
+                    })
                     .map_err(|error| {
                         error.context("failed to encode trace state")
                     })?;
@@ -968,6 +981,93 @@ mod tests {
         let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
         assert_eq!(reader.by_ref().count(), 0);
         assert!(!reader.finished());
+    }
+
+    /// Snapshot values that repeat their extractor's previous value are
+    /// written once, and read back as the bytes a writer that doesn't
+    /// would have written, values with `value_from` members included.
+    #[test]
+    fn writes_repeated_snapshot_values_once() {
+        let state = |n: u64, values: [serde_json::Value; 2]| {
+            serde_json::json!({
+                "n": n,
+                "snapshots": values
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| serde_json::json!({
+                        "index": index,
+                        "name": "e",
+                        "value": value,
+                        "time": n,
+                    }))
+                    .collect::<Vec<_>>(),
+                "violations": [{"snapshots": [{"index": 0, "value": 1.5}]}],
+            })
+        };
+        let list = serde_json::json!([1.0, 2.5, 1e300, "three"]);
+        // A value that looks like a reference, from a user's extractor.
+        let tricky = serde_json::json!({"value_from": 0, "value": [0, 1]});
+        let originals = [
+            state(0, [list.clone(), tricky.clone()]),
+            state(1, [list.clone(), tricky.clone()]),
+            state(2, [serde_json::json!(null), tricky.clone()]),
+            state(3, [list.clone(), serde_json::json!({"value_from": 2})]),
+        ];
+        let directory = tempfile::tempdir().unwrap();
+        let mut writer = TraceFileWriter::create(
+            directory.path(),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for original in &originals {
+            writer.write_state(original.clone(), None).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let trace =
+            std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
+        let trace = String::from_utf8_lossy(&trace);
+        let list = serde_json::to_string(&list).unwrap();
+        assert_eq!(trace.matches(&list).count(), 2, "{list}");
+        // Three references, and the value that looks like one, once.
+        assert_eq!(trace.matches(r#""value_from":0"#).count(), 4);
+        let tricky = serde_json::to_string(&tricky).unwrap();
+        assert_eq!(trace.matches(&tricky).count(), 1);
+        let states =
+            open_trace::<Box<serde_json::value::RawValue>>(directory.path())
+                .unwrap()
+                .collect::<Result<Vec<_>>>()
+                .unwrap();
+        let read: Vec<_> =
+            states.iter().map(|state| state.metadata.get()).collect();
+        let written: Vec<_> = originals
+            .iter()
+            .map(|original| serde_json::to_string(original).unwrap())
+            .collect();
+        assert_eq!(read, written);
+    }
+
+    /// Metadata that would read as a reference fails to encode.
+    #[test]
+    fn refuses_snapshot_entries_with_a_value_from_member() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut writer = TraceFileWriter::create(
+            directory.path(),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        let state = serde_json::json!({
+            "snapshots": [{"index": 0, "value_from": 0}],
+        });
+        writer.write_state(state, None).unwrap();
+        let error = format!("{:#}", writer.finish().unwrap_err());
+        assert!(
+            error.contains("failed to encode trace state")
+                && error.contains("`value_from` member"),
+            "{error}"
+        );
     }
 
     /// Fails to encode, with a message unique to the test.

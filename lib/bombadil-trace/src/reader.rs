@@ -11,6 +11,7 @@ use crate::{
     ENVELOPE_LEN, RECORD_HEADER_LEN, TRACE_FILE_NAME, TraceDriver,
     envelope::read_envelope,
     record::{PayloadRef, RawRecord, RecordHeader, RecordReader, read_full},
+    snapshots::SnapshotRestorer,
     tag,
 };
 
@@ -53,13 +54,18 @@ struct PayloadLocation {
 /// the record that holds them, once per reference: hence `R: Seek`. Read
 /// from a pipe, such a state fails unless payloads are skipped.
 ///
-/// A bad record, a state missing its payload, or a payload reference that
-/// doesn't resolve ends the states with an error, after every complete
-/// state before it. An incomplete last record, or a last state whose
-/// payload the trace ends before (from a run killed while writing), ends
-/// them with a logged warning instead, and without that state. A trace
-/// without a [`tag::END`] record also ends with a logged warning; see
-/// [`finished`](Self::finished).
+/// Snapshot values written as references to an earlier state's (see the
+/// [crate] docs) are put back in the metadata before it is deserialized,
+/// so `M` reads the metadata as encoded by the writer. Metadata without
+/// such references is deserialized as written.
+///
+/// A bad record, a state missing its payload, or a payload or snapshot
+/// value reference that doesn't resolve ends the states with an error,
+/// after every complete state before it. An incomplete last record, or a
+/// last state whose payload the trace ends before (from a run killed
+/// while writing), ends them with a logged warning instead, and without
+/// that state. A trace without a [`tag::END`] record also ends with a
+/// logged warning; see [`finished`](Self::finished).
 pub struct StateReader<R, M> {
     pub driver: TraceDriver,
     records: RecordReader<R>,
@@ -75,6 +81,8 @@ pub struct StateReader<R, M> {
     // their states (`PayloadLocation::from`), to resolve references to
     // them.
     payloads: Vec<PayloadLocation>,
+    // Puts back the snapshot values written as references.
+    snapshots: SnapshotRestorer,
 }
 
 struct PendingState<M> {
@@ -234,6 +242,7 @@ impl<R: Read + Seek, M: DeserializeOwned> StateReader<R, M> {
             finished: false,
             keep_payloads: true,
             payloads: Vec::new(),
+            snapshots: SnapshotRestorer::default(),
         })
     }
 
@@ -383,15 +392,19 @@ impl<R: Read + Seek, M: DeserializeOwned> StateReader<R, M> {
                             record.index
                         );
                     }
-                    let metadata = serde_json::from_slice(
+                    // No state is pending, so this is the next one.
+                    let metadata = self.snapshots.restore(
                         record.payload.as_deref().unwrap_or_default(),
-                    )
-                    .with_context(|| {
-                        format!(
-                            "invalid state in trace record {}",
-                            record.index
-                        )
-                    })?;
+                        self.states_read,
+                        record.index,
+                    )?;
+                    let metadata = serde_json::from_slice(&metadata)
+                        .with_context(|| {
+                            format!(
+                                "invalid state in trace record {}",
+                                record.index
+                            )
+                        })?;
                     if record.tag == tag::STATE {
                         return Ok(Some(self.state(metadata, None)));
                     }
@@ -489,6 +502,7 @@ mod tests {
         write_envelope, write_record,
     };
     use serde::Deserialize;
+    use serde_json::value::RawValue;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Metadata {
@@ -1256,5 +1270,156 @@ mod tests {
             error.to_string(),
             "not a browser trace (written by the terminal driver)"
         );
+    }
+
+    /// The metadata of a state with the snapshot `entries`.
+    fn with_snapshots(n: u32, entries: &[&str]) -> String {
+        format!(r#"{{"n":{n},"snapshots":[{}]}}"#, entries.join(","))
+    }
+
+    const LIST: &str = r#"{"index":0,"value":[1,2,3,4,5,6,7,8],"time":1}"#;
+    const LIST_FROM_0: &str = r#"{"index":0,"value_from":0,"time":1}"#;
+    const LIST_FROM_2: &str = r#"{"index":0,"value_from":2,"time":1}"#;
+    const OTHER: &str = r#"{"index":0,"value":"another value","time":1}"#;
+
+    /// The metadata of each state of `shared_snapshots`, as written by a
+    /// writer that doesn't write values once.
+    fn snapshots_read() -> Vec<String> {
+        [&[LIST][..], &[LIST], &[OTHER], &[OTHER, LIST], &[OTHER]]
+            .iter()
+            .enumerate()
+            .map(|(n, entries)| with_snapshots(n as u32, entries))
+            .collect()
+    }
+
+    /// The states of `snapshots_read`, with repeated values written once,
+    /// and payloads too.
+    fn shared_snapshots() -> Vec<u8> {
+        trace(&[
+            (
+                tag::STATE_WITH_PAYLOAD,
+                with_snapshots(0, &[LIST]).as_bytes(),
+            ),
+            (tag::STATE_PAYLOAD, b"zero"),
+            (
+                tag::STATE_WITH_PAYLOAD,
+                with_snapshots(1, &[LIST_FROM_0]).as_bytes(),
+            ),
+            (tag::STATE_PAYLOAD_REF, &reference(0, b"zero")),
+            (tag::STATE, with_snapshots(2, &[OTHER]).as_bytes()),
+            // Back to the list, written in full: only the last value in
+            // full is referred to.
+            (
+                tag::STATE,
+                with_snapshots(3, &[LIST_FROM_2, LIST]).as_bytes(),
+            ),
+            (tag::STATE, with_snapshots(4, &[OTHER]).as_bytes()),
+            (tag::END, b""),
+        ])
+    }
+
+    fn metadata(states: &[State<Box<RawValue>>]) -> Vec<&str> {
+        states.iter().map(|state| state.metadata.get()).collect()
+    }
+
+    #[test]
+    fn puts_back_snapshot_values_written_once() {
+        let file = shared_snapshots();
+        for keep in [true, false] {
+            let mut reader =
+                StateReader::<_, Box<RawValue>>::new(Cursor::new(&file))
+                    .unwrap();
+            if !keep {
+                reader = reader.without_payloads();
+            }
+            let states = reader.collect::<Result<Vec<_>>>().unwrap();
+            assert_eq!(metadata(&states), snapshots_read());
+            assert_eq!(states[1].payload_from, Some(0));
+        }
+        // Into a type, after putting them back.
+        #[derive(Deserialize)]
+        struct Snapshots {
+            snapshots: Vec<serde_json::Value>,
+        }
+        let states = StateReader::<_, Snapshots>::new(Cursor::new(&file))
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(states[3].metadata.snapshots[0]["value"], "another value");
+    }
+
+    /// A trace cut anywhere reads without an error, every state as it was
+    /// written, whether payloads are skipped or not.
+    #[test]
+    fn reads_a_trace_with_snapshot_references_cut_anywhere() {
+        let file = shared_snapshots();
+        let expected = snapshots_read();
+        let mut previous = 0;
+        for length in ENVELOPE_LEN..=file.len() {
+            for keep in [true, false] {
+                let mut reader = StateReader::<_, Box<RawValue>>::new(
+                    Cursor::new(&file[..length]),
+                )
+                .unwrap();
+                if !keep {
+                    reader = reader.without_payloads();
+                }
+                let states = reader.collect::<Result<Vec<_>>>().unwrap_or_else(
+                    |error| panic!("cut at {length}: {error:#}"),
+                );
+                assert!(states.len() >= previous, "cut at {length}");
+                previous = states.len();
+                assert_eq!(
+                    metadata(&states),
+                    expected[..states.len()],
+                    "cut at {length}"
+                );
+            }
+        }
+        assert_eq!(previous, expected.len());
+    }
+
+    #[test]
+    fn rejects_snapshot_references_that_dont_resolve() {
+        // State 2 refers to `reference`, after state 0 with the list in
+        // full and state 1 referring to it.
+        for (reference, reason) in [
+            (
+                r#"{"index":0,"value_from":1}"#,
+                "last value in full is state 0's",
+            ),
+            (r#"{"index":0,"value_from":2}"#, "isn't before state 2"),
+            (r#"{"index":1,"value_from":0}"#, "no earlier value in full"),
+            (r#"{"index":0,"value_from":null}"#, "not to a state index"),
+        ] {
+            let file = trace(&[
+                (tag::STATE, with_snapshots(0, &[LIST]).as_bytes()),
+                (
+                    tag::STATE_WITH_PAYLOAD,
+                    with_snapshots(1, &[LIST_FROM_0]).as_bytes(),
+                ),
+                (tag::STATE_PAYLOAD, b"one"),
+                (tag::STATE, with_snapshots(2, &[reference]).as_bytes()),
+                (tag::STATE, with_snapshots(3, &[LIST]).as_bytes()),
+                (tag::END, b""),
+            ]);
+            let results: Vec<_> =
+                StateReader::<_, Box<RawValue>>::new(Cursor::new(file))
+                    .unwrap()
+                    .collect();
+            // The states before it, then the error.
+            assert_eq!(results.len(), 3, "{reason}");
+            assert_eq!(
+                results[1].as_ref().unwrap().metadata.get(),
+                snapshots_read()[1]
+            );
+            let error = format!("{:#}", results[2].as_ref().unwrap_err());
+            assert!(
+                error.contains(
+                    "corrupt snapshot value reference in trace record 3"
+                ) && error.contains(reason),
+                "{error}"
+            );
+        }
     }
 }

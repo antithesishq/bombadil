@@ -83,6 +83,43 @@
 //! whose CRC-32 and length many distinct earlier payloads share may be
 //! written again in full.
 //!
+//! Much of a state's metadata is often extractor snapshot values that
+//! are the same as in the state before. A state's snapshot entries are
+//! those of the `snapshots` member of its metadata, if the metadata is
+//! an object with one such member, an array: the entries that are
+//! objects with one `index` member, an integer from 0 naming the
+//! extractor, and one member that is either `value` or `value_from`,
+//! whose key is written without escapes, directly followed by a colon
+//! and then the value, as serde_json writes it. Anything else, such as
+//! the snapshots of a violation, isn't an entry, and is read as written.
+//! An entry's `"value":<value>` may be written as `"value_from":<state>`
+//! instead, in the same place, where `<state>` is the index of the last
+//! earlier state that holds a value of the same extractor in full, if
+//! that value is the same, byte for byte:
+//!
+//! ```json
+//! {"index":0,"name":"title","value":"A long title","time":3}
+//! {"index":0,"name":"title","value_from":7,"time":4}
+//! ```
+//!
+//! Readers put `"value":<value>` back before reading the metadata, so it
+//! is read as the bytes the writer encoded. As with payloads, references
+//! only point backwards, one step, and a cut trace never holds one that
+//! can't be resolved. A reference that isn't a state index, or names a
+//! state that isn't earlier, or isn't the last one holding a value of the
+//! extractor in full, is a corrupt record. Readers keep one value per
+//! extractor, as does the writer, which writes a reference only where
+//! `"value_from":<state>` is shorter than `"value":<value>`. Since
+//! `value_from` names a reference, a state whose metadata has a snapshot
+//! entry with a `value_from` member can't be written.
+//!
+//! The writer checks the size of a state's metadata before writing its
+//! values once, so with every value put back, metadata is at most
+//! [`RECORD_PAYLOAD_BYTES_MAX`] bytes too. Readers report a state whose
+//! metadata would be larger with its values put back as a corrupt
+//! record, before putting them back, so references to a large value
+//! can't make a small record take any amount of memory.
+//!
 //! A run that is killed while writing leaves an incomplete last record:
 //! a partial header, or an intact header whose payload the file ends
 //! before. Readers end the trace there, with a warning, instead of
@@ -128,6 +165,7 @@
 mod envelope;
 mod reader;
 mod record;
+mod snapshots;
 mod writer;
 
 pub use envelope::{TraceDriver, trace_driver, write_envelope};
