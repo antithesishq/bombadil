@@ -1621,6 +1621,50 @@ mod tests {
         assert_eq!(state.scans.load(Ordering::Relaxed), 2);
     }
 
+    /// A state whose screenshot is shared with an earlier state's (see
+    /// `bombadil_trace::tag::STATE_PAYLOAD_REF`) is served those bytes.
+    #[test]
+    fn serves_shared_screenshots() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let a = Arc::new(b"page a, longer than a reference".to_vec());
+        let b = Arc::new(b"page b, longer than a reference".to_vec());
+        let screenshots = [&a, &b, &a, &b, &a];
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            directory.path(),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for screenshot in screenshots {
+            let metadata: Box<RawValue> =
+                RawValue::from_string(metadata("u", "png")).unwrap();
+            writer
+                .write_state(metadata, Some(screenshot.clone()))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        // Written once each.
+        let from: Vec<_> = bombadil_trace::open_trace::<Box<RawValue>>(&path)
+            .unwrap()
+            .map(|state| state.unwrap().payload_from)
+            .collect();
+        assert_eq!(from, [Some(0), Some(1), Some(0), Some(1), Some(0)]);
+
+        let app = binary_state(&path);
+        block_on(async {
+            let urls = screenshot_urls(&app).await;
+            assert_eq!(urls.len(), screenshots.len());
+            for (url, screenshot) in urls.iter().zip(screenshots) {
+                assert_eq!(
+                    screenshot_at(&app, url).await,
+                    Some(("image/png", screenshot.to_vec())),
+                    "{url}"
+                );
+            }
+        });
+    }
+
     /// A trace still being written (appended to in place) keeps serving
     /// screenshots under the URLs the page has, without a scan per
     /// request; reloading the trace reads its new states.

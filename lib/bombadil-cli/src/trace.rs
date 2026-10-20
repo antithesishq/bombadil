@@ -3,7 +3,7 @@
 use std::{
     fmt,
     fs::File,
-    io::{self, BufReader, Read, Write},
+    io::{self, BufReader, Read, Seek, SeekFrom, Write},
     ops::Range,
     path::{Path, PathBuf},
     str::FromStr,
@@ -29,12 +29,15 @@ pub struct TraceArgs {
     /// 40 up to but not including 50), `40..` or `..50`
     #[arg(long, value_name = "INDEX|START..END")]
     state: Option<StateRange>,
-    /// Print one JSON object per state: its index, metadata and payload
-    /// size, with --screen its screen (a string, or null without one), and
-    /// with --screenshots the file its screenshot is in, if it has one
+    /// Print one JSON object per state: its index, metadata, payload size
+    /// and the state whose payload it is (its own, or an earlier state's
+    /// with the same payload), with --screen its screen (a string, or null
+    /// without one), and with --screenshots the file its screenshot is in,
+    /// if it has one
     #[arg(long)]
     json: bool,
-    /// Show each state's screen (terminal traces)
+    /// Show each state's screen (terminal traces). A piped trace is copied
+    /// to a temporary file as it is read, to read shared screens again
     #[arg(long)]
     screen: bool,
     /// Show screens with their colors and styles, as ANSI escape sequences
@@ -44,7 +47,9 @@ pub struct TraceArgs {
     /// Write the screenshot of each state shown into this directory, as
     /// `<index>.<format>` (browser traces), or `<index>.bin` for a format
     /// other than png and jpeg. A file already there is left as it is if
-    /// it holds the same screenshot, and refused otherwise
+    /// it holds the same screenshot, and refused otherwise. A piped trace
+    /// is copied to a temporary file as it is read, to read screenshots
+    /// from
     #[arg(long, value_name = "DIRECTORY")]
     screenshots: Option<PathBuf>,
 }
@@ -167,7 +172,11 @@ fn show_into(
     // Opened once: the states are read through a clone of the handle,
     // and the screenshots by offset through the handle itself, so they
     // are from the file whose states were read, even if its path names
-    // another trace since (as after an overwriting run).
+    // another trace since (as after an overwriting run). With --screen,
+    // screens are read in sequence, but those shared with an earlier
+    // state by offset; with --screenshots, all are read by offset. A pipe
+    // can't be read by offset, so then it is copied to a temporary file
+    // as it is read (see `SpooledPipe`).
     let trace_path = if path.is_dir() {
         path.join(TRACE_FILE_NAME)
     } else {
@@ -176,12 +185,10 @@ fn show_into(
     let opened = File::open(&trace_path).with_context(|| {
         format!("failed to open trace file {}", trace_path.display())
     })?;
-    let states = opened
-        .try_clone()
-        .map_err(anyhow::Error::from)
-        .and_then(|clone| {
-            StateReader::<_, Box<RawValue>>::new(BufReader::new(clone))
-        })
+    let reads_payloads = show_screen || args.screenshots.is_some();
+    let (input, opened) =
+        trace_input(opened, reads_payloads, tempfile::tempfile)?;
+    let states = StateReader::<_, Box<RawValue>>::new(BufReader::new(input))
         .with_context(|| format!("failed to read {}", trace_path.display()));
     let states = match states {
         Ok(states) => states,
@@ -256,12 +263,14 @@ fn show_into(
         if args.json {
             // The metadata as written, so its numbers aren't rounded.
             let mut line = format!(
-                r#"{{"index":{},"metadata":{},"payload_bytes":{}"#,
+                concat!(
+                    r#"{{"index":{},"metadata":{},"#,
+                    r#""payload_bytes":{},"payload_from":{}"#
+                ),
                 state.index,
                 state.metadata.get(),
-                state
-                    .payload_length
-                    .map_or("null".to_string(), |length| length.to_string())
+                json_number(state.payload_length),
+                json_number(state.payload_from),
             );
             if show_screen {
                 // A string of the screen's lines, or null without one.
@@ -310,6 +319,132 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<Extracted> {
     let mut extracted = None;
     show_into(args, out, &mut extracted)?;
     Ok(extracted.unwrap_or_default())
+}
+
+trait ReadSeek: Read + Seek {}
+
+impl<T: Read + Seek> ReadSeek for T {}
+
+/// The trace `file`, to read its states from, and a handle to read its
+/// payloads from by offset: `file` itself, or if payloads are read and
+/// it can't seek (a pipe), a temporary file holding what was read of it
+/// so far, as it is read (see [`SpooledPipe`]), made by `create_spool`.
+fn trace_input(
+    file: File,
+    reads_payloads: bool,
+    create_spool: impl FnOnce() -> io::Result<File>,
+) -> Result<(Box<dyn ReadSeek>, File)> {
+    if !reads_payloads || (&file).stream_position().is_ok() {
+        let input = file
+            .try_clone()
+            .context("failed to open the trace file again")?;
+        return Ok((Box::new(input), file));
+    }
+    let (spool, spooled) = create_spool()
+        .and_then(|spool| Ok((spool.try_clone()?, spool)))
+        .map_err(spool_failed)?;
+    let pipe = SpooledPipe {
+        pipe: file,
+        spool,
+        copied: 0,
+        position: 0,
+        failed: None,
+    };
+    Ok((Box::new(pipe), spooled))
+}
+
+/// `error`, which copying a piped trace to a temporary file failed with.
+fn spool_failed(error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("failed to copy the piped trace to a temporary file: {error}"),
+    )
+}
+
+/// A pipe, read as it is written, whose bytes are copied to `spool` as
+/// they are read, so that it can seek back to them, and they can be read
+/// from `spool` by offset. Seeking past what was read from the pipe
+/// fails: payload references only point backwards, and screenshots are
+/// read after their state.
+///
+/// Once copying fails, the bytes read from the pipe are lost, so every
+/// later read and seek fails too, rather than going on without them.
+struct SpooledPipe {
+    pipe: File,
+    spool: File,
+    // How much was read from the pipe, all of it copied to the spool.
+    copied: u64,
+    position: u64,
+    // The kind and message of the error copying failed with.
+    failed: Option<(io::ErrorKind, String)>,
+}
+
+impl SpooledPipe {
+    fn earlier_failure(&self) -> io::Result<()> {
+        match &self.failed {
+            Some((kind, message)) => {
+                Err(io::Error::new(*kind, message.clone()))
+            }
+            None => Ok(()),
+        }
+    }
+}
+
+impl Read for SpooledPipe {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.earlier_failure()?;
+        let read = if self.position < self.copied {
+            let behind = (self.copied - self.position) as usize;
+            let wanted = buffer.len().min(behind);
+            self.spool
+                .seek(SeekFrom::Start(self.position))
+                .and_then(|_| self.spool.read(&mut buffer[..wanted]))
+                .map_err(|error| {
+                    io::Error::new(
+                        error.kind(),
+                        format!(
+                            "failed to read the piped trace back from a \
+                             temporary file: {error}"
+                        ),
+                    )
+                })?
+        } else {
+            let read = self.pipe.read(buffer)?;
+            let copied = self
+                .spool
+                .seek(SeekFrom::Start(self.copied))
+                .and_then(|_| self.spool.write_all(&buffer[..read]));
+            if let Err(error) = copied {
+                let error = spool_failed(error);
+                self.failed = Some((error.kind(), error.to_string()));
+                return Err(error);
+            }
+            self.copied += read as u64;
+            read
+        };
+        self.position += read as u64;
+        Ok(read)
+    }
+}
+
+impl Seek for SpooledPipe {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        self.earlier_failure()?;
+        let target = match position {
+            SeekFrom::Start(offset) => Some(offset),
+            SeekFrom::Current(delta) => self.position.checked_add_signed(delta),
+            SeekFrom::End(_) => None,
+        };
+        let Some(target) = target.filter(|&target| target <= self.copied)
+        else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "can't seek a pipe past what was read from it",
+            ));
+        };
+        self.position = target;
+        Ok(target)
+    }
 }
 
 /// Whether the file at `path`, which `open_trace` failed on, looks like
@@ -695,6 +830,11 @@ fn create_file(file: &Path, data: &[u8]) -> Result<bool> {
     created.with_context(write_error)
 }
 
+/// `number` in JSON, or null.
+fn json_number(number: Option<usize>) -> String {
+    number.map_or("null".to_string(), |number| number.to_string())
+}
+
 /// Writes a state as text, with the time since `start_time`, the time of
 /// the first state with a timestamp. Metadata without the expected shape
 /// is shown as written.
@@ -721,7 +861,14 @@ fn write_state(
     };
     write!(out, "#{:<5} {elapsed:>10}  {action}", state.index)?;
     if let Some(length) = state.payload_length {
-        write!(out, "  ({} payload)", format_bytes(length))?;
+        match state.payload_from {
+            Some(from) if from != state.index => write!(
+                out,
+                "  ({} payload, same as #{from})",
+                format_bytes(length)
+            )?,
+            _ => write!(out, "  ({} payload)", format_bytes(length))?,
+        }
     }
     writeln!(out)?;
 
@@ -1182,9 +1329,9 @@ mod tests {
             json,
             "{\"index\":0,\"metadata\":\
              {\"big\":18446744073709551616,\"small\":1e300,\"x\":[1.50]},\
-             \"payload_bytes\":null}\n\
+             \"payload_bytes\":null,\"payload_from\":null}\n\
              {\"index\":1,\"metadata\":{\"a\":[1,\"b c\\\"\\\\\"]},\
-             \"payload_bytes\":null}\n"
+             \"payload_bytes\":null,\"payload_from\":null}\n"
         );
         for line in json.lines() {
             serde_json::from_str::<Value>(line).unwrap();
@@ -1269,6 +1416,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(first["payload_bytes"], 2048);
+        assert_eq!(first["payload_from"], 0);
 
         // Times are from the first state of the trace with a timestamp,
         // even if not shown.
@@ -1407,6 +1555,276 @@ mod tests {
             screenshots: Some(screenshots.to_path_buf()),
             ..TraceArgs::new(directory.into())
         }
+    }
+
+    /// Writes a finished browser trace of four states, the last two with
+    /// the first's screenshot, with the writer, which writes those as
+    /// references. Returns each state's screenshot.
+    fn write_shared_screenshots(directory: &Path) -> [Vec<u8>; 4] {
+        let metadata = |n: u64, url: &str| {
+            serde_json::json!({
+                "timestamp": n * 1_000_000,
+                "action": if n == 0 { Value::Null } else { "Back".into() },
+                "state": { "url": url, "screenshot": "png" },
+                "violations": [],
+            })
+        };
+        let a =
+            std::sync::Arc::new(b"page a, longer than a reference".to_vec());
+        let b =
+            std::sync::Arc::new(b"page b, longer than a reference".to_vec());
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            directory,
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for (n, url, payload) in
+            [(0, "a", &a), (1, "b", &b), (2, "a", &a), (3, "a", &a)]
+        {
+            writer
+                .write_state(metadata(n, url), Some(payload.clone()))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        [&a, &b, &a, &a].map(|payload| payload.to_vec())
+    }
+
+    /// Checks the output of `--screenshots` for the trace of
+    /// `write_shared_screenshots`, and the files written.
+    fn check_shared_screenshots(
+        out: &str,
+        screenshots: &Path,
+        expected: &[Vec<u8>; 4],
+    ) {
+        let summaries: Vec<_> =
+            out.lines().filter(|line| line.starts_with('#')).collect();
+        assert_eq!(
+            summaries,
+            [
+                "#0        +0.000s  (initial state)  (31 B payload)",
+                "#1        +1.000s  Back  (31 B payload)",
+                "#2        +2.000s  Back  (31 B payload, same as #0)",
+                "#3        +3.000s  Back  (31 B payload, same as #0)",
+            ]
+        );
+        for (n, payload) in expected.iter().enumerate() {
+            assert_eq!(
+                &std::fs::read(screenshots.join(format!("{n}.png"))).unwrap(),
+                payload,
+                "state {n}"
+            );
+        }
+    }
+
+    /// States sharing a payload are marked, and their screenshots are
+    /// the shared bytes.
+    #[test]
+    fn marks_shared_payloads() {
+        let directory = tempfile::tempdir().unwrap();
+        let expected = write_shared_screenshots(directory.path());
+        let screenshots = directory.path().join("screenshots");
+        let mut out = Vec::new();
+        let extracted =
+            show(&screenshot_args(directory.path(), &screenshots), &mut out)
+                .unwrap();
+        assert_eq!(extracted.written, 4);
+        let out = String::from_utf8(out).unwrap();
+        check_shared_screenshots(&out, &screenshots, &expected);
+
+        let args = TraceArgs {
+            json: true,
+            ..TraceArgs::new(directory.path().into())
+        };
+        let from: Vec<Value> = output(&args)
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .map(|line| line["payload_from"].clone())
+            .collect();
+        assert_eq!(from, [0, 1, 0, 0]);
+    }
+
+    /// Sends what is written to it.
+    struct Sent(std::sync::mpsc::Sender<Vec<u8>>);
+
+    impl Write for Sent {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            let _ = self.0.send(buffer.to_vec());
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A pipe holding `bytes`, whose writer is returned so that it stays
+    /// open, at a path that `show` can open.
+    fn pipe_of(bytes: &[u8]) -> (io::PipeReader, io::PipeWriter, PathBuf) {
+        use std::os::fd::AsRawFd;
+        let (reader, mut writer) = io::pipe().unwrap();
+        // Small enough for the pipe's buffer.
+        writer.write_all(bytes).unwrap();
+        let path = PathBuf::from(format!("/dev/fd/{}", reader.as_raw_fd()));
+        (reader, writer, path)
+    }
+
+    /// Screenshots, shared or not, are extracted from a pipe as it is
+    /// read: every state is shown before the pipe is closed.
+    #[test]
+    fn extracts_shared_screenshots_of_a_pipe_as_it_is_read() {
+        let directory = tempfile::tempdir().unwrap();
+        let expected = write_shared_screenshots(directory.path());
+        let bytes =
+            std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
+        let (_reader, writer, path) = pipe_of(&bytes);
+        let screenshots = directory.path().join("screenshots");
+        let args = screenshot_args(&path, &screenshots);
+        let (sender, sent) = std::sync::mpsc::channel();
+        let shown = std::thread::spawn(move || show(&args, &mut Sent(sender)));
+        let mut out = Vec::new();
+        // Until the last state's screenshot is shown.
+        while !String::from_utf8_lossy(&out).contains("3.png\n") {
+            let part = sent
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("states not shown while the pipe is open");
+            out.extend(part);
+        }
+        drop(writer);
+        let extracted = shown.join().unwrap().unwrap();
+        assert_eq!(extracted.written, 4);
+        let out = String::from_utf8(out).unwrap();
+        check_shared_screenshots(&out, &screenshots, &expected);
+    }
+
+    /// An option for the other driver fails before any state is read.
+    #[test]
+    fn checks_the_driver_of_a_pipe_before_reading_it() {
+        let directory = tempfile::tempdir().unwrap();
+        write_trace(directory.path(), true);
+        let bytes =
+            std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
+        let (_reader, writer, path) = pipe_of(&bytes);
+        let args = screenshot_args(&path, &directory.path().join("shots"));
+        let (sender, shown) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(show(&args, &mut Vec::new()).map(drop));
+        });
+        // With the pipe still open.
+        let error = shown
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("waited for the pipe to close")
+            .unwrap_err();
+        drop(writer);
+        assert_eq!(
+            error.to_string(),
+            "--screenshots only applies to browser traces"
+        );
+    }
+
+    #[test]
+    fn spools_a_pipe_as_it_is_read() {
+        let (pipe, mut writer) = io::pipe().unwrap();
+        let spool = tempfile::tempfile().unwrap();
+        let mut spooled = SpooledPipe {
+            pipe: File::from(std::os::fd::OwnedFd::from(pipe)),
+            spool: spool.try_clone().unwrap(),
+            copied: 0,
+            position: 0,
+            failed: None,
+        };
+        let read = |spooled: &mut SpooledPipe, length: usize| {
+            let mut buffer = vec![0; length];
+            spooled.read_exact(&mut buffer).unwrap();
+            buffer
+        };
+        writer.write_all(b"abcdef").unwrap();
+        assert_eq!(read(&mut spooled, 4), b"abcd");
+        // Back, and forward up to what was read.
+        assert_eq!(spooled.seek(SeekFrom::Start(1)).unwrap(), 1);
+        assert_eq!(read(&mut spooled, 2), b"bc");
+        assert_eq!(spooled.seek(SeekFrom::Current(1)).unwrap(), 4);
+        // Past what was read, or from the end: not known.
+        for position in
+            [SeekFrom::Start(5), SeekFrom::Current(1), SeekFrom::End(0)]
+        {
+            assert!(spooled.seek(position).is_err(), "{position:?}");
+        }
+        assert_eq!(spooled.stream_position().unwrap(), 4);
+        // From the pipe again, then back across both parts.
+        writer.write_all(b"gh").unwrap();
+        drop(writer);
+        assert_eq!(read(&mut spooled, 4), b"efgh");
+        spooled.seek(SeekFrom::Start(2)).unwrap();
+        assert_eq!(read(&mut spooled, 6), b"cdefgh");
+        assert_eq!(spooled.read(&mut [0; 4]).unwrap(), 0);
+        // The spool holds everything read, for reading by offset.
+        let mut spooled_bytes = vec![0; 8];
+        std::os::unix::fs::FileExt::read_exact_at(
+            &spool,
+            &mut spooled_bytes,
+            0,
+        )
+        .unwrap();
+        assert_eq!(spooled_bytes, b"abcdefgh");
+    }
+
+    /// Once copying to the spool fails, every read and seek fails, and
+    /// the pipe isn't read any further.
+    #[test]
+    fn stops_at_a_failure_to_spool() {
+        let (pipe, mut writer) = io::pipe().unwrap();
+        let rest = pipe.try_clone().unwrap();
+        let spool = tempfile::NamedTempFile::new().unwrap();
+        let mut spooled = SpooledPipe {
+            pipe: File::from(std::os::fd::OwnedFd::from(pipe)),
+            // Read-only, so writing to it fails.
+            spool: File::open(spool.path()).unwrap(),
+            copied: 0,
+            position: 0,
+            failed: None,
+        };
+        writer.write_all(b"abcdef").unwrap();
+        drop(writer);
+        let failures = [
+            spooled.read(&mut [0; 4]).unwrap_err(),
+            spooled.read(&mut [0; 4]).unwrap_err(),
+            spooled.seek(SeekFrom::Start(0)).unwrap_err(),
+        ];
+        for error in failures {
+            assert!(
+                error.to_string().starts_with(
+                    "failed to copy the piped trace to a temporary file: "
+                ),
+                "{error}"
+            );
+        }
+        let mut unread = Vec::new();
+        drop(spooled);
+        (&rest).read_to_end(&mut unread).unwrap();
+        assert_eq!(unread, b"ef");
+    }
+
+    #[test]
+    fn says_a_spool_couldnt_be_made() {
+        use std::os::fd::OwnedFd;
+        let (pipe, _writer) = io::pipe().unwrap();
+        let error = trace_input(File::from(OwnedFd::from(pipe)), true, || {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        })
+        .err()
+        .unwrap();
+        assert_eq!(
+            format!("{error:#}"),
+            "failed to copy the piped trace to a temporary file: entity not \
+             found"
+        );
+        // Not made unless payloads are read.
+        let (pipe, _writer) = io::pipe().unwrap();
+        let made = trace_input(File::from(OwnedFd::from(pipe)), false, || {
+            panic!("made a spool")
+        });
+        assert!(made.is_ok());
     }
 
     #[test]
@@ -2134,6 +2552,41 @@ mod tests {
                 ],
                 "{shown}"
             );
+        }
+
+        /// A trace read from a pipe, with payloads shared between states,
+        /// shows the same screens as read from its file.
+        #[test]
+        fn shows_shared_screens_of_a_pipe() {
+            use std::os::fd::AsRawFd;
+            let directory = tempfile::tempdir().unwrap();
+            let screens = [snapshot(b"one"), snapshot(b"two")];
+            let mut writer = bombadil_trace::TraceFileWriter::create(
+                directory.path(),
+                TraceDriver::Terminal,
+                false,
+            )
+            .unwrap();
+            for n in [0, 1, 0, 0, 1] {
+                let metadata = serde_json::json!({
+                    "action": null,
+                    "state": {"scroll_offset": 0},
+                });
+                let screen = std::sync::Arc::new(screens[n].clone());
+                writer.write_state(metadata, Some(screen)).unwrap();
+            }
+            writer.finish().unwrap();
+            let from_file = output(&screen_args(directory.path()));
+            assert_eq!(from_file.matches(", same as #").count(), 3);
+
+            let bytes =
+                std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
+            let (reader, mut writer) = io::pipe().unwrap();
+            let feeder = std::thread::spawn(move || writer.write_all(&bytes));
+            let path = PathBuf::from(format!("/dev/fd/{}", reader.as_raw_fd()));
+            let from_pipe = output(&screen_args(&path));
+            feeder.join().unwrap().unwrap();
+            assert_eq!(from_pipe, from_file);
         }
 
         #[test]

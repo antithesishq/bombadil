@@ -50,14 +50,47 @@
 //! in between. The tag says whether a payload follows, so a lost payload
 //! can't pass for a state without one.
 //!
+//! A state's payload is often identical to an earlier state's (the
+//! screen didn't change, or the browser went back to a page). The writer
+//! may then write a [`tag::STATE_PAYLOAD_REF`] record in place of the
+//! [`tag::STATE_PAYLOAD`] record, naming the earlier state whose payload
+//! the state shares instead of holding the bytes again:
+//!
+//! | Offset | Size | Field                  |
+//! | -----: | ---: | :--------------------- |
+//! |      0 |    4 | State index (`u32`)    |
+//! |      4 |    4 | Payload length (`u32`) |
+//! |      8 |    4 | Payload CRC-32 (`u32`) |
+//!
+//! As in any record, the record's own payload CRC covers these 12 bytes.
+//! States are numbered from 0 in the order they are written. The state
+//! named is an earlier one whose payload is in a [`tag::STATE_PAYLOAD`]
+//! record, not another reference, so references only point backwards,
+//! one step, and a cut trace never holds one that can't be resolved. The
+//! length and CRC-32 are the shared payload's, as written in the header
+//! of the record that holds it, so readers check that a reference
+//! resolves to the payload it was written for, and that the bytes they
+//! read for it are those. A reference to a state that isn't earlier, has
+//! no payload, has a reference itself, or whose payload doesn't match, is
+//! a corrupt record. Readers report the offset and length of the payload
+//! in the record the reference names, so payloads are read again by
+//! offset the same way.
+//!
+//! The writer refers only to identical payloads: it finds candidates by
+//! CRC-32 and length and compares their bytes. It doesn't refer to
+//! payloads of 12 bytes or fewer, which are no larger than a reference,
+//! and keeps at most 4 candidates per CRC-32 and length, so a payload
+//! whose CRC-32 and length many distinct earlier payloads share may be
+//! written again in full.
+//!
 //! A run that is killed while writing leaves an incomplete last record:
 //! a partial header, or an intact header whose payload the file ends
 //! before. Readers end the trace there, with a warning, instead of
 //! failing. Since the header is checked first, a corrupted length can't
 //! pass for such a cut. The same goes for a trace that ends after a
-//! [`tag::STATE_WITH_PAYLOAD`] record but before its payload: that state
-//! is incomplete and dropped with a warning. A state record where a
-//! payload is expected is an error.
+//! [`tag::STATE_WITH_PAYLOAD`] record but before its payload (or its
+//! reference): that state is incomplete and dropped with a warning. A
+//! state record where a payload is expected is an error.
 //!
 //! A finished trace ends with a [`tag::END`] record, with an empty
 //! payload, at a state boundary (not while a payload is expected).
@@ -126,6 +159,11 @@ const RECORD_LENGTH_OFFSET: usize = 2;
 const RECORD_HEADER_CRC_OFFSET: usize = 6;
 const RECORD_PAYLOAD_CRC_OFFSET: usize = 10;
 
+const PAYLOAD_REF_LEN: usize = 12;
+const PAYLOAD_REF_STATE_OFFSET: usize = 0;
+const PAYLOAD_REF_LENGTH_OFFSET: usize = 4;
+const PAYLOAD_REF_CRC_OFFSET: usize = 8;
+
 /// Largest payload accepted, checked before writing and before reading
 /// so a corrupted length is reported rather than trusted.
 pub const RECORD_PAYLOAD_BYTES_MAX: usize = 256 * 1024 * 1024;
@@ -141,6 +179,11 @@ const _: () = assert!(RECORD_LENGTH_OFFSET + 4 == RECORD_HEADER_CRC_OFFSET);
 const _: () =
     assert!(RECORD_HEADER_CRC_OFFSET + 4 == RECORD_PAYLOAD_CRC_OFFSET);
 const _: () = assert!(RECORD_PAYLOAD_CRC_OFFSET + 4 == RECORD_HEADER_LEN);
+const _: () = assert!(PAYLOAD_REF_STATE_OFFSET == 0);
+const _: () =
+    assert!(PAYLOAD_REF_STATE_OFFSET + 4 == PAYLOAD_REF_LENGTH_OFFSET);
+const _: () = assert!(PAYLOAD_REF_LENGTH_OFFSET + 4 == PAYLOAD_REF_CRC_OFFSET);
+const _: () = assert!(PAYLOAD_REF_CRC_OFFSET + 4 == PAYLOAD_REF_LEN);
 // A payload length must fit the u32 field.
 const _: () = assert!(RECORD_PAYLOAD_BYTES_MAX <= u32::MAX as usize);
 
@@ -153,7 +196,11 @@ pub mod tag {
     pub const STATE_PAYLOAD: u16 = 2;
     /// The JSON metadata of a state whose payload follows.
     pub const STATE_WITH_PAYLOAD: u16 = 3;
-    // 4 is reserved for payload references.
+    /// Stands for the [`STATE_PAYLOAD`] record of the [`STATE_WITH_PAYLOAD`]
+    /// record before it, whose payload is the same as an earlier state's:
+    /// names that state, and the payload's length and CRC-32 (see the
+    /// [crate] docs).
+    pub const STATE_PAYLOAD_REF: u16 = 4;
     /// Marks the trace as finished. Empty, and last in the file.
     pub const END: u16 = 5;
     /// Set on tags that readers which don't know them may skip.
@@ -211,6 +258,14 @@ mod tests {
         write_envelope(&mut file, TraceDriver::Terminal).unwrap();
         write_record(&mut file, tag::STATE_WITH_PAYLOAD, &[b"{}"]).unwrap();
         write_record(&mut file, tag::STATE_PAYLOAD, &[b"ab"]).unwrap();
+        write_record(&mut file, tag::STATE_WITH_PAYLOAD, &[b"{}"]).unwrap();
+        let reference = record::PayloadRef {
+            state: 0,
+            length: 2,
+            crc: crc32fast::hash(b"ab"),
+        };
+        write_record(&mut file, tag::STATE_PAYLOAD_REF, &[&reference.encode()])
+            .unwrap();
         write_record(&mut file, tag::END, &[]).unwrap();
         assert_eq!(
             file,
@@ -226,6 +281,14 @@ mod tests {
                 // payload CRC, "ab".
                 2, 0, 2, 0, 0, 0, 0x23, 0xc8, 0x03, 0x56, 0x6d, 0x48, 0x83,
                 0x9e, b'a', b'b',
+                // The second state, whose payload is the first's: its state
+                // with payload record, as above, then a payload reference
+                // record: tag 4, length 12, header CRC, payload CRC, then
+                // state 0, length 2, and the CRC of "ab".
+                3, 0, 2, 0, 0, 0, 0x86, 0x1b, 0x5f, 0x9d, 0x43, 0xbf, 0xa6,
+                0xa3, b'{', b'}', 4, 0, 12, 0, 0, 0, 0x0d, 0x5c, 0x85, 0x60,
+                0x7f, 0x47, 0x2c, 0x89, 0, 0, 0, 0, 2, 0, 0, 0, 0x6d, 0x48,
+                0x83, 0x9e,
                 // End record: tag 5, length 0, header CRC, payload CRC
                 // (of no bytes).
                 5, 0, 0, 0, 0, 0, 0x10, 0x30, 0x0f, 0xe1, 0, 0, 0, 0,
