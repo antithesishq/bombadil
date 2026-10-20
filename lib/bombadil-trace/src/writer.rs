@@ -21,6 +21,7 @@ use crate::{
     envelope::driver_code,
     reader::PositionalReader,
     record::{PayloadRef, check_payload_length, read_full},
+    snapshots::SnapshotDeduplicator,
     tag, write_envelope, write_record,
 };
 
@@ -48,6 +49,12 @@ const PENDING_STATES_MAX: usize = 32;
 /// and offset of each distinct payload, and of at most 4 distinct
 /// payloads with the same CRC-32 and length. Payloads of 12 bytes or
 /// fewer, no larger than a reference, are always written in full.
+///
+/// A snapshot value of the metadata identical to its extractor's last
+/// value written in full is written as a reference to the state that
+/// holds it, where that is shorter (see the [crate] docs). The thread
+/// keeps that last value of each extractor. Metadata with a snapshot
+/// entry that has a `value_from` member fails to encode.
 ///
 /// Once the thread has failed, every call fails: the first one with the
 /// error that stopped it, later ones with a copy of its message.
@@ -354,6 +361,7 @@ fn worker_loop<M: Serialize, W: Write>(
 ) -> Result<()> {
     let mut metadata = Vec::new();
     let mut payloads = WrittenPayloads::new(read_back);
+    let mut snapshots = SnapshotDeduplicator::default();
     let mut states_written: u64 = 0;
     // Where the next record starts in the file.
     let mut offset = ENVELOPE_LEN as u64;
@@ -376,7 +384,12 @@ fn worker_loop<M: Serialize, W: Write>(
                 metadata.clear();
                 serde_json::to_writer(&mut metadata, &state.metadata)
                     .map_err(anyhow::Error::from)
+                    // Before writing values once, so that readers, who
+                    // put them back, can hold metadata to the same bound.
                     .and_then(|()| Ok(check_payload_length(metadata.len())?))
+                    .and_then(|()| {
+                        snapshots.deduplicate(&mut metadata, states_written)
+                    })
                     .map_err(|error| {
                         error.context("failed to encode trace state")
                     })?;
@@ -943,6 +956,28 @@ mod tests {
                 .unwrap();
         assert_eq!(reader.by_ref().count(), 0);
         assert!(!reader.finished());
+    }
+
+    /// Metadata that would read as a reference fails to encode.
+    #[test]
+    fn refuses_snapshot_entries_with_a_value_from_member() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut writer = TraceFileWriter::create(
+            &directory.path().join(TRACE_FILE_NAME),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        let state = serde_json::json!({
+            "snapshots": [{"index": 0, "value_from": 0}],
+        });
+        writer.write_state(state, None).unwrap();
+        let error = format!("{:#}", writer.finish().unwrap_err());
+        assert!(
+            error.contains("failed to encode trace state")
+                && error.contains("`value_from` member"),
+            "{error}"
+        );
     }
 
     /// Fails to encode, with a message unique to the test.
