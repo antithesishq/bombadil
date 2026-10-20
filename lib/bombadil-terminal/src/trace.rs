@@ -294,17 +294,69 @@ mod tests {
     #[test]
     fn test_leaves_sibling_browser_traces_alone() {
         let directory = tempfile::tempdir().unwrap();
-        let browser_trace = directory.path().join("trace.jsonl");
-        std::fs::write(&browser_trace, "previous").unwrap();
+        let browser_trace = directory.path().join("browser.custom");
+        let mut browser = TraceFileWriter::create(
+            &browser_trace,
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        browser
+            .write_state(serde_json::json!({"action": null}), None)
+            .unwrap();
+        browser.finish().unwrap();
+        let before = std::fs::read(&browser_trace).unwrap();
         let path = directory.path().join("arbitrary.custom");
         for overwrite in [false, true] {
             TerminalTraceWriter::initialize(&path, overwrite)
                 .unwrap()
                 .finish()
                 .unwrap();
-            assert_eq!(std::fs::read(&browser_trace).unwrap(), b"previous");
+            assert_eq!(std::fs::read(&browser_trace).unwrap(), before);
             assert!(path.is_file());
         }
+    }
+
+    /// A repeated extractor value of a real trace entry is written once
+    /// (see `bombadil_trace`), and reads back as the original snapshots:
+    /// the trace format's snapshot entries are the schema's.
+    #[test]
+    fn test_writes_repeated_snapshot_values_once() {
+        let value = serde_json::json!({"items": ["a long enough value"]});
+        let snapshots: Vec<_> = (0..3)
+            .map(|n| Snapshot {
+                index: 0,
+                name: Some("items".to_string()),
+                value: value.clone(),
+                time: Time::from_system_time(
+                    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(n),
+                ),
+            })
+            .collect();
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("snapshots.custom");
+        let mut writer = TerminalTraceWriter::initialize(&path, false).unwrap();
+        for snapshot in &snapshots {
+            writer
+                .write(&state(None), None, std::slice::from_ref(snapshot), &[])
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let trace = std::fs::read(&path).unwrap();
+        let trace = String::from_utf8_lossy(&trace);
+        assert_eq!(trace.matches("a long enough value").count(), 1);
+        assert_eq!(trace.matches(r#""value_from":0"#).count(), 2);
+
+        let read: Vec<_> = open_terminal_trace(&path)
+            .unwrap()
+            .map(|state| state.unwrap().metadata.snapshots)
+            .collect();
+        let expected: Vec<_> = snapshots
+            .iter()
+            .map(|snapshot| vec![snapshot.to_schema()])
+            .collect();
+        assert_eq!(read, expected);
     }
 
     #[test]
