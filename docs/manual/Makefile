@@ -80,7 +80,7 @@ man: $(MAN_FILES)
 $(TARGET_DIR):
 	mkdir -p $(TARGET_DIR)
 
-$(TARGET_DIR)/generated/%/04-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md $(SRC_DIR)/partials/typescript-reference.md Makefile
+$(TARGET_DIR)/generated/%/05-reference.md: $(SRC_DIR)/partials/reference.md $(SRC_DIR)/partials/cli-reference.md $(SRC_DIR)/partials/typescript-reference.md Makefile
 	mkdir -p $(dir $@)
 	# These executables and the env var are provided by the Nix environment.
 	cat $(SRC_DIR)/partials/reference.md > $@
@@ -95,10 +95,10 @@ $(TARGET_DIR)/generated/%/04-reference.md: $(SRC_DIR)/partials/reference.md $(SR
 
 # For chunked HTML, pandoc creates the directory itself
 # Remove it first if it exists, then let pandoc create it
-$(TARGET_DIR)/%/.built: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua Makefile | $(TARGET_DIR)
+$(TARGET_DIR)/%/.built: $(SOURCES) $(TARGET_DIR)/generated/%/05-reference.md $(SRC_DIR)/template.html $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/code-nav.lua $(SRC_DIR)/table-nowrap.lua Makefile | $(TARGET_DIR)
 	rm -rf $(TARGET_DIR)/$*
 	mkdir -p $(TARGET_DIR)
-	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/05-reference.md --output $(TARGET_DIR)/$*/ $(PANDOC_HTML_OPTS) -M driver=$*
 	python3 $(SRC_DIR)/html-post-process.py $(TARGET_DIR)
 	# Replace the per-driver index (pandoc's chunkedhtml TOC page) with a
 	# redirect so chunked-html "previous" links and any direct visits land
@@ -120,21 +120,21 @@ $(TARGET_DIR)/%.js: $(SRC_DIR)/%.js | $(TARGET_DIR)
 	mkdir -p $(TARGET_DIR)
 	cp $< $@
 
-$(TARGET_DIR)/%/bombadil-manual.epub: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua Makefile | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.epub: $(SOURCES) $(TARGET_DIR)/generated/%/05-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua Makefile | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_EPUB_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/05-reference.md -o $@ $(PANDOC_EPUB_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil-manual.pdf: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua Makefile | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.pdf: $(SOURCES) $(TARGET_DIR)/generated/%/05-reference.md $(SRC_DIR)/driver.lua $(SRC_DIR)/replace.lua $(SRC_DIR)/admonitions.lua $(SRC_DIR)/table-nowrap.lua $(SRC_DIR)/inline-code-size.lua Makefile | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_PDF_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/05-reference.md -o $@ $(PANDOC_PDF_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil-manual.txt: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua Makefile | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil-manual.txt: $(SOURCES) $(TARGET_DIR)/generated/%/05-reference.md $(SRC_DIR)/driver.lua Makefile | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_TXT_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/05-reference.md -o $@ $(PANDOC_TXT_OPTS) -M driver=$*
 
-$(TARGET_DIR)/%/bombadil.1: $(SOURCES) $(TARGET_DIR)/generated/%/04-reference.md $(SRC_DIR)/driver.lua Makefile | $(TARGET_DIR)
+$(TARGET_DIR)/%/bombadil.1: $(SOURCES) $(TARGET_DIR)/generated/%/05-reference.md $(SRC_DIR)/driver.lua Makefile | $(TARGET_DIR)
 	mkdir -p $(dir $@)
-	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/04-reference.md -o $@ $(PANDOC_MAN_OPTS) -M driver=$*
+	$(PANDOC) $(SOURCES) $(TARGET_DIR)/generated/$*/05-reference.md -o $@ $(PANDOC_MAN_OPTS) -M driver=$*
 
 # Top-level manual landing: a static page with title, version, driver dropdown,
 # and links to each driver's entry point and downloads. Shares stylesheets and

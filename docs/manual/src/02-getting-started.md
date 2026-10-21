@@ -247,29 +247,3 @@ There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
 so we can't easily inspect the results at this point.
 :::
 :::
-
-## Reproducing violations
-
-If Bombadil finds a bug in a project you're working on, you might want to
-reproduce that test case when working on a bug fix. That is, have Bombadil
-perform the same sequence of actions to reach the same state.
-
-Use the `--reproduce` option and point it to the output directory of the
-original test run:
-
-::: browser
-```bash
-bombadil browser test --reproduce=my-test http://example.com
-```
-:::
-
-::: terminal
-```bash
-bombadil terminal test --reproduce=my-test your-cli
-```
-:::
-
-Reproductions are not guaranteed to succeed; if they diverge, Bombadil fails
-with an error. For reproductions to succeed, it's important to use the same
-options as in the original test. After a test run, Bombadil prints both the
-`inspect` and `--reproduce` commands you can use.

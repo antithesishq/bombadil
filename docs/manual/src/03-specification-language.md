@@ -635,7 +635,7 @@ Custom actions are not supported by the terminal driver.
 :::
 ::::
 
-## Extras
+## Optional properties
 
 In addition to the default properties, there's a set of extras modules with
 properties that you can use. These are not included in the defaults and need
