@@ -119,8 +119,7 @@ pub enum BrowserCommand {
         #[arg(long)]
         create_target: bool,
     },
-    /// Fuzz (running many tests) with a browser managed by Bombadil
-    #[command(hide = true)]
+    /// (EXPERIMENTAL) Fuzz (running many tests) with a browser managed by Bombadil
     Fuzz {
         #[clap(flatten)]
         run_shared_options: RunSharedOptions,
@@ -129,8 +128,8 @@ pub enum BrowserCommand {
         #[clap(flatten)]
         launch_options: ManagedBrowserOptions,
     },
-    /// Shrink a trace with a property violation into a smaller one that
-    /// still violates it (best-effort)
+    /// (EXPERIMENTAL) Shrink a trace with a property violation into a smaller
+    /// one that still violates it (best-effort)
     #[command(after_help = SHRINK_EXAMPLES)]
     Shrink {
         #[clap(flatten)]
