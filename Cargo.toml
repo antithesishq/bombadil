@@ -10,18 +10,20 @@ members = [
   "lib/bombadil-inspect",
   "lib/bombadil-schema",
   "lib/bombadil-terminal",
+  "lib/cli-reference",
   "lib/cdp",
   "lib/cdp/types",
   "lib/cdp/pdl",
   "lib/cdp/protocol",
   "lib/small-string",
   "lib/stdx",
+  "lib/stdx-derive",
   "lib/typescript-reference",
 ]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.8"
+version = "0.7.10"
 edition = "2024"
 
 [workspace.dependencies]
@@ -54,6 +56,7 @@ include_dir = "0.7.4"
 indoc = "2.0.7"
 insta = "1.43.1"
 js-sys = "0.3"
+libc = "0.2"
 libghostty-vt = "0.2.2"
 log = "0.4.29"
 mime_guess = "2.0"
@@ -95,3 +98,16 @@ opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+# The JS engine evaluating specifications is very slow unoptimised, which
+# dominates tests that run the verifier many times.
+[profile.dev.package.boa_ast]
+opt-level = 2
+[profile.dev.package.boa_engine]
+opt-level = 2
+[profile.dev.package.boa_gc]
+opt-level = 2
+[profile.dev.package.boa_interner]
+opt-level = 2
+[profile.dev.package.boa_string]
+opt-level = 2

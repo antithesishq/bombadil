@@ -1,16 +1,21 @@
 use anyhow::anyhow;
 use axum::{
     Router,
-    extract::Path,
+    extract::{
+        Path,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::{HeaderMap, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Response, Sse, sse::Event},
     routing::get,
 };
 use bombadil_browser_integration_tests::{Semaphore, SemaphoreGuard};
 use bombadil_schema::{Time, markup};
+use futures_util::stream::{self, Stream};
 use rand::SeedableRng;
 use std::{
     collections::HashMap,
+    convert::Infallible,
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
 use std::{
@@ -18,8 +23,9 @@ use std::{
     sync::Once,
     time::{Duration, SystemTime},
 };
-use std::{io::Write, sync::OnceLock};
+use std::{io::Write, sync::OnceLock, thread};
 use tempfile::{NamedTempFile, TempDir};
+use tokio_stream::StreamExt as _;
 use tower_http::services::ServeDir;
 use url::Url;
 
@@ -35,8 +41,9 @@ use bombadil_browser::{
     convert::ToSchema,
     cookie::BrowserCookie,
     driver::{BrowserSession, DebuggerOptions},
+    match_pattern::MatchPattern,
     runner,
-    strategy::TestStrategy,
+    strategy::{ExitReason, TestResult, TestStrategy},
 };
 
 static INIT: Once = Once::new();
@@ -81,10 +88,13 @@ struct BrowserIntegrationTest<'a> {
     name: &'a str,
     expect: Expect,
     time_limit: Option<Duration>,
+    state_interval_max: Option<Duration>,
     specification: Option<&'a str>,
     grant_permissions: Vec<String>,
     extra_headers: HashMap<String, String>,
     cookies: Vec<BrowserCookie>,
+    allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
+    file_origin: bool,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -94,10 +104,17 @@ impl<'a> BrowserIntegrationTest<'a> {
             name,
             expect: Expect::Success,
             time_limit: None,
+            state_interval_max: None,
             specification: None,
-            grant_permissions: vec![],
+            grant_permissions: vec![
+                "local-network-access".to_string(),
+                "local-network".to_string(),
+                "loopback-network".to_string(),
+            ],
             extra_headers: HashMap::new(),
             cookies: vec![],
+            allow_urls: None,
+            file_origin: false,
         }
     }
 
@@ -114,6 +131,13 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn time_limit(mut self, duration: Duration) -> Self {
         self.time_limit = Some(duration);
+        self
+    }
+
+    /// Fail if no state is captured within this interval, including up to the
+    /// end of the test.
+    fn state_interval_max(mut self, interval: Duration) -> Self {
+        self.state_interval_max = Some(interval);
         self
     }
 
@@ -137,6 +161,24 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn allow_urls(
+        mut self,
+        allow_urls: Vec<bombadil_browser::match_pattern::MatchPattern>,
+    ) -> Self {
+        self.allow_urls = Some(allow_urls);
+        self
+    }
+
+    /// Start at `file://{test_dir}/{name}/index.html` instead of over HTTP.
+    fn file_origin(mut self) -> Self {
+        self.file_origin = true;
+        self
+    }
+
+    fn fixture_directory(name: &str) -> String {
+        format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
     /// Run a named browser test with a given expectation.
     ///
     /// Spins up two web servers: one on a random port P, and one on port P + 1, in order to
@@ -153,10 +195,13 @@ impl<'a> BrowserIntegrationTest<'a> {
             name,
             expect,
             time_limit,
+            state_interval_max,
             specification,
             grant_permissions,
             extra_headers,
             cookies,
+            allow_urls,
+            file_origin,
         } = self;
         setup();
         let _guard = acquire();
@@ -175,6 +220,16 @@ impl<'a> BrowserIntegrationTest<'a> {
                     (header::CONTENT_TYPE, "application/octet-stream"),
                 ],
                 content,
+            )
+                .into_response()
+        }
+
+        async fn delay_handler(Path(millis): Path<u64>) -> Response {
+            tokio::time::sleep(Duration::from_millis(millis)).await;
+            (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "text/html")],
+                "<p>delayed</p>",
             )
                 .into_response()
         }
@@ -203,12 +258,62 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
+        async fn sse_handler()
+        -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+            println!("1 client connected");
+
+            let stream = stream::once(async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Event::default().data("hi!")
+            })
+            .chain(stream::repeat_with(|| Event::default().data("hi!")))
+            .map(Ok)
+            .throttle(Duration::from_secs(1));
+
+            Sse::new(stream).keep_alive(
+                axum::response::sse::KeepAlive::new()
+                    .interval(Duration::from_secs(1))
+                    .text("A message"),
+            )
+        }
+
+        async fn ws_handler(upgrade: WebSocketUpgrade) -> Response {
+            upgrade.on_upgrade(ws_conversation)
+        }
+
+        async fn ws_conversation(mut socket: WebSocket) {
+            log::debug!("websocket client connected");
+            if socket
+                .send(Message::text("What's your name?: "))
+                .await
+                .is_err()
+            {
+                return;
+            }
+            while let Some(Ok(message)) = socket.recv().await {
+                let Message::Text(text) = message else {
+                    continue;
+                };
+                log::debug!("websocket client said: {text:?}");
+                let reply = match text.strip_prefix("My name is ") {
+                    Some(name) => format!("Nice to meet you {name}"),
+                    None => "Sorry, I did not understand that".to_string(),
+                };
+                if socket.send(Message::text(reply)).await.is_err() {
+                    return;
+                }
+            }
+        }
+
         let (port_tx, port_rx) = std::sync::mpsc::channel();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.spawn(async move {
             let app = Router::new()
                 .route("/test-file", get(download_testfile))
+                .route("/delay/{millis}", get(delay_handler))
                 .route("/secret/{*path}", get(secret_handler))
+                .route("/sse", get(sse_handler))
+                .route("/ws", get(ws_handler))
                 .fallback_service(ServeDir::new(&test_dir));
             let app_other = app.clone();
 
@@ -216,16 +321,13 @@ impl<'a> BrowserIntegrationTest<'a> {
                 let listener =
                     tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let addr = listener.local_addr().unwrap();
-                let listener_other =
-                    if let Ok(listener_other) = tokio::net::TcpListener::bind(
-                        format!("127.0.0.1:{}", addr.port() + 1),
-                    )
-                    .await
-                    {
-                        listener_other
-                    } else {
-                        continue;
-                    };
+                let Ok(listener_other) = tokio::net::TcpListener::bind(
+                    format!("127.0.0.1:{}", addr.port() + 1),
+                )
+                .await
+                else {
+                    continue;
+                };
                 break (listener, listener_other, addr.port());
             };
 
@@ -240,9 +342,15 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
 
         let port = port_rx.recv().unwrap();
-        let origin =
-            Url::parse(&format!("http://localhost:{}/{}", port, name,))
-                .unwrap();
+        let origin = if file_origin {
+            Url::from_file_path(format!(
+                "{}/index.html",
+                Self::fixture_directory(name)
+            ))
+            .unwrap()
+        } else {
+            Url::parse(&format!("http://localhost:{}/{}", port, name,)).unwrap()
+        };
 
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
         let specification = match specification {
@@ -295,6 +403,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         #[derive(Default, Clone)]
         struct ViolationsCollectingTraceWriter {
             violations: CollectedViolations,
+            state_times: Arc<Mutex<Vec<SystemTime>>>,
         }
 
         impl TraceWriter<BrowserSession> for ViolationsCollectingTraceWriter {
@@ -305,6 +414,10 @@ impl<'a> BrowserIntegrationTest<'a> {
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
             ) -> anyhow::Result<()> {
+                self.state_times
+                    .lock()
+                    .expect("failed to acquire lock for state times")
+                    .push(SystemTime::now());
                 self.violations
                     .lock()
                     .expect("failed to acquire lock for collected violations")
@@ -331,31 +444,82 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         }
 
+        let allow_urls = allow_urls
+            .unwrap_or(vec![MatchPattern::from_origin(&origin).unwrap()]);
+
         let mut strategy = TestStrategy {
             rng: rand::prelude::StdRng::seed_from_u64(seed),
             test_start: Some(Time::from_system_time(test_start)),
             deadline,
             mode: bombadil_browser::strategy::TestMode::RandomWalk,
             exit_on_violation: true,
-            origin: origin.clone(),
             violations_count: 0,
+            allow_urls,
+            quiet: false,
         };
 
+        let timeout = time_limit.map_or(Duration::from_secs(120), |limit| {
+            (limit * 2).max(Duration::from_secs(60))
+        });
         log::info!("starting runner with infrastructure safety timeout");
-        let run_result = runner::launch(
-            RunId::default(),
-            origin,
-            specification,
-            browser_options,
-            debugger_options,
-            trace_writer.clone(),
-            Arc::new(AtomicBool::new(false)),
-            &mut strategy,
-        );
+        let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+        {
+            let trace_writer = trace_writer.clone();
+            thread::spawn(move || {
+                let run_result = runner::launch(
+                    RunId::default(),
+                    origin,
+                    specification,
+                    browser_options,
+                    debugger_options,
+                    trace_writer,
+                    Arc::new(AtomicBool::new(false)),
+                    &mut strategy,
+                );
+                let _ = result_tx.send((run_result, strategy.violations_count));
+            });
+        }
+        let (run_result, violations_count) =
+            match result_rx.recv_timeout(timeout) {
+                Ok(result) => result,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => panic!(
+                    "test infrastructure timeout: test hung for {:?}",
+                    timeout
+                ),
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    panic!("runner thread panicked")
+                }
+            };
+
+        let test_end = SystemTime::now();
+        let state_interval_longest = {
+            let state_times = trace_writer.state_times.lock().unwrap();
+            std::iter::once(test_start)
+                .chain(state_times.iter().copied())
+                .chain(std::iter::once(test_end))
+                .collect::<Vec<_>>()
+                .windows(2)
+                .map(|pair| pair[1].duration_since(pair[0]).unwrap_or_default())
+                .max()
+                .unwrap_or_default()
+        };
 
         let outcome = match run_result {
             Err(error) => Outcome::Error(error),
-            Ok(_) if strategy.violations_count == 0 => Outcome::Success,
+            Ok(TestResult {
+                exit_reason: ExitReason::Stalled,
+                ..
+            }) => Outcome::Error(anyhow!("browser stalled")),
+            Ok(_)
+                if state_interval_max
+                    .is_some_and(|max| state_interval_longest > max) =>
+            {
+                Outcome::Error(anyhow!(
+                    "no new state for {:?}, the browser likely stalled",
+                    state_interval_longest
+                ))
+            }
+            Ok(_) if violations_count == 0 => Outcome::Success,
             Ok(_) => {
                 let violations = trace_writer.violations.lock().unwrap();
                 let violations: Vec<String> = violations
@@ -968,6 +1132,59 @@ export const secretResourceLoaded = eventually(
 }
 
 #[test]
+fn test_sse_message() {
+    BrowserIntegrationTest::new("sse-message")
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions,extract } from "@antithesishq/bombadil/browser";
+
+export const waits = actions(() => ["Wait"]);
+
+const sse_messages = extract((state) => {
+  return Array.from(
+    state.document.querySelectorAll('#sse-message>li')
+  ).map((item) => item.textContent);
+});
+
+export const sseMessageReceived = eventually(
+  () => sse_messages.current.includes("message: hi!")
+).within(10, "seconds");
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_ws_message() {
+    BrowserIntegrationTest::new("ws-message")
+        .time_limit(Duration::from_secs(15))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+export const waits = actions(() => ["Wait"]);
+
+const conversation = extract((state) => {
+  const container = state.document.querySelector('#ws-conversation');
+  const messages = Array.from(
+    state.document.querySelectorAll('#ws-conversation>li')
+  ).map((item) => item.textContent);
+  return { name: container?.getAttribute("data-name") ?? null, messages };
+});
+
+export const greetedByName = eventually(() => {
+  const { name, messages } = conversation.current;
+  return name !== null && messages.includes(`server: Nice to meet you ${name}`);
+}).within(10, "seconds");
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_cookies() {
     BrowserIntegrationTest::new("fetch-headers")
         .cookies(vec![BrowserCookie::parse("session=bombadil").unwrap()])
@@ -1013,6 +1230,133 @@ export const sessionCookieOnOtherPort = eventually(
 ).within(10, "seconds");
 "##,
         )
+        .run();
+}
+
+const SUBDOMAIN_ALLOW_URL_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+export const subdomainActions = actions(() => {
+  if (onSubdomain.current) {
+    return ["Wait"];
+  }
+  return clicks.generate();
+});
+
+const subdomainOk = extract((state) => {
+  const el = state.document.querySelector("#subdomain-ok");
+  return el != null && (el as HTMLElement).offsetParent !== null;
+});
+
+export const exploredSubdomain = eventually(
+  () => subdomainOk.current === true
+).within(10, "seconds");
+"##;
+
+const SUBDOMAIN_DISALLOWED_SPEC: &str = r##"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSubdomain = extract(
+  (state) => state.window.location.hostname === "app.localhost"
+);
+
+export const keepRunning = always(() => !onSubdomain.current);
+"##;
+
+#[test]
+fn test_allow_url_subdomain() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .allow_urls(vec![
+            bombadil_browser::match_pattern::MatchPattern::parse(
+                "*://*.localhost:*/*",
+            )
+            .unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_ALLOW_URL_SPEC)
+        .run();
+}
+
+#[test]
+fn test_allow_url_required_for_subdomain_wait() {
+    BrowserIntegrationTest::new("subdomain-origin")
+        .expect_error("no actions available")
+        .time_limit(Duration::from_secs(15))
+        .specification(SUBDOMAIN_DISALLOWED_SPEC)
+        .run();
+}
+
+const FILE_ORIGIN_QUERY_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const search = extract((state) => state.window.location.search);
+
+export const reachesQueryRoute = eventually(
+  () => search.current === "?page=2"
+).within(10, "seconds");
+"##;
+
+const FILE_ORIGIN_SIBLING_SPEC: &str = r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const onSibling = extract(
+  (state) => state.document.querySelector("#sibling-ok") != null
+);
+
+export const reachesSibling = eventually(
+  () => onSibling.current === true
+).within(10, "seconds");
+"##;
+
+const FILE_ORIGIN_KEEP_RUNNING_SPEC: &str = r##"
+import { always } from "@antithesishq/bombadil";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const keepRunning = always(() => true);
+"##;
+
+#[test]
+fn test_file_origin_allows_its_own_query_string() {
+    BrowserIntegrationTest::new("file-origin-query")
+        .file_origin()
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_QUERY_SPEC)
+        .run();
+}
+
+#[test]
+fn test_file_origin_excludes_sibling_files() {
+    BrowserIntegrationTest::new("file-origin-sibling")
+        .file_origin()
+        .expect_error("no actions available")
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_KEEP_RUNNING_SPEC)
+        .run();
+}
+
+#[test]
+fn test_allow_url_opens_up_the_file_directory() {
+    let directory =
+        BrowserIntegrationTest::fixture_directory("file-origin-sibling");
+    BrowserIntegrationTest::new("file-origin-sibling")
+        .file_origin()
+        .allow_urls(vec![
+            MatchPattern::parse(&format!("file://{directory}/*")).unwrap(),
+        ])
+        .time_limit(Duration::from_secs(15))
+        .specification(FILE_ORIGIN_SIBLING_SPEC)
         .run();
 }
 
@@ -1150,7 +1494,7 @@ const result = extract((state) => {
 });
 
 const multiplyCounter = registerCustomAction(
-  "multiplyCounter", 
+  "multiplyCounter",
   async (_window, _document, factor: number, ignore: bool) => {
     const resultElement = document.getElementById("result");
     if (resultElement && !ignore) {
@@ -1195,6 +1539,76 @@ export const _actions = actions(() => {
 // export const eventuallyDone = eventually(() => lastAction.current == "Forward");
 export const ok = always(() => true);
 "##,
+        )
+        .run();
+}
+
+#[test]
+fn test_back_forward_cache() {
+    BrowserIntegrationTest::new("back-forward")
+        .time_limit(Duration::from_secs(10))
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { weighted } from "@antithesishq/bombadil/browser";
+import { clicks, back, forward } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const history = weighted([[1, clicks], [3, back], [3, forward]]);
+
+export const ok = always(() => true);
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_debugger_in_handler() {
+    BrowserIntegrationTest::new("debugger-in-handler")
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const count = extract((state) =>
+  parseInt(state.document.querySelector("\#counter").textContent, 10)
+);
+
+// Each click pauses with a `debugger;` statement. We expect the browser driver to resume and
+// continue.
+export const handlerCompletes = eventually(() => count.current >= 3).within(
+  10,
+  "seconds"
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_load_while_paused() {
+    BrowserIntegrationTest::new("load-while-paused")
+        .time_limit(Duration::from_secs(30))
+        .state_interval_max(Duration::from_secs(10))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+const complete = extract((state) => state.document.readyState === "complete");
+
+// Every full load is a chance for load events to arrive while paused.
+export const reloads = actions(() => (complete.current ? ["Reload"] : ["Wait"]));
+
+// Keeps the page paused for longer.
+export const slow = always(() => {
+  const start = Date.now();
+  while (Date.now() - start < 100) {}
+  return true;
+});
+"#,
         )
         .run();
 }

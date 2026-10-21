@@ -26,10 +26,12 @@ make serve
 ## Output
 
 All built documentation will be placed in `target/`:
-- `target/html/` - Chunked HTML site
-- `target/bombadil-manual.epub` - EPUB e-book
-- `target/bombadil-manual.pdf` - PDF document
-- `target/bombadil-manual.txt` - Plain text
+- `target/index.html` - Landing page with driver selection
+- `target/<driver>/` - Chunked HTML site, one per driver (`browser`, `terminal`)
+- `target/<driver>/bombadil-manual.epub` - EPUB e-book
+- `target/<driver>/bombadil-manual.pdf` - PDF document
+- `target/<driver>/bombadil-manual.txt` - Plain text
+- `target/<driver>/bombadil.1` - Man page
 
 ## Structure
 
@@ -37,9 +39,11 @@ All built documentation will be placed in `target/`:
   - `01-introduction.md` - Introduction chapter
   - `02-getting-started.md` - Getting started guide
   - `03-specification-language.md` - Specification language docs
-  - `04-reference.md` - API and CLI reference
+  - `04-workflows.md` - Workflows: reproducing, shrinking, inspecting
+  - `partials/` - Hand-written parts of the reference chapter, combined with
+    generated CLI and TypeScript reference into `target/generated/<driver>/05-reference.md`
   - `metadata.yaml` - EPUB metadata
-  - `style.css` - Styles for HTML output
+  - `index.css` - Entry point for the HTML styles
 - `target/` - Build output (gitignored)
 - `Makefile` - Build system
 
@@ -50,7 +54,9 @@ Add markdown files in the `src/` directory. Use numeric prefixes (01-, 02-, etc.
 ```bash
 cd src/
 # Add a new chapter
-echo "# My Chapter" > 05-my-chapter.md
+echo "# My Chapter" > 06-my-chapter.md
 ```
 
-Files are automatically sorted and combined during the build. The HTML output will be split into multiple pages at level-2 headers (`##`) due to the `--split-level=2` option.
+Files are automatically sorted and combined during the build. The HTML output will be split into multiple pages down to level-3 headers (`###`) due to the `--split-level=3` option.
+The generated reference chapter is numbered `05` so it always sorts last; number new
+chapters accordingly.

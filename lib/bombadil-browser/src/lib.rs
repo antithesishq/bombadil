@@ -7,6 +7,7 @@ pub mod driver;
 pub mod geometry;
 pub mod instrumentation;
 pub mod js_action;
+pub mod match_pattern;
 pub mod render;
 pub mod runner;
 pub mod strategy;

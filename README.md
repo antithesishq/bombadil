@@ -10,8 +10,8 @@ Runs in your local developer environment, in CI, and inside Antithesis.
 Learn all about Bombadil with the following resources:
 
 * [The Bombadil Manual](https://antithesishq.github.io/bombadil/)
-* [Installation](https://antithesishq.github.io/bombadil/browser/2-getting-started.html#installation)
-* [Examples](https://antithesishq.github.io/bombadil/browser/3-specification-language.html#examples)
+* [Installation](https://antithesishq.github.io/bombadil/browser/2.1-installation.html)
+* [Examples](https://antithesishq.github.io/bombadil/browser/3.7-examples.html)
 
 ## Join us
 

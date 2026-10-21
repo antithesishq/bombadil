@@ -36,6 +36,7 @@
           import nixpkgs {
             inherit system;
             overlays = [ rust-overlay.overlays.default ];
+            config.allowUnfreePredicate = pkg: nixpkgs.lib.getName pkg == "google-chrome";
           }
         );
         rustToolchainWasm = pkgs.rust-bin.stable.latest.default.override {
@@ -94,7 +95,7 @@
           default = bombadil.bin;
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix {
-            inherit (bombadil) npm-package typescript-reference;
+            inherit (bombadil) npm-package typescript-reference cli-reference;
           };
           release = pkgs.callPackage ./lib/release/default.nix { };
           nix-build-push = pkgs.callPackage ./lib/nix/cachix-push.nix { };
@@ -120,10 +121,7 @@
         };
 
         checks = {
-          inherit (bombadil) clippy fmt npm-package;
-        }
-        // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          inherit (bombadil) tests-unit tests-browser;
+          inherit (bombadil) clippy fmt npm-package tests-unit tests-browser;
         };
 
         devShells = {

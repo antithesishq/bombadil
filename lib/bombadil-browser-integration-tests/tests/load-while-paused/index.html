@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Load While Paused</title>
+</head>
+<body>
+    <h1>Load While Paused</h1>
+    <iframe srcdoc="<p>same-site frame</p>"></iframe>
+    <script>
+        // Cross-site slow iframe, so that the main frame's load events are
+        // reported while it's paused.
+        const frame = document.createElement("iframe");
+        frame.src = `http://127.0.0.1:${Number(location.port) + 1}/delay/800`;
+        document.body.append(frame);
+    </script>
+</body>
+</html>

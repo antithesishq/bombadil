@@ -80,7 +80,8 @@ jobs:
 
   build-aarch64-darwin:
     name: Build (aarch64-darwin)
-    runs-on: macos-15
+    runs-on: macos-15-xlarge
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
@@ -134,26 +135,44 @@ jobs:
       - run: nix build .#checks.x86_64-linux.clippy
 
   check-tests-unit:
-    name: Check (tests, unit)
-    runs-on: ubuntu-latest
+    name: Check (tests, unit, ${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: macos-15-xlarge
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
         with:
-          scope: check-tests-unit
+          scope: check-tests-unit-${{ matrix.system }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#checks.x86_64-linux.tests-unit
+      - run: nix build -L .#checks.${{ matrix.system }}.tests-unit
 
   check-tests-browser:
-    name: Check (tests, browser)
-    runs-on: ubuntu-latest
+    name: Check (tests, browser, ${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: macos-15-xlarge
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
         with:
-          scope: check-tests-browser
+          scope: check-tests-browser-${{ matrix.system }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#checks.x86_64-linux.tests-browser
+      - run: nix build -L .#checks.${{ matrix.system }}.tests-browser
 
   build-npm-package:
     runs-on: ubuntu-latest

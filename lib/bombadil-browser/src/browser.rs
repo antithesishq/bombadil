@@ -54,6 +54,8 @@ struct InnerStateShared {
     exceptions: Vec<Exception>,
     screenshot: Option<Screenshot>,
     execution_context_id: Option<String>,
+    // Consecutive failed captures, reset on success.
+    capture_failures: u32,
 }
 
 #[derive(Debug)]
@@ -66,7 +68,10 @@ enum InnerStateKind {
     Pausing,
     Paused,
     Resuming(Box<BrowserAction>),
-    Navigating { url: String },
+    Navigating {
+        url: String,
+        navigation_type: Option<page::FrameStartedNavigatingNavigationType>,
+    },
     Loading,
     Running,
     Acting,
@@ -80,9 +85,14 @@ impl std::fmt::Debug for InnerStateKind {
             Self::Resuming(action) => {
                 f.debug_tuple("Resuming").field(action).finish()
             }
-            Self::Navigating { url } => {
-                f.debug_struct("Navigating").field("url", url).finish()
-            }
+            Self::Navigating {
+                url,
+                navigation_type,
+            } => f
+                .debug_struct("Navigating")
+                .field("url", url)
+                .field("navigation_type", navigation_type)
+                .finish(),
             Self::Loading => write!(f, "Loading"),
             Self::Running => write!(f, "Running"),
             Self::Acting => write!(f, "Acting"),
@@ -105,6 +115,8 @@ enum InnerEvent {
         frame_id: FrameId,
         // Only available after EventFrameRequestedNavigation.
         reason: Option<page::ClientNavigationReason>,
+        // Only available after EventFrameStartedNavigating.
+        navigation_type: Option<page::FrameStartedNavigatingNavigationType>,
         url: String,
     },
     FrameNavigated(FrameId, NavigationType),
@@ -130,7 +142,9 @@ enum StateRequestReason {
     Quiesced,
 }
 
-const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+const CAPTURE_FAILURES_MAX: u32 = 5;
 
 struct BrowserContext {
     sender: mpmc::Sender<BrowserEvent>,
@@ -352,6 +366,7 @@ impl Browser {
             kind: if browser_options.create_target {
                 InnerStateKind::Navigating {
                     url: context.origin.clone().into(),
+                    navigation_type: None,
                 }
             } else {
                 start_quiescence_timer(
@@ -435,8 +450,11 @@ impl Browser {
     }
 
     #[hotpath::measure]
-    pub fn next_event(&mut self) -> Option<BrowserEvent> {
-        self.browser_events_rx.recv().ok()
+    pub fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<BrowserEvent, mpmc::RecvTimeoutError> {
+        self.browser_events_rx.recv_timeout(timeout)
     }
 
     pub fn apply(
@@ -601,6 +619,7 @@ fn forward_inner_events(
                             Some(InnerEvent::FrameNavigating {
                                 frame_id: nav.frame_id.clone(),
                                 reason: Some(nav.reason.clone()),
+                                navigation_type: None,
                                 url: nav.url.clone(),
                             })
                         } else { None }
@@ -610,6 +629,7 @@ fn forward_inner_events(
                             Some (InnerEvent::FrameNavigating{
                                 frame_id:nav.frame_id.clone(), 
                                 reason: None, 
+                                navigation_type: Some(nav.navigation_type.clone()),
                                 url: nav.url.clone(),
                             })
                         } else { None }
@@ -622,8 +642,10 @@ fn forward_inner_events(
                             ))
                         } else { None }
                     },
-                    page::EventFrameStoppedLoading: _ => {
-                        Some(InnerEvent::Loaded)
+                    page::EventFrameStoppedLoading: event => {
+                        if event.frame_id == frame_id {
+                            Some(InnerEvent::Loaded)
+                        } else { None }
                     },
                     browser::EventDownloadWillBegin: event => {
                         if event.frame_id == frame_id {
@@ -779,7 +801,7 @@ fn apply_action(
                 log::debug!("applied: {:?}", browser_action);
             }
             Ok(Err(error)) => {
-                log::error!(
+                log::info!(
                     "failed to apply action {:?}: {:?}",
                     browser_action,
                     error
@@ -798,7 +820,7 @@ fn apply_action(
         if let Err(error) =
             events_tx.send(InnerEvent::ActionApplied(generation))
         {
-            log::error!("failed to send ActionApplied: {error}");
+            log::debug!("failed to send ActionApplied: {error}");
         }
     });
 }
@@ -852,6 +874,14 @@ fn process_event(
                 capture_browser_state(state, context)?
             }
         }
+        // Only our own capture pause is expected. Other pauses are immediately resumed.
+        (state, InnerEvent::Paused { .. })
+            if !matches!(state.kind, Pausing) =>
+        {
+            log::debug!("resuming unexpected pause during {:?}", state.kind);
+            resume_ignoring_errors(context);
+            state
+        }
         (
             state,
             InnerEvent::Paused {
@@ -903,18 +933,19 @@ fn process_event(
                 generation,
                 screenshot,
                 execution_context_id,
+                capture_failures,
             } = state.shared;
             let generation = generation.next();
 
             let screenshot = screenshot
                 .ok_or(anyhow!("no screenshot available for state capture"))?;
 
-            let browser_state = BrowserState::current(
+            let result = BrowserState::current(
                 &context.connection,
                 &context.session_id,
                 &call_frame_id,
-                console_entries,
-                exceptions,
+                console_entries.clone(),
+                exceptions.clone(),
                 screenshot,
                 generation,
             )
@@ -923,21 +954,49 @@ fn process_event(
                     "state capture failed: generation={}, session={:?}, call_frame={:?}",
                     generation, context.session_id, call_frame_id,
                 )
-            })?;
+            });
 
-            context
-                .sender
-                .send(BrowserEvent::StateChanged(browser_state))?;
+            match result {
+                Ok(browser_state) => {
+                    context
+                        .sender
+                        .send(BrowserEvent::StateChanged(browser_state))?;
 
-            InnerState {
-                kind: Paused,
-                shared: InnerStateShared {
-                    generation,
-                    console_entries: vec![],
-                    exceptions: vec![],
-                    screenshot: None,
-                    execution_context_id,
-                },
+                    InnerState {
+                        kind: Paused,
+                        shared: InnerStateShared {
+                            generation,
+                            console_entries: vec![],
+                            exceptions: vec![],
+                            screenshot: None,
+                            execution_context_id,
+                            capture_failures: 0,
+                        },
+                    }
+                }
+                // The page can navigate away mid-capture, e.g. after a
+                // reload, destroying the paused call frame.
+                Err(error) if capture_failures < CAPTURE_FAILURES_MAX => {
+                    log::warn!("{error:#}, retrying");
+                    resume_ignoring_errors(context);
+                    start_quiescence_timer(
+                        generation,
+                        context,
+                        "capture failed",
+                    )?;
+                    InnerState {
+                        kind: Running,
+                        shared: InnerStateShared {
+                            generation,
+                            console_entries,
+                            exceptions,
+                            screenshot: None,
+                            execution_context_id,
+                            capture_failures: capture_failures + 1,
+                        },
+                    }
+                }
+                Err(error) => return Err(error),
             }
         }
         (
@@ -1038,6 +1097,11 @@ fn process_event(
                 shared,
             }
         }
+        // Follows our resume of an unexpected pause or failed capture.
+        (state, InnerEvent::Resumed) => {
+            log::debug!("ignoring Resumed during {:?}", state.kind);
+            state
+        }
         (
             InnerState {
                 kind: Acting,
@@ -1059,26 +1123,63 @@ fn process_event(
             log::debug!("ignoring stale ActionApplied");
             state
         }
-        (InnerState { shared, .. }, InnerEvent::Loaded) => {
+        // A back/forward cache restore signals `Loaded` before
+        // `FrameNavigated`, while the previous document is still current.
+        (
+            InnerState {
+                kind:
+                    kind @ Navigating {
+                        navigation_type:
+                            Some(
+                                page::FrameStartedNavigatingNavigationType::HistoryDifferentDocument,
+                            ),
+                        ..
+                    },
+                shared,
+            },
+            InnerEvent::Loaded,
+        ) => {
+            log::debug!("ignoring Loaded during {:?}", kind);
+            InnerState { kind, shared }
+        }
+        // Navigations that don't commit (i.e. don't replace the
+        // frame with a new document) only signal `Loaded`. This
+        // includes same-document history navigations and 204
+        // responses.
+        (
+            InnerState {
+                kind: Navigating { .. } | Loading,
+                shared,
+            },
+            InnerEvent::Loaded,
+        ) => {
             start_quiescence_timer(shared.generation, context, "loaded")?;
             InnerState {
                 kind: Running,
                 shared,
             }
         }
+        // Full loads signal `Loaded` twice. Also note that a cross-site
+        // iframe can delay the main frame's load events until we've paused.
+        (state, InnerEvent::Loaded) => {
+            log::debug!("ignoring Loaded during {:?}", state.kind);
+            state
+        }
         (
             InnerState { shared, kind },
             InnerEvent::FrameNavigating {
                 frame_id,
                 reason,
+                navigation_type,
                 url,
             },
         ) => {
             if frame_id == context.frame_id {
                 log::debug!(
-                    "navigating to {} due to {:?} (current state is {:?}, {})",
+                    "navigating to {} due to {:?} ({:?}, current state is {:?}, {})",
                     url,
                     reason,
+                    navigation_type,
                     kind,
                     shared.generation,
                 );
@@ -1089,11 +1190,14 @@ fn process_event(
                     if let Err(err) =
                         sender.send(InnerEvent::NavigationTimedOut(generation))
                     {
-                        log::warn!("failed to send NavigationTimedOut: {err}");
+                        log::debug!("failed to send NavigationTimedOut: {err}");
                     }
                 });
                 InnerState {
-                    kind: Navigating { url },
+                    kind: Navigating {
+                        url,
+                        navigation_type,
+                    },
                     shared,
                 }
             } else {
@@ -1121,17 +1225,14 @@ fn process_event(
         (state, InnerEvent::DownloadWillBegin { .. }) => state,
         (
             InnerState {
-                kind: Navigating { url },
+                kind: kind @ Navigating { .. },
                 mut shared,
             },
             InnerEvent::ConsoleEntry(_),
         ) => {
             // NOTE: clearing between page navigations, but we could retain logs
             shared.console_entries.clear();
-            InnerState {
-                kind: Navigating { url },
-                shared,
-            }
+            InnerState { kind, shared }
         }
         (mut state, InnerEvent::ConsoleEntry(entry)) => {
             state.shared.console_entries.push(entry);
@@ -1222,38 +1323,49 @@ fn start_quiescence_timer(
     quiescence::next_state(
         context.connection.clone(),
         context.session_id.clone(),
-        move |result| match result {
-            Ok(quiescence::QuiescedState { elapsed, frame }) => {
-                if let Some(frame) = frame {
-                    log::debug!("using screencast frame from quiesced state");
-                    *latest_frame
-                        .lock()
-                        .expect("failed to acquire lock from latest_frame") =
-                        Some(frame.clone());
-                } else {
-                    log::debug!(
-                        "failed to select new screencast frame for '{reason}' and generation {generation}"
-                    );
-                }
-                if let Err(error) =
-                    events_tx.send(InnerEvent::Quiesced(generation))
-                {
-                    log::error!(
-                        "failed sending Quiesced message for generation {generation}: {error:#}"
-                    );
-                } else {
+        move |result| {
+            match result {
+                Ok(quiescence::QuiescedState { elapsed, frame }) => {
+                    if let Some(frame) = frame {
+                        log::debug!(
+                            "using screencast frame from quiesced state"
+                        );
+                        *latest_frame.lock().expect(
+                            "failed to acquire lock from latest_frame",
+                        ) = Some(frame.clone());
+                    } else {
+                        log::debug!(
+                            "failed to select new screencast frame for '{reason}' and generation {generation}"
+                        );
+                    }
                     log::debug!(
                         "quiescence timer ({reason}) fired for generation {generation} after {elapsed:?}"
                     );
                 }
+                Err(error) => {
+                    log::warn!(
+                        "quiescence timer ({reason}) failed for generation {generation}, sending Quiesced anyway to avoid stall: {error:#}"
+                    );
+                }
             }
-            Err(error) => {
+            if let Err(error) = events_tx.send(InnerEvent::Quiesced(generation))
+            {
                 log::error!(
-                    "quiescence timer failed for generation {generation}: {error:#}"
+                    "failed sending Quiesced message for generation {generation}: {error:#}"
                 );
             }
         },
     )
+}
+
+// The pause stackframe might be gone, like on a navigation.
+fn resume_ignoring_errors(context: &BrowserContext) {
+    if let Err(error) = context.connection.post(
+        debugger::ResumeParams::builder().build(),
+        Some(&context.session_id),
+    ) {
+        log::debug!("failed to resume: {error:#}");
+    }
 }
 
 fn capture_browser_state(

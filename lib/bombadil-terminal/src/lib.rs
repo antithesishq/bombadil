@@ -40,6 +40,7 @@ pub struct TerminalStrategy<Rng: TryRng> {
     pub exit_on_violation: bool,
     pub deadline: Option<SystemTime>,
     pub states_seen: usize,
+    pub quiet: bool,
 }
 
 impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
@@ -109,7 +110,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
         );
 
         // Render currently visible grid
-        {
+        if !self.quiet {
             for row_index in 0..state.grid.size.rows {
                 for column_index in 0..state.grid.size.columns {
                     match &state.grid[(row_index, column_index)] {
@@ -137,20 +138,23 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
         }
 
         self.violations_count += properties.violations.len() as u64;
-        for violation in properties.violations {
-            log::info!("violation of property `{}`", violation.name);
-            let schema_violation = violation.to_schema();
-            let markup =
-                bombadil_schema::markup::render_violation(&schema_violation);
-            let text = styled::markup_to_styled(&markup, test_start);
-            println!(
-                "\n{}\n\n{}\n",
-                styled::maybe_red(styled::maybe_bold(format!(
-                    "{} was violated:",
-                    violation.name
-                ))),
-                text
-            );
+        if !self.quiet {
+            for violation in properties.violations {
+                log::info!("violation of property `{}`", violation.name);
+                let schema_violation = violation.to_schema();
+                let markup = bombadil_schema::markup::render_violation(
+                    &schema_violation,
+                );
+                let text = styled::markup_to_styled(&markup, test_start);
+                println!(
+                    "\n{}\n\n{}\n",
+                    styled::maybe_red(styled::maybe_bold(format!(
+                        "{} was violated:",
+                        violation.name
+                    ))),
+                    text
+                );
+            }
         }
 
         if self.violations_count > 0 && self.exit_on_violation {
@@ -169,8 +173,8 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
             return self.stop(ExitReason::Terminated(status.clone()));
         }
 
-        if let Some(deadline) = self.deadline
-            && state.timestamp >= deadline
+        if let Some(deadline) = self.deadline()
+            && state.timestamp() >= deadline
         {
             log::info!("time limit reached, stopping");
             return self.stop(ExitReason::TimeLimit);
@@ -183,12 +187,25 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
                 .as_micros()
                 .saturating_sub(test_start.as_micros()),
         );
-        writeln!(buffer, "{} {}", Formatted(&elapsed), Formatted(&action))?;
-
-        print!("{}", buffer);
-        std::io::stdout().flush()?;
+        if !self.quiet {
+            writeln!(buffer, "{} {}", Formatted(&elapsed), Formatted(&action))?;
+            print!("{}", buffer);
+            std::io::stdout().flush()?;
+        }
 
         Ok(ControlFlow::Continue(action))
+    }
+
+    fn deadline(&self) -> Option<bombadil_schema::Time> {
+        self.deadline.map(bombadil_schema::Time::from_system_time)
+    }
+
+    fn on_time_limit(&mut self) -> Result<Self::StopValue> {
+        Ok(ExitReason::TimeLimit)
+    }
+
+    fn on_stalled(&mut self) -> Result<Self::StopValue> {
+        Ok(ExitReason::Stalled)
     }
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue> {
@@ -199,6 +216,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
 pub enum ExitReason {
     ExitOnViolation,
     TimeLimit,
+    Stalled,
     Interrupted,
     Terminated(ProcessExitStatus),
     Reproduced,

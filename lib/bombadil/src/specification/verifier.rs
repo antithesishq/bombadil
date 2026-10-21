@@ -1162,4 +1162,222 @@ mod tests {
         );
         assert!(result.all_definite);
     }
+
+    #[test]
+    fn test_action_generator_transformations() {
+        let mut verifier = verifier(
+            r#"
+            import { actions, weighted } from "@antithesishq/bombadil";
+
+            const numbers = weighted([
+              [3, actions(() => [1, 2, 3])],
+              [1, actions(() => [4])],
+            ]);
+
+            export const transformed = numbers
+              .filter((n) => n !== 2)
+              .map((n) => n * 10)
+              .flatMap((n) => (n === 40 ? [n, n + 1] : [n]));
+            "#,
+        );
+
+        let time = time_from_millis(0);
+        let result: StepResult<json::Value> = verifier.step(&[], time).unwrap();
+
+        let leaf = |n: i64| Tree::Leaf {
+            value: json::json!(n),
+        };
+        let singleton = |n: i64| Tree::Branch {
+            branches: vec![(1, leaf(n))],
+        };
+        assert_eq!(
+            result.actions.prune(),
+            Some(Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![
+                            (
+                                3,
+                                Tree::Branch {
+                                    branches: vec![
+                                        (1, singleton(10)),
+                                        (1, singleton(30)),
+                                    ],
+                                },
+                            ),
+                            (
+                                1,
+                                Tree::Branch {
+                                    branches: vec![(
+                                        1,
+                                        Tree::Branch {
+                                            branches: vec![
+                                                (1, leaf(40)),
+                                                (1, leaf(41)),
+                                            ],
+                                        },
+                                    )],
+                                },
+                            ),
+                        ],
+                    },
+                )],
+            })
+        );
+    }
+
+    #[test]
+    fn test_action_generator_when() {
+        let mut verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+
+            export const enabled = actions(() => [1]).when(true);
+
+            export const disabled = actions(() => {
+              throw new Error("should not run when disabled");
+            }).when(() => false);
+            "#,
+        );
+
+        let time = time_from_millis(0);
+        let result: StepResult<json::Value> = verifier.step(&[], time).unwrap();
+
+        assert_eq!(
+            result.actions.prune(),
+            Some(Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![(
+                            1,
+                            Tree::Leaf {
+                                value: json::json!(1)
+                            }
+                        )],
+                    },
+                )],
+            })
+        );
+    }
+
+    #[test]
+    fn test_action_generator_when_cell() {
+        let mut verifier = verifier(
+            r#"
+            import { actions, extract } from "@antithesishq/bombadil";
+
+            const enabled = extract((state) => state.enabled);
+
+            export const gated = actions(() => [1]).when(enabled);
+            "#,
+        );
+
+        let mut step = |enabled: bool, millis: u64| {
+            let time = time_from_millis(millis);
+            let result: StepResult<json::Value> = verifier
+                .step(
+                    &[Snapshot {
+                        index: 0,
+                        name: None,
+                        value: json::json!(enabled),
+                        time,
+                    }],
+                    time,
+                )
+                .unwrap();
+            result.actions.prune()
+        };
+
+        assert!(step(true, 0).is_some());
+        assert!(step(false, 1).is_none());
+        assert!(step(true, 2).is_some());
+    }
+
+    #[test]
+    fn test_is_action() {
+        let mut verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            import { isAction } from "@antithesishq/bombadil/actions";
+
+            export const clicks = actions(() => [
+              "Back",
+              { Click: { x: 1 } },
+              { TypeText: "a" },
+            ]).filter((action) => isAction(action, "Click"));
+            "#,
+        );
+
+        let time = time_from_millis(0);
+        let result: StepResult<json::Value> = verifier.step(&[], time).unwrap();
+
+        assert_eq!(
+            result.actions.prune(),
+            Some(Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![(
+                            1,
+                            Tree::Leaf {
+                                value: json::json!({ "Click": { "x": 1 } })
+                            }
+                        )],
+                    },
+                )],
+            })
+        );
+    }
+
+    #[test]
+    fn test_charset_is() {
+        let mut verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            import { CharSet } from "@antithesishq/bombadil/actions";
+
+            export const texts = actions(() => [
+              {
+                CharSet: CharSet.union(
+                  CharSet.fromLiterals("\r", "\t"),
+                  CharSet.fromRange(0x20, 0x7e),
+                ),
+              },
+              { Regexp: "a" },
+              "Email",
+            ])
+              .filter((text) => CharSet.is(text))
+              .map((text) => ({
+                CharSet: text.CharSet.filter((entry) =>
+                  CharSet.Entry.is(entry, "Literal"),
+                ),
+              }));
+            "#,
+        );
+
+        let time = time_from_millis(0);
+        let result: StepResult<json::Value> = verifier.step(&[], time).unwrap();
+
+        assert_eq!(
+            result.actions.prune(),
+            Some(Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![(
+                            1,
+                            Tree::Leaf {
+                                value: json::json!({ "CharSet": [
+                                    { "Literal": "\r" },
+                                    { "Literal": "\t" },
+                                ] })
+                            }
+                        )],
+                    },
+                )],
+            })
+        );
+    }
 }

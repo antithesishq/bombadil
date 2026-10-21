@@ -16,9 +16,9 @@ Using LLMs to find mistakes, bugs, or to critique your own work before submittin
 
 ## Code
 
-Generative AI is allowed in the context of coding, if thoroughly reviewed by the responsible author first, and if clearly stated when submitted for review by others.
+Generative AI is allowed in the context of coding, if thoroughly reviewed by the responsible author first, and if clearly stated when submitted for review by others, in case there's a substantial amount. If you've written (or rewritten) most of it the provenance disclaimer is optional.
 
-Code comments, both regular ones and "doc comments", are an exception because these are primarily for humans to read and understand, and because LLMs notoriously spew out meaningless comments. Treat comments as "Documentation" as described below.
+Code comments, both regular ones and "doc comments", are an exception because these are primarily for humans to read and understand, and because LLMs notoriously spew out meaningless comments. Treat comments as "Documentation" as described below. Remove unnecessary comments, and (re)write the meaningful ones in your own words.
 
 Some useful questions to ask yourself before submitting a pull request:
 
@@ -38,7 +38,7 @@ Again, research and review in the context of documentation is fine, but *we* wri
 
 ## Communication
 
-Similar to documentation, using LLMs to generate communication is not allowed, including GitHub issues, pull requests, Discord messages, and other human-to-human communication within the project. If you embed snippets of generated text in otherwise human-written text, put it in a `details` block:
+Similar to documentation, using LLMs to generate communication is not allowed, including GitHub issues, pull request descriptions, Discord messages, and other human-to-human communication within the project. If you embed snippets of generated text in otherwise human-written text, put it in a `details` block:
 
     <details>
       <summary>Claude's analysis of the bug</summary>

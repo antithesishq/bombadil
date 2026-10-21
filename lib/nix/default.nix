@@ -10,6 +10,7 @@
   apple-sdk ? null,
   cctools ? null,
   chromium,
+  google-chrome,
   freefont_ttf,
   makeFontsConf,
   cacert,
@@ -206,6 +207,16 @@ in
     }
   );
 
+  cli-reference = craneLib.buildPackage (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      doCheck = false;
+      pname = "cli-reference";
+      cargoExtraArgs = "-p cli-reference";
+    }
+  );
+
   tests-unit = craneLib.cargoTest (
     commonArgs
     // {
@@ -220,9 +231,10 @@ in
     commonArgs
     // {
       inherit cargoArtifacts;
-      nativeCheckInputs = [ chromium ];
+      nativeCheckInputs = [ (if stdenv.isDarwin then google-chrome else chromium) ];
       pname = "bombadil-tests-browser";
       cargoExtraArgs = "-p bombadil-browser-integration-tests";
+      cargoTestExtraArgs = lib.optionalString stdenv.isDarwin "-- --test-threads=1";
       preCheck = testPreCheck;
     }
   );

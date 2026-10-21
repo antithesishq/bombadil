@@ -12,7 +12,7 @@
 
   function updateLinks(driver) {
     links.read.href = driver + "/1-introduction.html";
-    links.install.href = driver + "/2-getting-started.html#installation";
+    links.install.href = driver + "/2.1-installation.html";
     links.pdf.href = driver + "/bombadil-manual.pdf";
     links.epub.href = driver + "/bombadil-manual.epub";
     links.txt.href = driver + "/bombadil-manual.txt";

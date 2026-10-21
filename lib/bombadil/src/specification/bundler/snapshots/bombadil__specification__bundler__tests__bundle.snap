@@ -340,6 +340,43 @@ expression: bundle
     	constructor(generate) {
     		this.generate = generate;
     	}
+    	/** Transforms every action, keeping weights intact. */
+    	map(f) {
+    		return new ActionGenerator(() => mapTree(this.generate(), f));
+    	}
+    	filter(predicate) {
+    		return new ActionGenerator(() => filterTree(this.generate(), predicate));
+    	}
+    	/** Runs this generator only while the condition holds. */
+    	when(condition) {
+    		return new ActionGenerator(() => {
+    			const enabled = typeof condition === "boolean" ? condition : typeof condition === "function" ? condition() : condition.current;
+    			return enabled ? this.generate() : { branches: [] };
+    		});
+    	}
+    	/** Replaces every action with an array of actions or a generator. */
+    	flatMap(f) {
+    		return new ActionGenerator(() => flatMapTree(this.generate(), (action) => {
+    			const result = f(action);
+    			if (result instanceof ActionGenerator) {
+    				return result.generate();
+    			}
+    			return branch(result.map((b) => [1, leaf(b)]));
+    		}));
+    	}
+    }
+    function flatMapTree(tree, f) {
+    	if ("value" in tree) return f(tree.value);
+    	return { branches: tree.branches.map(([weight, subtree]) => [weight, flatMapTree(subtree, f)]) };
+    }
+    function mapTree(tree, f) {
+    	return flatMapTree(tree, (value) => leaf(f(value)));
+    }
+    function filterTree(tree, predicate) {
+    	return flatMapTree(tree, (value) => predicate(value) ? leaf(value) : { branches: [] });
+    }
+    function isAction(action, discriminant) {
+    	return typeof action === "string" ? action === discriminant : discriminant in action;
     }
     function actions(generate) {
     	return new ActionGenerator(() => {
@@ -362,6 +399,13 @@ expression: bundle
     }
     let CharSet;
     (function(_CharSet) {
+    	let Entry;
+    	(function(_Entry) {
+    		function is(entry, discriminant) {
+    			return discriminant in entry;
+    		}
+    		_Entry.is = is;
+    	})(Entry || (Entry = _CharSet.Entry || (_CharSet.Entry = {})));
     	function fromRange(from, to) {
     		return [{ Range: [from, to] }];
     	}
@@ -375,10 +419,15 @@ expression: bundle
     		return sets.flat(1);
     	}
     	_CharSet.union = union;
+    	function is(generator) {
+    		return typeof generator === "object" && "CharSet" in generator;
+    	}
+    	_CharSet.is = is;
     })(CharSet || (CharSet = {}));
     module.exports.leaf = leaf;
     module.exports.branch = branch;
     module.exports.ActionGenerator = ActionGenerator;
+    module.exports.isAction = isAction;
     module.exports.actions = actions;
     module.exports.weighted = weighted;
     module.exports.CharSet = CharSet;

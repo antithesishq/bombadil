@@ -35,8 +35,13 @@ serde_json.workspace = true
 tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
+boa_engine.workspace = true
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
 hegeltest.workspace = true
+stdx-derive = { path = "../stdx-derive" }

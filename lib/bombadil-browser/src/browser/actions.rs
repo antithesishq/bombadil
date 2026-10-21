@@ -25,6 +25,7 @@ pub struct ActionOptions {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(test, derive(stdx_derive::VariantCount))]
 pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
 {
     Back,
@@ -39,7 +40,6 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     },
     TypeText {
         text: Text,
-        delay_millis: U64,
     },
     PressKey {
         code: u8,
@@ -229,10 +229,8 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            BrowserAction::TypeText { text, delay_millis } => {
-                let delay = Duration::from_millis(*delay_millis);
+            BrowserAction::TypeText { text } => {
                 for char in text.chars() {
-                    thread::sleep(delay);
                     connection.post(
                         input::InsertTextParams::new(char),
                         Some(session_id),
@@ -247,7 +245,6 @@ impl BrowserAction {
                 let build_params = |event_type, text: Option<&str>| {
                     let mut builder = input::DispatchKeyEventParams::builder()
                         .r#type(event_type)
-                        .native_virtual_key_code(*code as i64)
                         .windows_virtual_key_code(*code as i64)
                         .code(name)
                         .key(name);
@@ -415,12 +412,9 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     point: point.generate(rng),
                 }
             }
-            BrowserAction::TypeText { text, delay_millis } => {
-                BrowserAction::TypeText {
-                    text: text.generate(rng),
-                    delay_millis: rng.random_range(delay_millis.clone()),
-                }
-            }
+            BrowserAction::TypeText { text } => BrowserAction::TypeText {
+                text: text.generate(rng),
+            },
             BrowserAction::PressKey { code } => {
                 BrowserAction::PressKey { code: *code }
             }
@@ -498,10 +492,8 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 },
             ) => candidate_fingerprint.matches(original_fingerprint),
             (
-                BrowserAction::TypeText {
-                    text: generator, ..
-                },
-                BrowserAction::TypeText { text: original, .. },
+                BrowserAction::TypeText { text: generator },
+                BrowserAction::TypeText { text: original },
             ) => generator.accepts(original),
             (
                 BrowserAction::PressKey {
@@ -538,6 +530,7 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 origin_candidate.accepts(origin_original)
                     && distance_candidate.contains(distance_original)
             }
+            (BrowserAction::Reload, BrowserAction::Reload) => true,
             (BrowserAction::Wait, BrowserAction::Wait) => true,
             (
                 BrowserAction::SetFileInputFiles {
@@ -549,6 +542,42 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     ..
                 },
             ) => candidate_selector == original_selector,
+            (
+                BrowserAction::MouseDrag {
+                    from,
+                    to,
+                    steps,
+                    delay_millis,
+                },
+                BrowserAction::MouseDrag {
+                    from: original_from,
+                    to: original_to,
+                    steps: original_steps,
+                    delay_millis: original_delay,
+                },
+            ) => {
+                from.accepts(original_from)
+                    && to.accepts(original_to)
+                    && steps.contains(original_steps)
+                    && delay_millis.contains(original_delay)
+            }
+            (
+                BrowserAction::SetViewport { width, height },
+                BrowserAction::SetViewport {
+                    width: original_width,
+                    height: original_height,
+                },
+            ) => {
+                width.contains(original_width)
+                    && height.contains(original_height)
+            }
+            (
+                BrowserAction::Custom { name, arguments },
+                BrowserAction::Custom {
+                    name: original_name,
+                    arguments: original_arguments,
+                },
+            ) => name == original_name && arguments == original_arguments,
             _ => false,
         }
     }
@@ -563,7 +592,7 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::DoubleClick { fingerprint, .. } => {
                 ("DoubleClick", fingerprint).hash(hasher);
             }
-            BrowserAction::TypeText { text, .. } => {
+            BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
             }
             BrowserAction::PressKey { code } => {
@@ -593,6 +622,138 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::Custom { name, .. } => {
                 ("Custom", name).hash(hasher);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    use hegel::{
+        Generator, TestCase,
+        generators::{integers, text},
+    };
+    use rand::{SeedableRng, rngs::StdRng};
+
+    fn small_range(tc: &TestCase, minimum: u8) -> RangeInclusive<u8> {
+        let start = tc.draw(integers().min_value(minimum).max_value(100));
+        let end = tc.draw(integers().min_value(start).max_value(100));
+        start..=end
+    }
+
+    fn coordinate_range(tc: &TestCase) -> RangeInclusive<f64> {
+        let range = small_range(tc, 0);
+        f64::from(*range.start())..=f64::from(*range.end())
+    }
+
+    fn point(tc: &TestCase) -> Point<RangeInclusive<f64>> {
+        Point {
+            x: coordinate_range(tc),
+            y: coordinate_range(tc),
+        }
+    }
+
+    fn viewport_range(tc: &TestCase) -> RangeInclusive<u16> {
+        let start = tc.draw(integers().min_value(1_u16).max_value(10_000));
+        let end = tc.draw(integers().min_value(start).max_value(10_000));
+        start..=end
+    }
+
+    #[hegel::composite]
+    fn action_templates(tc: &TestCase) -> Vec<BrowserActionTemplate> {
+        use BrowserAction::*;
+
+        let fingerprint = Fingerprint {
+            id: Some(format!(
+                "id-{}",
+                tc.draw(text().alphabet("abc").max_size(8))
+            )),
+            tag: "button".into(),
+            ..Default::default()
+        };
+        let length = small_range(tc, 0);
+        let drag_delay = small_range(tc, 0);
+
+        vec![
+            Back,
+            Forward,
+            Click {
+                fingerprint: fingerprint.clone(),
+                point: point(tc),
+            },
+            DoubleClick {
+                fingerprint,
+                point: point(tc),
+            },
+            TypeText {
+                text: StringGenerator::Text {
+                    length: u16::from(*length.start())
+                        ..=u16::from(*length.end()),
+                },
+            },
+            PressKey {
+                code: tc.draw(integers().min_value(65).max_value(90)),
+            },
+            ScrollUp {
+                origin: point(tc),
+                distance: coordinate_range(tc),
+            },
+            ScrollDown {
+                origin: point(tc),
+                distance: coordinate_range(tc),
+            },
+            Reload,
+            Wait,
+            SetFileInputFiles {
+                selector: format!(
+                    "input#{}",
+                    tc.draw(text().alphabet("abc").min_size(1).max_size(8))
+                ),
+                files: vec!["/tmp/example.txt".into()],
+            },
+            MouseDrag {
+                from: point(tc),
+                to: point(tc),
+                steps: small_range(tc, 1),
+                delay_millis: u64::from(*drag_delay.start())
+                    ..=u64::from(*drag_delay.end()),
+            },
+            SetViewport {
+                width: viewport_range(tc),
+                height: viewport_range(tc),
+            },
+            Custom {
+                name: format!(
+                    "action-{}",
+                    tc.draw(text().alphabet("abc").max_size(8))
+                ),
+                arguments: vec![json::json!(tc.draw(text().max_size(16)))],
+            },
+        ]
+    }
+
+    // Replay invariant: for every valid template T and RNG state r,
+    // T.accepts(&T.generate(r)) == true.
+    #[hegel::test]
+    fn templates_accept_their_generated_actions(tc: TestCase) {
+        let seed = tc.draw(integers());
+        let templates = tc.draw(action_templates().print_as_debug());
+        let variants: HashSet<_> =
+            templates.iter().map(std::mem::discriminant).collect();
+        assert_eq!(
+            variants.len(),
+            BrowserActionTemplate::VARIANT_COUNT,
+            "template generator must cover every BrowserAction variant"
+        );
+        for template in templates {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let action = template.generate(&mut rng);
+            assert!(
+                template.accepts(&action),
+                "template {template:?} rejected {action:?} with seed {seed}"
+            );
         }
     }
 }

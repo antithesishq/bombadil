@@ -3,6 +3,10 @@ name = "bombadil-cli"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "bombadil_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "bombadil"
 path = "src/main.rs"

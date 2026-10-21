@@ -18,7 +18,7 @@ use url::Url;
 use crate::browser::actions::BrowserAction;
 use crate::browser::actions::BrowserActionTemplate;
 use crate::browser::state::{BrowserState, Coverage};
-use crate::browser::{Browser, BrowserEvent};
+use crate::browser::{Browser, BrowserEvent, NAVIGATION_TIMEOUT};
 use crate::browser_options::BrowserOptions;
 use crate::chromium;
 use crate::chromium::Chromium;
@@ -110,13 +110,18 @@ impl InterfaceSession for BrowserSession {
     type ActionTemplate = BrowserActionTemplate;
     type State = BrowserState;
 
+    const STALL_TIMEOUT: Duration = NAVIGATION_TIMEOUT.saturating_mul(2);
+
     fn terminate(&mut self) -> Result<()> {
         self.browser.terminate()
     }
 
-    fn next_event(&mut self) -> Option<DriverEvent<BrowserState>> {
-        match self.browser.next_event() {
-            Some(BrowserEvent::StateChanged(state)) => {
+    fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<DriverEvent<BrowserState>> {
+        match self.browser.next_event(timeout) {
+            Ok(BrowserEvent::StateChanged(state)) => {
                 if let Some(coverage) = &mut self.coverage {
                     for (index, bucket) in &state.coverage.edges_new {
                         let index = *index as usize;
@@ -141,8 +146,11 @@ impl InterfaceSession for BrowserSession {
                 // Then forward the event.
                 Some(DriverEvent::StateChanged(Arc::new(state)))
             }
-            Some(BrowserEvent::Error(error)) => Some(DriverEvent::Error(error)),
-            None => None,
+            Ok(BrowserEvent::Error(error)) => Some(DriverEvent::Error(error)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                Some(DriverEvent::Timeout)
+            }
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => None,
         }
     }
 

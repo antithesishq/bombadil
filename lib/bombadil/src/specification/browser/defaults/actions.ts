@@ -1,5 +1,5 @@
 import type { Cell } from "@antithesishq/bombadil";
-import type { ActionGenerator, Range } from "@antithesishq/bombadil/actions";
+import type { ActionGenerator } from "@antithesishq/bombadil/actions";
 import {
   actions,
   weighted,
@@ -128,22 +128,11 @@ const clickablePoints = extract((state) => {
   const added = new Set<Element>();
 
   // Anchors
-  const urlCurrent = new URL(state.window.location.toString());
   for (const anchor of queryAll(state.document.body, "a")) {
     if (!(anchor instanceof HTMLAnchorElement)) continue;
     if (added.has(anchor)) continue;
 
-    let url;
-    try {
-      url = new URL(anchor.href);
-    } catch {
-      continue;
-    }
-
     if (anchor.target === "_blank") continue;
-    if (!url.protocol.startsWith("http")) continue;
-    if (url.hostname !== urlCurrent.hostname) continue;
-    if (url.port !== "" && url.port !== urlCurrent.port) continue;
     if (!isVisible(state.window, anchor)) continue;
 
     const point = clickablePoint(anchor);
@@ -255,8 +244,6 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
 
   if (type === "file") return [];
 
-  const delayMillis: Range = [1, 100];
-
   const keycodes = weighted([
     [1, { PressKey: { code: 8 } }],
     [1, { PressKey: { code: 9 } }],
@@ -267,7 +254,7 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
   if (type === "textarea") {
     return weighted([
       [1, keycodes],
-      [4, { TypeText: { text: { Text: [1, 100] }, delayMillis } }],
+      [4, { TypeText: { text: { Text: [1, 100] } } }],
     ]).generate();
   }
 
@@ -275,12 +262,12 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
     case "text":
       return weighted([
         [1, keycodes],
-        [3, { TypeText: { text: { Text: [1, 100] }, delayMillis } }],
+        [3, { TypeText: { text: { Text: [1, 100] } } }],
       ]).generate();
     case "email":
       return weighted([
         [1, keycodes],
-        [3, { TypeText: { text: "Email", delayMillis } }],
+        [3, { TypeText: { text: "Email" } }],
       ]).generate();
     case "number":
       return weighted([
@@ -290,9 +277,8 @@ export const inputs: ActionGenerator<ActionTemplate> = actions(() => {
           {
             TypeText: {
               text: {
-                Regexp: "\d{1,5}",
+                Regexp: "[0-9]{1,5}",
               },
-              delayMillis,
             },
           },
         ],

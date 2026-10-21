@@ -1,7 +1,8 @@
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::SystemTime;
+use std::thread;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
 use bombadil::render::Format;
@@ -100,12 +101,17 @@ impl InterfaceSession for FakeSession {
     type ActionTemplate = FakeAction;
     type State = FakeState;
 
+    const STALL_TIMEOUT: Duration = Duration::MAX;
+
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
         Ok(())
     }
 
-    fn next_event(&mut self) -> Option<DriverEvent<Self::State>> {
+    fn next_event(
+        &mut self,
+        _timeout: Duration,
+    ) -> Option<DriverEvent<Self::State>> {
         self.next_event_calls.fetch_add(1, Ordering::SeqCst);
         Some(DriverEvent::StateChanged(Arc::new(FakeState)))
     }
@@ -147,6 +153,18 @@ impl RunStrategy<FakeSession> for FakeStrategy {
         _properties: PropertiesState,
     ) -> Result<ControlFlow<(), FakeAction>> {
         panic!("on_new_state must not run once interrupted");
+    }
+
+    fn deadline(&self) -> Option<Time> {
+        None
+    }
+
+    fn on_time_limit(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn on_stalled(&mut self) -> Result<()> {
+        Ok(())
     }
 
     fn on_interrupted(&mut self) -> Result<()> {
@@ -219,4 +237,153 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         0,
         "driver.next_event must not be called when interrupted before loop",
     );
+}
+
+/// A session whose driver never produces an event.
+struct StuckSession<const STALL_MILLIS: u64> {
+    terminated: Arc<AtomicBool>,
+}
+
+impl<const STALL_MILLIS: u64> InterfaceSession for StuckSession<STALL_MILLIS> {
+    type Action = FakeAction;
+    type ActionTemplate = FakeAction;
+    type State = FakeState;
+
+    const STALL_TIMEOUT: Duration = Duration::from_millis(STALL_MILLIS);
+
+    fn terminate(&mut self) -> Result<()> {
+        self.terminated.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<DriverEvent<Self::State>> {
+        thread::sleep(timeout);
+        Some(DriverEvent::Timeout)
+    }
+
+    fn apply(
+        &mut self,
+        _action: FakeAction,
+        _state: Arc<FakeState>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn extract_snapshots(
+        &mut self,
+        _state: Arc<FakeState>,
+        _last_action: Option<&FakeAction>,
+    ) -> Result<Vec<Snapshot>> {
+        Ok(vec![])
+    }
+
+    fn state_timestamp(_state: &FakeState) -> SystemTime {
+        SystemTime::UNIX_EPOCH
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum StuckStop {
+    TimeLimit,
+    Stalled,
+    Interrupted,
+}
+
+struct StuckStrategy {
+    deadline: Option<Time>,
+}
+
+impl<const STALL_MILLIS: u64> RunStrategy<StuckSession<STALL_MILLIS>>
+    for StuckStrategy
+{
+    type StopValue = StuckStop;
+
+    fn on_new_state(
+        &mut self,
+        _state: &FakeState,
+        _tree: Tree<FakeAction>,
+        _last_action: Option<&FakeAction>,
+        _snapshots: &[Snapshot],
+        _properties: PropertiesState,
+    ) -> Result<ControlFlow<StuckStop, FakeAction>> {
+        panic!("stuck driver produced a state");
+    }
+
+    fn deadline(&self) -> Option<Time> {
+        self.deadline
+    }
+
+    fn on_time_limit(&mut self) -> Result<StuckStop> {
+        Ok(StuckStop::TimeLimit)
+    }
+
+    fn on_stalled(&mut self) -> Result<StuckStop> {
+        Ok(StuckStop::Stalled)
+    }
+
+    fn on_interrupted(&mut self) -> Result<StuckStop> {
+        Ok(StuckStop::Interrupted)
+    }
+}
+
+fn run_stuck<const STALL_MILLIS: u64>(
+    deadline: Option<Duration>,
+    interrupted: Arc<AtomicBool>,
+) -> (Result<StuckStop>, bool) {
+    let terminated = Arc::new(AtomicBool::new(false));
+    let mut session = StuckSession::<STALL_MILLIS> {
+        terminated: terminated.clone(),
+    };
+    let mut strategy = StuckStrategy {
+        deadline: deadline
+            .map(|d| Time::from_system_time(SystemTime::now() + d)),
+    };
+    let result = runner::run(
+        &mut session,
+        &mut strategy,
+        dummy_verifier(),
+        &mut NoopTraceWriter,
+        interrupted,
+    );
+    (result, terminated.load(Ordering::SeqCst))
+}
+
+#[test]
+fn stuck_driver_stops_at_deadline() {
+    let start = Instant::now();
+    let (result, terminated) = run_stuck::<{ u64::MAX }>(
+        Some(Duration::from_millis(500)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    assert_eq!(result.unwrap(), StuckStop::TimeLimit);
+    assert!(terminated);
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn stuck_driver_stops_after_stall_timeout() {
+    let (result, terminated) =
+        run_stuck::<500>(None, Arc::new(AtomicBool::new(false)));
+    assert_eq!(result.unwrap(), StuckStop::Stalled);
+    assert!(terminated);
+}
+
+#[test]
+fn stuck_driver_stops_on_interrupt() {
+    let interrupted = Arc::new(AtomicBool::new(false));
+    thread::spawn({
+        let interrupted = interrupted.clone();
+        move || {
+            thread::sleep(Duration::from_millis(500));
+            interrupted.store(true, Ordering::SeqCst);
+        }
+    });
+    let start = Instant::now();
+    let (result, terminated) = run_stuck::<{ u64::MAX }>(None, interrupted);
+    assert_eq!(result.unwrap(), StuckStop::Interrupted);
+    assert!(terminated);
+    assert!(start.elapsed() < Duration::from_secs(5));
 }
