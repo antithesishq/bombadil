@@ -1,5 +1,28 @@
 # The Bombadil Changelog
 
+## 0.7.10
+
+Major updates:
+
+* Add `shrink` command for browser and terminal drivers (#372)
+* Add generator filtering, mapping, and enabling (#390)
+* Unhide `fuzz` command and mark experimental (#403)
+* Write trace and screenshots when running in Antithesis (#402)
+
+Minor updates:
+
+* Add a "Workflows" chapter to the manual (#404)
+* Downgrade error logs for acceptable browser driver errors (#389)
+
+Bug fixes:
+
+* Fix incorrect reference to `canvasCenter` in manual (#397)
+* Capture last state at program termination in fuzzer (#386, #388)
+
+Internal:
+
+* Accept inner strategy for runs in fuzzer (#373)
+
 ## 0.7.9
 
 Major updates:
