@@ -256,14 +256,40 @@ pub struct ManagedBrowserOptions {
     /// Disable Chromium sandboxing
     #[arg(long, default_value_t = false)]
     no_sandbox: bool,
+    /// Which kind of Chrome/Chromium build to run. `headless-shell`
+    /// (chrome-headless-shell) controls rendering frame by frame, which
+    /// is faster but experimental, and implies `--headless`
+    #[arg(long, value_enum, default_value_t = ChromeVariant::Full)]
+    chrome_variant: ChromeVariant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ChromeVariant {
+    Full,
+    HeadlessShell,
+}
+
+impl From<ChromeVariant> for chromium::locate::ChromeVariant {
+    fn from(variant: ChromeVariant) -> Self {
+        match variant {
+            ChromeVariant::Full => chromium::locate::ChromeVariant::Full,
+            ChromeVariant::HeadlessShell => {
+                chromium::locate::ChromeVariant::HeadlessShell
+            }
+        }
+    }
 }
 
 impl ManagedBrowserOptions {
     fn debugger_options(&self) -> Result<DebuggerOptions> {
         Ok(DebuggerOptions::Managed {
             launch_options: LaunchOptions {
-                executable: chromium::locate::executable()?,
-                headless: self.headless,
+                executable: chromium::locate::executable(
+                    self.chrome_variant.into(),
+                )?,
+                // chrome-headless-shell has no headed mode.
+                headless: self.headless
+                    || self.chrome_variant == ChromeVariant::HeadlessShell,
                 no_sandbox: self.no_sandbox,
             },
         })
@@ -276,6 +302,9 @@ impl ManagedBrowserOptions {
         }
         if self.no_sandbox {
             args.push("--no-sandbox".into());
+        }
+        if self.chrome_variant == ChromeVariant::HeadlessShell {
+            args.push("--chrome-variant=headless-shell".into());
         }
         args
     }
