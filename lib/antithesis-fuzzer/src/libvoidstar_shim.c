@@ -1,3 +1,25 @@
+#ifdef _WIN32
+
+/* Windows has no <dlfcn.h> and Antithesis's libvoidstar coverage library is
+ * Linux-only, so there is nothing to load here. These stubs mirror the
+ * runtime behavior on any non-Antithesis host (libvoidstar absent -> every
+ * coverage call no-ops), keeping the exported ABI identical. */
+#include <stddef.h>
+
+void antithesis_load_libvoidstar(void) {}
+
+void antithesis_init_coverage_module(size_t edge_count,
+                                     const char *symbol_file_name) {
+  (void)edge_count;
+  (void)symbol_file_name;
+}
+
+void antithesis_notify_coverage(size_t edge_index) { (void)edge_index; }
+
+int antithesis_fuzz_getchar(void) { return 0; }
+
+#else
+
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -81,3 +103,5 @@ int antithesis_fuzz_getchar() {
     return 0;
   }
 }
+
+#endif
