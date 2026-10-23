@@ -281,5 +281,5 @@ pub fn instrument_js_coverage(
 /// browser revalidates when content changes.
 fn content_etag(headers: HashMap<String, String>, body: &str) -> String {
     let content = headers.get("etag").map_or(body, String::as_str);
-    format!("{}", instrumentation::fnv1a64(content.bytes()))
+    format!("{}", bombadil::hash::fnv1a64(content.bytes()))
 }

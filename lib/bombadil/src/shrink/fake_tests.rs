@@ -28,10 +28,11 @@ use crate::{
         ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
         InterfaceSession, RunId, RunState, TraceWriter,
     },
+    model::Picked,
     render::Format,
     runner::{ControlFlow, PropertiesState, PropertyViolation, RunStrategy},
     specification::{bundler::bundle, domain::Snapshot, verifier::Verifier},
-    tree::Tree,
+    tree::{Leaves, Tree},
 };
 
 const ALPHABET_SIZE: u8 = 8;
@@ -228,16 +229,19 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn on_new_state(
         &mut self,
         state: &FakeState,
-        tree: Tree<FakeAction>,
+        leaves: &Leaves<'_, FakeAction>,
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _properties: PropertiesState,
-    ) -> Result<ControlFlow<(), FakeAction>> {
+    ) -> Result<ControlFlow<(), Picked<FakeAction>>> {
         if state.step >= self.steps_max {
             return Ok(ControlFlow::Stop(()));
         }
-        match tree.values().first() {
-            Some(&&action) => Ok(ControlFlow::Continue(action)),
+        match leaves.as_slice().first() {
+            Some(&(action, _)) => Ok(ControlFlow::Continue(Picked::generate(
+                action,
+                &mut rand::rng(),
+            ))),
             None => Ok(ControlFlow::Stop(())),
         }
     }
@@ -283,10 +287,12 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
     fn write(
         &mut self,
         _state: &FakeState,
-        last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        _actions_available: &Leaves<'_, FakeAction>,
+        action_previous: Option<&Picked<FakeAction>>,
     ) -> Result<()> {
+        let last_action = action_previous.map(|picked| &picked.action);
         let names: Vec<_> = violations
             .iter()
             .map(|violation| json::json!({ "name": violation.name }))

@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use crate::schema::TraceEntry;
+use crate::schema::{ActionKey, TraceEntry};
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 
@@ -17,11 +17,19 @@ pub enum TerminalAction {
 
 /// Per-state metadata in a terminal trace. The screen contents (grid,
 /// scrollback, modes) are in the ghostty snapshot stored next to it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// No `Eq`: the spec probabilities in `actions_available` are `f64`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerminalStateSummary {
     pub scroll_offset: u32,
     pub cursor: TerminalCursor,
     pub exit_status: Option<ProcessExitStatus>,
+    /// Keys of the action templates available in this state, with their
+    /// spec probabilities (see `bombadil::model::StepModel`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions_available: Option<Vec<(ActionKey, f64)>>,
+    /// Key of the action template that led to this state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_taken: Option<ActionKey>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -248,5 +256,58 @@ bitflags::bitflags! {
         const DIM           = 0b00100000;
         const INVISIBLE     = 0b01000000;
         const OVERLINE      = 0b10000000;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ActionKey, TerminalStateSummary};
+    use hegel::{
+        TestCase,
+        generators::{floats, integers, optional, vecs},
+        tuples,
+    };
+    use serde_json as json;
+
+    /// A trace from before the step model was recorded has neither field.
+    #[hegel::test]
+    fn state_summary_step_model_is_optional(tc: TestCase) {
+        let actions_available: Option<Vec<(ActionKey, f64)>> = tc
+            .draw(optional(vecs(tuples!(
+                integers::<u64>(),
+                floats::<f64>().min_value(0.0).max_value(1.0)
+            ))))
+            .map(|actions| {
+                actions
+                    .into_iter()
+                    .map(|(key, probability)| (ActionKey(key), probability))
+                    .collect()
+            });
+        let action_taken = tc.draw(optional(integers::<u64>())).map(ActionKey);
+        let mut written = json::json!({
+            "scroll_offset": 0,
+            "cursor": {
+                "position": { "column": 0, "row": 0 },
+                "visible": true,
+                "blinking": false,
+                "visual_style": "Block",
+                "color": "None",
+            },
+            "exit_status": null,
+        });
+        if let Some(actions_available) = &actions_available {
+            written["actions_available"] = json::json!(actions_available);
+        }
+        if let Some(action_taken) = &action_taken {
+            written["action_taken"] = json::json!(action_taken);
+        }
+        let summary: TerminalStateSummary =
+            json::from_value(written.clone()).unwrap();
+        assert_eq!(summary.actions_available, actions_available);
+        assert_eq!(summary.action_taken, action_taken);
+        let rewritten = json::to_value(&summary).unwrap();
+        for field in ["actions_available", "action_taken"] {
+            assert_eq!(rewritten.get(field), written.get(field));
+        }
     }
 }

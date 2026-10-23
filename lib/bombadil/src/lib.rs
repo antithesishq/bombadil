@@ -1,6 +1,8 @@
 pub mod antithesis;
 pub mod driver;
 pub mod fuzzer;
+pub mod hash;
+pub mod model;
 pub mod render;
 pub mod runner;
 pub mod shrink;

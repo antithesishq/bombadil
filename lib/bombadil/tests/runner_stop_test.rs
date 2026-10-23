@@ -15,11 +15,12 @@ use bombadil::driver::{
     ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
     InterfaceSession, NoopTraceWriter, RunId, RunState,
 };
+use bombadil::model::Picked;
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Verifier;
-use bombadil::tree::Tree;
+use bombadil::tree::Leaves;
 
 #[derive(
     Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord,
@@ -153,11 +154,11 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn on_new_state(
         &mut self,
         _state: &FakeState,
-        _tree: Tree<FakeAction>,
+        _leaves: &Leaves<'_, FakeAction>,
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _properties: PropertiesState,
-    ) -> Result<ControlFlow<(), FakeAction>> {
+    ) -> Result<ControlFlow<(), Picked<FakeAction>>> {
         panic!("on_new_state must not run once interrupted");
     }
 
@@ -314,11 +315,11 @@ impl<const STALL_MILLIS: u64> RunStrategy<StuckSession<STALL_MILLIS>>
     fn on_new_state(
         &mut self,
         _state: &FakeState,
-        _tree: Tree<FakeAction>,
+        _leaves: &Leaves<'_, FakeAction>,
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _properties: PropertiesState,
-    ) -> Result<ControlFlow<StuckStop, FakeAction>> {
+    ) -> Result<ControlFlow<StuckStop, Picked<FakeAction>>> {
         panic!("stuck driver produced a state");
     }
 
@@ -409,9 +410,10 @@ impl bombadil::driver::TraceWriter<FakeSession> for FinishingWriter {
     fn write(
         &mut self,
         _state: &FakeState,
-        _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _violations: &[bombadil::runner::PropertyViolation],
+        _actions_available: &Leaves<'_, FakeAction>,
+        _action_previous: Option<&Picked<FakeAction>>,
     ) -> Result<()> {
         Ok(())
     }
