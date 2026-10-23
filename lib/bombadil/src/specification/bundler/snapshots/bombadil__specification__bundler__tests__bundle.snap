@@ -30,6 +30,12 @@ expression: bundle
   }
 
   globalThis.__bombadilRequire = require;
+  // Until the runtime's module has loaded there is no cell to name.
+  globalThis.__bombadilNamed = function(name, value) {
+    const bombadil = cache["@antithesishq/bombadil"];
+    const runtime = bombadil && bombadil.exports.runtime;
+    return runtime ? runtime.nameExtractor(name, value) : value;
+  };
 
   modules["./index.ts"] = function(module, exports, require) {
     module.exports.__esModule=true;const { default: z, x, foo: bar } = __bombadilRequire("./other.ts");
@@ -38,8 +44,8 @@ expression: bundle
     const { default: file } = __bombadilRequire("./file.txt");
     const { default: data } = __bombadilRequire("./data.json");
     const { default: nspell } = __bombadilRequire("./node_modules/nspell/index.js");
-    const y = incr(x + z + bar.bar);
-    const computed = multiply(addFn(1, 2), MAGIC_NUMBER);
+    const y = __bombadilNamed("y", incr(x + z + bar.bar));
+    const computed = __bombadilNamed("computed", multiply(addFn(1, 2), MAGIC_NUMBER));
     Object.assign(module.exports, __bombadilRequire("./other.ts"));
     const text = file;
     const jsonx = data.x;
@@ -71,7 +77,7 @@ expression: bundle
     function multiply(a, b) {
     	return a * b;
     }
-    const MAGIC_NUMBER = double(21);
+    const MAGIC_NUMBER = __bombadilNamed("MAGIC_NUMBER", double(21));
     function getPi() {
     	return PI;
     }
@@ -460,6 +466,15 @@ expression: bundle
     		return this;
     	}
     	/**
+    	* Creates a new extractor cell by mapping `f` over this cell's value.
+    	*/
+    	map(f) {
+    		// It reads this cell's snapshot rather than extracting again, because extractors
+    		// run in the order they were created, meaning the original cell has already run
+    		// when the mapped cell runs.
+    		return new ExtractorCell(this.runtime, () => f(this.snapshot));
+    	}
+    	/**
     	* Runs the extractor and updates its cached value.
     	*/
     	run(state) {
@@ -484,6 +499,18 @@ expression: bundle
     		const index = this.extractors.length;
     		this.extractors.push(cell);
     		return index;
+    	}
+    	/**
+    	* Names `value` if it is one of this runtime's cells and has no name yet.
+    	* The bundle calls this with every top-level `const` bound to a call, so
+    	* it finds the cell by identity and reads nothing from any other value.
+    	*/
+    	nameExtractor(name, value) {
+    		const cell = this.extractors.find((cell) => cell === value);
+    		if (cell !== undefined && cell.name === null) {
+    			cell.named(name);
+    		}
+    		return value;
     	}
     	startTracking() {
     		this.tracking = true;
