@@ -18,6 +18,7 @@ use bombadil::{
     runner::PropertyViolation,
     specification::{convert::ToSchema, domain::Snapshot},
 };
+use bombadil::model::StepModel;
 use bombadil_schema::Time;
 use bombadil_schema::terminal::TerminalSize;
 use bombadil_schema::terminal::{
@@ -74,6 +75,7 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
         last_action: Option<&TerminalAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        model: &StepModel,
     ) -> Result<()> {
         let entry = TerminalTraceEntry {
             timestamp: Time::from_system_time(state.timestamp),
@@ -82,6 +84,8 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
                 scroll_offset: state.scroll_offset,
                 cursor: state.cursor.clone(),
                 exit_status: state.exit_status.clone(),
+                actions_available: Some(model.actions_available.clone()),
+                action_taken: model.action_taken.clone(),
             },
             snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: violations.iter().map(|v| v.to_schema()).collect(),
@@ -237,6 +241,13 @@ mod tests {
         }
     }
 
+    fn empty_model() -> StepModel {
+        StepModel {
+            actions_available: vec![],
+            action_taken: None,
+        }
+    }
+
     fn snapshot(input: &[u8]) -> Vec<u8> {
         let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
         terminal.set_continuation_max_bytes(1024).unwrap();
@@ -259,10 +270,22 @@ mod tests {
             false,
         )
         .unwrap();
+        let model = StepModel {
+            actions_available: vec![("00ff".to_string(), 0.5)],
+            action_taken: Some("0a0b".to_string()),
+        };
         writer
-            .write(&state(Some(snapshot.clone())), Some(&action), &[], &[])
+            .write(
+                &state(Some(snapshot.clone())),
+                Some(&action),
+                &[],
+                &[],
+                &model,
+            )
             .unwrap();
-        writer.write(&state(None), None, &[], &[]).unwrap();
+        writer
+            .write(&state(None), None, &[], &[], &empty_model())
+            .unwrap();
         writer.finish().unwrap();
 
         let mut reader =
@@ -276,6 +299,11 @@ mod tests {
             Some(schema::TerminalAction::TypeText { text }) if text == "hi"
         ));
         assert_eq!(states[0].metadata.state.scroll_offset, 3);
+        assert_eq!(
+            states[0].metadata.state.actions_available,
+            Some(vec![("00ff".to_string(), 0.5)])
+        );
+        assert_eq!(states[0].metadata.state.action_taken.as_deref(), Some("0a0b"));
         assert!(states[1].payload.is_none());
 
         let restored_snapshot = states[0].payload.as_ref().unwrap();

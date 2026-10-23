@@ -17,11 +17,19 @@ pub enum TerminalAction {
 
 /// Per-state metadata in a terminal trace. The screen contents (grid,
 /// scrollback, modes) are in the ghostty snapshot stored next to it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// No `Eq`: the spec probabilities in `actions_available` are `f64`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerminalStateSummary {
     pub scroll_offset: u32,
     pub cursor: TerminalCursor,
     pub exit_status: Option<ProcessExitStatus>,
+    /// Keys of the action templates available in this state, with their
+    /// spec probabilities (see `bombadil::model::StepModel`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions_available: Option<Vec<(String, f64)>>,
+    /// Key of the action template that led to this state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_taken: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

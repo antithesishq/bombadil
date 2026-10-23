@@ -286,6 +286,7 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
         last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        _model: &crate::model::StepModel,
     ) -> Result<()> {
         let names: Vec<_> = violations
             .iter()

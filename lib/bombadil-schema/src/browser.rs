@@ -13,6 +13,14 @@ pub struct BrowserStateSummary {
     /// `jpeg`), with the image as the state's payload.
     pub screenshot: String,
     pub resources: Resources,
+    /// Key of the action template that led to this state (see
+    /// `bombadil::model::action_key`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_taken: Option<String>,
+    /// Keys of the action templates available in this state, with their
+    /// spec probabilities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions_available: Option<Vec<(String, f64)>>,
     /// Ids of the code blocks run since the previous state, sorted. The
     /// run's `blocks.jsonl` says where each id is.
     #[serde(default, skip_serializing_if = "Option::is_none")]

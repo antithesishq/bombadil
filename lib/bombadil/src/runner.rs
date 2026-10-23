@@ -11,6 +11,7 @@ use serde_json::json;
 
 use crate::antithesis;
 use crate::driver::{DriverEvent, InterfaceSession, TraceWriter};
+use crate::model::StepModel;
 use crate::specification::convert::{
     ToSchema, violation_with_pretty_functions,
 };
@@ -150,6 +151,7 @@ fn run_test<
     strategy: &mut Strategy,
 ) -> Result<Strategy::StopValue> {
     let mut last_action: Option<Session::Action> = None;
+    let mut last_actions: Option<Tree<Session::ActionTemplate>> = None;
     let mut violations = Vec::new();
 
     let mut waiting_since = Instant::now();
@@ -220,14 +222,20 @@ fn run_test<
                     all_definite: step_result.all_definite,
                 };
 
+                let actions = strategy.constrain(&state, step_result.actions);
+
                 writer.write(
                     &state,
                     last_action.as_ref(),
                     &snapshots,
                     properties.violations,
+                    &StepModel::new(
+                        &actions,
+                        last_actions.as_ref().zip(last_action.as_ref()),
+                    ),
                 )?;
+                last_actions = Some(actions.clone());
 
-                let actions = strategy.constrain(&state, step_result.actions);
                 let control = strategy.on_new_state(
                     &state,
                     actions,

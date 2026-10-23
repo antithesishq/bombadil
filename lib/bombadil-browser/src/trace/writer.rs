@@ -8,6 +8,7 @@ use std::{
 use anyhow::Result;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
+    model::StepModel,
     specification::domain::Snapshot,
 };
 use bombadil_schema::browser::BrowserTraceEntry;
@@ -90,6 +91,7 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
         last_action: Option<&BrowserAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        model: &StepModel,
     ) -> Result<()> {
         let entry = TraceEntry {
             timestamp: state.timestamp,
@@ -101,6 +103,7 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
             snapshots: Cow::Borrowed(snapshots),
             violations: Cow::Borrowed(violations),
             resources: Cow::Borrowed(&state.resources),
+            model: Cow::Borrowed(model),
             branches: Cow::Borrowed(&state.coverage.branches),
         };
         self.last_transition_hash = state.transition_hash;

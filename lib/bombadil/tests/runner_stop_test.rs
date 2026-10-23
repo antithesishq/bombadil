@@ -412,6 +412,7 @@ impl bombadil::driver::TraceWriter<FakeSession> for FinishingWriter {
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _violations: &[bombadil::runner::PropertyViolation],
+        _model: &bombadil::model::StepModel,
     ) -> Result<()> {
         Ok(())
     }

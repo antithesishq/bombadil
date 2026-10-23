@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -8,6 +9,7 @@ use bombadil_schema::Time;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json as json;
 
+use crate::model::StepModel;
 use crate::runner::PropertyViolation;
 use crate::{
     render::Format,
@@ -44,6 +46,13 @@ pub trait InterfaceDriver {
 
 pub trait RunState {
     fn timestamp(&self) -> Time;
+
+    /// Named similarity hashes (64-bit simhashes) of the state, e.g.
+    /// `screen` or `coverage`, as the driver defines them. Training combines
+    /// them into one state simhash (see `crate::model`).
+    fn hashes(&self) -> BTreeMap<String, u64> {
+        BTreeMap::new()
+    }
 }
 
 pub trait ActionTemplate<Action> {
@@ -69,6 +78,7 @@ pub trait TraceWriter<Session: InterfaceSession> {
         last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        model: &StepModel,
     ) -> Result<()>;
 
     /// Completes the trace after the last state, reporting any failure to
@@ -87,8 +97,9 @@ impl<Session: InterfaceSession> TraceWriter<Session>
         last_action: Option<&<Session as InterfaceSession>::Action>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        model: &StepModel,
     ) -> Result<()> {
-        (**self).write(state, last_action, snapshots, violations)
+        (**self).write(state, last_action, snapshots, violations, model)
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -115,6 +126,7 @@ impl<Session: InterfaceSession> TraceWriter<Session> for NoopTraceWriter {
         _last_action: Option<&Session::Action>,
         _snapshots: &[Snapshot],
         _violations: &[PropertyViolation],
+        _model: &StepModel,
     ) -> Result<()> {
         Ok(())
     }

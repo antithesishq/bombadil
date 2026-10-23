@@ -10,6 +10,7 @@ use crate::{
     browser::{actions::BrowserAction, state::Resources},
     convert::ToSchema,
 };
+use bombadil::model::StepModel;
 use bombadil::specification::domain::Snapshot;
 
 pub mod writer;
@@ -27,6 +28,7 @@ pub struct TraceEntry<'a> {
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
     pub resources: Cow<'a, Resources>,
+    pub model: Cow<'a, StepModel>,
     pub branches: Cow<'a, [u32]>,
 }
 
@@ -43,6 +45,8 @@ impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
                 hash_current: self.hash_current,
                 screenshot: self.screenshot.to_string(),
                 resources: self.resources.to_schema(),
+                action_taken: self.model.action_taken.clone(),
+                actions_available: Some(self.model.actions_available.clone()),
                 branches: Some(self.branches.to_vec()),
             },
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),

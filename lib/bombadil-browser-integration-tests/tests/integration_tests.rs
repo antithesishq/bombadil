@@ -413,6 +413,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 _last_action: Option<&BrowserAction>,
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
+                _model: &bombadil::model::StepModel,
             ) -> anyhow::Result<()> {
                 self.state_times
                     .lock()
