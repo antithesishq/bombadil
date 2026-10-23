@@ -15,8 +15,10 @@ use anyhow::{Result, anyhow, bail};
 use bombadil::shrink::TraceActions;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
+    model::{Picked, StepModel},
     runner::PropertyViolation,
     specification::{convert::ToSchema, domain::Snapshot},
+    tree::Leaves,
 };
 use bombadil_schema::Time;
 use bombadil_schema::terminal::TerminalSize;
@@ -33,7 +35,9 @@ use libghostty_vt::{
 };
 
 use crate::{
-    driver::{TerminalAction, TerminalSession, viewport_grid},
+    driver::{
+        TerminalAction, TerminalActionTemplate, TerminalSession, viewport_grid,
+    },
     js::row_text,
     state::TerminalState,
 };
@@ -71,10 +75,16 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
     fn write(
         &mut self,
         state: &TerminalState,
-        last_action: Option<&TerminalAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        actions_available: &Leaves<'_, TerminalActionTemplate>,
+        action_previous: Option<&Picked<TerminalAction>>,
     ) -> Result<()> {
+        let last_action = action_previous.map(|picked| &picked.action);
+        let model = StepModel::new(
+            actions_available,
+            action_previous.map(|picked| picked.template),
+        );
         let entry = TerminalTraceEntry {
             timestamp: Time::from_system_time(state.timestamp),
             action: last_action.map(ToSchema::to_schema),
@@ -82,6 +92,8 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
                 scroll_offset: state.scroll_offset,
                 cursor: state.cursor.clone(),
                 exit_status: state.exit_status.clone(),
+                actions_available: Some(model.actions_available),
+                action_taken: model.action_taken,
             },
             snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: violations.iter().map(|v| v.to_schema()).collect(),
@@ -203,6 +215,10 @@ pub fn render_screen(
 mod tests {
     use std::{sync::Arc, time::SystemTime};
 
+    use crate::driver::TerminalAction;
+    use bombadil::model::action_key;
+    use bombadil::specification::generators::StringGenerator;
+    use bombadil::tree::Tree;
     use bombadil_schema::terminal::{
         TerminalColor, TerminalCursor, TerminalCursorPosition,
         TerminalCursorVisualStyle, TerminalGrid, TerminalSize,
@@ -254,15 +270,38 @@ mod tests {
         let action = TerminalAction::TypeText {
             text: "hi".to_string(),
         };
+        let type_text: TerminalActionTemplate = TerminalAction::TypeText {
+            text: StringGenerator::Text { length: 1..=8 },
+        };
+        let scroll_up: TerminalActionTemplate = TerminalAction::ScrollUp {};
+        let type_text_key = action_key(&type_text);
+        let scroll_up_key = action_key(&scroll_up);
         let mut writer = TerminalTraceWriter::initialize(
             &directory.path().join(TRACE_FILE_NAME),
             false,
         )
         .unwrap();
+        let tree = Tree::Branch {
+            branches: vec![
+                (1, Tree::Leaf { value: type_text }),
+                (1, Tree::Leaf { value: scroll_up }),
+            ],
+        };
         writer
-            .write(&state(Some(snapshot.clone())), Some(&action), &[], &[])
+            .write(
+                &state(Some(snapshot.clone())),
+                &[],
+                &[],
+                &tree.leaves(),
+                Some(&Picked {
+                    action: action.clone(),
+                    template: type_text_key,
+                }),
+            )
             .unwrap();
-        writer.write(&state(None), None, &[], &[]).unwrap();
+        writer
+            .write(&state(None), &[], &[], &tree.leaves(), None)
+            .unwrap();
         writer.finish().unwrap();
 
         let mut reader =
@@ -276,6 +315,12 @@ mod tests {
             Some(schema::TerminalAction::TypeText { text }) if text == "hi"
         ));
         assert_eq!(states[0].metadata.state.scroll_offset, 3);
+        assert_eq!(
+            states[0].metadata.state.actions_available,
+            Some(vec![(type_text_key, 0.5), (scroll_up_key, 0.5)])
+        );
+        assert_eq!(states[0].metadata.state.action_taken, Some(type_text_key));
+        assert_eq!(states[1].metadata.state.action_taken, None);
         assert!(states[1].payload.is_none());
 
         let restored_snapshot = states[0].payload.as_ref().unwrap();

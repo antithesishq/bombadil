@@ -10,8 +10,10 @@ use serde_json as json;
 
 use crate::runner::PropertyViolation;
 use crate::{
+    model::Picked,
     render::Format,
     specification::{domain::Snapshot, verifier::Verifier},
+    tree::Leaves,
 };
 
 /// Convert a JSON value produced by a specification's action generator
@@ -63,12 +65,14 @@ pub trait OutputWriter<Session: InterfaceSession> {
 }
 
 pub trait TraceWriter<Session: InterfaceSession> {
+    /// `action_previous` led to `state`; `None` for the first state only.
     fn write(
         &mut self,
         state: &Session::State,
-        last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        actions_available: &Leaves<'_, Session::ActionTemplate>,
+        action_previous: Option<&Picked<Session::Action>>,
     ) -> Result<()>;
 
     /// Completes the trace after the last state, reporting any failure to
@@ -83,12 +87,19 @@ impl<Session: InterfaceSession> TraceWriter<Session>
 {
     fn write(
         &mut self,
-        state: &<Session as InterfaceSession>::State,
-        last_action: Option<&<Session as InterfaceSession>::Action>,
+        state: &Session::State,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        actions_available: &Leaves<'_, Session::ActionTemplate>,
+        action_previous: Option<&Picked<Session::Action>>,
     ) -> Result<()> {
-        (**self).write(state, last_action, snapshots, violations)
+        (**self).write(
+            state,
+            snapshots,
+            violations,
+            actions_available,
+            action_previous,
+        )
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -112,9 +123,10 @@ impl<Session: InterfaceSession> TraceWriter<Session> for NoopTraceWriter {
     fn write(
         &mut self,
         _state: &Session::State,
-        _last_action: Option<&Session::Action>,
         _snapshots: &[Snapshot],
         _violations: &[PropertyViolation],
+        _actions_available: &Leaves<'_, Session::ActionTemplate>,
+        _action_previous: Option<&Picked<Session::Action>>,
     ) -> Result<()> {
         Ok(())
     }

@@ -756,4 +756,92 @@ mod tests {
             );
         }
     }
+
+    /// Keys are recorded in traces, so a change here invalidates them.
+    #[test]
+    fn action_keys_are_pinned() {
+        use BrowserAction::*;
+
+        let fingerprint = Fingerprint {
+            id: Some("submit".into()),
+            tag: "button".into(),
+            ..Default::default()
+        };
+        let point = Point {
+            x: 0.0..=10.0,
+            y: 0.0..=10.0,
+        };
+        let templates: Vec<BrowserActionTemplate> = vec![
+            Back,
+            Forward,
+            Click {
+                fingerprint: fingerprint.clone(),
+                point: point.clone(),
+            },
+            DoubleClick {
+                fingerprint,
+                point: point.clone(),
+            },
+            TypeText {
+                text: StringGenerator::Text { length: 1..=8 },
+            },
+            TypeText {
+                text: StringGenerator::Email,
+            },
+            PressKey { code: 13 },
+            ScrollUp {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
+            ScrollDown {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
+            Reload,
+            Wait,
+            SetFileInputFiles {
+                selector: "input#file".into(),
+                files: vec!["/tmp/example.txt".into()],
+            },
+            MouseDrag {
+                from: point.clone(),
+                to: point,
+                steps: 1..=5,
+                delay_millis: 0..=10,
+            },
+            SetViewport {
+                width: 320..=1920,
+                height: 240..=1080,
+            },
+            Custom {
+                name: "login".into(),
+                arguments: vec![],
+            },
+        ];
+        let keys: Vec<String> = templates
+            .iter()
+            .map(|template| {
+                let name = format!("{template:?}");
+                let name = name.split([' ', '{']).next().unwrap_or_default();
+                format!("{name} {}", bombadil::model::action_key(template))
+            })
+            .collect();
+        insta::assert_snapshot!(keys.join("\n"), @"
+        Back 60e839e3a8241847
+        Forward db87399e7f8d9fdf
+        Click 72474e52f53e216f
+        DoubleClick d1d66493adc47ad6
+        TypeText 9432d62189972886
+        TypeText 70ea82526866c7ea
+        PressKey c93bc450d62fd98b
+        ScrollUp 85945a0874e9846a
+        ScrollDown e809786b3eb1b325
+        Reload 5baacf2d68f01b69
+        Wait 7a8f94b3770568cd
+        SetFileInputFiles 13c1eaddc053ff99
+        MouseDrag f2b58b3b656817cb
+        SetViewport f0b94cef879752ec
+        Custom 1a6b8b2d9c57359d
+        ");
+    }
 }

@@ -24,13 +24,14 @@ use crate::{
         ActionTemplate, InterfaceDriver, InterfaceSession, OutputWriter, RunId,
         RunState,
     },
+    model::Picked,
     render::Formatted,
     runner::{
         self, ControlFlow, PropertiesState, PropertyViolation, RunStrategy,
     },
     specification::domain::Snapshot,
     styled::{maybe_bold, maybe_red},
-    tree::Tree,
+    tree::{Leaves, Tree},
 };
 
 const FUZZ_WORKER_ACTIONS_COUNT_MAX: usize = 32;
@@ -589,13 +590,12 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
     #[hotpath::measure]
     fn pick_action(
         &mut self,
-        tree: &Tree<Session::ActionTemplate>,
-    ) -> Result<Session::Action> {
-        let leaves = tree.leaves();
+        leaves: &Leaves<'_, Session::ActionTemplate>,
+    ) -> Result<Picked<Session::Action>> {
         if leaves.as_slice().is_empty() {
             anyhow::bail!("no actions available");
         }
-        Ok(leaves.pick(&mut self.rng)?.generate(&mut self.rng))
+        Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
     }
 }
 
@@ -611,11 +611,12 @@ impl<
     fn on_new_state(
         &mut self,
         state: &Session::State,
-        tree: Tree<Session::ActionTemplate>,
+        leaves: &Leaves<'_, Session::ActionTemplate>,
         last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> anyhow::Result<ControlFlow<Self::StopValue, Session::Action>> {
+    ) -> anyhow::Result<ControlFlow<Self::StopValue, Picked<Session::Action>>>
+    {
         if properties.all_definite {
             log::info!("all properties are definite, stopping");
             return Ok(ControlFlow::Stop(ExitReason::AllDefinite));
@@ -629,7 +630,7 @@ impl<
         let violations = properties.violations.to_vec();
         if let ControlFlow::Stop(_) = self.inner.on_new_state(
             state,
-            tree.clone(),
+            leaves,
             last_action,
             snapshots,
             properties,
@@ -641,11 +642,11 @@ impl<
             return Ok(ControlFlow::Stop(ExitReason::Stopped));
         }
 
-        let action = self.pick_action(&tree)?;
+        let picked = self.pick_action(leaves)?;
 
-        self.send_step(state, Some(action.clone()), violations);
+        self.send_step(state, Some(picked.action.clone()), violations);
 
-        Ok(ControlFlow::Continue(action))
+        Ok(ControlFlow::Continue(picked))
     }
 
     fn deadline(&self) -> Option<Time> {

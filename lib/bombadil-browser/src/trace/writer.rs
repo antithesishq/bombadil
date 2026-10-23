@@ -3,13 +3,18 @@ use std::{borrow::Cow, path::PathBuf};
 use anyhow::Result;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
+    model::{Picked, StepModel},
     specification::domain::Snapshot,
+    tree::Leaves,
 };
 use bombadil_schema::browser::BrowserTraceEntry;
 use bombadil_trace::{TraceDriver, TraceFileWriter};
 
 use crate::{
-    browser::{actions::BrowserAction, state::BrowserState},
+    browser::{
+        actions::{BrowserAction, BrowserActionTemplate},
+        state::BrowserState,
+    },
     convert::ToSchema,
     driver::BrowserSession,
     trace::{PropertyViolation, TraceEntry},
@@ -58,10 +63,16 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
     fn write(
         &mut self,
         state: &BrowserState,
-        last_action: Option<&BrowserAction>,
         snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        actions_available: &Leaves<'_, BrowserActionTemplate>,
+        action_previous: Option<&Picked<BrowserAction>>,
     ) -> Result<()> {
+        let last_action = action_previous.map(|picked| &picked.action);
+        let model = StepModel::new(
+            actions_available,
+            action_previous.map(|picked| picked.template),
+        );
         let entry = TraceEntry {
             timestamp: state.timestamp,
             url: Cow::Borrowed(&state.url),
@@ -72,6 +83,8 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
             snapshots: Cow::Borrowed(snapshots),
             violations: Cow::Borrowed(violations),
             resources: Cow::Borrowed(&state.resources),
+            actions_available: Cow::Borrowed(&model.actions_available),
+            action_taken: model.action_taken,
             branches: Cow::Borrowed(&state.coverage.branches),
         };
         self.last_transition_hash = state.transition_hash;

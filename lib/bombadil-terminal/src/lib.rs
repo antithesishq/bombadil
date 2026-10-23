@@ -3,13 +3,14 @@ use std::io::Write;
 use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{ActionTemplate, RunState};
+use bombadil::driver::RunState;
+use bombadil::model::{Picked, accepting_key};
 use bombadil::render::Formatted;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::styled;
-use bombadil::tree::Tree;
+use bombadil::tree::Leaves;
 use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalStyle, TerminalUnderline,
@@ -47,24 +48,30 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
     #[hotpath::measure]
     fn pick_action(
         &mut self,
-        tree: Tree<TerminalActionTemplate>,
-    ) -> Result<TerminalAction> {
-        let tree = tree
-            .prune()
-            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
+        leaves: &Leaves<'_, TerminalActionTemplate>,
+    ) -> Result<Picked<TerminalAction>> {
+        if leaves.as_slice().is_empty() {
+            bail!("no actions available");
+        }
         match &mut self.mode {
             TerminalTestMode::RandomWalk => {
-                Ok(tree.leaves().pick(&mut self.rng)?.generate(&mut self.rng))
+                Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
             TerminalTestMode::Reproduce(actions) => {
                 let original = actions.pop_front().ok_or_else(|| {
                     anyhow!("no remaining actions in reproduce queue")
                 })?;
-                let available = tree.values();
-                if available.iter().any(|template| template.accepts(&original))
-                {
-                    Ok(original)
+                if let Some(template) = accepting_key(leaves, &original) {
+                    Ok(Picked {
+                        action: original,
+                        template,
+                    })
                 } else {
+                    let available: Vec<_> = leaves
+                        .as_slice()
+                        .iter()
+                        .map(|(template, _)| template)
+                        .collect();
                     bail!(
                         "reproduce: action {:?} not produced by the spec at this state:\n\n{:?}",
                         original,
@@ -78,7 +85,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
     fn stop(
         &mut self,
         reason: ExitReason,
-    ) -> Result<ControlFlow<ExitReason, TerminalAction>> {
+    ) -> Result<ControlFlow<ExitReason, Picked<TerminalAction>>> {
         Ok(ControlFlow::Stop(reason))
     }
 }
@@ -92,11 +99,11 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
     fn on_new_state(
         &mut self,
         state: &TerminalState,
-        tree: Tree<TerminalActionTemplate>,
+        leaves: &Leaves<'_, TerminalActionTemplate>,
         _last_action: Option<&TerminalAction>,
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> Result<ControlFlow<Self::StopValue, TerminalAction>> {
+    ) -> Result<ControlFlow<Self::StopValue, Picked<TerminalAction>>> {
         use std::fmt::Write;
 
         self.states_seen += 1;
@@ -180,7 +187,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
             return self.stop(ExitReason::TimeLimit);
         }
 
-        let action = self.pick_action(tree)?;
+        let picked = self.pick_action(leaves)?;
         let elapsed = std::time::Duration::from_micros(
             state
                 .timestamp()
@@ -188,12 +195,17 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
                 .saturating_sub(test_start.as_micros()),
         );
         if !self.quiet {
-            writeln!(buffer, "{} {}", Formatted(&elapsed), Formatted(&action))?;
+            writeln!(
+                buffer,
+                "{} {}",
+                Formatted(&elapsed),
+                Formatted(&picked.action)
+            )?;
             print!("{}", buffer);
             std::io::stdout().flush()?;
         }
 
-        Ok(ControlFlow::Continue(action))
+        Ok(ControlFlow::Continue(picked))
     }
 
     fn deadline(&self) -> Option<bombadil_schema::Time> {
