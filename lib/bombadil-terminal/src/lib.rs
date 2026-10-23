@@ -54,7 +54,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
             .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TerminalTestMode::RandomWalk => {
-                Ok(tree.pick(&mut self.rng)?.generate(&mut self.rng))
+                Ok(tree.leaves().pick(&mut self.rng)?.generate(&mut self.rng))
             }
             TerminalTestMode::Reproduce(actions) => {
                 let original = actions.pop_front().ok_or_else(|| {
