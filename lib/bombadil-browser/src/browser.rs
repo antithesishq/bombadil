@@ -960,7 +960,8 @@ fn process_event(
             });
 
             match result {
-                Ok(browser_state) => {
+                Ok(mut browser_state) => {
+                    browser_state.compute_hashes();
                     context
                         .sender
                         .send(BrowserEvent::StateChanged(browser_state))?;

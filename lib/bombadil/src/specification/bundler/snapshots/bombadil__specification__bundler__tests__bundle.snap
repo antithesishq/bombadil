@@ -30,6 +30,12 @@ expression: bundle
   }
 
   globalThis.__bombadilRequire = require;
+  // A top-level `const x = <call>` names the extractor cell it binds (an
+  // `extract(...)`, a chained `extract(...).setStateKeyBehavior(...)`, or a
+  // derived `cell.map(...)`); anything else passes through unchanged.
+  globalThis.__bombadilNamed = function(name, value) {
+    return value && value.__bombadilExtractor === true && value.name === null ? value.named(name) : value;
+  };
 
   modules["./index.ts"] = function(module, exports, require) {
     module.exports.__esModule=true;const { default: z, x, foo: bar } = __bombadilRequire("./other.ts");
@@ -38,8 +44,8 @@ expression: bundle
     const { default: file } = __bombadilRequire("./file.txt");
     const { default: data } = __bombadilRequire("./data.json");
     const { default: nspell } = __bombadilRequire("./node_modules/nspell/index.js");
-    const y = incr(x + z + bar.bar);
-    const computed = multiply(addFn(1, 2), MAGIC_NUMBER);
+    const y = __bombadilNamed("y", incr(x + z + bar.bar));
+    const computed = __bombadilNamed("computed", multiply(addFn(1, 2), MAGIC_NUMBER));
     Object.assign(module.exports, __bombadilRequire("./other.ts"));
     const text = file;
     const jsonx = data.x;
@@ -60,7 +66,7 @@ expression: bundle
   };
 
   modules["./node_modules/nspell/index.js"] = function(module, exports, require) {
-    module.exports.__esModule=true;var isBuffer = __bombadilRequire("./node_modules/is-buffer/index.js");
+    module.exports.__esModule=true;var isBuffer = __bombadilNamed("isBuffer", __bombadilRequire("./node_modules/is-buffer/index.js"));
     module.exports = function nspell(value) {
     	return isBuffer(value) ? "is a buffer" : "not a buffer";
     };
@@ -71,7 +77,7 @@ expression: bundle
     function multiply(a, b) {
     	return a * b;
     }
-    const MAGIC_NUMBER = double(21);
+    const MAGIC_NUMBER = __bombadilNamed("MAGIC_NUMBER", double(21));
     function getPi() {
     	return PI;
     }
@@ -435,6 +441,8 @@ expression: bundle
 
   modules["@antithesishq/bombadil/internal"] = function(module, exports, require) {
     module.exports.__esModule=true;class ExtractorCell {
+    	/** Brand for the bundler's naming helper (`__bombadilNamed`). */
+    	__bombadilExtractor = true;
     	name = null;
     	index;
     	snapshot;
@@ -458,6 +466,13 @@ expression: bundle
     	named(name) {
     		this.name = name;
     		return this;
+    	}
+    	/**
+    	* A new extractor cell whose value is `f` of this one's, with its own name
+    	* and state-key behavior.
+    	*/
+    	map(f) {
+    		return new ExtractorCell(this.runtime, (state) => f(this.extract(state)));
     	}
     	/**
     	* Runs the extractor and updates its cached value.

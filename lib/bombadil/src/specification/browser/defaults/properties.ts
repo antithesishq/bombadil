@@ -1,6 +1,53 @@
 import { always, Formula } from "@antithesishq/bombadil";
 import { extract } from "@antithesishq/bombadil/browser";
 
+// Per-session analytics and campaign parameters (`_gl`, `utm_*`, ad click ids),
+// which would make every page a new location.
+function isTrackingParameter(key: string): boolean {
+  return (
+    key.startsWith("utm_") ||
+    key.startsWith("_ga") ||
+    key.startsWith("_hs") ||
+    [
+      "_gl", "gclid", "dclid", "gbraid", "wbraid", "fbclid", "msclkid", "twclid",
+      "yclid", "igshid", "mc_cid", "mc_eid", "hsCtaTracking",
+    ].includes(key)
+  );
+}
+
+// All digits or a UUID. Masked as `#id`, so that `/posts/42` and `/posts/43`
+// are one place to the key.
+function isId(value: string): boolean {
+  return /^[0-9]+$/.test(value) || /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value);
+}
+
+function decode(part: string): string {
+  try {
+    return decodeURIComponent(part.replace(/\+/g, " "));
+  } catch {
+    return part;
+  }
+}
+
+// The page's location for the state key: the path with ids masked (`/posts/42/`
+// → `/posts/#id`), the fragment, and the query without tracking parameters and
+// with id values masked. No host.
+export const abstractLocation = extract((state) => {
+  const { pathname: rawPath, search, hash } = state.window.location;
+  const pathname = "/" + rawPath.split("/").filter((s) => s.length > 0).map((s) => (isId(s) ? "#id" : s)).join("/");
+  const query: [string, string][] = [];
+  for (const pair of search.replace(/^\?/, "").split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = decode(eq < 0 ? pair : pair.slice(0, eq));
+    const value = eq < 0 ? "" : decode(pair.slice(eq + 1));
+    if (isTrackingParameter(key)) continue;
+    query.push([key, isId(value) ? "#id" : value]);
+  }
+  query.sort();
+  return { pathname, hash, query };
+});
+
 const responseStatus = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];
   return first && first instanceof PerformanceNavigationTiming
