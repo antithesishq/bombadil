@@ -1,11 +1,12 @@
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use anyhow::{Result, bail};
 
 use crate::{
-    RECORD_HEADER_CRC_OFFSET, RECORD_HEADER_LEN, RECORD_LENGTH_OFFSET,
-    RECORD_PAYLOAD_BYTES_MAX, RECORD_PAYLOAD_CRC_OFFSET, RECORD_TAG_OFFSET,
-    tag,
+    PAYLOAD_REF_CRC_OFFSET, PAYLOAD_REF_LEN, PAYLOAD_REF_LENGTH_OFFSET,
+    PAYLOAD_REF_STATE_OFFSET, RECORD_HEADER_CRC_OFFSET, RECORD_HEADER_LEN,
+    RECORD_LENGTH_OFFSET, RECORD_PAYLOAD_BYTES_MAX, RECORD_PAYLOAD_CRC_OFFSET,
+    RECORD_TAG_OFFSET, tag,
 };
 
 /// Fails if a payload of `length` bytes can't be written to a trace.
@@ -74,7 +75,7 @@ pub(crate) fn read_full(
 pub(crate) struct RecordHeader {
     pub tag: u16,
     pub length: usize,
-    payload_crc: u32,
+    pub payload_crc: u32,
 }
 
 impl RecordHeader {
@@ -153,6 +154,8 @@ pub(crate) struct RawRecord {
     /// Byte offset of the payload in the trace file.
     pub payload_offset: u64,
     pub payload_length: usize,
+    /// The CRC-32 of the payload, checked even if it was skipped.
+    pub payload_crc: u32,
     pub tag: u16,
     /// The payload, unless it was skipped.
     pub payload: Option<Vec<u8>>,
@@ -182,7 +185,7 @@ impl<R: Read> RecordReader<R> {
     }
 
     /// The next record, with its payload unless `keep_payload` is false
-    /// and it isn't a state's metadata.
+    /// and it isn't a state's metadata or a payload reference.
     pub fn next_record(
         &mut self,
         keep_payload: bool,
@@ -210,8 +213,21 @@ impl<R: Read> RecordReader<R> {
             return Ok(self.truncated());
         }
         let header = RecordHeader::parse(header)?;
+        // Checked before its payload is read, so a reference can't pass
+        // for a cut record either.
+        if header.tag == tag::STATE_PAYLOAD_REF
+            && header.length != PAYLOAD_REF_LEN
+        {
+            bail!(
+                "corrupt payload reference ({} bytes, not {PAYLOAD_REF_LEN})",
+                header.length
+            );
+        }
         let keep = keep_payload
-            || matches!(header.tag, tag::STATE | tag::STATE_WITH_PAYLOAD);
+            || matches!(
+                header.tag,
+                tag::STATE | tag::STATE_WITH_PAYLOAD | tag::STATE_PAYLOAD_REF
+            );
         let Some(payload) = header.read_payload(&mut self.reader, keep)? else {
             return Ok(self.truncated());
         };
@@ -219,6 +235,7 @@ impl<R: Read> RecordReader<R> {
             index: self.records_read,
             payload_offset: self.offset + RECORD_HEADER_LEN as u64,
             payload_length: header.length,
+            payload_crc: header.payload_crc,
             tag: header.tag,
             payload,
         };
@@ -247,6 +264,106 @@ impl<R: Read> RecordReader<R> {
         );
         self.failed = true;
         None
+    }
+}
+
+impl<R: Read + Seek> RecordReader<R> {
+    /// Reads again the payload of the [`tag::STATE_PAYLOAD`] record at
+    /// `offset` (an earlier record's [`RawRecord::payload_offset`]),
+    /// checking that it is the one read there before, of `length` bytes
+    /// with CRC-32 `crc`. Reading then carries on where it left off, and
+    /// stops if this fails.
+    pub fn read_payload_again(
+        &mut self,
+        offset: u64,
+        length: usize,
+        crc: u32,
+    ) -> Result<Vec<u8>> {
+        let header_offset = offset.saturating_sub(RECORD_HEADER_LEN as u64);
+        let payload = self
+            .reader
+            .seek(SeekFrom::Start(header_offset))
+            .map_err(cant_seek)
+            .and_then(|_| read_payload_record(&mut self.reader, length, crc));
+        let payload = payload.and_then(|payload| {
+            self.reader
+                .seek(SeekFrom::Start(self.offset))
+                .map_err(cant_seek)?;
+            Ok(payload)
+        });
+        if payload.is_err() {
+            self.failed = true;
+        }
+        payload
+    }
+}
+
+/// A failure to seek back to a shared payload, which a pipe can't.
+fn cant_seek(error: io::Error) -> anyhow::Error {
+    anyhow::Error::from(error).context(
+        "failed to seek to it (reading payloads shared between states \
+         needs a seekable trace file, not a pipe)",
+    )
+}
+
+/// Reads the [`tag::STATE_PAYLOAD`] record `reader` is at, which must
+/// have a payload of `length` bytes with CRC-32 `crc`, and returns its
+/// payload, checked against both checksums.
+fn read_payload_record(
+    reader: &mut impl Read,
+    length: usize,
+    crc: u32,
+) -> Result<Vec<u8>> {
+    let mut header = [0; RECORD_HEADER_LEN];
+    if read_full(reader, &mut header)? < header.len() {
+        bail!("truncated state payload");
+    }
+    let header = RecordHeader::parse(header)?;
+    if header.tag != tag::STATE_PAYLOAD
+        || header.length != length
+        || header.payload_crc != crc
+    {
+        bail!("not the state payload read there before");
+    }
+    match header.read_payload(reader, true)? {
+        Some(Some(payload)) => Ok(payload),
+        _ => bail!("truncated state payload"),
+    }
+}
+
+/// The payload of a [`tag::STATE_PAYLOAD_REF`] record: the earlier state
+/// whose payload it shares, and that payload's length and CRC-32.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PayloadRef {
+    pub state: u32,
+    pub length: u32,
+    pub crc: u32,
+}
+
+impl PayloadRef {
+    pub fn encode(&self) -> [u8; PAYLOAD_REF_LEN] {
+        let mut bytes = [0; PAYLOAD_REF_LEN];
+        bytes[PAYLOAD_REF_STATE_OFFSET..PAYLOAD_REF_LENGTH_OFFSET]
+            .copy_from_slice(&self.state.to_le_bytes());
+        bytes[PAYLOAD_REF_LENGTH_OFFSET..PAYLOAD_REF_CRC_OFFSET]
+            .copy_from_slice(&self.length.to_le_bytes());
+        bytes[PAYLOAD_REF_CRC_OFFSET..PAYLOAD_REF_LEN]
+            .copy_from_slice(&self.crc.to_le_bytes());
+        bytes
+    }
+
+    /// The reference `bytes` hold, or `None` if they are too short or
+    /// too long to be one.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        let bytes: &[u8; PAYLOAD_REF_LEN] = bytes.try_into().ok()?;
+        let field = |start: usize, end: usize| {
+            u32::from_le_bytes(bytes[start..end].try_into().expect("4 bytes"))
+        };
+        Some(PayloadRef {
+            state: field(PAYLOAD_REF_STATE_OFFSET, PAYLOAD_REF_LENGTH_OFFSET),
+            length: field(PAYLOAD_REF_LENGTH_OFFSET, PAYLOAD_REF_CRC_OFFSET),
+            crc: field(PAYLOAD_REF_CRC_OFFSET, PAYLOAD_REF_LEN),
+        })
     }
 }
 
@@ -354,6 +471,40 @@ mod tests {
         assert!(RecordHeader::parse(header(max + 1)).is_err());
         assert!(check_payload_length(RECORD_PAYLOAD_BYTES_MAX).is_ok());
         assert!(check_payload_length(RECORD_PAYLOAD_BYTES_MAX + 1).is_err());
+    }
+
+    /// A payload reference of another length is a bad record, even if
+    /// the file ends before its payload would.
+    #[test]
+    fn rejects_payload_references_of_another_length() {
+        for (length, cut) in
+            [(PAYLOAD_REF_LEN - 1, 0), (PAYLOAD_REF_LEN + 1, 2)]
+        {
+            let mut file = Vec::new();
+            write_record(
+                &mut file,
+                tag::STATE_PAYLOAD_REF,
+                &[&vec![0; length]],
+            )
+            .unwrap();
+            file.truncate(file.len() - cut);
+            let error = format!("{:#}", records(&file).unwrap_err());
+            assert_eq!(
+                error,
+                format!(
+                    "failed to read trace record 0: corrupt payload \
+                     reference ({length} bytes, not 12)"
+                )
+            );
+        }
+        let mut file = Vec::new();
+        write_record(
+            &mut file,
+            tag::STATE_PAYLOAD_REF,
+            &[&[0; PAYLOAD_REF_LEN]],
+        )
+        .unwrap();
+        assert_eq!(records(&file).unwrap().len(), 1);
     }
 
     #[test]

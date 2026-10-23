@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::File,
     io::{self, BufWriter, Write},
     path::{Path, PathBuf},
@@ -14,8 +15,12 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
 use crate::{
-    TRACE_FILE_NAME, TraceDriver, WRITER_FAILED_EARLIER, envelope::driver_code,
-    record::check_payload_length, tag, write_envelope, write_record,
+    ENVELOPE_LEN, PAYLOAD_REF_LEN, RECORD_HEADER_LEN, TRACE_FILE_NAME,
+    TraceDriver, WRITER_FAILED_EARLIER,
+    envelope::driver_code,
+    reader::PositionalReader,
+    record::{PayloadRef, check_payload_length, read_full},
+    tag, write_envelope, write_record,
 };
 
 // Bounds the number of in-flight states to cap memory while letting the
@@ -34,6 +39,14 @@ const PENDING_STATES_MAX: usize = 32;
 /// Dropping the writer without finishing it writes the queued states but
 /// no END, so the trace reads as unfinished, and can only log a failure
 /// (unless a call already returned it).
+///
+/// A payload identical to an earlier state's is written as a
+/// [`tag::STATE_PAYLOAD_REF`] record naming that state. The thread
+/// compares the previous payload in memory, and older ones with the bytes
+/// in the file, which it flushes first; it keeps only the CRC-32, length
+/// and offset of each distinct payload, and of at most 4 distinct
+/// payloads with the same CRC-32 and length. Payloads of 12 bytes or
+/// fewer, no larger than a reference, are always written in full.
 ///
 /// Once the thread has failed, every call fails: the first one with the
 /// error that stopped it, later ones with a copy of its message.
@@ -95,11 +108,22 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
         } else {
             (trace_path.clone(), create_new_trace(&trace_path)?)
         };
+        // To read payloads back, to compare later ones with them.
+        let read_back = file.try_clone();
         let mut trace_file = BufWriter::new(wrap(file));
-        let created = write_envelope(&mut trace_file, driver)
-            .and_then(|()| trace_file.flush())
-            .map_err(trace_write_error)
-            .and_then(|()| Self::start(trace_file))
+        let created = read_back
+            .with_context(|| {
+                format!(
+                    "failed to open {} again, to compare payloads with it",
+                    path.display()
+                )
+            })
+            .and_then(|read_back| {
+                write_envelope(&mut trace_file, driver)
+                    .and_then(|()| trace_file.flush())
+                    .map_err(trace_write_error)?;
+                Self::start(trace_file, read_back)
+            })
             .and_then(|writer| {
                 // The last step that can fail, so a failure leaves an
                 // existing trace as it was. Writing continues on the same
@@ -126,14 +150,16 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
         }
     }
 
-    /// Starts the worker, writing to `trace_file` after its envelope.
+    /// Starts the worker, writing to `trace_file` after its envelope, and
+    /// reading payloads back through `read_back`, a handle of the file.
     fn start<W: Write + Send + 'static>(
         trace_file: BufWriter<W>,
+        read_back: File,
     ) -> Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(PENDING_STATES_MAX);
         let worker = std::thread::Builder::new()
             .name("bombadil-trace-writer".to_string())
-            .spawn(move || worker_loop(receiver, trace_file))?;
+            .spawn(move || worker_loop(receiver, trace_file, read_back))?;
         Ok(TraceFileWriter {
             sender: Some(sender),
             worker: Some(worker),
@@ -233,6 +259,7 @@ impl<M> TraceFileWriter<M> {
 /// Creates `trace_path`, failing if there is a file there.
 fn create_new_trace(trace_path: &Path) -> Result<File> {
     match File::options()
+        .read(true)
         .write(true)
         .create_new(true)
         .open(trace_path)
@@ -271,7 +298,12 @@ fn create_temp(run_path: &Path) -> Result<(PathBuf, File)> {
     for _ in 0..TEMP_ATTEMPTS_MAX {
         let n = TEMP_FILES_CREATED.fetch_add(1, Ordering::Relaxed);
         let path = temp_path(run_path, n);
-        match File::options().write(true).create_new(true).open(&path) {
+        match File::options()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => {
@@ -317,8 +349,13 @@ impl<M> Drop for TraceFileWriter<M> {
 fn worker_loop<M: Serialize, W: Write>(
     receiver: mpsc::Receiver<Message<M>>,
     mut trace_file: BufWriter<W>,
+    read_back: File,
 ) -> Result<()> {
     let mut metadata = Vec::new();
+    let mut payloads = WrittenPayloads::new(read_back);
+    let mut states_written: u64 = 0;
+    // Where the next record starts in the file.
+    let mut offset = ENVELOPE_LEN as u64;
     loop {
         let message = match receiver.try_recv() {
             Ok(message) => message,
@@ -347,15 +384,48 @@ fn worker_loop<M: Serialize, W: Write>(
                     None => tag::STATE,
                 };
                 write_record(&mut trace_file, state_tag, &[&metadata])
-                    .and_then(|()| match &state.payload {
-                        Some(payload) => write_record(
-                            &mut trace_file,
-                            tag::STATE_PAYLOAD,
-                            &[payload],
-                        ),
-                        None => Ok(()),
-                    })
                     .map_err(trace_write_error)?;
+                offset += (RECORD_HEADER_LEN + metadata.len()) as u64;
+                if let Some(payload) = &state.payload {
+                    let crc = crc32fast::hash(payload);
+                    match payloads.find(payload, crc, &mut trace_file)? {
+                        Some(earlier) => {
+                            let reference = PayloadRef {
+                                state: earlier,
+                                length: payload.len() as u32,
+                                crc,
+                            }
+                            .encode();
+                            write_record(
+                                &mut trace_file,
+                                tag::STATE_PAYLOAD_REF,
+                                &[&reference],
+                            )
+                            .map_err(trace_write_error)?;
+                            offset +=
+                                (RECORD_HEADER_LEN + reference.len()) as u64;
+                            payloads.referred(payload, earlier);
+                        }
+                        None => {
+                            write_record(
+                                &mut trace_file,
+                                tag::STATE_PAYLOAD,
+                                &[payload],
+                            )
+                            .map_err(trace_write_error)?;
+                            let payload_offset =
+                                offset + RECORD_HEADER_LEN as u64;
+                            offset = payload_offset + payload.len() as u64;
+                            payloads.written(
+                                payload,
+                                crc,
+                                states_written,
+                                payload_offset,
+                            );
+                        }
+                    }
+                }
+                states_written += 1;
             }
             Message::Finish => {
                 // Every state is written: mark the trace as finished.
@@ -367,6 +437,156 @@ fn worker_loop<M: Serialize, W: Write>(
     }
     // Dropped without being finished: leave the trace unfinished.
     trace_file.flush().map_err(trace_write_error)
+}
+
+/// The payloads written so far, so that a payload identical to an
+/// earlier state's can be written as a reference to that state instead
+/// (see [`tag::STATE_PAYLOAD_REF`]).
+///
+/// Candidates are found by CRC-32 and length, and confirmed by comparing
+/// bytes, so a reference is only written for an identical payload. The
+/// previous state's payload is still in memory and compared there, as
+/// repeating it is the common case (a screen that didn't change). Older
+/// ones are compared with the bytes in the file, after flushing what is
+/// buffered, so a reference is only written to a payload that the file
+/// holds in full. Memory grows with the number of distinct payloads, by
+/// a few dozen bytes each, not with their size.
+///
+/// Only the first [`CANDIDATES_PER_KEY_MAX`] distinct payloads with the
+/// same CRC-32 and length are kept as candidates, so payloads made to
+/// collide can't make each state compare with every earlier one: each
+/// state reads back at most that many payloads.
+struct WrittenPayloads {
+    // The state whose record holds each payload, and the payload's
+    // offset, by CRC-32 and length.
+    by_crc: HashMap<(u32, usize), Vec<(u32, u64)>>,
+    // The previous state's payload, and the state whose record holds it.
+    previous: Option<(Arc<Vec<u8>>, u32)>,
+    // A handle of the trace file, read by offset (see `PositionalReader`:
+    // on Unix without moving its cursor, elsewhere moving and restoring
+    // it).
+    read_back: File,
+    // Whether reading back failed, after which older payloads aren't
+    // compared any more.
+    read_back_failed: bool,
+    // Holds what is read back, a chunk at a time.
+    chunk: Vec<u8>,
+}
+
+// The size of the chunks payloads are read back in.
+const READ_BACK_CHUNK_BYTES: usize = 64 * 1024;
+
+/// How many distinct payloads with the same CRC-32 and length a writer
+/// keeps to compare later payloads with, as the [`TraceFileWriter`] and
+/// [crate] docs say.
+const CANDIDATES_PER_KEY_MAX: usize = 4;
+
+impl WrittenPayloads {
+    fn new(read_back: File) -> Self {
+        WrittenPayloads {
+            by_crc: HashMap::new(),
+            previous: None,
+            read_back,
+            read_back_failed: false,
+            chunk: Vec::new(),
+        }
+    }
+
+    /// The earlier state whose record holds a payload identical to
+    /// `payload`, whose CRC-32 is `crc`, if any.
+    fn find<W: Write>(
+        &mut self,
+        payload: &Arc<Vec<u8>>,
+        crc: u32,
+        trace_file: &mut BufWriter<W>,
+    ) -> Result<Option<u32>> {
+        if payload.len() <= PAYLOAD_REF_LEN {
+            return Ok(None);
+        }
+        if let Some((previous, state)) = &self.previous
+            && (Arc::ptr_eq(previous, payload) || previous == payload)
+        {
+            return Ok(Some(*state));
+        }
+        let Some(candidates) = self.by_crc.get(&(crc, payload.len())) else {
+            return Ok(None);
+        };
+        if self.read_back_failed {
+            return Ok(None);
+        }
+        // So the candidates are in the file, not partly in the buffer.
+        trace_file.flush().map_err(trace_write_error)?;
+        for &(state, offset) in candidates {
+            match file_holds(&self.read_back, offset, payload, &mut self.chunk)
+            {
+                Ok(true) => return Ok(Some(state)),
+                Ok(false) => {}
+                // Only a missed saving: the payload is written in full.
+                Err(error) => {
+                    log::warn!(
+                        "failed to read back the payload of trace state \
+                         {state}: {error}; payloads identical to older \
+                         ones are written in full from now on"
+                    );
+                    self.read_back_failed = true;
+                    return Ok(None);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Notes that `payload`, with CRC-32 `crc`, was written for state
+    /// `state`, at `offset`.
+    fn written(
+        &mut self,
+        payload: &Arc<Vec<u8>>,
+        crc: u32,
+        state: u64,
+        offset: u64,
+    ) {
+        // A state that can't be referred to isn't kept.
+        let Ok(state) = u32::try_from(state) else {
+            self.previous = None;
+            return;
+        };
+        // Candidates are only looked at while reading back works.
+        if payload.len() > PAYLOAD_REF_LEN && !self.read_back_failed {
+            let candidates =
+                self.by_crc.entry((crc, payload.len())).or_default();
+            if candidates.len() < CANDIDATES_PER_KEY_MAX {
+                candidates.push((state, offset));
+            }
+        }
+        self.previous = Some((payload.clone(), state));
+    }
+
+    /// Notes that `payload` was written as a reference to `state`.
+    fn referred(&mut self, payload: &Arc<Vec<u8>>, state: u32) {
+        self.previous = Some((payload.clone(), state));
+    }
+}
+
+/// Whether `file` holds `payload` at `offset`, read a chunk at a time
+/// into `chunk_buffer`.
+fn file_holds(
+    file: &File,
+    offset: u64,
+    payload: &[u8],
+    chunk_buffer: &mut Vec<u8>,
+) -> io::Result<bool> {
+    chunk_buffer.resize(payload.len().min(READ_BACK_CHUNK_BYTES), 0);
+    let mut reader = PositionalReader {
+        file,
+        position: offset,
+    };
+    for expected in payload.chunks(READ_BACK_CHUNK_BYTES) {
+        let chunk = &mut chunk_buffer[..expected.len()];
+        if read_full(&mut reader, chunk)? < chunk.len() || chunk != expected {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn trace_write_error(error: io::Error) -> anyhow::Error {
@@ -389,6 +609,282 @@ mod tests {
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
     struct Metadata {
         n: u32,
+    }
+
+    /// The tags of the records of the trace in `directory`.
+    fn tags(directory: &Path) -> Vec<u16> {
+        let file = File::open(directory.join(TRACE_FILE_NAME)).unwrap();
+        let mut file = io::BufReader::new(file);
+        crate::envelope::read_envelope(&mut file).unwrap();
+        let mut records = crate::record::RecordReader::new(file);
+        std::iter::from_fn(|| records.next_record(false))
+            .map(|record| record.unwrap().tag)
+            .collect()
+    }
+
+    /// A state's payload and the state its record names, as read back.
+    type ReadBack = (Option<Vec<u8>>, Option<usize>);
+
+    /// Writes states with these payloads to a new trace in `directory`,
+    /// holding the writer thread until all are queued, so they are
+    /// written in one go, and the small ones stay buffered unless the
+    /// writer flushes them to read them back. Returns each state's
+    /// payload and the state its record names as read back, and how many
+    /// times the writer flushed to compare payloads with older ones.
+    fn write_payloads(
+        directory: &Path,
+        payloads: &[Option<Arc<Vec<u8>>>],
+    ) -> (Vec<ReadBack>, usize) {
+        /// A file whose second flush (the first after the envelope's)
+        /// waits for the test, counting flushes.
+        struct Gated {
+            file: File,
+            flushes: Arc<AtomicU64>,
+            gate: Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>,
+        }
+
+        impl Write for Gated {
+            fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+                self.file.write(buffer)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                let flushes = self.flushes.fetch_add(1, Ordering::Relaxed);
+                if flushes == 1
+                    && let Some((entered, release)) = self.gate.take()
+                {
+                    entered.send(()).unwrap();
+                    release.recv_timeout(GATE_TIMEOUT).unwrap();
+                }
+                self.file.flush()
+            }
+        }
+
+        assert!(payloads.len() < PENDING_STATES_MAX);
+        let flushes = Arc::new(AtomicU64::new(0));
+        let (entered_sender, entered) = mpsc::channel();
+        let (release, release_receiver) = mpsc::channel();
+        let mut writer = TraceFileWriter::create_with(
+            directory,
+            TraceDriver::Terminal,
+            false,
+            |file| Gated {
+                file,
+                flushes: flushes.clone(),
+                gate: Some((entered_sender, release_receiver)),
+            },
+        )
+        .unwrap();
+        // Declared after the writer, as in the disk full test.
+        let release = release;
+        entered.recv_timeout(GATE_TIMEOUT).unwrap();
+        for (n, payload) in (0..).zip(payloads) {
+            writer.write_state(Metadata { n }, payload.clone()).unwrap();
+        }
+        // Queued before the worker goes on, so it never idles (and
+        // flushes) before it.
+        let sender = writer.sender.as_ref().unwrap();
+        sender.send(Message::Finish).unwrap();
+        release.send(()).unwrap();
+        writer.finish().unwrap();
+
+        let states = open_trace::<Metadata>(directory)
+            .unwrap()
+            .map(|state| {
+                let state = state.unwrap();
+                (state.payload, state.payload_from)
+            })
+            .collect();
+        // But for the envelope's, the gated one and the one after END,
+        // the flushes before comparing with older payloads.
+        let flushes = flushes.load(Ordering::Relaxed) as usize - 3;
+        (states, flushes)
+    }
+
+    /// A payload longer than a payload reference, numbered `n`.
+    fn long_payload(n: u8) -> Arc<Vec<u8>> {
+        Arc::new([&b"a payload longer than a reference "[..], &[n]].concat())
+    }
+
+    #[test]
+    fn writes_identical_payloads_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let a = long_payload(b'a');
+        let b = long_payload(b'b');
+        // A copy of `a`, not the same allocation.
+        let a_copy = Arc::new(a.to_vec());
+        let payloads = [
+            Some(a.clone()),
+            // The previous payload, shared and copied: compared in
+            // memory.
+            Some(a.clone()),
+            Some(a_copy.clone()),
+            Some(b.clone()),
+            None,
+            // Older payloads, read back.
+            Some(a_copy),
+            Some(b.clone()),
+            // Same length, but not the same.
+            Some(long_payload(b'c')),
+        ];
+        let (states, flushes) = write_payloads(directory.path(), &payloads);
+        let read: Vec<_> =
+            states.iter().map(|(payload, _)| payload.clone()).collect();
+        let written: Vec<_> = payloads
+            .iter()
+            .map(|payload| payload.as_ref().map(|payload| payload.to_vec()))
+            .collect();
+        assert_eq!(read, written);
+        let from: Vec<_> = states.iter().map(|(_, from)| *from).collect();
+        assert_eq!(
+            from,
+            [
+                Some(0),
+                Some(0),
+                Some(0),
+                Some(3),
+                None,
+                Some(0),
+                Some(3),
+                Some(7)
+            ]
+        );
+        // Only the older payloads were read back.
+        assert_eq!(flushes, 2);
+        use tag::{
+            END, STATE, STATE_PAYLOAD as PAYLOAD, STATE_PAYLOAD_REF as REF,
+            STATE_WITH_PAYLOAD as WITH,
+        };
+        assert_eq!(
+            tags(directory.path()),
+            [
+                WITH, PAYLOAD, WITH, REF, WITH, REF, WITH, PAYLOAD, STATE,
+                WITH, REF, WITH, REF, WITH, PAYLOAD, END,
+            ]
+        );
+    }
+
+    /// Payloads no larger than a reference are written in full.
+    #[test]
+    fn writes_small_payloads_in_full() {
+        let directory = tempfile::tempdir().unwrap();
+        let small = Arc::new(vec![1; crate::PAYLOAD_REF_LEN]);
+        let large = Arc::new(vec![2; crate::PAYLOAD_REF_LEN + 1]);
+        let payloads = [
+            Some(small.clone()),
+            Some(small.clone()),
+            Some(large.clone()),
+            Some(large.clone()),
+            Some(small.clone()),
+        ];
+        let (states, flushes) = write_payloads(directory.path(), &payloads);
+        let from: Vec<_> = states.iter().map(|(_, from)| *from).collect();
+        assert_eq!(from, [Some(0), Some(1), Some(2), Some(2), Some(4)]);
+        assert_eq!(flushes, 0);
+        for (state, payload) in states.iter().zip(payloads) {
+            assert_eq!(state.0.as_deref(), payload.as_deref().map(|p| &p[..]));
+        }
+    }
+
+    /// Payloads with the same CRC-32 and length are compared byte for
+    /// byte, so they are each written, wherever they differ.
+    #[test]
+    fn writes_payloads_with_the_same_crc_separately() {
+        // CRC-32 differences of equal-length inputs don't depend on what
+        // comes before or after, so these collide however they're padded.
+        let [x, y]: [&[u8]; 2] = [b"plumless", b"buckeroo"];
+        assert_eq!(crc32fast::hash(x), crc32fast::hash(y));
+        // Different in the first chunk read back, and in a later one.
+        let padding = vec![7; 3 * READ_BACK_CHUNK_BYTES];
+        for (x, y) in [
+            ([x, &padding].concat(), [y, &padding].concat()),
+            ([&padding, x].concat(), [&padding, y].concat()),
+        ] {
+            assert_eq!(crc32fast::hash(&x), crc32fast::hash(&y));
+            let directory = tempfile::tempdir().unwrap();
+            let payloads = [
+                Some(Arc::new(x.clone())),
+                None,
+                Some(Arc::new(y.clone())),
+                Some(Arc::new(x.clone())),
+                Some(Arc::new(b"other".to_vec())),
+                Some(Arc::new(y.clone())),
+            ];
+            let (states, _) = write_payloads(directory.path(), &payloads);
+            assert_eq!(
+                states,
+                [
+                    (Some(x.clone()), Some(0)),
+                    (None, None),
+                    (Some(y.clone()), Some(2)),
+                    (Some(x.clone()), Some(0)),
+                    (Some(b"other".to_vec()), Some(4)),
+                    (Some(y.clone()), Some(2)),
+                ]
+            );
+        }
+    }
+
+    /// Only the first few distinct payloads with the same CRC-32 and
+    /// length are kept as candidates, and none no larger than a
+    /// reference.
+    #[test]
+    fn keeps_few_candidates_per_crc_and_length() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = File::create(directory.path().join("file")).unwrap();
+        let mut payloads = WrittenPayloads::new(file);
+        // As if all had this CRC-32.
+        for n in 0..2 * CANDIDATES_PER_KEY_MAX as u8 {
+            payloads.written(&long_payload(n), 7, n.into(), n.into());
+        }
+        let length = long_payload(0).len();
+        let kept = &payloads.by_crc[&(7, length)];
+        let expected: Vec<_> = (0..CANDIDATES_PER_KEY_MAX as u32)
+            .map(|n| (n, n.into()))
+            .collect();
+        assert_eq!(kept, &expected);
+
+        let small = Arc::new(vec![0; crate::PAYLOAD_REF_LEN]);
+        payloads.written(&small, 8, 100, 100);
+        assert!(!payloads.by_crc.contains_key(&(8, small.len())));
+    }
+
+    /// A failure to read back is warned of once, and older payloads
+    /// aren't read back after it.
+    #[test]
+    fn stops_reading_back_after_a_failure() {
+        crate::test_log::capture_warnings();
+        let directory = tempfile::tempdir().unwrap();
+        // Write-only, so reading back fails.
+        let file = File::create(directory.path().join("file")).unwrap();
+        let mut payloads = WrittenPayloads::new(file);
+        let mut trace_file = BufWriter::new(io::sink());
+        let a = long_payload(b'a');
+        let b = long_payload(b'b');
+        let crc = |payload: &[u8]| crc32fast::hash(payload);
+        payloads.written(&a, crc(&a), 0, 100);
+        payloads.written(&b, crc(&b), 1, 200);
+        let copy = Arc::new(a.to_vec());
+        let found = payloads.find(&copy, crc(&a), &mut trace_file).unwrap();
+        assert_eq!(found, None);
+        assert!(crate::test_log::warned("failed to read back"));
+        assert!(payloads.read_back_failed);
+        // Even once the file could be read back, with `a` where it was
+        // written.
+        let readable = directory.path().join("readable");
+        std::fs::write(&readable, [&[0; 100][..], &a].concat()).unwrap();
+        payloads.read_back = File::open(&readable).unwrap();
+        let found = payloads.find(&copy, crc(&a), &mut trace_file).unwrap();
+        assert_eq!(found, None);
+
+        // The previous payload is still compared in memory.
+        let c = long_payload(b'c');
+        payloads.written(&c, crc(&c), 2, 300);
+        let copy = Arc::new(c.to_vec());
+        let found = payloads.find(&copy, crc(&c), &mut trace_file).unwrap();
+        assert_eq!(found, Some(2));
+        // But isn't kept as a candidate, as none are looked at.
+        assert!(!payloads.by_crc.contains_key(&(crc(&c), c.len())));
     }
 
     #[test]
