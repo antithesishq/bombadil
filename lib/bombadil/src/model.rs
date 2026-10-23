@@ -1,21 +1,27 @@
-//! State hashes and action keys. Traces record each step's action vocabulary
-//! (the available templates and the one taken) so that action weights can be
-//! learned from them; the hashes are derived from the recorded state, here
-//! and in training, by the same code.
+//! State hashes and action keys, used to learn action weights from traces and
+//! to apply them (`--weights`). Traces record each step's action vocabulary
+//! (the available templates and the one taken); the hashes are derived from
+//! the recorded state, here and in training, by the same code.
 //!
 //! Each driver describes a state by named 64-bit hashes (e.g. `location`,
 //! `snapshot.<name>`), equal exactly when the hashed value is equal. Training
-//! decides which of them identify a state. Actions are identified by their
+//! decides how to combine them into one state key, and the weights file tells
+//! Bombadil to combine them the same way. Actions are identified by their
 //! template's `category_hash`. Every hash here has a fixed algorithm (FNV-1a,
 //! SplitMix64's finalizer), so recorded hashes and keys are the same across
 //! Rust versions, unlike `DefaultHasher`'s.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::Hasher;
+use std::path::Path;
+use std::sync::Arc;
 
-use serde::Serialize;
+use anyhow::{Context, Result, bail};
+use bombadil_schema::Time;
+use serde::{Deserialize, Serialize};
 
-use crate::driver::{ActionTemplate, RunState};
+use crate::driver::{ActionTemplate, InterfaceSession, RunState};
+use crate::runner::{ControlFlow, PropertiesState, RunStrategy};
 use crate::specification::domain::Snapshot;
 use crate::tree::Tree;
 
@@ -104,6 +110,59 @@ pub fn state_hashes(
     hashes
 }
 
+/// Combines named hashes into one simhash: each name gets a share of the 64
+/// bits proportional to its weight (largest remainder, names in sorted
+/// order) and contributes its low bits there. A slice of a simhash is a
+/// simhash, so the Hamming distance between two combined hashes is the
+/// weighted sum of per-name distances. A missing hash contributes zeros.
+/// `None` when none of the weighted hashes is present.
+pub fn combine(
+    hashes: &BTreeMap<String, u64>,
+    weights: &BTreeMap<String, i64>,
+) -> Option<u64> {
+    let parts: Vec<(Option<u64>, u64)> = weights
+        .iter()
+        .map(|(name, weight)| {
+            (hashes.get(name).copied(), (*weight).max(0) as u64)
+        })
+        .collect();
+    if parts
+        .iter()
+        .all(|(hash, weight)| hash.is_none() || *weight == 0)
+    {
+        return None;
+    }
+    let weights: Vec<u64> = parts.iter().map(|(_, w)| *w).collect();
+    let mut combined = 0u64;
+    let mut offset = 0;
+    for ((hash, _), bits) in parts.iter().zip(allocate_bits(&weights)) {
+        if bits > 0 {
+            let slice = hash.unwrap_or(0) & (u64::MAX >> (64 - bits));
+            combined |= slice << offset;
+            offset += bits;
+        }
+    }
+    Some(combined)
+}
+
+/// Splits 64 bits in proportion to `weights` by largest remainder; ties go to
+/// the earlier weight.
+fn allocate_bits(weights: &[u64]) -> Vec<u32> {
+    let total: u64 = weights.iter().sum();
+    if total == 0 {
+        return vec![0; weights.len()];
+    }
+    let mut bits: Vec<u32> =
+        weights.iter().map(|w| (64 * w / total) as u32).collect();
+    let mut order: Vec<usize> = (0..weights.len()).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(64 * weights[i] % total), i));
+    let missing = 64 - bits.iter().sum::<u32>();
+    for &i in order.iter().take(missing as usize) {
+        bits[i] += 1;
+    }
+    bits
+}
+
 /// The hash of a sequence of string features: FNV-1a over the features,
 /// each followed by a newline, then SplitMix64's finalizer. Equal exactly
 /// when the sequences are equal; `None` for no features.
@@ -169,10 +228,241 @@ fn json_leaves(value: &serde_json::Value, path: &str, out: &mut Vec<String>) {
     }
 }
 
+/// Learned action weights per state, as produced by training on traces
+/// (see [`StepModel`]).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Weights {
+    pub format: u32,
+    /// Share of probability kept by the fallback distribution (uniform for
+    /// [`Policy::Replace`], the spec's for [`Policy::Prior`]), so no action is
+    /// ever starved.
+    #[serde(default = "Weights::default_epsilon")]
+    pub epsilon: f64,
+    #[serde(default)]
+    pub policy: Policy,
+    pub simhash: SimhashLookup,
+    /// State simhash (16 hex digits) → action key → non-negative weight.
+    pub states: HashMap<String, HashMap<String, f64>>,
+    /// The `states` simhashes, sorted.
+    #[serde(skip)]
+    simhashes: Vec<(u64, String)>,
+}
+
+/// How learned weights combine with the spec's in a learned state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Policy {
+    /// The learned weights replace the spec's.
+    #[default]
+    Replace,
+    /// The spec's probabilities, scaled by the learned weights: where the
+    /// learned weights are equal, the spec's distribution is kept.
+    Prior,
+}
+
+/// How states are matched to learned ones.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SimhashLookup {
+    /// Weights of the named hashes in the state simhash ([`combine`]).
+    pub weights: BTreeMap<String, i64>,
+    /// The largest Hamming distance at which a learned state still applies.
+    #[serde(default)]
+    pub radius: u32,
+}
+
+impl Weights {
+    const FORMAT: u32 = 3;
+
+    fn default_epsilon() -> f64 {
+        0.1
+    }
+
+    pub fn load(path: &Path) -> Result<Self> {
+        let file = std::fs::File::open(path)
+            .with_context(|| format!("opening weights {}", path.display()))?;
+        let weights: Weights =
+            serde_json::from_reader(std::io::BufReader::new(file))
+                .with_context(|| {
+                    format!("parsing weights {}", path.display())
+                })?;
+        if weights.format != Self::FORMAT {
+            bail!(
+                "unsupported weights format {} (expected {})",
+                weights.format,
+                Self::FORMAT
+            );
+        }
+        if !(0.0..=1.0).contains(&weights.epsilon) {
+            bail!("epsilon must be within [0, 1], got {}", weights.epsilon);
+        }
+        weights.index()
+    }
+
+    fn index(mut self) -> Result<Self> {
+        let mut simhashes = self
+            .states
+            .keys()
+            .map(|key| {
+                u64::from_str_radix(key, 16)
+                    .map(|hash| (hash, key.clone()))
+                    .with_context(|| format!("state {key:?} is not a simhash"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        simhashes.sort();
+        self.simhashes = simhashes;
+        Ok(self)
+    }
+
+    /// The learned state nearest to `hash` within the radius; ties go to the
+    /// smaller simhash.
+    fn nearest(&self, hash: u64) -> Option<&HashMap<String, f64>> {
+        let mut best: Option<(u32, &str)> = None;
+        for (candidate, key) in &self.simhashes {
+            let distance = (candidate ^ hash).count_ones();
+            if distance <= self.simhash.radius
+                && best.is_none_or(|(d, _)| distance < d)
+            {
+                best = Some((distance, key));
+            }
+        }
+        best.and_then(|(_, key)| self.states.get(key))
+    }
+
+    /// Replaces the spec weights with learned ones when a learned state is
+    /// near enough. Available actions without a learned weight get the mean
+    /// learned weight of the state. Returns the tree to pick from and whether
+    /// a learned state was found. Otherwise the spec weights are kept.
+    pub fn reweight<A, T: ActionTemplate<A> + Clone>(
+        &self,
+        state: &(impl RunState + ?Sized),
+        snapshots: &[Snapshot],
+        tree: Tree<T>,
+    ) -> (Tree<T>, bool) {
+        let Some(pruned) = tree.clone().prune() else {
+            return (tree, false);
+        };
+        let learned =
+            combine(&state_hashes(state, snapshots), &self.simhash.weights)
+                .and_then(|hash| self.nearest(hash));
+        let Some(learned) = learned else {
+            return (tree, false);
+        };
+
+        let leaves = pruned.leaves_with_probabilities();
+        let keys: Vec<String> =
+            leaves.iter().map(|(t, _)| action_key(*t)).collect();
+        let known: Vec<f64> = keys
+            .iter()
+            .filter_map(|k| learned.get(k).copied())
+            .map(|w| w.max(0.0))
+            .collect();
+        let fallback = if known.is_empty() {
+            1.0
+        } else {
+            known.iter().sum::<f64>() / known.len() as f64
+        };
+        let n = leaves.len() as f64;
+        let raw: Vec<f64> = keys
+            .iter()
+            .zip(&leaves)
+            .map(|(k, (_, spec))| {
+                let w = learned.get(k).map_or(fallback, |w| w.max(0.0));
+                match self.policy {
+                    Policy::Replace => w,
+                    Policy::Prior => w * spec,
+                }
+            })
+            .collect();
+        let total: f64 = raw.iter().sum();
+        let branches = leaves
+            .into_iter()
+            .zip(raw)
+            .map(|((template, spec), w)| {
+                let floor = match self.policy {
+                    Policy::Replace => 1.0 / n,
+                    Policy::Prior => spec,
+                };
+                let learned_share = if total > 0.0 { w / total } else { floor };
+                let p =
+                    (1.0 - self.epsilon) * learned_share + self.epsilon * floor;
+                let weight = (p * 60_000.0).round().clamp(1.0, 65_535.0) as u16;
+                (
+                    weight,
+                    Tree::Leaf {
+                        value: template.clone(),
+                    },
+                )
+            })
+            .collect();
+        (Tree::Branch { branches }, true)
+    }
+}
+
+/// Runs `inner`, but with the learned [`Weights`], if any, in the states
+/// they cover: actions are picked from the tree this strategy reweights.
+pub struct WeightedStrategy<Inner> {
+    pub inner: Inner,
+    pub weights: Option<Arc<Weights>>,
+}
+
+impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
+    RunStrategy<Session> for WeightedStrategy<Inner>
+{
+    type StopValue = Inner::StopValue;
+
+    fn on_new_state(
+        &mut self,
+        state: &Session::State,
+        tree: Tree<Session::ActionTemplate>,
+        last_action: Option<&Session::Action>,
+        snapshots: &[Snapshot],
+        properties: PropertiesState,
+    ) -> Result<ControlFlow<Self::StopValue, Session::Action>> {
+        self.inner
+            .on_new_state(state, tree, last_action, snapshots, properties)
+    }
+
+    fn deadline(&self) -> Option<Time> {
+        self.inner.deadline()
+    }
+
+    fn on_time_limit(&mut self) -> Result<Self::StopValue> {
+        self.inner.on_time_limit()
+    }
+
+    fn on_stalled(&mut self) -> Result<Self::StopValue> {
+        self.inner.on_stalled()
+    }
+
+    fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+        self.inner.on_interrupted()
+    }
+
+    fn constrain(
+        &self,
+        state: &Session::State,
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        self.inner.constrain(state, tree)
+    }
+
+    fn reweight(
+        &self,
+        state: &Session::State,
+        snapshots: &[Snapshot],
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        let tree = self.inner.reweight(state, snapshots, tree);
+        match &self.weights {
+            Some(weights) => weights.reweight(state, snapshots, tree).0,
+            None => tree,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bombadil_schema::Time;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Key(&'static str);
@@ -210,6 +500,95 @@ mod tests {
         }
     }
 
+    fn weights(
+        stored: u64,
+        radius: u32,
+        learned: HashMap<String, f64>,
+    ) -> Weights {
+        Weights {
+            format: Weights::FORMAT,
+            epsilon: 0.0,
+            policy: Policy::Replace,
+            simhash: SimhashLookup {
+                weights: BTreeMap::from([("place".to_string(), 1)]),
+                radius,
+            },
+            simhashes: Vec::new(),
+            states: HashMap::from([(format!("{stored:016x}"), learned)]),
+        }
+        .index()
+        .unwrap()
+    }
+
+    #[test]
+    fn reweight_known_state() {
+        let learned = HashMap::from([
+            (action_key(&Key("a")), 3.0),
+            (action_key(&Key("b")), 0.0),
+        ]);
+        let (reweighted, hit) =
+            weights(42, 0, learned).reweight(&At(42), &[], tree());
+        assert!(hit);
+        // c is unlisted and gets the mean learned weight (1.5).
+        let probabilities: Vec<(&str, f64)> = reweighted
+            .leaves_with_probabilities()
+            .into_iter()
+            .map(|(k, p)| (k.0, (p * 100.0).round() / 100.0))
+            .collect();
+        assert_eq!(probabilities, vec![("a", 0.67), ("b", 0.0), ("c", 0.33)]);
+    }
+
+    #[test]
+    fn reweight_prior_scales_spec_probabilities() {
+        let spec = Tree::Branch {
+            branches: vec![
+                (1, Tree::Leaf { value: Key("a") }),
+                (1, Tree::Leaf { value: Key("b") }),
+                (2, Tree::Leaf { value: Key("c") }),
+            ],
+        };
+        let probabilities =
+            |learned: &[(&'static str, f64)]| -> Vec<(&'static str, f64)> {
+                let learned = learned
+                    .iter()
+                    .map(|(k, w)| (action_key(&Key(k)), *w))
+                    .collect();
+                let weights = Weights {
+                    policy: Policy::Prior,
+                    ..weights(42, 0, learned)
+                };
+                let (reweighted, hit) =
+                    weights.reweight(&At(42), &[], spec.clone());
+                assert!(hit);
+                reweighted
+                    .leaves_with_probabilities()
+                    .into_iter()
+                    .map(|(k, p)| (k.0, (p * 100.0).round() / 100.0))
+                    .collect()
+            };
+        // Equal learned weights keep the spec's distribution.
+        assert_eq!(
+            probabilities(&[("a", 5.0), ("b", 5.0), ("c", 5.0)]),
+            vec![("a", 0.25), ("b", 0.25), ("c", 0.5)]
+        );
+        // c is unlisted and gets the mean learned weight (1.5).
+        assert_eq!(
+            probabilities(&[("a", 2.0), ("b", 1.0)]),
+            vec![("a", 0.33), ("b", 0.17), ("c", 0.5)]
+        );
+    }
+
+    #[test]
+    fn reweight_nearest_simhash_within_radius() {
+        let learned = HashMap::from([(action_key(&Key("a")), 1.0)]);
+        let near = weights(42 ^ 0b101, 2, learned.clone());
+        assert!(near.reweight(&At(42), &[], tree()).1);
+        let far = weights(42 ^ 0b111, 2, learned);
+        let (reweighted, hit) = far.reweight(&At(42), &[], tree());
+        assert!(!hit);
+        assert_eq!(reweighted, tree());
+    }
+
     #[test]
     fn action_taken_is_the_accepting_template() {
         let previous = tree();
@@ -217,6 +596,52 @@ mod tests {
             StepModel::new(&tree(), Some((&previous, &Key("b"))));
         assert_eq!(model.action_taken, Some(action_key(&Key("b"))));
         assert_eq!(model.actions_available.len(), 3);
+    }
+
+    #[test]
+    fn combine_matches_python() {
+        // Same inputs as the matching test of the Python training code,
+        // which must combine hashes the same way.
+        let hashes = BTreeMap::from([
+            ("coverage".to_string(), 0x00ff_00ff_00ff_00ff),
+            (
+                "location".to_string(),
+                feature_hash(["examples", "#/active"]).unwrap(),
+            ),
+            (
+                "snapshot.dot".to_string(),
+                feature_hash(["x=1", "y=3"]).unwrap(),
+            ),
+        ]);
+        let weights = BTreeMap::from([
+            ("coverage".to_string(), 1),
+            ("location".to_string(), 1),
+            ("screen".to_string(), 1),
+            ("snapshot.dot".to_string(), 1),
+        ]);
+        assert_eq!(
+            format!("{:016x}", combine(&hashes, &weights).unwrap()),
+            "39c70000457d00ff"
+        );
+    }
+
+    #[test]
+    fn combine_concatenates_weighted_slices() {
+        assert_eq!(allocate_bits(&[1, 1, 1]), vec![22, 21, 21]);
+        assert_eq!(allocate_bits(&[1, 0, 3]), vec![16, 0, 48]);
+        let hashes = BTreeMap::from([
+            ("a".to_string(), u64::MAX),
+            ("b".to_string(), 0b10),
+        ]);
+        let half = BTreeMap::from([
+            ("a".to_string(), 1),
+            ("b".to_string(), 1),
+            ("c".to_string(), 0),
+        ]);
+        // Low 32 bits of a, then low 32 bits of b.
+        assert_eq!(combine(&hashes, &half), Some(0x0000_0002_ffff_ffff));
+        let only_c = BTreeMap::from([("c".to_string(), 1)]);
+        assert_eq!(combine(&hashes, &only_c), None);
     }
 
     #[test]

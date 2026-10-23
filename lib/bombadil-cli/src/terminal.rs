@@ -9,6 +9,7 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
+use bombadil::model::WeightedStrategy;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
@@ -170,6 +171,10 @@ pub enum Command {
         /// Number of test runs to execute in parallel.
         #[arg(long, default_value = "1")]
         parallelism: NonZeroUsize,
+        /// Learned action weights (JSON) to pick actions by in the states
+        /// they cover. Other states use spec weights.
+        #[arg(long, value_name = "WEIGHTS_FILE")]
+        weights: Option<PathBuf>,
 
         /// Terminal columns at startup
         #[arg(long, default_value_t = defaults::COLUMNS)]
@@ -364,6 +369,7 @@ pub fn run(command: Command) {
             time_limit_fuzz,
             swarm,
             parallelism,
+            weights,
             columns,
             rows,
             scrollback_lines_max,
@@ -415,18 +421,26 @@ pub fn run(command: Command) {
                     })?;
                 }
 
+                let weights = weights
+                    .as_deref()
+                    .map(bombadil::model::Weights::load)
+                    .transpose()?
+                    .map(Arc::new);
                 fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
-                    strategy: || TerminalStrategy {
-                        rng: AntithesisRng,
-                        mode: TerminalTestMode::RandomWalk,
-                        test_start: None,
-                        violations_count: 0,
-                        exit_on_violation: false,
-                        deadline: None,
-                        states_seen: 0,
-                        quiet: true,
+                    strategy: move || WeightedStrategy {
+                        inner: TerminalStrategy {
+                            rng: AntithesisRng,
+                            mode: TerminalTestMode::RandomWalk,
+                            test_start: None,
+                            violations_count: 0,
+                            exit_on_violation: false,
+                            deadline: None,
+                            states_seen: 0,
+                            quiet: true,
+                        },
+                        weights: weights.clone(),
                     },
                     interrupted,
                     time_limit_fuzz,

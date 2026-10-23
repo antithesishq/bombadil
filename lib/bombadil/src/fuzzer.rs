@@ -690,4 +690,13 @@ impl<
     ) -> Tree<Session::ActionTemplate> {
         self.inner.constrain(state, tree)
     }
+
+    fn reweight(
+        &self,
+        state: &Session::State,
+        snapshots: &[Snapshot],
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        self.inner.reweight(state, snapshots, tree)
+    }
 }

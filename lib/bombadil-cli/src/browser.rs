@@ -27,6 +27,7 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
+    model::WeightedStrategy,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -294,6 +295,10 @@ pub struct FuzzOptions {
     /// s (seconds), m (minutes), h (hours), or d (days).
     #[arg(long, value_parser = duration::parse_duration, default_value = "30s")]
     pub time_limit_run: Duration,
+    /// Learned action weights (JSON) to pick actions by in the states they
+    /// cover. Other states use spec weights.
+    #[arg(long, value_name = "WEIGHTS_FILE")]
+    pub weights: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -724,6 +729,13 @@ fn browser_fuzz(
 
     let specification = load_specification(&shared_options.target);
 
+    let weights = fuzz_options
+        .weights
+        .as_deref()
+        .map(bombadil::model::Weights::load)
+        .transpose()?
+        .map(Arc::new);
+
     let interrupted = Arc::new(AtomicBool::new(false));
     {
         let interrupted = interrupted.clone();
@@ -754,15 +766,18 @@ fn browser_fuzz(
     fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
-        strategy: move || TestStrategy {
-            rng: AntithesisRng,
-            mode: TestMode::RandomWalk,
-            exit_on_violation: false,
-            test_start: None,
-            deadline: None,
-            violations_count: 0,
-            allow_urls: allow_urls.clone(),
-            quiet: true,
+        strategy: move || WeightedStrategy {
+            inner: TestStrategy {
+                rng: AntithesisRng,
+                mode: TestMode::RandomWalk,
+                exit_on_violation: false,
+                test_start: None,
+                deadline: None,
+                violations_count: 0,
+                allow_urls: allow_urls.clone(),
+                quiet: true,
+            },
+            weights: weights.clone(),
         },
         interrupted,
         time_limit_fuzz: fuzz_options.time_limit_fuzz,

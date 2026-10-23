@@ -76,6 +76,18 @@ pub trait RunStrategy<Session: InterfaceSession> {
     ) -> Tree<Session::ActionTemplate> {
         tree
     }
+
+    /// Change the weights of the actions available in a state, e.g. to
+    /// learned ones. The runner applies this after `constrain`, and after
+    /// writing the trace, so traces keep the spec weights.
+    fn reweight(
+        &self,
+        _state: &Session::State,
+        _snapshots: &[Snapshot],
+        tree: Tree<Session::ActionTemplate>,
+    ) -> Tree<Session::ActionTemplate> {
+        tree
+    }
 }
 
 pub trait RunState {
@@ -235,6 +247,7 @@ fn run_test<
                     ),
                 )?;
                 last_actions = Some(actions.clone());
+                let actions = strategy.reweight(&state, &snapshots, actions);
 
                 let control = strategy.on_new_state(
                     &state,
