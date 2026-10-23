@@ -22,8 +22,8 @@ use crate::browser::{Browser, BrowserEvent, NAVIGATION_TIMEOUT};
 use crate::browser_options::BrowserOptions;
 use crate::chromium;
 use crate::chromium::Chromium;
-use crate::instrumentation::InstrumentationConfig;
 use crate::instrumentation::js::EDGE_MAP_SIZE;
+use crate::instrumentation::{BlockRegistry, InstrumentationConfig};
 
 pub enum DebuggerOptions {
     External {
@@ -39,6 +39,8 @@ pub struct BrowserDriver {
     pub browser_options: BrowserOptions,
     pub debugger_options: DebuggerOptions,
     pub specification_bundle: Arc<str>,
+    /// Shared by all sessions.
+    pub blocks: BlockRegistry,
 }
 
 impl InterfaceDriver for BrowserDriver {
@@ -71,8 +73,12 @@ impl InterfaceDriver for BrowserDriver {
                 Chromium::launch(launch_options)?
             }
         };
-        let mut browser =
-            Browser::new(&self.origin, &self.browser_options, &chromium)?;
+        let mut browser = Browser::new(
+            &self.origin,
+            &self.browser_options,
+            &chromium,
+            &self.blocks,
+        )?;
         browser.ensure_script_evaluated(&self.specification_bundle)?;
 
         browser.initiate()?;

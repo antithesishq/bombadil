@@ -1,0 +1,86 @@
+---
+source: lib/bombadil-browser/src/instrumentation/js.rs
+expression: table
+---
+  1  <top>                   if (a) {}
+  1  <top>                   if (a) {}
+  2  declared                function declared(x) { return x ? 1 : 2; }
+  2  declared                function declared(x) { return x ? 1 : 2; }
+  4  outer                   if (a) {}
+  4  outer                   if (a) {}
+  5  outer.inner             function inner() { if (b) {} }
+  5  outer.inner             function inner() { if (b) {} }
+  6  outer.local             const local = () => { if (c) {} };
+  6  outer.local             const local = () => { if (c) {} };
+  7  outer                   return () => { if (d) {} };
+  7  outer                   return () => { if (d) {} };
+  9  arrow                   const arrow = (x) => { if (x) {} };
+  9  arrow                   const arrow = (x) => { if (x) {} };
+ 10  expression              const expression = function () { if (x) {} };
+ 10  expression              const expression = function () { if (x) {} };
+ 11  original                const renamed = function original() { if (x) {} };
+ 11  original                const renamed = function original() { if (x) {} };
+ 12  later                   let later; later = () => { if (x) {} };
+ 12  later                   let later; later = () => { if (x) {} };
+ 13  waits                   async function waits() { if (await x) {} }
+ 13  waits                   async function waits() { if (await x) {} }
+ 14  yields                  function* yields() { for (const y of ys) {} }
+ 15  defaults                function defaults(callback = () => { if (x) {} }) {}
+ 15  defaults                function defaults(callback = () => { if (x) {} }) {}
+ 17  Store.constructor       constructor() { if (x) {} }
+ 17  Store.constructor       constructor() { if (x) {} }
+ 18  Store.add               add(item) { for (const i of item) {} }
+ 19  Store.create            static create() { if (x) {} }
+ 19  Store.create            static create() { if (x) {} }
+ 20  Store.size              get size() { return x ? 1 : 2; }
+ 20  Store.size              get size() { return x ? 1 : 2; }
+ 21  Store.size              set size(value) { if (value) {} }
+ 21  Store.size              set size(value) { if (value) {} }
+ 22  Store                   #secret() { if (x) {} }
+ 22  Store                   #secret() { if (x) {} }
+ 23  Store                   [computed]() { if (x) {} }
+ 23  Store                   [computed]() { if (x) {} }
+ 24  Store.quoted name       "quoted name"() { if (x) {} }
+ 24  Store.quoted name       "quoted name"() { if (x) {} }
+ 25  Store.remove            remove = () => { [].forEach(function () { if (y) {} }); };
+ 25  Store.remove            remove = () => { [].forEach(function () { if (y) {} }); };
+ 26  Store                   static { if (x) {} }
+ 26  Store                   static { if (x) {} }
+ 28  Widget.render           const Widget = class { render() { if (x) {} } };
+ 28  Widget.render           const Widget = class { render() { if (x) {} } };
+ 29  Inner.render            const Outer = class Inner { render() { if (x) {} } };
+ 29  Inner.render            const Outer = class Inner { render() { if (x) {} } };
+ 31  onClick                 onClick: function () { if (z) {} },
+ 31  onClick                 onClick: function () { if (z) {} },
+ 32  onKey                   onKey: () => { if (z) {} },
+ 32  onKey                   onKey: () => { if (z) {} },
+ 33  onDrag                  onDrag() { if (z) {} },
+ 33  onDrag                  onDrag() { if (z) {} },
+ 34  value                   get value() { return z ? 1 : 2; },
+ 34  value                   get value() { return z ? 1 : 2; },
+ 35  <top>                   [computed]: function () { if (z) {} },
+ 35  <top>                   [computed]: function () { if (z) {} },
+ 36  deep                    nested: { deep() { if (z) {} } },
+ 36  deep                    nested: { deep() { if (z) {} } },
+ 38  render                  const first = { render() { if (x) {} } };
+ 38  render                  const first = { render() { if (x) {} } };
+ 39  render                  const second = { render() { if (x) {} } };
+ 39  render                  const second = { render() { if (x) {} } };
+ 40  render                  app.render = function () { while (false) {} if (w) {} };
+ 40  render                  app.render = function () { while (false) {} if (w) {} };
+ 41  handler                 exports.handler = () => { if (w) {} };
+ 41  handler                 exports.handler = () => { if (w) {} };
+ 42  c                       a.b.c = function () { if (w) {} };
+ 42  c                       a.b.c = function () { if (w) {} };
+ 43  <top>                   [].forEach(function () { if (x) {} });
+ 43  <top>                   [].forEach(function () { if (x) {} });
+ 44  <top>                   [].forEach((x) => { if (x) {} });
+ 44  <top>                   [].forEach((x) => { if (x) {} });
+ 45  <top>                   (function () { if (x) {} })();
+ 45  <top>                   (function () { if (x) {} })();
+ 46  <top>                   (() => { if (x) {} })();
+ 46  <top>                   (() => { if (x) {} })();
+ 47  <top>                   switch (x) { case 1: break; default: break; }
+ 47  <top>                   switch (x) { case 1: break; default: break; }
+ 48  <top>                   export default function () { if (x) {} }
+ 48  <top>                   export default function () { if (x) {} }

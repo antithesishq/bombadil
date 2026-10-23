@@ -2,21 +2,26 @@ use anyhow::Result;
 use oxc::span::SourceType;
 use scraper::{ElementRef, Html, node::Text};
 
-use crate::instrumentation::{js::instrument_source_code, source_id::SourceId};
+use crate::instrumentation::{
+    Block, Instrumented, js::instrument_source_code, source_id::SourceId,
+};
 
 pub fn instrument_inline_scripts(
     source_id: SourceId,
     input: &str,
-) -> Result<String> {
+) -> Result<Instrumented> {
     let mut document = Html::parse_document(input);
-    transform_inline_scripts(source_id, &mut document)?;
-    Ok(document.html())
+    let blocks = transform_inline_scripts(source_id, &mut document)?;
+    Ok(Instrumented {
+        text: document.html(),
+        blocks,
+    })
 }
 
 fn transform_inline_scripts(
     source_id: SourceId,
     document: &mut Html,
-) -> Result<()> {
+) -> Result<Vec<Block>> {
     let mut scripts_count = 0;
 
     let mut scripts = vec![];
@@ -71,26 +76,25 @@ fn transform_inline_scripts(
                         text_ids,
                         text_all,
                         source_type,
-                        source_id.add(scripts_count),
+                        source_id.inline(scripts_count),
                     ));
                     scripts_count += 1;
                 }
             }
 
-            for child in element_ref.child_elements() {
-                stack.push(child);
-            }
+            // Reversed, so that the stack pops elements in document order
+            // and inline scripts are numbered by their position on the page.
+            let children: Vec<ElementRef> =
+                element_ref.child_elements().collect();
+            stack.extend(children.into_iter().rev());
         }
     }
 
+    let mut blocks = Vec::new();
     for (script_id, text_ids, original, source_type, source_id) in scripts {
-        let transformed = instrument_source_code(
-            // Every inline scripts needs a unique ID.
-            // TODO: fix this, we need a global counter
-            source_id,
-            &original,
-            source_type,
-        )?;
+        let transformed =
+            instrument_source_code(source_id, &original, source_type)?;
+        blocks.extend(transformed.blocks);
 
         for text_id in text_ids {
             document
@@ -106,11 +110,11 @@ fn transform_inline_scripts(
             .expect("failed to get mutable script element node");
 
         node.append(scraper::Node::Text(Text {
-            text: transformed.into(),
+            text: transformed.text.into(),
         }));
     }
 
-    Ok(())
+    Ok(blocks)
 }
 
 #[cfg(test)]
@@ -135,8 +139,9 @@ mod tests {
         </html>
         "# };
 
-        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
-        assert_snapshot!(output);
+        let output =
+            instrument_inline_scripts(SourceId("/test".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
     }
 
     #[test]
@@ -155,8 +160,9 @@ mod tests {
         </html>
         "# };
 
-        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
-        assert_snapshot!(output);
+        let output =
+            instrument_inline_scripts(SourceId("/test".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
     }
 
     #[test]
@@ -174,8 +180,9 @@ mod tests {
         </html>
         "# };
 
-        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
-        assert_snapshot!(output);
+        let output =
+            instrument_inline_scripts(SourceId("/test".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
     }
 
     #[test]
@@ -194,8 +201,9 @@ mod tests {
         </html>
         "# };
 
-        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
-        assert_snapshot!(output);
+        let output =
+            instrument_inline_scripts(SourceId("/test".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
     }
 
     #[test]
@@ -211,7 +219,35 @@ mod tests {
         </html>
         "# };
 
-        let output = instrument_inline_scripts(SourceId(0), input).unwrap();
-        assert_snapshot!(output);
+        let output =
+            instrument_inline_scripts(SourceId("/test".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
+    }
+
+    #[test]
+    fn test_instrument_html_inline_scripts_are_numbered() {
+        let input = indoc! { r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <script>
+        if (a) {}
+        </script>
+        <script src="/app.js"></script>
+        <script type="application/json">{"if": true}</script>
+        </head>
+        <body>
+        <script type="module">
+        export function example(a) {
+            return a ? 1 : 2;
+        }
+        </script>
+        </body>
+        </html>
+        "# };
+
+        let output =
+            instrument_inline_scripts(SourceId("/page".into()), input).unwrap();
+        assert_snapshot!(output.snapshot());
     }
 }

@@ -742,6 +742,7 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
+        blocks: Default::default(),
     });
 
     fuzzer::fuzz(fuzzer::FuzzOptions {
@@ -910,6 +911,7 @@ fn browser_shrink(
             ".",
             &specification.module_specifier,
         )?),
+        blocks: Default::default(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {

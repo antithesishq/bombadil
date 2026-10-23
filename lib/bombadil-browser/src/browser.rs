@@ -32,6 +32,7 @@ use crate::browser::state::{
 use crate::browser_options::BrowserOptions;
 use crate::chromium::Chromium;
 use crate::cookie::build_cookie_param;
+use crate::instrumentation::BlockRegistry;
 
 pub mod actions;
 pub mod evaluation;
@@ -182,6 +183,7 @@ impl Browser {
         origin: &Url,
         browser_options: &BrowserOptions,
         chromium: &Chromium,
+        blocks: &BlockRegistry,
     ) -> Result<Self> {
         let connection = cdp::Connection::connect(
             chromium.web_socket_remote_debugger.to_string(),
@@ -350,6 +352,7 @@ impl Browser {
             connection.clone(),
             &session_id,
             browser_options.instrumentation.clone(),
+            blocks.clone(),
         )?;
         {
             let events_tx = events_tx.clone();

@@ -1,0 +1,39 @@
+---
+source: lib/bombadil-browser/src/instrumentation/html.rs
+expression: output.snapshot()
+---
+<!DOCTYPE html><html><head>
+<script>window.__bombadil__ = window.__bombadil__ || {
+	edges_previous: new Uint8Array(65536),
+	edges_current: new Uint8Array(65536),
+	previous: 0
+};
+if (a) {
+	__bombadil__.edges_current[((488063581 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+	__bombadil__.previous = 488063581 >> 1;
+} else {
+	__bombadil__.edges_current[((114450366 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+	__bombadil__.previous = 114450366 >> 1;
+}
+</script>
+<script src="/app.js"></script>
+<script type="application/json">{"if": true}</script>
+</head>
+<body>
+<script type="module">window.__bombadil__ = window.__bombadil__ || {
+	edges_previous: new Uint8Array(65536),
+	edges_current: new Uint8Array(65536),
+	previous: 0
+};
+export function example(a) {
+	return a ? (__bombadil__.edges_current[((1391230168 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1391230168 >> 1, 1) : (__bombadil__.edges_current[((1228362170 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1228362170 >> 1, 2);
+}
+</script>
+
+
+</body></html>
+---- blocks ----
+ 488063581  /page#inline0:2  <top>
+ 114450366  /page#inline0:2  <top>
+1391230168  /page#inline1:3  example
+1228362170  /page#inline1:3  example
