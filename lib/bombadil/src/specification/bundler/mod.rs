@@ -296,6 +296,9 @@ pub fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
   }
 
   globalThis.__bombadilRequire = require;
+  globalThis.__bombadilNamed = function(name, value) {
+    return value && value.__bombadilExtractor === true && value.name === null ? value.named(name) : value;
+  };
 
 "#,
     );
@@ -364,6 +367,53 @@ struct RewriterState<'a> {
     key: ModuleKey,
     resolution_errors: Vec<String>,
     base_path: &'a Path,
+}
+
+/// A top-level `const x = <call>` becomes `const x = __bombadilNamed("x",
+/// <call>)`, so that an extractor cell gets its snapshot name from its binding.
+/// Other declarations, and those inside functions and blocks, are left alone.
+fn name_call_bindings<'a>(
+    declaration: &mut ast::VariableDeclaration<'a>,
+    ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
+) {
+    if !declaration.kind.is_const() || !ctx.parent().is_program() {
+        return;
+    }
+    for declarator in &mut declaration.declarations {
+        name_call_binding(declarator, ctx);
+    }
+}
+
+fn name_call_binding<'a>(
+    declarator: &mut ast::VariableDeclarator<'a>,
+    ctx: &mut TraverseCtx<'a, &mut RewriterState<'a>>,
+) {
+    let ast::BindingPattern::BindingIdentifier(binding_identifier) =
+        &declarator.id
+    else {
+        return;
+    };
+    if !matches!(&declarator.init, Some(ast::Expression::CallExpression(_))) {
+        return;
+    }
+    let name_string = ctx
+        .ast
+        .allocator
+        .alloc_str(binding_identifier.name.as_str());
+    let init = declarator.init.take().unwrap();
+    let mut arguments = ctx.ast.vec_with_capacity(2);
+    arguments.push(ast::Argument::StringLiteral(
+        ctx.ast
+            .alloc(ctx.ast.string_literal(SPAN, name_string, None)),
+    ));
+    arguments.push(ast::Argument::from(init));
+    declarator.init = Some(ctx.ast.expression_call(
+        SPAN,
+        ctx.ast.expression_identifier(SPAN, "__bombadilNamed"),
+        NONE,
+        arguments,
+        false,
+    ));
 }
 
 impl<'a, 'b> Traverse<'a, &'b mut RewriterState<'a>> for Rewriter
@@ -581,6 +631,7 @@ where
                             ast::Declaration::VariableDeclaration(
                                 variable_declaration,
                             ) => {
+                                name_call_bindings(variable_declaration, ctx);
                                 for declarator in
                                     &variable_declaration.declarations
                                 {
@@ -755,57 +806,7 @@ where
                 }
             },
             ast::Statement::VariableDeclaration(variable_declaration) => {
-                for declarator in &mut variable_declaration.declarations {
-                    if let ast::BindingPattern::BindingIdentifier(
-                        binding_identifier,
-                    ) = &declarator.id
-                    {
-                        let should_add_named = if let Some(
-                            ast::Expression::CallExpression(call),
-                        ) = &declarator.init
-                        {
-                            matches!(
-                                &call.callee,
-                                ast::Expression::Identifier(identifier)
-                                    if identifier.name == "extract"
-                            )
-                        } else {
-                            false
-                        };
-
-                        if should_add_named {
-                            let variable_name =
-                                binding_identifier.name.as_str();
-                            let extract_call = declarator.init.take().unwrap();
-
-                            let member_expression =
-                                ctx.ast.member_expression_static(
-                                    SPAN,
-                                    extract_call,
-                                    ctx.ast.identifier_name(SPAN, "named"),
-                                    false,
-                                );
-
-                            let name_string =
-                                ctx.ast.allocator.alloc_str(variable_name);
-                            let named_call = ctx.ast.expression_call(
-                                SPAN,
-                                member_expression.into(),
-                                NONE,
-                                ctx.ast.vec1(ast::Argument::StringLiteral(
-                                    ctx.ast.alloc(ctx.ast.string_literal(
-                                        SPAN,
-                                        name_string,
-                                        None,
-                                    )),
-                                )),
-                                false,
-                            );
-
-                            declarator.init = Some(named_call);
-                        }
-                    }
-                }
+                name_call_bindings(variable_declaration, ctx);
             }
             _ => {}
         }
@@ -1009,8 +1010,21 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_named_transformation() {
+    fn test_bundle_names_call_bindings() {
+        let bundle = bundle(
+            "src/specification/bundler/fixtures/snapshot",
+            "./naming-test.ts",
+        )
+        .unwrap();
+        assert_snapshot!(bundle);
+    }
+
+    #[test]
+    fn test_extractor_names_at_runtime() {
         use std::io::Write;
+
+        use boa_engine::{Context, Source};
+        use serde_json::json;
         use tempfile::NamedTempFile;
 
         let mut spec_file = NamedTempFile::with_suffix(".ts").unwrap();
@@ -1019,35 +1033,41 @@ mod tests {
                 br#"
 import { extract } from "@antithesishq/bombadil";
 
-const foo = extract((state) => state.foo);
-const bar = extract((state) => state.bar).named("custom_name");
-const baz = extract((state) => state.baz).foo();
+const plain = extract((state) => state.count);
+const custom = extract((state) => state.count).named("custom_name");
+const doubled = plain.map((count) => count * 2);
 
-export { foo, bar, baz };
+function nested() {
+  const inner = extract((state) => state.count);
+  return inner;
+}
+nested();
 "#,
             )
             .unwrap();
-
         let bundle =
             bundle(".", &spec_file.path().display().to_string()).unwrap();
 
-        assert!(
-            bundle.contains(r#"extract((state) => state.foo).named("foo")"#),
-            "Should add .named() to extract without existing .named()"
-        );
-        assert!(
-            bundle.contains(
-                r#"extract((state) => state.bar).named("custom_name")"#
-            ),
-            "Should not modify extract with existing .named()"
-        );
-        assert!(
-            !bundle.contains(r#".named("bar")"#),
-            "Should not add second .named() to extract with existing .named()"
-        );
-        assert!(
-            !bundle.contains(r#".named("baz")"#),
-            "Should not add .named() to chained method calls"
+        let mut context = Context::default();
+        context.eval(Source::from_bytes(&bundle)).unwrap();
+        let snapshots = context
+            .eval(Source::from_bytes(
+                r#"__bombadilRequire("@antithesishq/bombadil").runtime
+                    .runExtractors({ count: 3 })
+                    .map(({ name, value }) => [name, value])"#,
+            ))
+            .unwrap()
+            .to_json(&mut context)
+            .unwrap();
+
+        assert_eq!(
+            snapshots,
+            Some(json!([
+                ["plain", 3],
+                ["custom_name", 3],
+                ["doubled", 6],
+                [null, 3],
+            ]))
         );
     }
 

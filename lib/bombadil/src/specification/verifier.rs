@@ -482,6 +482,28 @@ mod tests {
     }
 
     #[test]
+    fn test_default_properties_reexported() {
+        let verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export * from "@antithesishq/bombadil/browser/defaults/properties";
+            "#,
+        );
+        let mut properties = verifier.properties();
+        properties.sort();
+        assert_eq!(
+            properties,
+            vec![
+                "noConsoleErrors",
+                "noHttpErrorCodes",
+                "noUncaughtExceptions",
+                "noUnhandledPromiseRejections",
+            ]
+        );
+    }
+
+    #[test]
     fn test_property_evaluation_not() {
         let mut verifier = verifier(
             r#"

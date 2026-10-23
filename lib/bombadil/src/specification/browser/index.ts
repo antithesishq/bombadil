@@ -120,6 +120,84 @@ export function extract<T extends JSON>(query: (state: State) => T): Cell<T> {
   return bombadil.extract<State, T>(query);
 }
 
+// Per-session analytics and campaign parameters (`_gl`, `utm_*`, ad click ids),
+// which would make every page a new location.
+const TRACKING_PARAMETERS = new Set([
+  "_gl",
+  "gclid",
+  "dclid",
+  "gbraid",
+  "wbraid",
+  "fbclid",
+  "msclkid",
+  "twclid",
+  "yclid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "hsCtaTracking",
+]);
+
+function isTrackingParameter(key: string): boolean {
+  return (
+    TRACKING_PARAMETERS.has(key) ||
+    key.startsWith("utm_") ||
+    key.startsWith("_ga") ||
+    key.startsWith("_hs")
+  );
+}
+
+const DIGITS = /^[0-9]+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// All digits or a UUID becomes `#id`, so that `/posts/42` and `/posts/43` are
+// one place to the key.
+function maskId(value: string): string {
+  return DIGITS.test(value) || UUID.test(value) ? "#id" : value;
+}
+
+function decode(part: string): string {
+  try {
+    return decodeURIComponent(part.replace(/\+/g, " "));
+  } catch {
+    return part;
+  }
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// The page's location for the state key: the path and the fragment with id
+// segments masked (`/posts/42/` → `/posts/#id`, `#/posts/42` → `#/posts/#id`),
+// and the query, sorted, without tracking parameters and with id values
+// masked. No host. It is registered here so that every browser specification
+// has it. It is not exported, so it is named here.
+bombadil.extract((state: State) => {
+  const location = state.window.location;
+  const pathname =
+    "/" +
+    location.pathname
+      .split("/")
+      .filter((segment) => segment.length > 0)
+      .map(maskId)
+      .join("/");
+  const hash = location.hash.split("/").map(maskId).join("/");
+  const query: [string, string][] = [];
+  for (const pair of location.search.replace(/^\?/, "").split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = decode(eq < 0 ? pair : pair.slice(0, eq));
+    if (isTrackingParameter(key)) continue;
+    query.push([key, eq < 0 ? "" : maskId(decode(pair.slice(eq + 1)))]);
+  }
+  query.sort(
+    ([keyA, valueA], [keyB, valueB]) =>
+      compare(keyA, keyB) || compare(valueA, valueB),
+  );
+  return { pathname, hash, query };
+}).named("abstractLocation");
+
 export function actions(
   generate: () => Tree<ActionTemplate> | ActionTemplate[],
 ): ActionGenerator<ActionTemplate> {

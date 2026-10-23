@@ -15,6 +15,8 @@ export type JSON =
   | { toJSON(): JSON };
 
 export class ExtractorCell<T extends JSON, S> implements Cell<T> {
+  /** @internal Brand for the bundler's naming helper (`__bombadilNamed`). */
+  public readonly __bombadilExtractor = true;
   public name: string | null = null;
   public readonly index: number;
   private snapshot: T | undefined;
@@ -45,6 +47,15 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   named(name: string) {
     this.name = name;
     return this;
+  }
+
+  /**
+   * A new extractor cell whose value is `f` of this one's. It reads this
+   * cell's snapshot rather than extracting again: extractors run in the order
+   * they were created, so this cell has already run for the state.
+   */
+  map<U extends JSON>(f: (value: T) => U): ExtractorCell<U, S> {
+    return new ExtractorCell<U, S>(this.runtime, () => f(this.snapshot as T));
   }
 
   /**
