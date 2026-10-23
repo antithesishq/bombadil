@@ -1,0 +1,62 @@
+---
+source: src/specification/bundler/mod.rs
+expression: bundle
+---
+(function() {
+  const modules = {};
+  const cache = {};
+
+  function require(path) {
+    if (cache[path]) {
+      return cache[path].exports;
+    }
+
+    const module = { exports: {} };
+    cache[path] = module;
+
+    if (!modules[path]) {
+      throw new Error("Module not found: " + path);
+    }
+
+    modules[path](module, module.exports, require);
+
+    // ESM interop: ensure .default exists for pure CommonJS modules
+    // Skip if module already has __esModule marker (transpiled ESM) or .default property
+    if (!module.exports.__esModule && typeof module.exports.default === 'undefined') {
+      module.exports.default = module.exports;
+    }
+
+    return module.exports;
+  }
+
+  globalThis.__bombadilRequire = require;
+  globalThis.__bombadilNamed = function(name, value) {
+    return value && value.__bombadilExtractor === true && value.name === null ? value.named(name) : value;
+  };
+
+  modules["./naming-test.ts"] = function(module, exports, require) {
+    module.exports.__esModule=true;function make(value) {
+    	return value;
+    }
+    const constCall = __bombadilNamed("constCall", make(1));
+    let letCall = make(2);
+    var varCall = make(3);
+    const exportedCall = __bombadilNamed("exportedCall", make(4));
+    const notCall = 5;
+    const { length } = String(make(6));
+    function nested() {
+    	const inner = make(7);
+    	return inner;
+    }
+    ;
+    module.exports.exportedCall = exportedCall;
+    module.exports.constCall = constCall;
+    module.exports.letCall = letCall;
+    module.exports.varCall = varCall;
+    module.exports.notCall = notCall;
+    module.exports.length = length;
+    module.exports.nested = nested;
+  };
+
+  return require("./naming-test.ts");
+})();

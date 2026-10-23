@@ -30,6 +30,9 @@ expression: bundle
   }
 
   globalThis.__bombadilRequire = require;
+  globalThis.__bombadilNamed = function(name, value) {
+    return value && value.__bombadilExtractor === true && value.name === null ? value.named(name) : value;
+  };
 
   modules["./index.ts"] = function(module, exports, require) {
     module.exports.__esModule=true;const { default: z, x, foo: bar } = __bombadilRequire("./other.ts");
@@ -38,8 +41,8 @@ expression: bundle
     const { default: file } = __bombadilRequire("./file.txt");
     const { default: data } = __bombadilRequire("./data.json");
     const { default: nspell } = __bombadilRequire("./node_modules/nspell/index.js");
-    const y = incr(x + z + bar.bar);
-    const computed = multiply(addFn(1, 2), MAGIC_NUMBER);
+    const y = __bombadilNamed("y", incr(x + z + bar.bar));
+    const computed = __bombadilNamed("computed", multiply(addFn(1, 2), MAGIC_NUMBER));
     Object.assign(module.exports, __bombadilRequire("./other.ts"));
     const text = file;
     const jsonx = data.x;
@@ -71,7 +74,7 @@ expression: bundle
     function multiply(a, b) {
     	return a * b;
     }
-    const MAGIC_NUMBER = double(21);
+    const MAGIC_NUMBER = __bombadilNamed("MAGIC_NUMBER", double(21));
     function getPi() {
     	return PI;
     }
@@ -435,6 +438,11 @@ expression: bundle
 
   modules["@antithesishq/bombadil/internal"] = function(module, exports, require) {
     module.exports.__esModule=true;class ExtractorCell {
+    	/** @internal Used by the bundler's naming helper `__bombadilNamed` to determinate
+    	* that it's a nameable cell. The bundler doesn't have access to the prototype to do
+    	* an `instanceof` check.
+    	**/
+    	__bombadilExtractor = true;
     	name = null;
     	index;
     	snapshot;
@@ -458,6 +466,15 @@ expression: bundle
     	named(name) {
     		this.name = name;
     		return this;
+    	}
+    	/**
+    	* Creates a new extractor cell by mapping `f` over this cell's value.
+    	*/
+    	map(f) {
+    		// It reads this cell's snapshot rather than extracting again, because extractors
+    		// run in the order they were created, meaning the original cell has already run
+    		// when the mapped cell runs.
+    		return new ExtractorCell(this.runtime, () => f(this.snapshot));
     	}
     	/**
     	* Runs the extractor and updates its cached value.
