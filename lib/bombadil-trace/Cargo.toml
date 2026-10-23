@@ -1,0 +1,15 @@
+[package]
+name = "bombadil-trace"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+crc32fast.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+tempfile.workspace = true
