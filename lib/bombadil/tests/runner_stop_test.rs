@@ -85,6 +85,7 @@ impl InterfaceDriver for FakeDriver {
             FakeSession {
                 terminated: self.terminated.clone(),
                 next_event_calls: self.next_event_calls.clone(),
+                terminate_fails: false,
             },
             dummy_verifier(),
         ))
@@ -94,6 +95,7 @@ impl InterfaceDriver for FakeDriver {
 struct FakeSession {
     terminated: Arc<AtomicBool>,
     next_event_calls: Arc<AtomicUsize>,
+    terminate_fails: bool,
 }
 
 impl InterfaceSession for FakeSession {
@@ -105,6 +107,9 @@ impl InterfaceSession for FakeSession {
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
+        if self.terminate_fails {
+            anyhow::bail!("terminate failed");
+        }
         Ok(())
     }
 
@@ -139,6 +144,7 @@ impl InterfaceSession for FakeSession {
 
 struct FakeStrategy {
     on_interrupted_calls: Arc<AtomicUsize>,
+    run_fails: bool,
 }
 
 impl RunStrategy<FakeSession> for FakeStrategy {
@@ -169,6 +175,9 @@ impl RunStrategy<FakeSession> for FakeStrategy {
 
     fn on_interrupted(&mut self) -> Result<()> {
         self.on_interrupted_calls.fetch_add(1, Ordering::SeqCst);
+        if self.run_fails {
+            anyhow::bail!("run failed");
+        }
         Ok(())
     }
 }
@@ -203,6 +212,7 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
 
     let mut strategy = FakeStrategy {
         on_interrupted_calls: on_interrupted_calls.clone(),
+        run_fails: false,
     };
 
     let mut trace_writer = NoopTraceWriter;
@@ -386,4 +396,159 @@ fn stuck_driver_stops_on_interrupt() {
     assert_eq!(result.unwrap(), StuckStop::Interrupted);
     assert!(terminated);
     assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+/// A trace writer whose `finish` fails with `failure`, if any, counting
+/// calls.
+struct FinishingWriter {
+    failure: Option<&'static str>,
+    finish_calls: usize,
+}
+
+impl bombadil::driver::TraceWriter<FakeSession> for FinishingWriter {
+    fn write(
+        &mut self,
+        _state: &FakeState,
+        _last_action: Option<&FakeAction>,
+        _snapshots: &[Snapshot],
+        _violations: &[bombadil::runner::PropertyViolation],
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        self.finish_calls += 1;
+        match self.failure {
+            Some(failure) => anyhow::bail!("{failure}"),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Keeps the messages logged at error level, from every test in this
+/// binary, so checks look for messages unique to their test.
+struct ErrorLog(std::sync::Mutex<Vec<String>>);
+
+impl log::Log for ErrorLog {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Error
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            self.0.lock().unwrap().push(record.args().to_string());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+fn logged_errors() -> Vec<String> {
+    static LOG: std::sync::OnceLock<&'static ErrorLog> =
+        std::sync::OnceLock::new();
+    let log = LOG.get_or_init(|| {
+        let log: &'static ErrorLog =
+            Box::leak(Box::new(ErrorLog(Default::default())));
+        log::set_logger(log).unwrap();
+        log::set_max_level(log::LevelFilter::Error);
+        log
+    });
+    log.0.lock().unwrap().clone()
+}
+
+/// Runs an interrupted run, with the run, finishing the trace and
+/// terminating the session failing as given, and returns the error (if
+/// any) and whether the writer was finished and the session terminated.
+fn run_failing(
+    run_fails: bool,
+    finish_failure: Option<&'static str>,
+    terminate_fails: bool,
+) -> (Option<String>, usize, bool) {
+    let terminated = Arc::new(AtomicBool::new(false));
+    let mut session = FakeSession {
+        terminated: terminated.clone(),
+        next_event_calls: Arc::new(AtomicUsize::new(0)),
+        terminate_fails,
+    };
+    let mut strategy = FakeStrategy {
+        on_interrupted_calls: Arc::new(AtomicUsize::new(0)),
+        run_fails,
+    };
+    let mut writer = FinishingWriter {
+        failure: finish_failure,
+        finish_calls: 0,
+    };
+    let result = runner::run(
+        &mut session,
+        &mut strategy,
+        dummy_verifier(),
+        &mut writer,
+        Arc::new(AtomicBool::new(true)),
+    );
+    (
+        result.err().map(|error| format!("{error:#}")),
+        writer.finish_calls,
+        terminated.load(Ordering::SeqCst),
+    )
+}
+
+#[test]
+fn run_reports_the_first_error_and_still_finishes_and_terminates() {
+    // Installed before running, so nothing logged is missed.
+    logged_errors();
+    let finish = Some("finish failed");
+    // As the writer repeats it, which `run` recognizes.
+    let repeated: &'static str =
+        format!("{}: write failed", bombadil_trace::WRITER_FAILED_EARLIER)
+            .leak();
+    let finish_repeated = Some(repeated);
+    let finish_repeated_error =
+        format!("failed to finish the trace: {repeated}");
+    let cases = [
+        ((false, None, false), None),
+        ((true, finish, true), Some("run failed")),
+        ((true, None, true), Some("run failed")),
+        ((true, finish_repeated, false), Some("run failed")),
+        (
+            (false, finish, true),
+            Some("failed to finish the trace: finish failed"),
+        ),
+        (
+            (false, None, true),
+            Some("failed to terminate the session: terminate failed"),
+        ),
+        (
+            (false, finish, false),
+            Some("failed to finish the trace: finish failed"),
+        ),
+        (
+            (false, finish_repeated, false),
+            Some(finish_repeated_error.as_str()),
+        ),
+    ];
+    for ((run, finish, terminate), expected) in cases {
+        let (error, finish_calls, terminated) =
+            run_failing(run, finish, terminate);
+        let case = (run, finish, terminate);
+        assert_eq!(error.as_deref(), expected, "{case:?}");
+        assert_eq!(finish_calls, 1, "{case:?}");
+        assert!(terminated, "{case:?}");
+    }
+
+    // The errors after the first are logged, except `finish` repeating
+    // the write failure the run failed with.
+    let logged = logged_errors();
+    let count = |message: &str| {
+        logged.iter().filter(|logged| *logged == message).count()
+    };
+    assert_eq!(count("failed to finish the trace: finish failed"), 1);
+    assert_eq!(
+        count("failed to terminate the session: terminate failed"),
+        3,
+        "{logged:?}"
+    );
+    assert!(
+        !logged.iter().any(|logged| logged.contains("write failed")),
+        "{logged:?}"
+    );
 }

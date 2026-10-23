@@ -326,6 +326,21 @@ jobs:
             --specification examples/cat.ts \
             --output-path terminal-test-output \
             head -n 100
+          test -s terminal-test-output/trace.bin
+          # Read the whole trace, which warns if it wasn't finished. (A
+          # negated command doesn't fail the step under `bash -e`.)
+          ./bombadil trace terminal-test-output \
+            > trace-check.out 2> trace-check.err \
+            || { cat trace-check.err; exit 1; }
+          cat trace-check.err
+          if grep -q 'not finished' trace-check.err; then exit 1; fi
+          # The screen of the last state, one line per state starting `#`.
+          states=$(grep -c '^#' trace-check.out || true)
+          if [ "$states" -eq 0 ]; then
+            echo "the trace holds no states" >&2
+            exit 1
+          fi
+          ./bombadil trace terminal-test-output --state "$((states - 1))" --screen
       - name: Upload terminal test output
         if: failure()
         uses: actions/upload-artifact@v4

@@ -5,7 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
     specification::domain::Snapshot,
@@ -56,15 +56,22 @@ impl FileTraceWriter {
                 .expect("states directory path is not valid unicode")
         );
         let trace_file_path = run_path.join("trace.jsonl");
-        if trace_file_path.try_exists()? {
-            if !overwrite {
-                anyhow::bail!(
-                    "trace.jsonl already exists at {}. \
-                     Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-                    trace_file_path.display(),
-                );
+        // A terminal run's binary trace counts as an existing trace too,
+        // and is removed when overwriting so the formats don't mix.
+        for name in ["trace.jsonl", "trace.bin"] {
+            let path = run_path.join(name);
+            if path.try_exists()? {
+                if !overwrite {
+                    anyhow::bail!(
+                        "{name} already exists at {}. \
+                         Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                        path.display(),
+                    );
+                }
+                std::fs::remove_file(&path).with_context(|| {
+                    format!("failed to remove {}", path.display())
+                })?;
             }
-            std::fs::remove_file(&trace_file_path)?;
         }
         let screenshots_path = run_path.join("screenshots");
         std::fs::create_dir_all(&screenshots_path)?;
@@ -115,5 +122,34 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
         self.trace_file.flush()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A terminal run's `trace.bin` is refused without overwriting, and
+    /// removed when overwriting, so the directory holds one trace.
+    #[test]
+    fn refuses_or_replaces_a_binary_trace() {
+        let directory = tempfile::tempdir().unwrap();
+        let binary_trace = directory.path().join("trace.bin");
+        std::fs::write(&binary_trace, "previous").unwrap();
+        let error =
+            FileTraceWriter::initialize(directory.path().to_path_buf(), false)
+                .err()
+                .unwrap();
+        assert!(
+            error.to_string().starts_with("trace.bin already exists at"),
+            "{error}"
+        );
+        assert!(binary_trace.exists());
+        assert!(!directory.path().join("trace.jsonl").exists());
+
+        FileTraceWriter::initialize(directory.path().to_path_buf(), true)
+            .unwrap();
+        assert!(!binary_trace.exists());
+        assert!(directory.path().join("trace.jsonl").is_file());
     }
 }

@@ -144,12 +144,18 @@ where
         actions.into()
     };
 
-    if output_path.join("trace.jsonl").try_exists()? && !output_path_overwrite {
-        bail!(
-            "trace.jsonl already exists at {}. \
-             Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-            output_path.display(),
-        );
+    // The terminal driver writes a binary trace (`trace.bin`), the browser
+    // driver a JSON lines one (`trace.jsonl`), and older terminal runs
+    // wrote `trace.jsonl` too; either means the directory holds a trace.
+    for trace_file in ["trace.jsonl", "trace.bin"] {
+        let trace_path = output_path.join(trace_file);
+        if trace_path.try_exists()? && !output_path_overwrite {
+            bail!(
+                "{trace_file} already exists at {}. \
+                 Use --output-path-overwrite to overwrite, or choose a different --output-path.",
+                trace_path.display(),
+            );
+        }
     }
     let attempts_path = output_path.join(ATTEMPTS_DIRECTORY_NAME);
     if attempts_path.try_exists()? {
@@ -383,8 +389,8 @@ where
                 &mut writer,
                 self.interrupted.clone(),
             )
-            // Drops (and flushes) the writer before the coordinator moves
-            // the run directory.
+            // The runner finishes the writer, so the trace is complete
+            // before the coordinator moves the run directory.
         })();
         if let Err(error) = &outcome {
             log::warn!("shrink run {} failed: {:#}", job.run_id, error);
@@ -906,6 +912,28 @@ impl Coordinator {
             }
             std::fs::rename(directory.join(&name), &target)?;
             self.files_best.push(name);
+        }
+        // A trace of the other format left over from an earlier run, when
+        // overwriting: a legacy `trace.jsonl` the binary trace replaces, or
+        // a terminal `trace.bin` next to a browser's `trace.jsonl`.
+        let promoted =
+            |name: &str| self.files_best.iter().any(|best| best == name);
+        let stale = match (promoted("trace.bin"), promoted("trace.jsonl")) {
+            (true, false) => Some("trace.jsonl"),
+            (false, true) => Some("trace.bin"),
+            _ => None,
+        };
+        if let Some(stale) = stale {
+            let path = self.output_path.join(stale);
+            match std::fs::remove_file(&path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(anyhow::Error::new(error).context(format!(
+                        "failed to remove {}",
+                        path.display()
+                    )));
+                }
+                _ => {}
+            }
         }
         std::fs::remove_dir(directory)?;
         std::fs::remove_dir_all(&previous)?;
