@@ -1,6 +1,6 @@
 ---
 source: lib/bombadil-browser/src/instrumentation/html.rs
-expression: output
+expression: output.snapshot()
 ---
 <!DOCTYPE html><html><head></head><body>
 <script type="module">window.__bombadil__ = window.__bombadil__ || {
@@ -9,10 +9,13 @@ expression: output
 	previous: 0
 };
 export function example(a, b, c) {
-	return a ? (__bombadil__.edges_current[((0x22c1feea839d4200 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 0x22c1feea839d4200 >> 1, b) : (__bombadil__.edges_current[((0x11b1b3220bdaeb00 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 0x11b1b3220bdaeb00 >> 1, c);
+	return a ? (__bombadil__.edges_current[((620589614 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 620589614 >> 1, b) : (__bombadil__.edges_current[((247887533 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 247887533 >> 1, c);
 }
 console.log(example(true, 1, 2));
 </script>
 
 
 </body></html>
+---- blocks ----
+ 620589614  /test#inline0:3  example
+ 247887533  /test#inline0:3  example

@@ -1,6 +1,6 @@
 ---
 source: lib/bombadil-browser/src/instrumentation/html.rs
-expression: output
+expression: output.snapshot()
 ---
 <!DOCTYPE html><html><head></head><body>
 <template>
@@ -9,3 +9,4 @@ expression: output
 
 
 </body></html>
+---- blocks ----

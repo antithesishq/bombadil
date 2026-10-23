@@ -31,7 +31,7 @@ rand.workspace = true
 regex-syntax.workspace = true
 reqwest.workspace = true
 scraper.workspace = true
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
