@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use rand::{RngExt, TryRng};
 use serde::{Deserialize, Serialize};
 
@@ -72,25 +72,54 @@ impl<T> Tree<T> {
         }
     }
 
+    /// Picks a leaf with the probability `leaves_with_probabilities` gives
+    /// it. Probability lost under branches whose weights are all zero is
+    /// redistributed proportionally over the other leaves.
     pub fn pick<R: TryRng + RngExt>(&self, rng: &mut R) -> Result<&T> {
-        match self {
-            Tree::Leaf { value } => Ok(value),
-            Tree::Branch { branches } => {
-                let total: u64 = branches.iter().map(|(w, _)| *w as u64).sum();
-                if total == 0 {
-                    bail!("total of weights is zero")
-                }
-                let mut choice = rng.random_range(0..total);
-                for (weight, subtree) in branches {
-                    let w = *weight as u64;
-                    if choice < w {
-                        return subtree.pick(rng);
+        let leaves = self.leaves_with_probabilities();
+        let total: f64 = leaves.iter().map(|(_, p)| *p).sum();
+        if total <= 0.0 {
+            bail!("no leaf with a positive probability to pick")
+        }
+        let mut remaining = rng.random::<f64>() * total;
+        let mut last_positive = None;
+        for (value, probability) in leaves {
+            if probability <= 0.0 {
+                continue;
+            }
+            if remaining < probability {
+                return Ok(value);
+            }
+            remaining -= probability;
+            last_positive = Some(value);
+        }
+        // Rounding left a sliver past the last interval.
+        last_positive.ok_or_else(|| anyhow!("BUG: no pick available"))
+    }
+
+    /// Every leaf with the probability that weighted picking selects it.
+    /// Leaves under zero-weight branches get probability zero.
+    pub fn leaves_with_probabilities(&self) -> Vec<(&T, f64)> {
+        let mut result = vec![];
+        let mut stack = vec![(self, 1.0)];
+        while let Some((tree, probability)) = stack.pop() {
+            match tree {
+                Tree::Leaf { value } => result.push((value, probability)),
+                Tree::Branch { branches } => {
+                    let total: u64 =
+                        branches.iter().map(|(w, _)| *w as u64).sum();
+                    for (weight, subtree) in branches.iter().rev() {
+                        let share = if total == 0 {
+                            0.0
+                        } else {
+                            *weight as f64 / total as f64
+                        };
+                        stack.push((subtree, probability * share));
                     }
-                    choice -= w;
                 }
-                bail!("BUG: no pick available")
             }
         }
+        result
     }
 
     pub fn values(&self) -> Vec<&T> {
@@ -112,6 +141,99 @@ impl<T> Tree<T> {
 #[cfg(test)]
 mod tests {
     use super::Tree::*;
+    use super::{Tree, Weight};
+    use hegel::TestCase;
+    use hegel::generators::{booleans, integers};
+    use rand::{RngExt, SeedableRng, rngs::StdRng};
+
+    /// A tree whose leaves are numbered in depth-first order, where every
+    /// branch has at least one child and a positive total weight, so that
+    /// picking always succeeds. Individual weights may be zero.
+    fn trees(
+        tc: &TestCase,
+        depth: usize,
+        next_leaf: &mut usize,
+    ) -> Tree<usize> {
+        if depth == 0 || tc.draw_silent(booleans()) {
+            let value = *next_leaf;
+            *next_leaf += 1;
+            return Leaf { value };
+        }
+        let size =
+            tc.draw_silent(integers::<usize>().min_value(1).max_value(4));
+        let branches: Vec<(Weight, Tree<usize>)> = (0..size)
+            .map(|_| {
+                let weight = tc.draw_silent(integers::<Weight>());
+                (weight, trees(tc, depth - 1, next_leaf))
+            })
+            .collect();
+        tc.assume(branches.iter().any(|(weight, _)| *weight > 0));
+        Branch { branches }
+    }
+
+    /// The reference: walks down the tree, at each branch drawing an integer
+    /// below the total weight to choose the child.
+    fn pick_by_walking<'a>(
+        tree: &'a Tree<usize>,
+        rng: &mut StdRng,
+    ) -> &'a usize {
+        match tree {
+            Leaf { value } => value,
+            Branch { branches } => {
+                let total: u64 = branches.iter().map(|(w, _)| *w as u64).sum();
+                let mut choice = rng.random_range(0..total);
+                for (weight, subtree) in branches {
+                    let weight = *weight as u64;
+                    if choice < weight {
+                        return pick_by_walking(subtree, rng);
+                    }
+                    choice -= weight;
+                }
+                unreachable!("choice is below the total weight")
+            }
+        }
+    }
+
+    #[hegel::test]
+    fn pick_agrees_with_walking_the_tree(tc: TestCase) {
+        const SAMPLES: usize = 1000;
+        const TOLERANCE: f64 = 0.12;
+
+        let mut leaf_count = 0;
+        let tree = trees(&tc, 3, &mut leaf_count);
+        let seed = tc.draw(integers::<u64>());
+        tc.note(&format!("tree: {tree:?}"));
+
+        let leaves = tree.leaves_with_probabilities();
+        let values: Vec<usize> =
+            leaves.iter().map(|(value, _)| **value).collect();
+        assert_eq!(values, (0..leaf_count).collect::<Vec<_>>());
+        let probabilities: Vec<f64> =
+            leaves.iter().map(|(_, probability)| *probability).collect();
+        assert!((probabilities.iter().sum::<f64>() - 1.0).abs() < 1e-9);
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut picked = vec![0usize; leaf_count];
+        let mut expected = vec![0usize; leaf_count];
+        for _ in 0..SAMPLES {
+            picked[*tree.pick(&mut rng).unwrap()] += 1;
+            expected[*pick_by_walking(&tree, &mut rng)] += 1;
+        }
+
+        for leaf in 0..leaf_count {
+            if probabilities[leaf] == 0.0 {
+                assert_eq!(picked[leaf], 0, "leaf {leaf} has probability zero");
+            }
+            let picked = picked[leaf] as f64 / SAMPLES as f64;
+            let expected = expected[leaf] as f64 / SAMPLES as f64;
+            assert!(
+                (picked - expected).abs() < TOLERANCE,
+                "leaf {leaf} (probability {}): pick chose it {picked} of the \
+                 time, walking the tree {expected}",
+                probabilities[leaf],
+            );
+        }
+    }
 
     #[test]
     fn test_prune_non_empty() {
