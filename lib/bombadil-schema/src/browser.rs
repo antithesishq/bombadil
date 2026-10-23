@@ -13,6 +13,10 @@ pub struct BrowserStateSummary {
     /// `jpeg`), with the image as the state's payload.
     pub screenshot: String,
     pub resources: Resources,
+    /// Ids of the code blocks run since the previous state, sorted. The
+    /// run's `blocks.jsonl` says where each id is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

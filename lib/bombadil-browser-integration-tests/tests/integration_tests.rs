@@ -472,6 +472,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     specification,
                     browser_options,
                     debugger_options,
+                    Default::default(),
                     trace_writer,
                     Arc::new(AtomicBool::new(false)),
                     &mut strategy,

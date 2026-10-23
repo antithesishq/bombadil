@@ -34,7 +34,8 @@ use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
 use bombadil_browser::{
-    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
+    browser::actions::BrowserAction,
+    instrumentation::{BlockRegistry, InstrumentationConfig},
 };
 
 use crate::shrink::{self, ShrinkOptions};
@@ -615,6 +616,7 @@ fn browser_test(
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let origin = shared_options.target.origin.url;
 
+    let blocks = BlockRegistry::default();
     let run_options = RunOptions {
         run_id: RunId::default(),
         specification,
@@ -625,6 +627,7 @@ fn browser_test(
         allow_urls,
         origin,
         exit_on_violation: shared_options.exit_on_violation,
+        blocks: blocks.clone(),
     };
 
     let test_result = run_with_writer(
@@ -632,6 +635,7 @@ fn browser_test(
         FileTraceWriter::initialize(
             output_path.clone(),
             shared_options.output_path_overwrite,
+            blocks,
         )?,
     )?;
 
@@ -731,9 +735,11 @@ fn browser_fuzz(
     let specification_bundle =
         Arc::from(bundle(".", &specification.module_specifier)?);
 
+    let blocks = BlockRegistry::default();
     let output_writer = FileOutputWriter {
         root_path: output_path.clone(),
         overwrite: shared_options.output_path_overwrite,
+        blocks: blocks.clone(),
     };
 
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
@@ -742,7 +748,7 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
-        blocks: Default::default(),
+        blocks,
     });
 
     fuzzer::fuzz(fuzzer::FuzzOptions {
@@ -843,6 +849,7 @@ struct RunOptions {
     exit_on_violation: bool,
     deadline: Option<SystemTime>,
     allow_urls: Vec<MatchPattern>,
+    blocks: BlockRegistry,
 }
 
 fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
@@ -856,6 +863,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         exit_on_violation,
         deadline,
         allow_urls,
+        blocks,
     }: RunOptions,
     trace_writer: Writer,
 ) -> Result<TestResult> {
@@ -884,6 +892,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         specification,
         browser_options,
         debugger_options,
+        blocks,
         trace_writer,
         interrupted,
         &mut strategy,
@@ -903,6 +912,7 @@ fn browser_shrink(
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
         browser_options_from_target(&target, downloads.path());
+    let blocks = BlockRegistry::default();
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
@@ -911,7 +921,7 @@ fn browser_shrink(
             ".",
             &specification.module_specifier,
         )?),
-        blocks: Default::default(),
+        blocks: blocks.clone(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
@@ -926,7 +936,9 @@ fn browser_shrink(
             allow_urls: allow_urls.clone(),
             quiet: true,
         },
-        trace_writer: |path| FileTraceWriter::initialize(path, false),
+        trace_writer: move |path| {
+            FileTraceWriter::initialize(path, false, blocks.clone())
+        },
         trace: options.trace.map_actions(|action| action.to_internal()),
         property_name: options.property_name,
         output_path: options.output_path.clone(),

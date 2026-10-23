@@ -27,6 +27,7 @@ pub struct TraceEntry<'a> {
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
     pub resources: Cow<'a, Resources>,
+    pub branches: Cow<'a, [u32]>,
 }
 
 impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
@@ -42,6 +43,7 @@ impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
                 hash_current: self.hash_current,
                 screenshot: self.screenshot.to_string(),
                 resources: self.resources.to_schema(),
+                branches: Some(self.branches.to_vec()),
             },
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: self.violations.iter().map(|v| v.to_schema()).collect(),

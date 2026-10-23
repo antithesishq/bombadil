@@ -1,4 +1,6 @@
-use crate::instrumentation::js::{EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE};
+use crate::instrumentation::js::{
+    EDGES_CURRENT, EDGES_PREVIOUS, HITS, NAMESPACE,
+};
 use anyhow::{Context, Result};
 use bombadil::driver::RunState;
 use bombadil_schema::Time;
@@ -69,6 +71,8 @@ pub type EdgeBucket = u8;
 #[derive(Clone, Debug)]
 pub struct Coverage {
     pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
+    /// Ids of the blocks run since the previous capture, sorted.
+    pub branches: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -270,6 +274,7 @@ struct RuntimeStateSnapshot {
     content_type: String,
     edges_new: Vec<(EdgeIndex, EdgeBucket)>,
     transition_hash: Option<String>,
+    branches: Vec<u32>,
 }
 
 impl BrowserState {
@@ -291,14 +296,17 @@ impl BrowserState {
             formatcp!(
                 "
                 (() => {{
+                    const coverage = window.{NAMESPACE};
+                    const branches = coverage && coverage.{HITS} ? Array.from(coverage.{HITS}) : [];
+                    if (coverage && coverage.{HITS}) coverage.{HITS}.clear();
                     const snapshot = (edgesNew, transitionHash) => ({{
                         url: window.location.href,
                         title: document.title,
                         content_type: document.contentType,
                         edges_new: edgesNew,
                         transition_hash: transitionHash,
+                        branches,
                     }});
-                    const coverage = window.{NAMESPACE};
                     if (!coverage) return snapshot([], null);
 
                     const SIMHASH_BITS = 64;
@@ -434,6 +442,12 @@ impl BrowserState {
             exceptions,
             coverage: Coverage {
                 edges_new: runtime_state.edges_new,
+                branches: {
+                    let mut branches = runtime_state.branches;
+                    branches.sort_unstable();
+                    branches.dedup();
+                    branches
+                },
             },
             transition_hash,
             screenshot,

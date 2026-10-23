@@ -5,7 +5,8 @@ expression: snapshot(source_text)
 window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set()
 };
 function foo() {
 	let bar = get();
@@ -14,24 +15,30 @@ function foo() {
 			case 1:
 				__bombadil__.edges_current[((1188814430 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 1188814430 >> 1;
+				__bombadil__.hits.add(1188814430);
 				return bar;
 			case 2:
 				__bombadil__.edges_current[((1056359107 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 1056359107 >> 1;
+				__bombadil__.hits.add(1056359107);
 				break;
 			case "foo":
 				__bombadil__.edges_current[((1920218846 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 1920218846 >> 1;
+				__bombadil__.hits.add(1920218846);
 			case "bar":
 				__bombadil__.edges_current[((1823246910 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 1823246910 >> 1;
+				__bombadil__.hits.add(1823246910);
 			case "baz":
 				__bombadil__.edges_current[((2088218821 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 2088218821 >> 1;
+				__bombadil__.hits.add(2088218821);
 				continue;
 			default:
 				__bombadil__.edges_current[((1445672775 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 				__bombadil__.previous = 1445672775 >> 1;
+				__bombadil__.hits.add(1445672775);
 				return no;
 		}
 	}

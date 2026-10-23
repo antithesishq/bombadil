@@ -53,6 +53,8 @@ pub const NAMESPACE: &str = "__bombadil__";
 pub const EDGES_PREVIOUS: &str = "edges_previous";
 pub const EDGES_CURRENT: &str = "edges_current";
 pub const EDGE_MAP_SIZE: usize = 64 * 1024;
+/// The ids of the blocks run since the last state capture.
+pub const HITS: &str = "hits";
 
 const LOCATION_PREVIOUS: &str = "previous";
 
@@ -61,6 +63,7 @@ const PRELUDE: &str = formatcp!(
         {EDGES_PREVIOUS}: new Uint8Array({EDGE_MAP_SIZE}),
         {EDGES_CURRENT}: new Uint8Array({EDGE_MAP_SIZE}),
         {LOCATION_PREVIOUS}: 0,
+        {HITS}: new Set(),
     }};"
 );
 
@@ -292,8 +295,27 @@ impl Instrumenter {
             ),
         );
 
+        let hit = ctx.ast.expression_call(
+            SPAN,
+            ctx.ast
+                .member_expression_static(
+                    SPAN,
+                    antithesis_member(HITS),
+                    ctx.ast.identifier_name(SPAN, "add"),
+                    false,
+                )
+                .into(),
+            None::<
+                oxc::allocator::Box<'_, ast::TSTypeParameterInstantiation<'_>>,
+            >,
+            ctx.ast.vec1(ast::Argument::from(
+                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+            )),
+            false,
+        );
+
         ctx.ast
-            .vec_from_array([edge_addition, location_previous_update])
+            .vec_from_array([edge_addition, location_previous_update, hit])
     }
 
     /// Adds the following two statements to the start of block, or wraps a single statement
@@ -911,6 +933,30 @@ mod tests {
             })
             .collect();
         assert_snapshot!(table);
+    }
+
+    #[test]
+    fn hits_record_the_blocks_run() {
+        let source =
+            "function f(a) { if (a) { return 1; } return 2; }\nf(true);";
+        let Instrumented { text: code, blocks } =
+            instrument(source, SourceType::cjs());
+        let ids: Vec<u32> = blocks.iter().map(|block| block.id).collect();
+        let mut context = Context::default();
+        context
+            .eval(Source::from_bytes("var window = globalThis;"))
+            .unwrap();
+        context.eval(Source::from_bytes(&code)).unwrap();
+        let hits = context
+            .eval(Source::from_bytes(
+                "JSON.stringify(Array.from(__bombadil__.hits))",
+            ))
+            .unwrap()
+            .to_string(&mut context)
+            .unwrap()
+            .to_std_string_escaped();
+        // The `if` consequent ran; its (empty) else branch did not.
+        assert_eq!(hits, format!("[{}]", ids[0]));
     }
 
     #[test]
