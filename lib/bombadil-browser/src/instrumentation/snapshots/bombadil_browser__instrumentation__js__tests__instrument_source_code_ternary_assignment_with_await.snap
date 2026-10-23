@@ -1,6 +1,6 @@
 ---
 source: lib/bombadil-browser/src/instrumentation/js.rs
-expression: code
+expression: snapshot(source_text)
 ---
 window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
@@ -8,5 +8,9 @@ window.__bombadil__ = window.__bombadil__ || {
 	previous: 0
 };
 async function test() {
-	return f(x) ? (__bombadil__.edges_current[((0x76be999e3e25b400 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 0x76be999e3e25b400 >> 1, y = await z.instantiator(t)) : (__bombadil__.edges_current[((0x7359aa1156ce8800 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 0x7359aa1156ce8800 >> 1, f(y));
+	return f(x) ? (__bombadil__.edges_current[((596484520 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 596484520 >> 1, y = await z.instantiator(t)) : (__bombadil__.edges_current[((962333803 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 962333803 >> 1, f(y));
 }
+
+---- blocks ----
+ 596484520  /test.js:3  test
+ 962333803  /test.js:3  test

@@ -525,6 +525,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "stdx",
  "stdx-derive",
  "tempfile",
  "url",
