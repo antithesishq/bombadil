@@ -72,6 +72,7 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
             snapshots: Cow::Borrowed(snapshots),
             violations: Cow::Borrowed(violations),
             resources: Cow::Borrowed(&state.resources),
+            branches: Cow::Borrowed(&state.coverage.branches),
         };
         self.last_transition_hash = state.transition_hash;
         // The screenshot is shared with the state, not copied.

@@ -2,7 +2,9 @@ pub mod html;
 pub mod js;
 pub mod source_id;
 
-use std::sync::Arc;
+use std::io::{self, Write};
+use std::iter;
+use std::sync::{Arc, mpsc};
 
 use source_id::{SourceId, SourceIds};
 use stdx::hash::{FNV_OFFSET, fnv1a64_from};
@@ -96,16 +98,41 @@ struct BlockTable {
     /// Position in `blocks` by ID.
     ids: std::collections::BTreeMap<u32, usize>,
     source_ids: SourceIds,
+    /// Receives each new block, in registration order.
+    new_blocks: Option<mpsc::Sender<Block>>,
 }
 
 impl BlockRegistry {
+    /// A registry that sends each new block on the returned channel, in
+    /// registration order, until [`BlockRegistry::close`].
+    pub fn with_channel() -> (Self, mpsc::Receiver<Block>) {
+        let (sender, receiver) = mpsc::channel();
+        let registry = BlockRegistry::default();
+        registry.lock().new_blocks = Some(sender);
+        (registry, receiver)
+    }
+
+    /// Closes the channel of [`BlockRegistry::with_channel`].
+    pub fn close(&self) {
+        self.lock().new_blocks = None;
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BlockTable> {
+        self.0.lock().expect("block registry poisoned")
+    }
+
     /// Adds the `blocks` whose IDs are not yet registered.
     pub fn register(&self, blocks: impl IntoIterator<Item = Block>) {
-        let mut table = self.0.lock().expect("block registry poisoned");
+        let table = &mut *self.lock();
         for block in blocks {
             let Some(&index) = table.ids.get(&block.id) else {
                 let index = table.blocks.len();
                 table.ids.insert(block.id, index);
+                if let Some(new_blocks) = &table.new_blocks {
+                    // The receiver is gone if writing failed, which the
+                    // writer reports.
+                    let _ = new_blocks.send(block.clone());
+                }
                 table.blocks.push(block);
                 continue;
             };
@@ -133,15 +160,34 @@ impl BlockRegistry {
         if masked == exact {
             return masked;
         }
-        let mut table = self.0.lock().expect("block registry poisoned");
-        table.source_ids.claim(masked, exact)
+        self.lock().source_ids.claim(masked, exact)
+    }
+
+    pub fn contains(&self, id: u32) -> bool {
+        self.lock().ids.contains_key(&id)
     }
 
     #[cfg(test)]
     fn blocks(&self) -> Vec<Block> {
-        let table = self.0.lock().expect("block registry poisoned");
-        table.blocks.clone()
+        self.lock().blocks.clone()
     }
+}
+
+/// Writes the blocks of `new_blocks` as JSON lines until the channel closes,
+/// flushing whenever it runs empty.
+pub fn write_blocks(
+    new_blocks: mpsc::Receiver<Block>,
+    writer: impl io::Write,
+) -> io::Result<()> {
+    let mut writer = io::BufWriter::new(writer);
+    while let Ok(block) = new_blocks.recv() {
+        for block in iter::once(block).chain(new_blocks.try_iter()) {
+            serde_json::to_writer(&mut writer, &block)?;
+            writer.write_all(b"\n")?;
+        }
+        writer.flush()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -172,8 +218,8 @@ mod tests {
     fn blocks(tc: &TestCase) -> Block {
         Block {
             id: tc.draw_silent(integers::<u32>().max_value(15)),
-            script: tc.draw_silent(text().alphabet("/ab").max_size(2)).into(),
-            function: tc.draw_silent(text().alphabet("fg.").max_size(2)).into(),
+            script: tc.draw_silent(text()).into(),
+            function: tc.draw_silent(text()).into(),
             line: tc.draw_silent(integers::<u32>().min_value(1).max_value(9)),
         }
     }
@@ -201,6 +247,43 @@ mod tests {
             })
             .collect();
         assert!(positions.is_sorted());
+    }
+
+    #[hegel::test]
+    fn new_blocks_are_written_as_json_lines(tc: TestCase) {
+        let batches = tc.draw(
+            vecs(vecs(blocks()).max_size(6))
+                .max_size(6)
+                .print_as_debug(),
+        );
+        let (registry, new_blocks) = BlockRegistry::with_channel();
+        for batch in batches {
+            registry.register(batch);
+        }
+        registry.close();
+        let mut written = Vec::new();
+        write_blocks(new_blocks, &mut written).unwrap();
+
+        let lines: Vec<serde_json::Value> = written
+            .split_inclusive(|&byte| byte == b'\n')
+            .map(|line| {
+                assert_eq!(line.last(), Some(&b'\n'));
+                serde_json::from_slice(line).unwrap()
+            })
+            .collect();
+        let expected: Vec<serde_json::Value> = registry
+            .blocks()
+            .iter()
+            .map(|block| {
+                serde_json::json!({
+                    "id": block.id,
+                    "script": &*block.script,
+                    "function": &*block.function,
+                    "line": block.line,
+                })
+            })
+            .collect();
+        assert_eq!(lines, expected);
     }
 
     #[hegel::test]

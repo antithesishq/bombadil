@@ -35,9 +35,38 @@ pub fn resolve_output_path(output_path: &Option<PathBuf>) -> Result<PathBuf> {
     }
 }
 
+/// The value of `first` if both are `Ok`, otherwise the error of `first`
+/// before that of `second`. When both failed, the error of `second` is
+/// logged.
+pub fn or_logged<T>(first: Result<T>, second: Result<()>) -> Result<T> {
+    match (first, second) {
+        (Err(error), Err(error_second)) => {
+            log::error!("{error_second:#}");
+            Err(error)
+        }
+        (first, second) => second.and(first),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
+
+    #[test]
+    fn or_logged_returns_the_first_error_before_the_second() {
+        let message = |result: Result<()>| result.unwrap_err().to_string();
+        assert!(or_logged(Ok(()), Ok(())).is_ok());
+        assert_eq!(message(or_logged(Err(anyhow!("first")), Ok(()))), "first");
+        assert_eq!(
+            message(or_logged(Ok(()), Err(anyhow!("second")))),
+            "second"
+        );
+        assert_eq!(
+            message(or_logged(Err(anyhow!("first")), Err(anyhow!("second")))),
+            "first"
+        );
+    }
 
     #[test]
     fn arbitrary_files_and_directories_are_not_interchangeable() {

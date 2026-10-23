@@ -13,6 +13,12 @@ pub struct BrowserStateSummary {
     /// `jpeg`), with the image as the state's payload.
     pub screenshot: String,
     pub resources: Resources,
+    /// Ids of the code blocks run since the previous state, sorted. The
+    /// driver's block table says where each id is. Blocks
+    /// run in a document that was navigated away from before this state are
+    /// not recorded. Absent in traces written before block hits were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branches: Option<Vec<u32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -290,12 +296,13 @@ pub enum BrowserAction {
 
 #[cfg(test)]
 mod tests {
-    use super::Fingerprint;
+    use super::{BrowserStateSummary, Fingerprint};
     use hegel::{
         Generator, PrintableGenerator, TestCase,
         generators::{integers, just, optional, text, vecs},
         one_of,
     };
+    use serde_json as json;
 
     fn tags() -> impl PrintableGenerator<String> {
         one_of!(
@@ -408,5 +415,37 @@ mod tests {
         let left = tc.draw(fingerprints().print_as_debug());
         let right = tc.draw(fingerprints().print_as_debug());
         assert_eq!(left.matches(&right), right.matches(&left));
+    }
+
+    /// A trace from before block hits were recorded has no `branches`.
+    #[hegel::test]
+    fn state_summary_branches_are_optional(tc: TestCase) {
+        let branches = tc.draw(optional(vecs(integers::<u32>())));
+        let mut written = json::json!({
+            "url": "http://localhost/",
+            "screenshot": "jpeg",
+            "resources": {
+                "js_heap_used": 0,
+                "js_heap_total": 0,
+                "dom_nodes": 0,
+                "documents": 0,
+                "js_event_listeners": 0,
+                "layout_objects": 0,
+                "timestamp": 0.0,
+                "thread_time": 0.0,
+                "task_duration": 0.0,
+                "script_duration": 0.0,
+            },
+        });
+        if let Some(branches) = &branches {
+            written["branches"] = json::json!(branches);
+        }
+        let summary: BrowserStateSummary =
+            json::from_value(written.clone()).unwrap();
+        assert_eq!(summary.branches, branches);
+        assert_eq!(
+            json::to_value(&summary).unwrap().get("branches"),
+            written.get("branches")
+        );
     }
 }
