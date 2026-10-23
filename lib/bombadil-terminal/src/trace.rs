@@ -401,6 +401,51 @@ mod tests {
         assert_eq!(restored.cursor_x().unwrap(), 6);
     }
 
+    /// A repeated extractor value of a real trace entry is written once
+    /// (see `bombadil_trace`), and reads back as the original snapshots:
+    /// the trace format's snapshot entries are the schema's.
+    #[test]
+    fn test_writes_repeated_snapshot_values_once() {
+        let value = serde_json::json!({"items": ["a long enough value"]});
+        let snapshots: Vec<_> = (0..3)
+            .map(|n| Snapshot {
+                index: 0,
+                name: Some("items".to_string()),
+                value: value.clone(),
+                time: Time::from_system_time(
+                    SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(n),
+                ),
+            })
+            .collect();
+        let directory = tempfile::tempdir().unwrap();
+        let mut writer =
+            TerminalTraceWriter::initialize(directory.path(), false).unwrap();
+        for snapshot in &snapshots {
+            writer
+                .write(&state(None), None, std::slice::from_ref(snapshot), &[])
+                .unwrap();
+        }
+        writer.finish().unwrap();
+
+        let trace = std::fs::read(
+            directory.path().join(bombadil_trace::TRACE_FILE_NAME),
+        )
+        .unwrap();
+        let trace = String::from_utf8_lossy(&trace);
+        assert_eq!(trace.matches("a long enough value").count(), 1);
+        assert_eq!(trace.matches(r#""value_from":0"#).count(), 2);
+
+        let read: Vec<_> = open_terminal_trace(directory.path())
+            .unwrap()
+            .map(|state| state.unwrap().metadata.snapshots)
+            .collect();
+        let expected: Vec<_> = snapshots
+            .iter()
+            .map(|snapshot| vec![snapshot.to_schema()])
+            .collect();
+        assert_eq!(read, expected);
+    }
+
     /// A legacy `trace.jsonl` counts as an existing trace: refused without
     /// overwriting, and removed when overwriting.
     #[test]

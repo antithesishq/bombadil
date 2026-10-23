@@ -1665,6 +1665,58 @@ mod tests {
         });
     }
 
+    /// Snapshot values written once are served as recorded: the trace is
+    /// served as that of a writer that writes each value in full.
+    #[test]
+    fn serves_snapshot_values_written_once() {
+        let metadata = |n: usize| {
+            metadata("u", "png").replace(
+                r#""snapshots":[]"#,
+                &format!(
+                    r#""snapshots":[{{"index":0,"name":"x","time":{n},"value":{{"text":"a long enough value","n":1.50}}}}]"#
+                ),
+            )
+        };
+        let screenshot = b"a screenshot".as_slice();
+        let deduplicated = tempfile::tempdir().unwrap();
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            deduplicated.path(),
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for n in 0..4 {
+            let metadata = RawValue::from_string(metadata(n)).unwrap();
+            writer
+                .write_state(metadata, Some(Arc::new(screenshot.to_vec())))
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let path = deduplicated.path().join(TRACE_FILE_NAME);
+        let file = std::fs::read(&path).unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&file)
+                .matches("a long enough value")
+                .count(),
+            1
+        );
+
+        let in_full = tempfile::tempdir().unwrap();
+        let in_full_path = in_full.path().join(TRACE_FILE_NAME);
+        let states: Vec<_> =
+            (0..4).map(|n| (metadata(n), Some(screenshot))).collect();
+        std::fs::write(&in_full_path, trace(&states)).unwrap();
+
+        let body = |path: &std::path::Path| {
+            let served = block_on(trace_body(&binary_state(path))).unwrap();
+            assert_eq!(served.error, None);
+            served.body
+        };
+        let served = body(&path);
+        assert_eq!(served, body(&in_full_path));
+        assert_eq!(self::served(&served).len(), 4);
+    }
+
     /// A trace still being written (appended to in place) keeps serving
     /// screenshots under the URLs the page has, without a scan per
     /// request; reloading the trace reads its new states.
