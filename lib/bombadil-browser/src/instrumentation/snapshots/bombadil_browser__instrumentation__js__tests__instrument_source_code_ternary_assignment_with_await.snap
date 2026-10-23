@@ -5,10 +5,12 @@ expression: snapshot(source_text)
 window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set(),
+	hits_cache: new Int32Array(65536).fill(-1)
 };
 async function test() {
-	return f(x) ? (__bombadil__.edges_current[((596484520 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 596484520 >> 1, y = await z.instantiator(t)) : (__bombadil__.edges_current[((962333803 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 962333803 >> 1, f(y));
+	return f(x) ? (__bombadil__.edges_current[((596484520 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 596484520 >> 1, __bombadil__.hits_cache[41384] === 596484520 || (__bombadil__.hits_cache[41384] = 596484520, __bombadil__.hits.add(596484520)), y = await z.instantiator(t)) : (__bombadil__.edges_current[((962333803 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 962333803 >> 1, __bombadil__.hits_cache[3179] === 962333803 || (__bombadil__.hits_cache[3179] = 962333803, __bombadil__.hits.add(962333803)), f(y));
 }
 
 ---- blocks ----

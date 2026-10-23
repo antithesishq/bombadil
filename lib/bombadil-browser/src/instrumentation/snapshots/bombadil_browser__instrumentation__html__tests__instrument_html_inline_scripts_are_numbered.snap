@@ -6,14 +6,18 @@ expression: output.snapshot()
 <script>window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set(),
+	hits_cache: new Int32Array(65536).fill(-1)
 };
 if (a) {
 	__bombadil__.edges_current[((488063581 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 	__bombadil__.previous = 488063581 >> 1;
+	__bombadil__.hits_cache[16989] === 488063581 || (__bombadil__.hits_cache[16989] = 488063581, __bombadil__.hits.add(488063581));
 } else {
 	__bombadil__.edges_current[((114450366 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
 	__bombadil__.previous = 114450366 >> 1;
+	__bombadil__.hits_cache[24510] === 114450366 || (__bombadil__.hits_cache[24510] = 114450366, __bombadil__.hits.add(114450366));
 }
 </script>
 <script src="/app.js"></script>
@@ -23,10 +27,12 @@ if (a) {
 <script type="module">window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set(),
+	hits_cache: new Int32Array(65536).fill(-1)
 };
 export function example(a) {
-	return a ? (__bombadil__.edges_current[((1391230168 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1391230168 >> 1, 1) : (__bombadil__.edges_current[((1228362170 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1228362170 >> 1, 2);
+	return a ? (__bombadil__.edges_current[((1391230168 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1391230168 >> 1, __bombadil__.hits_cache[31960] === 1391230168 || (__bombadil__.hits_cache[31960] = 1391230168, __bombadil__.hits.add(1391230168)), 1) : (__bombadil__.edges_current[((1228362170 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1228362170 >> 1, __bombadil__.hits_cache[20922] === 1228362170 || (__bombadil__.hits_cache[20922] = 1228362170, __bombadil__.hits.add(1228362170)), 2);
 }
 </script>
 

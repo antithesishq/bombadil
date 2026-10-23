@@ -12,6 +12,7 @@ pub use bombadil::runner::{ControlFlow, PropertyViolation, RunStrategy};
 
 use crate::browser_options::BrowserOptions;
 use crate::driver::{BrowserDriver, BrowserSession, DebuggerOptions};
+use crate::instrumentation::BlockRegistry;
 
 #[allow(clippy::too_many_arguments)]
 pub fn launch<
@@ -23,6 +24,7 @@ pub fn launch<
     specification: Specification,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    blocks: BlockRegistry,
     mut trace_writer: Writer,
     interrupted: Arc<AtomicBool>,
     strategy: &mut S,
@@ -35,7 +37,7 @@ pub fn launch<
         browser_options,
         debugger_options,
         specification_bundle,
-        blocks: Default::default(),
+        blocks,
     };
 
     let (mut session, verifier) = driver.new_session(run_id)?;

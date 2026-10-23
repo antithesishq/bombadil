@@ -72,7 +72,7 @@ impl ShrinkOptions {
     ) -> Result<ResolvedShrinkOptions<A>> {
         let trace = load_trace(&self.trace_path)?;
         let output_path = output_path::resolve_output_path(&self.output_path)?;
-        if same_file(&self.trace_path, &output_path) {
+        if stdx::fs::same_file(&self.trace_path, &output_path) {
             bail!(
                 "the output path must differ from the trace file being shrunk"
             );
@@ -100,20 +100,6 @@ impl ShrinkOptions {
             },
             interrupted,
         })
-    }
-}
-
-fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if let (Ok(a), Ok(b)) = (a.metadata(), b.metadata()) {
-            return a.dev() == b.dev() && a.ino() == b.ino();
-        }
-    }
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
     }
 }
 
@@ -149,27 +135,4 @@ pub fn print_result(result: &ShrinkResult) {
         calibration.run_count,
     );
     println!("  Runs:       {run_count} in {elapsed}\n");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sibling_output_is_allowed_but_aliases_are_not() {
-        let directory = tempfile::tempdir().unwrap();
-        let file = directory.path().join("run-k2.bin");
-        std::fs::write(&file, b"").unwrap();
-        assert!(same_file(&file, &file));
-        assert!(!same_file(&file, &directory.path().join("shrunk.bin")));
-        let link = directory.path().join("hardlink");
-        std::fs::hard_link(&file, &link).unwrap();
-        assert!(same_file(&file, &link));
-        #[cfg(unix)]
-        {
-            let link = directory.path().join("symlink");
-            std::os::unix::fs::symlink(&file, &link).unwrap();
-            assert!(same_file(&file, &link));
-        }
-    }
 }
