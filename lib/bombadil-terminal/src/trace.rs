@@ -19,7 +19,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use bombadil::shrink::TraceActions;
 use bombadil::{
-    driver::{OutputWriter, RunId, TraceWriter},
+    driver::{OutputWriter, RunId, TraceWriter, remove_legacy_trace},
     runner::PropertyViolation,
     specification::{convert::ToSchema, domain::Snapshot},
 };
@@ -68,21 +68,17 @@ pub struct TerminalTraceWriter(TraceFileWriter<TerminalTraceEntry>);
 impl TerminalTraceWriter {
     /// Creates `trace.bin` in `run_path`. Refuses if `run_path` already
     /// holds a trace, `trace.bin` or a legacy `trace.jsonl`, unless
-    /// `overwrite` is set, in which case a `trace.jsonl` is removed before
-    /// `trace.bin` is created, so the directory holds one trace, and
-    /// failing to remove it leaves an existing `trace.bin` as it was.
+    /// `overwrite` is set.
+    ///
+    /// When overwriting, a legacy `trace.jsonl`, and if it was a browser
+    /// trace the `screenshots` directory next to it, are removed once
+    /// `trace.bin` is created, so a failure to create it leaves them as
+    /// they were (while both are there, `trace.bin` is the one read).
+    /// Failing to remove the legacy files is only logged: the new trace is
+    /// fine, and they are only stale (see [`remove_legacy_trace`]).
     pub fn initialize(run_path: &Path, overwrite: bool) -> Result<Self> {
         let json_trace = run_path.join(JSON_TRACE_FILE_NAME);
-        if overwrite {
-            match std::fs::remove_file(&json_trace) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(error).with_context(|| {
-                        format!("failed to remove {}", json_trace.display())
-                    });
-                }
-                _ => {}
-            }
-        } else if json_trace.try_exists()? {
+        if !overwrite && json_trace.try_exists()? {
             bail!(
                 "{JSON_TRACE_FILE_NAME} already exists at {}. \
                  Use --output-path-overwrite to overwrite, or choose a \
@@ -90,8 +86,16 @@ impl TerminalTraceWriter {
                 json_trace.display(),
             );
         }
-        TraceFileWriter::create(run_path, TraceDriver::Terminal, overwrite)
-            .map(TerminalTraceWriter)
+        let trace = TraceFileWriter::create(
+            run_path,
+            TraceDriver::Terminal,
+            overwrite,
+        )?;
+        // The new trace is fine, and what is left is only stale.
+        if overwrite && let Err(error) = remove_legacy_trace(run_path, false) {
+            log::warn!("{error:#}");
+        }
+        Ok(TerminalTraceWriter(trace))
     }
 }
 
@@ -703,10 +707,100 @@ mod tests {
         assert!(error.to_string().contains("holds no states"), "{error:#}");
     }
 
-    /// Failing to remove a legacy `trace.jsonl` when overwriting leaves
-    /// the existing `trace.bin` as it was.
+    /// Overwriting removes a legacy `trace.jsonl`, and the `screenshots`
+    /// directory next to it only if it was a browser trace.
     #[test]
-    fn test_failed_legacy_removal_keeps_the_existing_trace() {
+    fn test_overwriting_removes_a_legacy_browser_trace_s_screenshots() {
+        let browser = r#"{"timestamp":0,"action":null,"state":{"url":"http://localhost/","hash_previous":null,"hash_current":1,"screenshot":"screenshots/0.webp","resources":{}},"snapshots":[],"violations":[]}"#;
+        let terminal = r#"{"timestamp":0,"action":{"TypeText":{"text":"{\"url\":\"u\",\"screenshot\":\"s\"}"}},"state":{"grid":{"cells":[{"Occupied":{"contents":"u","wide":false,"style":{"foreground_color":"None","background_color":"None","underline_color":"None","underline":"None","attributes":0}}}],"size":{"columns":1,"rows":1}},"scrollback":{"cells":[],"size":{"columns":1,"rows":0}},"scroll_offset":0,"cursor":{"position":{"column":0,"row":0},"visible":true,"blinking":false,"visual_style":"Block","color":"None"},"exit_status":null},"snapshots":[],"violations":[]}"#;
+        for (legacy, kept) in [(browser, false), (terminal, true)] {
+            let directory = tempfile::tempdir().unwrap();
+            let json_trace = directory.path().join(JSON_TRACE_FILE_NAME);
+            std::fs::write(&json_trace, legacy).unwrap();
+            let screenshots = directory.path().join("screenshots");
+            std::fs::create_dir(&screenshots).unwrap();
+            std::fs::write(screenshots.join("0.webp"), "image").unwrap();
+            TerminalTraceWriter::initialize(directory.path(), true)
+                .unwrap()
+                .finish()
+                .unwrap();
+            assert!(!json_trace.exists());
+            assert!(directory.path().join(TRACE_FILE_NAME).is_file());
+            assert_eq!(screenshots.join("0.webp").is_file(), kept, "{legacy}");
+        }
+    }
+
+    /// A directory in `screenshots` that can't be emptied (mode 555) while
+    /// held, which dropping allows again (mode 755), even if a test fails.
+    /// `None`, noted on stderr, if permissions don't stop removing it, as for
+    /// root.
+    #[cfg(unix)]
+    struct LockedScreenshots(std::path::PathBuf);
+
+    #[cfg(unix)]
+    impl LockedScreenshots {
+        fn new(screenshots: &std::path::Path) -> Option<Self> {
+            use std::os::unix::fs::PermissionsExt;
+            let path = screenshots.join("l");
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(path.join("0.webp"), "image").unwrap();
+            std::fs::set_permissions(
+                &path,
+                std::fs::Permissions::from_mode(0o555),
+            )
+            .unwrap();
+            let locked = LockedScreenshots(path);
+            if std::fs::remove_file(locked.0.join("0.webp")).is_ok() {
+                eprintln!(
+                    "skipped: permissions don't stop removing files here"
+                );
+                return None;
+            }
+            Some(locked)
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for LockedScreenshots {
+        fn drop(&mut self) {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::Permissions::from_mode(0o755);
+            let _ = std::fs::set_permissions(&self.0, mode);
+        }
+    }
+
+    /// A legacy browser trace whose `screenshots` can't be removed is kept
+    /// with them, only logged, and removed by overwriting again once they
+    /// can be.
+    #[cfg(unix)]
+    #[test]
+    fn test_overwriting_retries_screenshots_it_fails_to_remove() {
+        let browser = r#"{"timestamp":0,"action":null,"state":{"url":"http://localhost/","hash_previous":null,"hash_current":1,"screenshot":"screenshots/0.webp","resources":{}},"snapshots":[],"violations":[]}"#;
+        let directory = tempfile::tempdir().unwrap();
+        let json_trace = directory.path().join(JSON_TRACE_FILE_NAME);
+        let screenshots = directory.path().join("screenshots");
+        std::fs::write(&json_trace, browser).unwrap();
+        let Some(locked) = LockedScreenshots::new(&screenshots) else {
+            return;
+        };
+        TraceWriter::<TerminalSession>::finish(
+            &mut TerminalTraceWriter::initialize(directory.path(), true)
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(directory.path().join(TRACE_FILE_NAME).is_file());
+        assert!(json_trace.is_file());
+        drop(locked);
+        TerminalTraceWriter::initialize(directory.path(), true).unwrap();
+        assert!(!json_trace.exists());
+        assert!(!screenshots.exists());
+    }
+
+    /// Failing to remove a legacy `trace.jsonl` once the new trace is
+    /// created is only logged: the new trace replaces an existing one,
+    /// and the legacy one is left.
+    #[test]
+    fn test_failed_legacy_removal_keeps_the_new_trace() {
         let directory = tempfile::tempdir().unwrap();
         let trace = directory.path().join(TRACE_FILE_NAME);
         std::fs::write(&trace, b"previous trace").unwrap();
@@ -715,9 +809,37 @@ mod tests {
         std::fs::create_dir(&json_trace).unwrap();
         std::fs::write(json_trace.join("x"), b"x").unwrap();
 
+        TerminalTraceWriter::initialize(directory.path(), true)
+            .unwrap()
+            .finish()
+            .unwrap();
+        assert_eq!(
+            bombadil_trace::trace_driver(directory.path()).unwrap(),
+            Some(TraceDriver::Terminal)
+        );
+        assert!(json_trace.join("x").is_file());
+    }
+
+    /// Failing to create the trace when overwriting leaves a legacy
+    /// browser trace and its screenshots as they were.
+    #[test]
+    fn test_failing_to_create_keeps_a_legacy_trace() {
+        let browser = r#"{"timestamp":0,"action":null,"state":{"url":"http://localhost/","hash_previous":null,"hash_current":1,"screenshot":"screenshots/0.webp","resources":{}},"snapshots":[],"violations":[]}"#;
+        let directory = tempfile::tempdir().unwrap();
+        let json_trace = directory.path().join(JSON_TRACE_FILE_NAME);
+        let screenshots = directory.path().join("screenshots");
+        std::fs::write(&json_trace, browser).unwrap();
+        std::fs::create_dir(&screenshots).unwrap();
+        std::fs::write(screenshots.join("1.webp"), "image").unwrap();
+        // A trace can't be renamed over a non-empty directory.
+        std::fs::create_dir_all(
+            directory.path().join(TRACE_FILE_NAME).join("x"),
+        )
+        .unwrap();
         assert!(
             TerminalTraceWriter::initialize(directory.path(), true).is_err()
         );
-        assert_eq!(std::fs::read(&trace).unwrap(), b"previous trace");
+        assert_eq!(std::fs::read_to_string(&json_trace).unwrap(), browser);
+        assert!(screenshots.join("1.webp").is_file());
     }
 }

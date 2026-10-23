@@ -35,6 +35,9 @@ use crate::{
     tree::Tree,
 };
 
+#[cfg(unix)]
+use crate::driver::LockedScreenshots;
+
 const ALPHABET_SIZE: u8 = 8;
 const PROPERTY_NAME: &str = "no_bug";
 
@@ -306,6 +309,12 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
     }
 }
 
+/// The first line of a legacy browser `trace.jsonl`.
+const LEGACY_BROWSER_TRACE: &str = r#"{"timestamp":0,"action":null,"state":{"url":"http://localhost/","hash_previous":null,"hash_current":1,"screenshot":"screenshots/0.webp","resources":{}},"snapshots":[],"violations":[]}"#;
+
+/// The first line of a legacy terminal `trace.jsonl`.
+const LEGACY_TERMINAL_TRACE: &str = r#"{"timestamp":0,"action":{"TypeText":{"text":"{\"url\":\"u\",\"screenshot\":\"s\"}"}},"state":{"grid":{"cells":[{"Occupied":{"contents":"u","wide":false,"style":{"foreground_color":"None","background_color":"None","underline_color":"None","underline":"None","attributes":0}}}],"size":{"columns":1,"rows":1}},"scrollback":{"cells":[],"size":{"columns":1,"rows":0}},"scroll_offset":0,"cursor":{"position":{"column":0,"row":0},"visible":true,"blinking":false,"visual_style":"Block","color":"None"},"exit_status":null},"snapshots":[],"violations":[]}"#;
+
 fn bundle_code() -> &'static str {
     static BUNDLE_CODE: OnceLock<String> = OnceLock::new();
     BUNDLE_CODE.get_or_init(|| {
@@ -475,8 +484,24 @@ fn shrink_into(
     overwrite: bool,
     trace_file: &'static str,
 ) -> Result<super::ShrinkResult> {
+    shrink_with(output, overwrite, move |directory| {
+        FakeTraceWriter::with_file_name(directory, trace_file)
+    })
+}
+
+/// Shrinks a short deterministic trace into `output`, with runs written
+/// by `trace_writer`.
+fn shrink_with(
+    output: &std::path::Path,
+    overwrite: bool,
+    trace_writer: impl Fn(PathBuf) -> Result<FakeTraceWriter>
+    + Send
+    + Sync
+    + 'static,
+) -> Result<super::ShrinkResult> {
     let triggers = BTreeSet::from([1]);
-    let executed = replay(&[0, 1], &triggers).expect("bug is triggered");
+    // Shrinks to two actions, so more than one trace is promoted.
+    let executed = replay(&[0, 2, 1], &triggers).expect("bug is triggered");
     let trace = TraceActions {
         actions: executed.iter().map(|&action| FakeAction(action)).collect(),
         violations_earliest: BTreeMap::from([(
@@ -493,9 +518,7 @@ fn shrink_into(
             seed: 0,
         }),
         strategy: move || FakeStrategy { steps_max },
-        trace_writer: move |directory| {
-            FakeTraceWriter::with_file_name(directory, trace_file)
-        },
+        trace_writer,
         trace,
         property_name: None,
         output_path: output.to_path_buf(),
@@ -533,16 +556,24 @@ fn refuses_an_existing_trace_without_overwriting() {
     }
 }
 
-/// Overwriting with a binary trace removes a legacy `trace.jsonl`, but a
-/// driver writing `trace.jsonl` itself keeps its fresh one.
+/// Overwriting with a binary trace removes a legacy `trace.jsonl`, and a
+/// legacy browser trace's screenshots, but a driver writing `trace.jsonl`
+/// itself keeps its fresh one.
 #[test]
 fn overwriting_replaces_a_legacy_json_trace() {
     let output = tempfile::tempdir().unwrap();
     let json_trace = output.path().join("trace.jsonl");
-    std::fs::write(&json_trace, "previous").unwrap();
+    std::fs::write(&json_trace, format!("\n{LEGACY_BROWSER_TRACE}\n")).unwrap();
+    let screenshots = output.path().join("screenshots");
+    std::fs::create_dir(&screenshots).unwrap();
+    std::fs::write(screenshots.join("1.webp"), "image").unwrap();
     shrink_into(output.path(), true, "trace.bin").unwrap();
     assert!(output.path().join("trace.bin").is_file());
     assert!(!json_trace.exists(), "the legacy trace.jsonl is left over");
+    assert!(
+        !screenshots.exists(),
+        "the legacy screenshots are left over"
+    );
 
     let output = tempfile::tempdir().unwrap();
     let json_trace = output.path().join("trace.jsonl");
@@ -552,30 +583,163 @@ fn overwriting_replaces_a_legacy_json_trace() {
     assert!(!shrunk.actions.is_empty());
 }
 
-/// Failing to remove the stale trace of the other format is reported.
+/// A legacy browser trace whose `screenshots` can't be removed is kept
+/// with them, only logged, and removed by shrinking into it again once
+/// they can be.
+#[cfg(unix)]
 #[test]
-fn overwriting_reports_failing_to_remove_a_stale_trace() {
+fn overwriting_retries_screenshots_it_fails_to_remove() {
+    let output = tempfile::tempdir().unwrap();
+    let json_trace = output.path().join("trace.jsonl");
+    let screenshots = output.path().join("screenshots");
+    std::fs::write(&json_trace, LEGACY_BROWSER_TRACE).unwrap();
+    let Some(locked) = LockedScreenshots::new(&screenshots) else {
+        return;
+    };
+    warnings();
+    shrink_into(output.path(), true, "trace.bin").unwrap();
+    assert!(output.path().join("trace.bin").is_file());
+    assert!(json_trace.is_file());
+    // Tried once, not again with each trace promoted.
+    let failed =
+        format!("failed to remove the stale {}", screenshots.display());
+    let logged: Vec<String> = warnings()
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|warning| warning.contains(&failed))
+        .cloned()
+        .collect();
+    assert_eq!(logged.len(), 1, "{logged:#?}");
+    drop(locked);
+    shrink_into(output.path(), true, "trace.bin").unwrap();
+    assert!(!json_trace.exists());
+    assert!(!screenshots.exists());
+}
+
+/// The warnings logged by any test, from the first call on.
+#[cfg(unix)]
+fn warnings() -> &'static std::sync::Mutex<Vec<String>> {
+    static WARNINGS: std::sync::Mutex<Vec<String>> =
+        std::sync::Mutex::new(Vec::new());
+    struct Capture;
+    impl log::Log for Capture {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Warn
+        }
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                // Even after a test failed holding the lock.
+                let mut warnings = WARNINGS
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                warnings.push(record.args().to_string());
+            }
+        }
+        fn flush(&self) {}
+    }
+    static CAPTURE: std::sync::Once = std::sync::Once::new();
+    CAPTURE.call_once(|| {
+        log::set_logger(&Capture).unwrap();
+        log::set_max_level(log::LevelFilter::Warn);
+    });
+    &WARNINGS
+}
+
+/// Failing to remove a stale legacy `trace.jsonl`, once the new trace is
+/// in place, is only logged: the shrink succeeds, and the stale
+/// trace is left. (A directory isn't a browser trace, so `screenshots`
+/// next to it isn't bombadil's, and is kept anyway.)
+#[test]
+fn overwriting_keeps_a_stale_trace_it_fails_to_remove() {
     let output = tempfile::tempdir().unwrap();
     let stale = output.path().join("trace.jsonl");
     std::fs::create_dir_all(stale.join("non-empty")).unwrap();
-    let error = shrink_into(output.path(), true, "trace.bin").err().unwrap();
-    assert!(
-        format!("{error:#}")
-            .contains(&format!("failed to remove {}", stale.display())),
-        "{error:#}"
-    );
+    let screenshots = output.path().join("screenshots");
+    std::fs::create_dir(&screenshots).unwrap();
+    shrink_into(output.path(), true, "trace.bin").unwrap();
+    assert!(output.path().join("trace.bin").is_file());
+    assert!(stale.join("non-empty").is_dir());
+    assert!(screenshots.is_dir());
 }
 
-/// Overwriting with a JSON lines trace, as the browser writes, removes a
-/// terminal `trace.bin` left over from an earlier run.
+/// A `screenshots` directory without a legacy `trace.jsonl` isn't
+/// bombadil's, and is kept when overwriting.
 #[test]
-fn overwriting_replaces_a_stale_binary_trace() {
+fn overwriting_keeps_screenshots_without_a_legacy_trace() {
     let output = tempfile::tempdir().unwrap();
-    std::fs::write(output.path().join("trace.bin"), "previous").unwrap();
-    shrink_into(output.path(), true, "trace.jsonl").unwrap();
+    let screenshots = output.path().join("screenshots");
+    std::fs::create_dir(&screenshots).unwrap();
+    std::fs::write(screenshots.join("0.jpeg"), "image").unwrap();
+    shrink_into(output.path(), true, "trace.bin").unwrap();
+    assert!(screenshots.join("0.jpeg").is_file());
+}
+
+/// A `screenshots` directory next to a legacy trace that isn't a
+/// browser's, like a terminal trace, or one that can't be read, isn't
+/// bombadil's, and is kept, while the trace is removed.
+#[test]
+fn overwriting_keeps_screenshots_next_to_a_trace_without_any() {
+    for legacy in [LEGACY_TERMINAL_TRACE, "previous"] {
+        let output = tempfile::tempdir().unwrap();
+        let json_trace = output.path().join("trace.jsonl");
+        std::fs::write(&json_trace, legacy).unwrap();
+        let screenshots = output.path().join("screenshots");
+        std::fs::create_dir(&screenshots).unwrap();
+        std::fs::write(screenshots.join("0.jpeg"), "image").unwrap();
+        shrink_into(output.path(), true, "trace.bin").unwrap();
+        assert!(output.path().join("trace.bin").is_file());
+        assert!(!json_trace.exists(), "the legacy trace.jsonl is left over");
+        assert!(screenshots.join("0.jpeg").is_file(), "{legacy}");
+    }
+}
+
+/// A run is promoted for failing, whatever files it wrote; one without a
+/// `trace.bin` doesn't replace a legacy trace, which is kept with its
+/// `screenshots`.
+#[test]
+fn overwriting_keeps_a_legacy_trace_without_a_promoted_binary_one() {
+    let output = tempfile::tempdir().unwrap();
+    let json_trace = output.path().join("trace.jsonl");
+    std::fs::write(&json_trace, LEGACY_BROWSER_TRACE).unwrap();
+    let screenshots = output.path().join("screenshots");
+    std::fs::create_dir(&screenshots).unwrap();
+    std::fs::write(screenshots.join("0.webp"), "image").unwrap();
+    shrink_into(output.path(), true, "other.log").unwrap();
+    assert!(output.path().join("other.log").is_file());
+    assert!(json_trace.is_file());
+    assert!(screenshots.join("0.webp").is_file());
+}
+
+/// A promoted run's own `trace.jsonl`, next to its `trace.bin`, isn't
+/// taken for a stale one.
+#[test]
+fn overwriting_keeps_the_promoted_json_trace() {
+    let output = tempfile::tempdir().unwrap();
+    shrink_with(output.path(), true, |directory| {
+        std::fs::create_dir_all(&directory)?;
+        std::fs::write(directory.join("trace.jsonl"), LEGACY_BROWSER_TRACE)?;
+        FakeTraceWriter::with_file_name(directory, "trace.bin")
+    })
+    .unwrap();
+    assert!(output.path().join("trace.bin").is_file());
     assert!(output.path().join("trace.jsonl").is_file());
-    assert!(
-        !output.path().join("trace.bin").exists(),
-        "the stale trace.bin is left over"
-    );
+}
+
+/// A promoted run's own `screenshots` directory is kept when the stale
+/// legacy trace is removed.
+#[test]
+fn overwriting_keeps_the_promoted_screenshots() {
+    let output = tempfile::tempdir().unwrap();
+    std::fs::write(output.path().join("trace.jsonl"), LEGACY_BROWSER_TRACE)
+        .unwrap();
+    shrink_with(output.path(), true, |directory| {
+        let screenshots = directory.join("screenshots");
+        std::fs::create_dir_all(&screenshots)?;
+        std::fs::write(screenshots.join("0.jpeg"), "image")?;
+        FakeTraceWriter::with_file_name(directory, "trace.bin")
+    })
+    .unwrap();
+    assert!(!output.path().join("trace.jsonl").exists());
+    assert!(output.path().join("screenshots").join("0.jpeg").is_file());
 }

@@ -3,19 +3,23 @@
 use std::{
     fmt,
     fs::File,
-    io::{self, Read, Write},
+    io::{self, BufReader, Read, Write},
     ops::Range,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use anyhow::{Result, bail};
-use bombadil_trace::{State, TRACE_FILE_NAME, TraceDriver, open_trace};
+use anyhow::{Context, Result, anyhow, bail};
+use bombadil_trace::{
+    State, StateReader, TRACE_FILE_NAME, TraceDriver, read_payload_from,
+};
 use serde::{
     Deserialize, Deserializer,
     de::{IgnoredAny, MapAccess, Visitor},
 };
 use serde_json::value::RawValue;
+
+use crate::browser_trace;
 
 #[derive(clap::Args)]
 pub struct TraceArgs {
@@ -26,7 +30,8 @@ pub struct TraceArgs {
     #[arg(long, value_name = "INDEX|START..END")]
     state: Option<StateRange>,
     /// Print one JSON object per state: its index, metadata and payload
-    /// size, and with --screen its screen (a string, or null without one)
+    /// size, with --screen its screen (a string, or null without one), and
+    /// with --screenshots the file its screenshot is in, if it has one
     #[arg(long)]
     json: bool,
     /// Show each state's screen (terminal traces)
@@ -36,6 +41,12 @@ pub struct TraceArgs {
     /// (implies --screen)
     #[arg(long)]
     color: bool,
+    /// Write the screenshot of each state shown into this directory, as
+    /// `<index>.<format>` (browser traces), or `<index>.bin` for a format
+    /// other than png and jpeg. A file already there is left as it is if
+    /// it holds the same screenshot, and refused otherwise
+    #[arg(long, value_name = "DIRECTORY")]
+    screenshots: Option<PathBuf>,
 }
 
 /// States to show, by index.
@@ -82,7 +93,37 @@ pub fn run(args: TraceArgs) -> Result<()> {
     // each line shows (or fails to write) as it comes, and warnings
     // logged on stderr while reading come after the states before them,
     // even through `2>&1 | …`.
-    ignore_broken_pipe(show(&args, &mut io::stdout().lock()))
+    let mut extracted = None;
+    let result = ignore_broken_pipe(show_into(
+        &args,
+        &mut io::stdout().lock(),
+        &mut extracted,
+    ));
+    if let Some(summary) = extraction_summary(&args, extracted.as_ref()) {
+        eprintln!("{summary}");
+    }
+    result
+}
+
+/// What `--screenshots` did, once it started (even if showing stopped
+/// early, as some may have been written), or `None` if it didn't.
+fn extraction_summary(
+    args: &TraceArgs,
+    extracted: Option<&Extracted>,
+) -> Option<String> {
+    let (directory, extracted) = (args.screenshots.as_ref()?, extracted?);
+    let written = match extracted.written {
+        1 => "1 screenshot".to_string(),
+        written => format!("{written} screenshots"),
+    };
+    let skipped = match extracted.skipped {
+        1 => "1 was".to_string(),
+        skipped => format!("{skipped} were"),
+    };
+    Some(format!(
+        "{written} written to {}, {skipped} already there",
+        printable(&directory.to_string_lossy()),
+    ))
 }
 
 /// `result`, or success if it failed because the reader of the output
@@ -103,8 +144,15 @@ fn ignore_broken_pipe(result: Result<()>) -> Result<()> {
 const READ_JSON_DIRECTLY: &str = "which can be read directly, e.g. with jq \
                                   or a text editor";
 
-/// Writes the states to `out`.
-fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
+/// Writes the states to `out`, and with `--screenshots` their screenshots
+/// to files.
+/// Counts those in `extracted`, set once the trace is known to be one
+/// they can be extracted from.
+fn show_into(
+    args: &TraceArgs,
+    out: &mut impl Write,
+    extracted: &mut Option<Extracted>,
+) -> Result<()> {
     let path = &args.trace_path;
     if path.is_dir() {
         let json_trace = path.join("trace.jsonl");
@@ -116,7 +164,26 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
         }
     }
     let show_screen = args.screen || args.color;
-    let states = match open_trace::<Box<RawValue>>(path) {
+    // Opened once: the states are read through a clone of the handle,
+    // and the screenshots by offset through the handle itself, so they
+    // are from the file whose states were read, even if its path names
+    // another trace since (as after an overwriting run).
+    let trace_path = if path.is_dir() {
+        path.join(TRACE_FILE_NAME)
+    } else {
+        path.to_path_buf()
+    };
+    let opened = File::open(&trace_path).with_context(|| {
+        format!("failed to open trace file {}", trace_path.display())
+    })?;
+    let states = opened
+        .try_clone()
+        .map_err(anyhow::Error::from)
+        .and_then(|clone| {
+            StateReader::<_, Box<RawValue>>::new(BufReader::new(clone))
+        })
+        .with_context(|| format!("failed to read {}", trace_path.display()));
+    let states = match states {
         Ok(states) => states,
         Err(_) if looks_like_json_trace(path) => bail!(
             "{} looks like a JSON lines trace, {READ_JSON_DIRECTLY}",
@@ -127,6 +194,14 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
     if show_screen && states.driver != TraceDriver::Terminal {
         bail!("--screen only applies to terminal traces");
     }
+    if args.screenshots.is_some() && states.driver != TraceDriver::Browser {
+        bail!("--screenshots only applies to browser traces");
+    }
+    let mut extracted = args
+        .screenshots
+        .as_ref()
+        .map(|_| extracted.insert(Extracted::default()));
+    // Screenshots are read again by offset, only for the states shown.
     let mut states = if show_screen {
         states
     } else {
@@ -169,6 +244,15 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
             }
             _ => None,
         };
+        let screenshot = match (&args.screenshots, extracted.as_deref_mut()) {
+            (Some(directory), Some(extracted)) => Some(extract_screenshot(
+                (&trace_path, &opened),
+                directory,
+                &state,
+                extracted,
+            )?),
+            _ => None,
+        };
         if args.json {
             // The metadata as written, so its numbers aren't rounded.
             let mut line = format!(
@@ -184,6 +268,10 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
                 let screen = screen.as_ref().map(|lines| lines.join("\n"));
                 line.push_str(r#","screen":"#);
                 line.push_str(&serde_json::to_string(&screen)?);
+            }
+            if let Some(Screenshot::Extracted { file, .. }) = &screenshot {
+                line.push_str(r#","screenshot_file":"#);
+                line.push_str(&serde_json::to_string(&file.to_string_lossy())?);
             }
             line.push('}');
             writeln!(out, "{}", escape_json_line(&line))?;
@@ -201,6 +289,9 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
                 )?,
                 None => {}
             }
+            if let Some(screenshot) = &screenshot {
+                writeln!(out, "       {screenshot}")?;
+            }
         }
     }
     if args.state.is_some() && states_read <= range.start {
@@ -211,6 +302,14 @@ fn show(args: &TraceArgs, out: &mut impl Write) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// [`show_into`], returning what `--screenshots` wrote.
+#[cfg(test)]
+fn show(args: &TraceArgs, out: &mut impl Write) -> Result<Extracted> {
+    let mut extracted = None;
+    show_into(args, out, &mut extracted)?;
+    Ok(extracted.unwrap_or_default())
 }
 
 /// Whether the file at `path`, which `open_trace` failed on, looks like
@@ -352,6 +451,250 @@ fn read_metadata(json: &str) -> Option<(Metadata<'_>, Vec<String>)> {
     Some((metadata, violations))
 }
 
+/// The `state` of a browser state's metadata, as far as it is shown.
+#[derive(Default, Deserialize)]
+struct BrowserState {
+    url: Option<String>,
+    /// The screenshot's format (its file extension).
+    screenshot: Option<String>,
+}
+
+/// The `state` of a browser state's metadata `json`, with the members
+/// that aren't strings left out.
+fn read_browser_state(json: &str) -> BrowserState {
+    #[derive(Deserialize)]
+    struct Metadata<'a> {
+        #[serde(borrow)]
+        state: &'a RawValue,
+    }
+    #[derive(Deserialize)]
+    struct Members<'a> {
+        #[serde(borrow, default)]
+        url: Option<&'a RawValue>,
+        #[serde(borrow, default)]
+        screenshot: Option<&'a RawValue>,
+    }
+    let string =
+        |json: Option<&RawValue>| serde_json::from_str(json?.get()).ok();
+    read_object::<Metadata>(json)
+        .and_then(|metadata| read_object::<Members>(metadata.state.get()))
+        .map_or_else(BrowserState::default, |members| BrowserState {
+            url: string(members.url),
+            screenshot: string(members.screenshot),
+        })
+}
+
+/// How many screenshots `--screenshots` wrote, and how many were already
+/// there.
+#[derive(Debug, Default, PartialEq)]
+struct Extracted {
+    written: usize,
+    skipped: usize,
+}
+
+/// What became of a state's screenshot with `--screenshots`.
+#[derive(Debug, PartialEq)]
+enum Screenshot {
+    /// In `file`, written or already there.
+    Extracted {
+        file: PathBuf,
+        written: bool,
+        /// The recorded format, if it isn't png or jpeg (so the file is
+        /// named `<index>.bin`); `None` inside if there is none.
+        unknown_format: Option<Option<String>>,
+    },
+    /// The state has no screenshot.
+    Missing,
+}
+
+impl fmt::Display for Screenshot {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Screenshot::Extracted {
+                file,
+                written,
+                unknown_format,
+            } => {
+                write!(
+                    f,
+                    "screenshot: {}",
+                    printable(&file.to_string_lossy())
+                )?;
+                if !written {
+                    write!(f, " (already there)")?;
+                }
+                match unknown_format {
+                    Some(Some(format)) => {
+                        write!(f, " (unknown format {})", quoted(format))
+                    }
+                    Some(None) => write!(f, " (no format recorded)"),
+                    None => Ok(()),
+                }
+            }
+            Screenshot::Missing => {
+                write!(f, "(no screenshot: none was recorded)")
+            }
+        }
+    }
+}
+
+/// Writes a state's screenshot, read from `trace` (open at `trace_path`),
+/// into `directory` as `<index>.<format>`, or `<index>.bin` for a format
+/// other than png and jpeg, since the format comes from the trace and
+/// must not name another path or kind of file. A file already there is
+/// left alone if it holds the same bytes, so extracting again succeeds,
+/// and otherwise refused rather than replaced.
+fn extract_screenshot(
+    (trace_path, trace): (&Path, &File),
+    directory: &Path,
+    state: &State<Box<RawValue>>,
+    extracted: &mut Extracted,
+) -> Result<Screenshot> {
+    let Some(offset) = state.payload_offset else {
+        return Ok(Screenshot::Missing);
+    };
+    let format = read_browser_state(state.metadata.get()).screenshot;
+    let (extension, unknown_format) = match format {
+        Some(format)
+            if browser_trace::screenshot_media_type(&format).is_some() =>
+        {
+            (format, None)
+        }
+        format => ("bin".to_string(), Some(format)),
+    };
+    let screenshot = read_payload_from(trace, offset)
+        .with_context(|| format!("failed to read {}", trace_path.display()))?;
+    std::fs::create_dir_all(directory)
+        .with_context(|| format!("failed to create {}", directory.display()))?;
+    let file = directory.join(format!("{}.{extension}", state.index));
+    let differs = || {
+        anyhow!(
+            "{} already exists and differs from the screenshot of state {}; \
+             remove it or choose another directory",
+            file.display(),
+            state.index
+        )
+    };
+    let written = match holds(&file, &screenshot)? {
+        Some(true) => false,
+        Some(false) => return Err(differs()),
+        None if create_file(&file, &screenshot)? => true,
+        // Created meanwhile.
+        None => match holds(&file, &screenshot)? {
+            Some(true) => false,
+            _ => return Err(differs()),
+        },
+    };
+    if written {
+        extracted.written += 1;
+    } else {
+        extracted.skipped += 1;
+    }
+    Ok(Screenshot::Extracted {
+        file,
+        written,
+        unknown_format,
+    })
+}
+
+/// Whether the file at `file` holds `data`, or `None` if there is no
+/// file there. Anything there but a regular file (a symbolic link, a
+/// directory, a FIFO…) is refused rather than followed or read. Its
+/// length is compared first, then its bytes, a chunk at a time.
+fn holds(file: &Path, data: &[u8]) -> Result<Option<bool>> {
+    let metadata = match std::fs::symlink_metadata(file) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to read {}", file.display()));
+        }
+    };
+    if !metadata.is_file() {
+        bail!("{} exists and isn't a regular file", file.display());
+    }
+    if metadata.len() != data.len() as u64 {
+        return Ok(Some(false));
+    }
+    let read_error = || format!("failed to read {}", file.display());
+    let mut existing = File::open(file).with_context(read_error)?;
+    let mut chunk = vec![0; 64 * 1024];
+    let mut rest = data;
+    loop {
+        let read = match existing.read(&mut chunk) {
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                continue;
+            }
+            Err(error) => return Err(error).with_context(read_error),
+        };
+        if read == 0 {
+            return Ok(Some(rest.is_empty()));
+        }
+        if read > rest.len() || chunk[..read] != rest[..read] {
+            return Ok(Some(false));
+        }
+        rest = &rest[read..];
+    }
+}
+
+// Numbers the temporary files of this process.
+static TEMP_FILES_CREATED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Creates `file` holding `data`, unless there is a file there: returns
+/// whether it did. `data` is written to a new temporary file next to it
+/// first (`.<name>.<pid>.<n>.tmp`), then linked to `file`, so `file` is
+/// never seen partly written. The temporary file is removed before this
+/// returns, whether it succeeds or not, but a process killed meanwhile
+/// leaves it behind. Without hard links, it is renamed to `file` after
+/// checking `file` doesn't exist, which replaces a file created in
+/// between.
+fn create_file(file: &Path, data: &[u8]) -> Result<bool> {
+    let write_error = || format!("failed to write {}", file.display());
+    let directory = file.parent().unwrap_or(Path::new("."));
+    let name = file.file_name().unwrap_or_default().to_string_lossy();
+    let (temp_path, mut temp) = loop {
+        let n = TEMP_FILES_CREATED
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path =
+            directory.join(format!(".{name}.{}.{n}.tmp", std::process::id()));
+        match File::create_new(&path) {
+            Ok(temp) => break (path, temp),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error).with_context(write_error),
+        }
+    };
+    let written = temp.write_all(data);
+    drop(temp);
+    let created =
+        written.and_then(|()| match std::fs::hard_link(&temp_path, file) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Ok(false)
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::Unsupported
+                        | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                if std::fs::symlink_metadata(file).is_ok() {
+                    Ok(false)
+                } else {
+                    std::fs::rename(&temp_path, file).map(|()| true)
+                }
+            }
+            Err(error) => Err(error),
+        });
+    // Gone already if renamed.
+    let _ = std::fs::remove_file(&temp_path);
+    created.with_context(write_error)
+}
+
 /// Writes a state as text, with the time since `start_time`, the time of
 /// the first state with a timestamp. Metadata without the expected shape
 /// is shown as written.
@@ -382,6 +725,12 @@ fn write_state(
     }
     writeln!(out)?;
 
+    // Unexpected metadata is shown whole above.
+    if metadata.is_some()
+        && let Some(url) = read_browser_state(state.metadata.get()).url
+    {
+        writeln!(out, "       url: {}", quoted(&url))?;
+    }
     let violations: Vec<String> = metadata
         .iter()
         .flat_map(|(_, violations)| violations)
@@ -486,7 +835,7 @@ fn describe_action(action: &RawValue) -> String {
 }
 
 /// The members of a JSON object in order, duplicate keys included.
-struct Members<'a>(Vec<(String, &'a RawValue)>);
+pub(crate) struct Members<'a>(pub(crate) Vec<(String, &'a RawValue)>);
 
 impl<'de: 'a, 'a> Deserialize<'de> for Members<'a> {
     fn deserialize<D: Deserializer<'de>>(
@@ -633,6 +982,7 @@ impl TraceArgs {
             json: false,
             screen: false,
             color: false,
+            screenshots: None,
         }
     }
 }
@@ -882,9 +1232,10 @@ mod tests {
         write_trace(directory.path(), true);
         let args = TraceArgs::new(directory.path().into());
         let mut broken = Failing(io::ErrorKind::BrokenPipe);
-        ignore_broken_pipe(show(&args, &mut broken)).unwrap();
+        ignore_broken_pipe(show(&args, &mut broken).map(drop)).unwrap();
         let mut full = Failing(io::ErrorKind::StorageFull);
-        let error = ignore_broken_pipe(show(&args, &mut full)).unwrap_err();
+        let error =
+            ignore_broken_pipe(show(&args, &mut full).map(drop)).unwrap_err();
         assert_eq!(
             error.downcast_ref::<io::Error>().map(io::Error::kind),
             Some(io::ErrorKind::StorageFull)
@@ -1019,6 +1370,464 @@ mod tests {
                 "{range}"
             );
         }
+    }
+
+    /// Writes a finished browser trace of states with these metadata and
+    /// payloads.
+    fn write_browser_states(
+        directory: &Path,
+        states: &[(&str, Option<&[u8]>)],
+    ) {
+        let mut file = Vec::new();
+        write_envelope(&mut file, TraceDriver::Browser).unwrap();
+        for (metadata, payload) in states {
+            match payload {
+                Some(payload) => {
+                    write_record(
+                        &mut file,
+                        tag::STATE_WITH_PAYLOAD,
+                        &[metadata.as_bytes()],
+                    )
+                    .unwrap();
+                    write_record(&mut file, tag::STATE_PAYLOAD, &[payload])
+                        .unwrap();
+                }
+                None => {
+                    write_record(&mut file, tag::STATE, &[metadata.as_bytes()])
+                        .unwrap()
+                }
+            }
+        }
+        write_record(&mut file, tag::END, &[]).unwrap();
+        std::fs::write(directory.join(TRACE_FILE_NAME), file).unwrap();
+    }
+
+    fn screenshot_args(directory: &Path, screenshots: &Path) -> TraceArgs {
+        TraceArgs {
+            screenshots: Some(screenshots.to_path_buf()),
+            ..TraceArgs::new(directory.into())
+        }
+    }
+
+    #[test]
+    fn extracts_browser_screenshots() {
+        let directory = tempfile::tempdir().unwrap();
+        write_browser_states(
+            directory.path(),
+            &[
+                (
+                    r#"{"timestamp":0,"action":null,"state":{"url":"https://example.com/","screenshot":"jpeg"},"violations":[]}"#,
+                    Some(b"image"),
+                ),
+                (
+                    r#"{"timestamp":1,"action":"Back","state":{"url":"https://example.com/b","screenshot":"png"},"violations":[]}"#,
+                    Some(b"png image"),
+                ),
+            ],
+        );
+        let screenshots = directory.path().join("screenshots");
+        let args = screenshot_args(directory.path(), &screenshots);
+        let mut out = Vec::new();
+        let extracted = show(&args, &mut out).unwrap();
+        assert_eq!(
+            extracted,
+            Extracted {
+                written: 2,
+                skipped: 0
+            }
+        );
+        let first = screenshots.join("0.jpeg");
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            format!(
+                "browser trace\n\
+                 #0        +0.000s  (initial state)  (5 B payload)\n\
+                 \x20      url: \"https://example.com/\"\n\
+                 \x20      screenshot: {}\n\
+                 #1        +0.000s  Back  (9 B payload)\n\
+                 \x20      url: \"https://example.com/b\"\n\
+                 \x20      screenshot: {}\n",
+                first.display(),
+                screenshots.join("1.png").display()
+            )
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"image");
+        assert_eq!(
+            std::fs::read(screenshots.join("1.png")).unwrap(),
+            b"png image"
+        );
+
+        // Again: the same screenshots are left as they are.
+        let mut out = Vec::new();
+        let extracted = show(&args, &mut out).unwrap();
+        assert_eq!(
+            extracted,
+            Extracted {
+                written: 0,
+                skipped: 2
+            }
+        );
+        let out = String::from_utf8(out).unwrap();
+        assert!(
+            out.contains(&format!(
+                "screenshot: {} (already there)\n",
+                first.display()
+            )),
+            "{out}"
+        );
+
+        // Only the states shown.
+        std::fs::remove_file(&first).unwrap();
+        let extracted = show(
+            &TraceArgs {
+                state: Some("1".parse().unwrap()),
+                ..args
+            },
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            extracted,
+            Extracted {
+                written: 0,
+                skipped: 1
+            }
+        );
+        assert!(!first.exists());
+
+        // A different file is refused, and left as it was.
+        std::fs::write(&first, "other").unwrap();
+        let args = screenshot_args(directory.path(), &screenshots);
+        let error = show(&args, &mut Vec::new()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{} already exists and differs from the screenshot of state \
+                 0; remove it or choose another directory",
+                first.display()
+            )
+        );
+        assert_eq!(std::fs::read(&first).unwrap(), b"other");
+
+        // As JSON, with the file.
+        std::fs::remove_file(&first).unwrap();
+        let json = output(&TraceArgs { json: true, ..args });
+        let lines: Vec<Value> = json
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            lines[0]["screenshot_file"],
+            first.to_string_lossy().as_ref()
+        );
+        assert_eq!(
+            lines[0]["metadata"]["state"]["url"],
+            "https://example.com/"
+        );
+        // Again, with the files already there: still named.
+        let json = output(&TraceArgs {
+            json: true,
+            ..screenshot_args(directory.path(), &screenshots)
+        });
+        let files: Vec<Value> = json
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .map(|line| line["screenshot_file"].clone())
+            .collect();
+        assert_eq!(
+            files,
+            [
+                first.to_string_lossy().as_ref(),
+                screenshots.join("1.png").to_string_lossy().as_ref()
+            ]
+        );
+
+        let args = TraceArgs {
+            screen: true,
+            ..TraceArgs::new(directory.path().into())
+        };
+        let error = show(&args, &mut Vec::new()).unwrap_err();
+        assert!(error.to_string().contains("terminal traces"), "{error}");
+    }
+
+    /// A file of a screenshot's name that isn't a regular file is refused
+    /// rather than followed or read, as is a regular file of the same
+    /// length with other bytes; no temporary file is left behind.
+    #[test]
+    fn refuses_screenshot_files_it_cant_compare() {
+        let directory = tempfile::tempdir().unwrap();
+        write_browser_states(
+            directory.path(),
+            &[(r#"{"state":{"screenshot":"jpeg"}}"#, Some(b"image"))],
+        );
+        let screenshots = directory.path().join("shots");
+        std::fs::create_dir(&screenshots).unwrap();
+        let file = screenshots.join("0.jpeg");
+        let args = screenshot_args(directory.path(), &screenshots);
+        let refused = |args: &TraceArgs| {
+            show(args, &mut Vec::new()).unwrap_err().to_string()
+        };
+
+        // A link to a file with the same bytes.
+        let same = directory.path().join("same");
+        std::fs::write(&same, "image").unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&same, &file).unwrap();
+            assert_eq!(
+                refused(&args),
+                format!("{} exists and isn't a regular file", file.display())
+            );
+            std::fs::remove_file(&file).unwrap();
+        }
+        std::fs::create_dir(&file).unwrap();
+        assert_eq!(
+            refused(&args),
+            format!("{} exists and isn't a regular file", file.display())
+        );
+        std::fs::remove_dir(&file).unwrap();
+        std::fs::write(&file, "imagf").unwrap();
+        assert!(refused(&args).contains("differs"));
+        std::fs::write(&file, "image").unwrap();
+        assert_eq!(
+            show(&args, &mut Vec::new()).unwrap(),
+            Extracted {
+                written: 0,
+                skipped: 1
+            }
+        );
+        let entries: Vec<_> = std::fs::read_dir(&screenshots)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, ["0.jpeg"]);
+    }
+
+    /// A screenshot is written whole, through a temporary file that is
+    /// removed.
+    #[test]
+    fn creates_files_whole() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("0.jpeg");
+        assert!(create_file(&file, b"image").unwrap());
+        assert!(!create_file(&file, b"other").unwrap());
+        assert_eq!(std::fs::read(&file).unwrap(), b"image");
+        let entries: Vec<_> = std::fs::read_dir(directory.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, ["0.jpeg"]);
+        // A failure to write it leaves nothing behind.
+        let missing = directory.path().join("missing").join("0.jpeg");
+        assert!(create_file(&missing, b"image").is_err());
+    }
+
+    /// Replaces the trace in `directory` by renaming another over it, as
+    /// an overwriting run does, on the first write to it.
+    struct ReplacesTrace<'a> {
+        directory: &'a Path,
+        replaced: bool,
+    }
+
+    impl Write for ReplacesTrace<'_> {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if !self.replaced {
+                self.replaced = true;
+                let other = tempfile::tempdir().unwrap();
+                write_browser_states(
+                    other.path(),
+                    &[(r#"{"state":{"screenshot":"jpeg"}}"#, Some(b"NEW!!"))],
+                );
+                std::fs::rename(
+                    other.path().join(TRACE_FILE_NAME),
+                    self.directory.join(TRACE_FILE_NAME),
+                )?;
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Screenshots are extracted from the trace whose states are read,
+    /// even if another is renamed over it meanwhile.
+    #[test]
+    fn extracts_screenshots_of_the_trace_read() {
+        let directory = tempfile::tempdir().unwrap();
+        write_browser_states(
+            directory.path(),
+            &[(r#"{"state":{"screenshot":"jpeg"}}"#, Some(b"image"))],
+        );
+        let screenshots = directory.path().join("shots");
+        let args = screenshot_args(directory.path(), &screenshots);
+        let mut out = ReplacesTrace {
+            directory: directory.path(),
+            replaced: false,
+        };
+        show(&args, &mut out).unwrap();
+        assert!(out.replaced);
+        assert_eq!(
+            std::fs::read(screenshots.join("0.jpeg")).unwrap(),
+            b"image"
+        );
+    }
+
+    /// The summary of `--screenshots` is shown once extraction started,
+    /// even if it then failed, but not if it never did.
+    #[test]
+    fn summarizes_extraction_once_started() {
+        let directory = tempfile::tempdir().unwrap();
+        let screenshots = directory.path().join("shots");
+        let summary = |args: &TraceArgs| {
+            let mut extracted = None;
+            let result = show_into(args, &mut Vec::new(), &mut extracted);
+            (result.is_ok(), extraction_summary(args, extracted.as_ref()))
+        };
+        // No trace, and a terminal trace: never started.
+        let missing = directory.path().join("missing");
+        assert_eq!(
+            summary(&screenshot_args(&missing, &screenshots)),
+            (false, None)
+        );
+        write_trace(directory.path(), true);
+        assert_eq!(
+            summary(&screenshot_args(directory.path(), &screenshots)),
+            (false, None)
+        );
+        // Started, wrote nothing, then failed on a file in the way.
+        write_browser_states(
+            directory.path(),
+            &[(r#"{"state":{"screenshot":"jpeg"}}"#, Some(b"image"))],
+        );
+        std::fs::create_dir_all(screenshots.join("0.jpeg")).unwrap();
+        let expected = format!(
+            "0 screenshots written to {}, 0 were already there",
+            screenshots.display()
+        );
+        let args = screenshot_args(directory.path(), &screenshots);
+        assert_eq!(summary(&args), (false, Some(expected)));
+        // Counted in the singular and the plural.
+        let one = Extracted {
+            written: 1,
+            skipped: 1,
+        };
+        assert_eq!(
+            extraction_summary(&args, Some(&one)),
+            Some(format!(
+                "1 screenshot written to {}, 1 was already there",
+                screenshots.display()
+            ))
+        );
+        // Without --screenshots, none.
+        assert_eq!(
+            summary(&TraceArgs::new(directory.path().into())),
+            (true, None)
+        );
+    }
+
+    #[test]
+    fn refuses_screenshots_of_other_traces() {
+        let directory = tempfile::tempdir().unwrap();
+        write_trace(directory.path(), true);
+        let args =
+            screenshot_args(directory.path(), &directory.path().join("s"));
+        let error = show(&args, &mut Vec::new()).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--screenshots only applies to browser traces"
+        );
+    }
+
+    /// Only png and jpeg name a screenshot's file; other formats, which
+    /// come from the trace, are written as `.bin`, with a note, as is a
+    /// screenshot without a format. A state without a screenshot gets a
+    /// note.
+    #[test]
+    fn names_screenshots_by_known_formats_only() {
+        let directory = tempfile::tempdir().unwrap();
+        write_browser_states(
+            directory.path(),
+            &[
+                (
+                    r#"{"state":{"screenshot":"d/../../escaped"}}"#,
+                    Some(b"image"),
+                ),
+                (r#"{"state":{"screenshot":"html"}}"#, Some(b"<script>")),
+                (r#"{"state":{"screenshot":"PNG"}}"#, Some(b"image")),
+                (r#"{"state":{}}"#, Some(b"image")),
+                (r#"{"state":{"screenshot":1}}"#, Some(b"image")),
+                (r#"{"state":{"screenshot":"jpeg"}}"#, None),
+            ],
+        );
+        let screenshots = directory.path().join("out").join("shots");
+        std::fs::create_dir_all(screenshots.join("0.d")).unwrap();
+
+        let out = output(&screenshot_args(directory.path(), &screenshots));
+        let notes: Vec<&str> = out
+            .lines()
+            .filter(|line| line.starts_with("       "))
+            .map(|line| {
+                line.trim_start()
+                    .split_once(".bin")
+                    .map_or(line, |(_, note)| note)
+            })
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                r#" (unknown format "d/../../escaped")"#,
+                r#" (unknown format "html")"#,
+                r#" (unknown format "PNG")"#,
+                " (no format recorded)",
+                " (no format recorded)",
+                "       (no screenshot: none was recorded)",
+            ],
+            "{out}"
+        );
+        let mut files: Vec<String> = std::fs::read_dir(&screenshots)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        files.sort();
+        assert_eq!(files, ["0.bin", "0.d", "1.bin", "2.bin", "3.bin", "4.bin"]);
+        assert!(!directory.path().join("out").join("escaped").exists());
+    }
+
+    /// URLs are recorded from the system under test, so they are escaped
+    /// and quoted, and read without `Value`.
+    #[test]
+    fn escapes_urls() {
+        let directory = tempfile::tempdir().unwrap();
+        write_browser_states(
+            directory.path(),
+            &[
+                (
+                    r#"{"action":null,"state":{"url":"https://x/\u001b[31m\u202e\"a\\b"}}"#,
+                    None,
+                ),
+                (
+                    r#"{"action":null,"state":{"$serde_json::private::RawValue":"{\"url\":\"fake\"}"}}"#,
+                    None,
+                ),
+                (r#"{"action":null,"state":{"url":1}}"#, None),
+                (r#"{"action":null,"state":"https://x/"}"#, None),
+                // Unexpected metadata, shown whole: no separate URL.
+                (r#"{"timestamp":"x","state":{"url":"https://x/"}}"#, None),
+            ],
+        );
+        assert_eq!(
+            output(&TraceArgs::new(directory.path().into())),
+            "browser trace\n\
+             #0              ?  (initial state)\n\
+             \x20      url: \"https://x/\\u{1b}[31m\\u{202e}\\\"a\\\\b\"\n\
+             #1              ?  (initial state)\n\
+             #2              ?  (initial state)\n\
+             #3              ?  (initial state)\n\
+             #4              ?  (unexpected metadata) \
+             {\"timestamp\":\"x\",\"state\":{\"url\":\"https://x/\"}}\n"
+        );
     }
 
     #[test]

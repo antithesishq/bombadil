@@ -25,6 +25,7 @@ use crossbeam_channel as mpmc;
 use crate::{
     driver::{
         ActionTemplate, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
+        remove_legacy_trace,
     },
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
     specification::domain::Snapshot,
@@ -144,9 +145,9 @@ where
         actions.into()
     };
 
-    // The terminal driver writes a binary trace (`trace.bin`), the browser
-    // driver a JSON lines one (`trace.jsonl`), and older terminal runs
-    // wrote `trace.jsonl` too; either means the directory holds a trace.
+    // Drivers write a binary trace (`trace.bin`), and older runs wrote a
+    // JSON lines one (`trace.jsonl`); either means the directory holds a
+    // trace.
     for trace_file in ["trace.jsonl", "trace.bin"] {
         let trace_path = output_path.join(trace_file);
         if trace_path.try_exists()? && !output_path_overwrite {
@@ -218,6 +219,7 @@ where
         confirmation_hit_count_min: 1,
         pool: Vec::new(),
         files_best: Vec::new(),
+        stale_removed: false,
         pending: BTreeMap::new(),
         retries: VecDeque::new(),
         tried: HashMap::new(),
@@ -530,6 +532,9 @@ struct Coordinator {
     pool: Vec<PoolEntry>,
     /// Files in the output directory that belong to the result.
     files_best: Vec<OsString>,
+    /// Whether stale files left in the output directory by an earlier
+    /// run were removed (or failing to was logged), which is done once.
+    stale_removed: bool,
     pending: BTreeMap<RunId, Pending>,
     retries: VecDeque<Sequence>,
     /// Dispatch counts by sequence hash.
@@ -913,26 +918,25 @@ impl Coordinator {
             std::fs::rename(directory.join(&name), &target)?;
             self.files_best.push(name);
         }
-        // A trace of the other format left over from an earlier run, when
-        // overwriting: a legacy `trace.jsonl` the binary trace replaces, or
-        // a terminal `trace.bin` next to a browser's `trace.jsonl`.
+        // A legacy `trace.jsonl` left over from an earlier run, when
+        // overwriting, is stale next to the binary trace drivers write,
+        // with a legacy browser trace's `screenshots` unless the promoted
+        // run has its own. Removed once, with the first trace promoted.
+        // (Only test fakes write a `trace.jsonl`, which the loop above
+        // replaces, without telling a browser one's `screenshots`.)
         let promoted =
             |name: &str| self.files_best.iter().any(|best| best == name);
-        let stale = match (promoted("trace.bin"), promoted("trace.jsonl")) {
-            (true, false) => Some("trace.jsonl"),
-            (false, true) => Some("trace.bin"),
-            _ => None,
-        };
-        if let Some(stale) = stale {
-            let path = self.output_path.join(stale);
-            match std::fs::remove_file(&path) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                    return Err(anyhow::Error::new(error).context(format!(
-                        "failed to remove {}",
-                        path.display()
-                    )));
-                }
-                _ => {}
+        if !self.stale_removed
+            && promoted("trace.bin")
+            && !promoted("trace.jsonl")
+        {
+            self.stale_removed = true;
+            // The new trace is in place by now, so a failure is only logged:
+            // what is left is only stale, and the shrink's result is fine.
+            if let Err(error) =
+                remove_legacy_trace(&self.output_path, promoted("screenshots"))
+            {
+                log::warn!("{error:#}");
             }
         }
         std::fs::remove_dir(directory)?;

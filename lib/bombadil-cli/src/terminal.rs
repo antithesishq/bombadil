@@ -121,7 +121,9 @@ pub enum Command {
         output_path: Option<PathBuf>,
         /// Overwrite any existing trace at `--output-path`. Without this
         /// flag, Bombadil refuses to write when trace.bin or a legacy
-        /// trace.jsonl already exists.
+        /// trace.jsonl already exists. Overwriting removes a legacy
+        /// trace.jsonl, and if it is a browser trace, its screenshots
+        /// directory.
         #[arg(long)]
         output_path_overwrite: bool,
         /// Reproduce a previous test run from a run directory or trace
@@ -197,7 +199,9 @@ pub enum Command {
         output_path: Option<PathBuf>,
         /// Overwrite any existing trace at `--output-path`. Without this
         /// flag, Bombadil refuses to write when trace.bin or a legacy
-        /// trace.jsonl already exists.
+        /// trace.jsonl already exists. Overwriting removes a legacy
+        /// trace.jsonl, and if it is a browser trace, its screenshots
+        /// directory.
         #[arg(long)]
         output_path_overwrite: bool,
     },
