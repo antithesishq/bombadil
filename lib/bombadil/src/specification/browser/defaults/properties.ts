@@ -1,5 +1,5 @@
 import { always, Formula } from "@antithesishq/bombadil";
-import { extract } from "@antithesishq/bombadil/browser";
+import { type ConsoleEntry, extract } from "@antithesishq/bombadil/browser";
 
 const responseStatus = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];
@@ -69,9 +69,35 @@ export const noUnhandledPromiseRejections: Formula = always(() =>
   ),
 );
 
-const consoleErrors = extract((state) =>
-  state.console.filter((e) => e.level === "error"),
-);
+function firstLine(text: string): string {
+  const end = text.indexOf("\n");
+  return end === -1 ? text : text.slice(0, end);
+}
+
+// Each string argument is cut at its first line before joining: a logged
+// Error arrives as its description, which carries the stack. Other arguments
+// are kept in full, as JSON.
+function consoleMessage(args: ConsoleEntry["args"]): string {
+  let message = "";
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (index > 0) message += " ";
+    message += typeof arg === "string" ? firstLine(arg) : JSON.stringify(arg);
+  }
+  return message;
+}
+
+// No timestamp or stack, so that the same errors logged in the same order
+// give the same snapshot. Entries accumulate until the next navigation.
+const consoleErrors = extract((state) => {
+  const errors: { level: "error"; message: string }[] = [];
+  for (const entry of state.console) {
+    if (entry.level === "error") {
+      errors.push({ level: "error", message: consoleMessage(entry.args) });
+    }
+  }
+  return errors;
+});
 
 export const noConsoleErrors: Formula = always(
   () => consoleErrors.current?.length === 0,
