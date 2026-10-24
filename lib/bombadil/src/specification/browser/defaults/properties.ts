@@ -116,8 +116,18 @@ export const noUnhandledPromiseRejections: Formula = always(() =>
   ),
 );
 
+// No timestamp or stack, so that the same error gives the same snapshot and can
+// take part in the state key.
 const consoleErrors = extract((state) =>
-  state.console.filter((e) => e.level === "error"),
+  state.console
+    .filter((e) => e.level === "error")
+    .map((e) => ({
+      level: e.level,
+      message: e.args
+        .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
+        .join(" ")
+        .split("\n")[0],
+    })),
 );
 
 export const noConsoleErrors: Formula = always(
