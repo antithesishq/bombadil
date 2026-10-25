@@ -30,7 +30,9 @@ driver exits
 2. Once the app has settled, the driver sends its first `state`.
 3. For every `apply`, the driver performs the action, waits for the app to
    settle, and sends exactly one `state`. Bombadil considers the driver
-   stalled if no `state` arrives within 30 seconds.
+   stalled if no `state` arrives within the stall timeout: 30 seconds, or
+   `stall_timeout_ms` from `hello`. This also bounds the wait for the first
+   `state`, so drivers of slow-starting apps should raise it.
 4. On `terminate`, the driver shuts the app down and exits. Bombadil kills
    it if it hasn't exited after 5 seconds, and also if Bombadil itself
    stops.
@@ -45,7 +47,7 @@ error, or writing a line that isn't a valid message, also ends the run.
 
 | Message | Fields |
 | --- | --- |
-| `hello` | `protocol`: integer, `name`: string |
+| `hello` | `protocol`: integer, `name`: string, `stall_timeout_ms`: optional integer |
 | `state` | `state`: any JSON value |
 | `error` | `message`: string |
 

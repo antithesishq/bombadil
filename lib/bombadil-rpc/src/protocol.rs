@@ -7,12 +7,21 @@ use serde_json as json;
 
 pub const PROTOCOL_VERSION: u32 = 0;
 
+pub const STALL_TIMEOUT_DEFAULT_MS: u64 = 30_000;
+
 /// Sent by the driver on its stdout.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DriverMessage {
     /// First message of every session.
-    Hello { protocol: u32, name: String },
+    Hello {
+        protocol: u32,
+        name: String,
+        /// How long Bombadil waits for a `state` before considering the
+        /// driver stalled. Defaults to [`STALL_TIMEOUT_DEFAULT_MS`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stall_timeout_ms: Option<u64>,
+    },
     /// The app has settled into a new state: once after `hello`, and once
     /// after each `apply`.
     State { state: json::Value },

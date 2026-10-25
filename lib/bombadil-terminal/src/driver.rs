@@ -524,7 +524,9 @@ impl InterfaceSession for TerminalSession {
 
     // Output collection is bounded by DRAIN_DURATION_MAX, including a
     // synchronized redraw whose application never releases its hold.
-    const STALL_TIMEOUT: Duration = Duration::MAX;
+    fn stall_timeout(&self) -> Duration {
+        Duration::MAX
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();

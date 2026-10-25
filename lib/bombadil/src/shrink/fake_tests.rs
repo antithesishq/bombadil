@@ -194,7 +194,9 @@ impl InterfaceSession for FakeSession {
     type ActionTemplate = FakeTemplate;
     type State = FakeState;
 
-    const STALL_TIMEOUT: Duration = Duration::from_secs(1);
+    fn stall_timeout(&self) -> Duration {
+        Duration::from_secs(1)
+    }
 
     fn terminate(&mut self) -> Result<()> {
         Ok(())
