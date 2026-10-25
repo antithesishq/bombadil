@@ -1,6 +1,8 @@
 mod browser;
 mod browser_trace;
 mod duration;
+#[cfg(feature = "external")]
+mod external;
 mod inspect_server;
 mod output_path;
 mod shrink;
@@ -26,6 +28,13 @@ enum Command {
         #[command(subcommand)]
         command: browser::BrowserCommand,
     },
+    /// (EXPERIMENTAL) Property-based testing for apps with external drivers,
+    /// such as SwiftUI, Jetpack Compose or Flutter apps
+    #[cfg(feature = "external")]
+    External {
+        #[command(subcommand)]
+        command: external::Command,
+    },
     /// (EXPERIMENTAL) Property-based testing for terminal UIs
     #[cfg(feature = "terminal")]
     Terminal {
@@ -39,6 +48,8 @@ enum Command {
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Browser { command } => browser::run(command),
+        #[cfg(feature = "external")]
+        Command::External { command } => external::run(command),
         #[cfg(feature = "terminal")]
         Command::Terminal { command } => {
             terminal::run(command);

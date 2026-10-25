@@ -1,0 +1,17 @@
+[package]
+name = "bombadil-rpc"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+boa_engine.workspace = true
+bombadil = { path = "../bombadil" }
+bombadil-schema = { path = "../bombadil-schema" }
+log.workspace = true
+rand.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -8,6 +8,7 @@ members = [
   "lib/bombadil-cli",
   "lib/bombadil-ltl",
   "lib/bombadil-inspect",
+  "lib/bombadil-rpc",
   "lib/bombadil-schema",
   "lib/bombadil-terminal",
   "lib/bombadil-trace",

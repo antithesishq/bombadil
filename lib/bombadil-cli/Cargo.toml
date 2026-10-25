@@ -19,6 +19,7 @@ bombadil = { path = "../bombadil" }
 bombadil-browser = { path = "../bombadil-browser" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
+bombadil-rpc = { path = "../bombadil-rpc", optional = true }
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-terminal = { path = "../bombadil-terminal", optional = true }
 bombadil-trace = { path = "../bombadil-trace" }
@@ -42,7 +43,8 @@ hegeltest.workspace = true
 libghostty-vt.workspace = true
 
 [features]
-default = ["terminal"]
+default = ["external", "terminal"]
+external = ["dep:bombadil-rpc"]
 terminal = ["dep:bombadil-terminal"]
 hotpath = ["hotpath/hotpath"]
 hotpath-cpu = ["hotpath/hotpath-cpu"]
