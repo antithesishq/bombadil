@@ -6,7 +6,7 @@ use bombadil::driver::{InterfaceDriver, RunId, TraceWriter};
 use bombadil::model::TemplateRegistry;
 use bombadil::runner;
 use bombadil::specification::bundler::bundle;
-use bombadil::specification::verifier::Specification;
+use bombadil::specification::verifier::{Specification, Verifier};
 use url::Url;
 
 pub use bombadil::runner::{ControlFlow, PropertyViolation, RunStrategy};
@@ -31,8 +31,9 @@ pub fn launch<
     interrupted: Arc<AtomicBool>,
     strategy: &mut S,
 ) -> Result<S::StopValue> {
-    let specification_bundle =
+    let specification_bundle: Arc<str> =
         Arc::from(bundle(".", &specification.module_specifier)?);
+    let verifier = Verifier::new(&specification_bundle)?;
 
     let driver = BrowserDriver {
         origin,
@@ -42,7 +43,7 @@ pub fn launch<
         blocks,
     };
 
-    let (mut session, verifier) = driver.new_session(run_id)?;
+    let mut session = driver.new_session(run_id)?;
 
     runner::run(
         &mut session,

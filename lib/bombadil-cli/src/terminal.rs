@@ -6,12 +6,13 @@ use std::{
 };
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
 use bombadil::model::{Recorded, WeightedStrategy, Weights};
+use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::ToInternal;
-use bombadil::specification::verifier::Specification;
+use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{ProcessExitStatus, TerminalSize};
@@ -244,7 +245,8 @@ pub fn run(command: Command) {
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
 
-                let specification = load_specification(specification_file);
+                let specification_bundle =
+                    bundle_specification(specification_file)?;
 
                 let output_path = resolve_output_path(&output_path)?;
                 let action_templates =
@@ -266,8 +268,10 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let driver =
-                    TerminalDriver::new(specification, program_options)?;
+                let driver = TerminalDriver {
+                    specification_bundle: specification_bundle.clone(),
+                    program_options,
+                };
 
                 let test_start = SystemTime::now();
                 let deadline = time_limit.map(|d| test_start + d);
@@ -290,8 +294,8 @@ pub fn run(command: Command) {
                     states_seen: 0,
                     quiet: false,
                 };
-                let (mut session, verifier) =
-                    driver.new_session(RunId::default())?;
+                let verifier = Verifier::new(&specification_bundle)?;
+                let mut session = driver.new_session(RunId::default())?;
 
                 let mut trace_writer = TerminalTraceWriter::initialize(
                     &output_path,
@@ -410,7 +414,8 @@ pub fn run(command: Command) {
                     .map(Weights::<TerminalActionTemplate>::load)
                     .transpose()?;
 
-                let specification = load_specification(specification_file);
+                let specification_bundle =
+                    bundle_specification(specification_file)?;
 
                 let output_path = resolve_output_path(&output_path)?;
                 let action_templates =
@@ -430,10 +435,10 @@ pub fn run(command: Command) {
                     program: program.to_string(),
                     arguments: arguments.to_vec(),
                 };
-                let driver = Arc::new(TerminalDriver::new(
-                    specification,
+                let driver = Arc::new(TerminalDriver {
+                    specification_bundle: specification_bundle.clone(),
                     program_options,
-                )?);
+                });
 
                 let interrupted = Arc::new(AtomicBool::new(false));
                 {
@@ -446,6 +451,7 @@ pub fn run(command: Command) {
                 let result = fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
+                    specification_bundle,
                     strategy: move || {
                         WeightedStrategy::new(
                             TerminalStrategy {
@@ -530,19 +536,21 @@ fn terminal_shrink(
         _ => bail!("expected `<program> [args...]` after `--`"),
     };
     let options = shrink_options.resolve(load_trace_actions)?;
-    let driver = Arc::new(TerminalDriver::new(
-        load_specification(specification_file),
-        TerminalProgramOptions {
+    let specification_bundle = bundle_specification(specification_file)?;
+    let driver = Arc::new(TerminalDriver {
+        specification_bundle: specification_bundle.clone(),
+        program_options: TerminalProgramOptions {
             size: TerminalSize { columns, rows },
             scrollback_lines_max: scrollback_lines_max as usize,
             quiescence_timeout: Duration::from_millis(quiescence_timeout_ms),
             program,
             arguments,
         },
-    )?);
+    });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
         driver,
+        specification_bundle,
         strategy: || TerminalStrategy {
             rng: AntithesisRng,
             mode: TerminalTestMode::RandomWalk,
@@ -573,9 +581,11 @@ fn terminal_shrink(
     Ok(())
 }
 
-/// Load a user-provided specification, or use the defaults provided by Bombadil.
-fn load_specification(specification_file: Option<PathBuf>) -> Specification {
-    if let Some(path) = specification_file {
+/// Bundle a user-provided specification, or the defaults provided by Bombadil.
+fn bundle_specification(
+    specification_file: Option<PathBuf>,
+) -> Result<Arc<str>> {
+    let specification = if let Some(path) = specification_file {
         // Prepend "./" for relative paths that don't already start with "."
         // so the bundler treats them as paths rather than bare specifiers.
         let path = if path.is_relative() && !path.starts_with(".") {
@@ -592,5 +602,8 @@ fn load_specification(specification_file: Option<PathBuf>) -> Specification {
             module_specifier: "@antithesishq/bombadil/terminal/defaults"
                 .to_string(),
         }
-    }
+    };
+    Ok(bundle(".", &specification.module_specifier)
+        .map_err(|e| anyhow!("bundle failed: {e}"))?
+        .into())
 }

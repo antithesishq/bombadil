@@ -11,9 +11,7 @@ use serde_json as json;
 
 use crate::runner::PropertyViolation;
 use crate::{
-    model::Picked,
-    render::Format,
-    specification::{domain::Snapshot, verifier::Verifier},
+    model::Picked, render::Format, specification::domain::Snapshot,
     tree::Leaves,
 };
 
@@ -42,7 +40,7 @@ impl Display for RunId {
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
     type Session: InterfaceSession;
-    fn new_session(&self, run_id: RunId) -> Result<(Self::Session, Verifier)>;
+    fn new_session(&self, run_id: RunId) -> Result<Self::Session>;
 }
 
 pub trait RunState {

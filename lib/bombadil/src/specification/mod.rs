@@ -1,6 +1,7 @@
 pub mod bundler;
 pub mod convert;
 pub mod domain;
+pub mod extract;
 pub mod generators;
 pub mod js;
 pub mod resolver;
