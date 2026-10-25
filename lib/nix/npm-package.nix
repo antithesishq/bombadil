@@ -42,6 +42,9 @@ let
         "./browser/defaults/extractors" = {
           types = "./dist/browser/defaults/extractors.d.ts";
         };
+        "./external" = {
+          types = "./dist/external/index.d.ts";
+        };
         "./terminal" = {
           types = "./dist/terminal/index.d.ts";
         };
