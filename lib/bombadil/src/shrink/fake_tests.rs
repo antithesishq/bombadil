@@ -30,7 +30,7 @@ use crate::{
     },
     render::Format,
     runner::{ControlFlow, PropertiesState, PropertyViolation, RunStrategy},
-    specification::{bundler::bundle, domain::Snapshot, verifier::Verifier},
+    specification::{bundler::bundle, domain::Snapshot},
     tree::Tree,
 };
 
@@ -129,7 +129,6 @@ fn replay(sequence: &[u8], triggers: &BTreeSet<u8>) -> Option<Vec<u8>> {
 }
 
 struct FakeDriver {
-    bundle_code: &'static str,
     triggers: BTreeSet<u8>,
     flakiness: Flakiness,
     seed: u64,
@@ -138,20 +137,17 @@ struct FakeDriver {
 impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
 
-    fn new_session(&self, run_id: RunId) -> Result<(FakeSession, Verifier)> {
+    fn new_session(&self, run_id: RunId) -> Result<FakeSession> {
         let mut hasher = DefaultHasher::new();
         (self.seed, run_id.0).hash(&mut hasher);
         let state = FakeState::default();
-        Ok((
-            FakeSession {
-                triggers: self.triggers.clone(),
-                drop_probability: self.flakiness.drop_probability(),
-                rng: StdRng::seed_from_u64(hasher.finish()),
-                state: state.clone(),
-                pending: Some(Arc::new(state)),
-            },
-            Verifier::new(self.bundle_code)?,
-        ))
+        Ok(FakeSession {
+            triggers: self.triggers.clone(),
+            drop_probability: self.flakiness.drop_probability(),
+            rng: StdRng::seed_from_u64(hasher.finish()),
+            state: state.clone(),
+            pending: Some(Arc::new(state)),
+        })
     }
 }
 
@@ -365,11 +361,11 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
     let output = tempfile::tempdir().unwrap();
     let result = shrink(ShrinkOptions {
         driver: Arc::new(FakeDriver {
-            bundle_code: bundle_code(),
             triggers: triggers.clone(),
             flakiness,
             seed,
         }),
+        specification_bundle: bundle_code().into(),
         strategy: move || FakeStrategy { steps_max },
         trace_writer: FakeTraceWriter::file,
         trace,

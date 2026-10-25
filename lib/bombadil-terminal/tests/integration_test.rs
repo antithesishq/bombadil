@@ -10,8 +10,9 @@ use bombadil::driver::{
     NoopTraceWriter, RunId,
 };
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
+use bombadil::specification::bundler::bundle;
 use bombadil::specification::domain::Snapshot;
-use bombadil::specification::verifier::Specification;
+use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil::tree::Tree;
 use bombadil_schema::terminal::{TerminalCell, TerminalSize};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
@@ -91,22 +92,25 @@ impl TerminalIntegrationTest {
             // Keep the spec file alive for the whole run.
             let _specification_file = specification_file;
             let result = (|| -> Result<u64> {
-                let driver = TerminalDriver::new(
-                    specification,
-                    bombadil_terminal::driver::TerminalProgramOptions {
-                        size,
-                        scrollback_lines_max: max_scrollback,
-                        quiescence_timeout: Duration::from_millis(10),
-                        program,
-                        arguments,
-                    },
-                )?;
+                let specification_bundle: Arc<str> =
+                    bundle(".", &specification.module_specifier)?.into();
+                let driver = TerminalDriver {
+                    specification_bundle: specification_bundle.clone(),
+                    program_options:
+                        bombadil_terminal::driver::TerminalProgramOptions {
+                            size,
+                            scrollback_lines_max: max_scrollback,
+                            quiescence_timeout: Duration::from_millis(10),
+                            program,
+                            arguments,
+                        },
+                };
                 let mut strategy = IntegrationTestStrategy {
                     rng: rand::rng(),
                     violations_count: 0,
                 };
-                let (mut session, verifier) =
-                    driver.new_session(RunId::default())?;
+                let verifier = Verifier::new(&specification_bundle)?;
+                let mut session = driver.new_session(RunId::default())?;
                 let mut trace_writer = NoopTraceWriter;
                 runner::run(
                     &mut session,

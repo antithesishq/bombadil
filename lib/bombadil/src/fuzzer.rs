@@ -27,7 +27,7 @@ use crate::{
     runner::{
         self, ControlFlow, PropertiesState, PropertyViolation, RunStrategy,
     },
-    specification::domain::Snapshot,
+    specification::{domain::Snapshot, verifier::Verifier},
     styled::{maybe_bold, maybe_red},
     tree::Tree,
 };
@@ -95,6 +95,8 @@ pub struct FuzzOptions<
 > {
     pub rng: Rng,
     pub driver: Arc<D>,
+    /// Bundled specification each run builds its verifier from.
+    pub specification_bundle: Arc<str>,
     /// Creates the driver-specific strategy that each run uses. It
     /// decides when a run stops and which actions are allowed, but
     /// its choice of action is ignored. It should not print.
@@ -117,6 +119,7 @@ pub fn fuzz<
     FuzzOptions {
         mut rng,
         driver,
+        specification_bundle,
         strategy,
         interrupted,
         time_limit_fuzz,
@@ -143,6 +146,7 @@ where
         let worker_id = WorkerId(i);
         let run_id_next = run_id_next.clone();
         let driver = driver.clone();
+        let specification_bundle = specification_bundle.clone();
         let strategy = strategy.clone();
         let output_writer = output_writer.clone();
         let seed = rng.next_u64();
@@ -151,6 +155,7 @@ where
         let handle = thread::spawn(move || {
             let fuzz_worker_thread = FuzzWorkerThread {
                 driver,
+                specification_bundle,
                 strategy,
                 output_writer,
                 worker_tx,
@@ -375,6 +380,7 @@ struct FuzzWorkerThread<
     MakeStrategy,
 > {
     driver: Arc<D>,
+    specification_bundle: Arc<str>,
     strategy: Arc<MakeStrategy>,
     output_writer: Arc<Mutex<Writer>>,
     worker_tx: mpmc::Sender<WorkerMessage<D::Session>>,
@@ -422,7 +428,9 @@ impl<
             } else {
                 FuzzMode::RandomWalk
             };
-            let (mut session, verifier) = self
+            let verifier = Verifier::new(&self.specification_bundle)
+                .expect("specification initiate failed");
+            let mut session = self
                 .driver
                 .new_session(run_id)
                 .expect("driver initiate failed");
