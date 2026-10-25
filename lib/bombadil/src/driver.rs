@@ -131,7 +131,7 @@ pub trait InterfaceSession {
 
     /// Amount of time we'll wait for `next_event` to return an event
     /// before considering the driver stalled.
-    const STALL_TIMEOUT: Duration;
+    fn stall_timeout(&self) -> Duration;
 
     fn terminate(&mut self) -> Result<()>;
 

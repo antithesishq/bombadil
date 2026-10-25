@@ -425,7 +425,9 @@ impl InterfaceSession for TerminalSession {
     type State = TerminalState;
 
     // `next_event` always returns within the quiescence timeout.
-    const STALL_TIMEOUT: Duration = Duration::MAX;
+    fn stall_timeout(&self) -> Duration {
+        Duration::MAX
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();

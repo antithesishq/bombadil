@@ -30,7 +30,8 @@ export const counter = actions(() => [
 ]);
 "#;
 
-fn driver(protocol: u32) -> (ExternalDriver, Arc<str>, NamedTempFile) {
+/// The counter driver, run with the given environment variable assignments.
+fn driver(env: &[&str]) -> (ExternalDriver, Arc<str>, NamedTempFile) {
     let mut specification = NamedTempFile::with_suffix(".ts").unwrap();
     specification.write_all(SPECIFICATION.as_bytes()).unwrap();
     let specification_bundle: Arc<str> =
@@ -42,18 +43,18 @@ fn driver(protocol: u32) -> (ExternalDriver, Arc<str>, NamedTempFile) {
     let driver = ExternalDriver {
         specification_bundle: specification_bundle.clone(),
         program: "env".to_string(),
-        arguments: vec![
-            format!("PROTOCOL={protocol}"),
-            "sh".to_string(),
-            script.display().to_string(),
-        ],
+        arguments: env
+            .iter()
+            .map(|assignment| assignment.to_string())
+            .chain(["sh".to_string(), script.display().to_string()])
+            .collect(),
     };
     (driver, specification_bundle, specification)
 }
 
 #[test]
 fn finds_violation_through_external_driver() {
-    let (driver, specification_bundle, _specification) = driver(0);
+    let (driver, specification_bundle, _specification) = driver(&[]);
     let output = tempfile::tempdir().unwrap();
     let mut trace_writer =
         ExternalTraceWriter::initialize(output.path().to_path_buf(), false)
@@ -97,10 +98,38 @@ fn finds_violation_through_external_driver() {
 
 #[test]
 fn rejects_driver_with_other_protocol_version() {
-    let (driver, _, _specification) = driver(7);
+    let (driver, _, _specification) = driver(&["PROTOCOL=7"]);
     let error = match driver.new_session(RunId::default()) {
         Ok(_) => panic!("session started despite protocol mismatch"),
         Err(error) => error.to_string(),
     };
     assert!(error.contains("protocol version 7"), "{error}");
+}
+
+#[test]
+fn stops_when_driver_exceeds_its_declared_stall_timeout() {
+    let (driver, specification_bundle, _specification) =
+        driver(&["STALL_MS=300"]);
+    let mut strategy = ExternalStrategy {
+        rng: StdRng::seed_from_u64(1),
+        mode: ExternalTestMode::RandomWalk,
+        test_start: None,
+        violations_count: 0,
+        exit_on_violation: true,
+        deadline: None,
+        quiet: true,
+    };
+    let started = std::time::Instant::now();
+    let mut session = driver.new_session(RunId::default()).unwrap();
+    let exit_reason = runner::run(
+        &mut session,
+        &mut strategy,
+        Verifier::new(&specification_bundle).unwrap(),
+        &mut bombadil::driver::NoopTraceWriter,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert!(matches!(exit_reason, ExitReason::Stalled));
+    // Far below the default stall timeout of 30 seconds.
+    assert!(started.elapsed() < Duration::from_secs(10));
 }

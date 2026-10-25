@@ -104,7 +104,9 @@ impl InterfaceSession for BrowserSession {
     type ActionTemplate = BrowserActionTemplate;
     type State = BrowserState;
 
-    const STALL_TIMEOUT: Duration = NAVIGATION_TIMEOUT.saturating_mul(2);
+    fn stall_timeout(&self) -> Duration {
+        NAVIGATION_TIMEOUT.saturating_mul(2)
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.browser.terminate()

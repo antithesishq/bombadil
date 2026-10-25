@@ -15,7 +15,9 @@ use bombadil_schema::Time;
 use serde_json as json;
 
 use crate::action::{ExternalAction, ExternalActionTemplate};
-use crate::protocol::{BombadilMessage, DriverMessage, PROTOCOL_VERSION};
+use crate::protocol::{
+    BombadilMessage, DriverMessage, PROTOCOL_VERSION, STALL_TIMEOUT_DEFAULT_MS,
+};
 
 /// How long a driver may take to start and send `hello`.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -74,6 +76,7 @@ impl InterfaceDriver for ExternalDriver {
             stdin,
             messages,
             extractor,
+            stall_timeout: Duration::from_millis(STALL_TIMEOUT_DEFAULT_MS),
         };
         session.handshake()?;
         Ok(session)
@@ -85,6 +88,7 @@ pub struct ExternalSession {
     stdin: Option<ChildStdin>,
     messages: mpsc::Receiver<Result<DriverMessage>>,
     extractor: SnapshotExtractor,
+    stall_timeout: Duration,
 }
 
 #[derive(Debug)]
@@ -102,12 +106,19 @@ impl RunState for ExternalState {
 impl ExternalSession {
     fn handshake(&mut self) -> Result<()> {
         match self.messages.recv_timeout(HANDSHAKE_TIMEOUT) {
-            Ok(Ok(DriverMessage::Hello { protocol, name })) => {
+            Ok(Ok(DriverMessage::Hello {
+                protocol,
+                name,
+                stall_timeout_ms,
+            })) => {
                 if protocol != PROTOCOL_VERSION {
                     bail!(
                         "driver `{name}` speaks protocol version {protocol}, \
                          but Bombadil speaks version {PROTOCOL_VERSION}"
                     );
+                }
+                if let Some(millis) = stall_timeout_ms {
+                    self.stall_timeout = Duration::from_millis(millis);
                 }
                 log::info!("connected to external driver `{name}`");
                 Ok(())
@@ -163,7 +174,9 @@ impl InterfaceSession for ExternalSession {
     type ActionTemplate = ExternalActionTemplate;
     type State = ExternalState;
 
-    const STALL_TIMEOUT: Duration = Duration::from_secs(30);
+    fn stall_timeout(&self) -> Duration {
+        self.stall_timeout
+    }
 
     fn terminate(&mut self) -> Result<()> {
         if self.stdin.is_some() {

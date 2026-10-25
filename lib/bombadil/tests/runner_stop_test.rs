@@ -97,7 +97,9 @@ impl InterfaceSession for FakeSession {
     type ActionTemplate = FakeAction;
     type State = FakeState;
 
-    const STALL_TIMEOUT: Duration = Duration::MAX;
+    fn stall_timeout(&self) -> Duration {
+        Duration::MAX
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
@@ -254,7 +256,9 @@ impl<const STALL_MILLIS: u64> InterfaceSession for StuckSession<STALL_MILLIS> {
     type ActionTemplate = FakeAction;
     type State = FakeState;
 
-    const STALL_TIMEOUT: Duration = Duration::from_millis(STALL_MILLIS);
+    fn stall_timeout(&self) -> Duration {
+        Duration::from_millis(STALL_MILLIS)
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
