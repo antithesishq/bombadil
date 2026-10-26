@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
-use bombadil::driver::{InterfaceDriver, RunId};
+use bombadil::driver::{InterfaceDriver, InterfaceSession, RunId};
 use bombadil::runner;
 use bombadil::shrink::load_trace_actions;
 use bombadil::specification::bundler::bundle;
@@ -132,4 +132,24 @@ fn stops_when_driver_exceeds_its_declared_stall_timeout() {
     assert!(matches!(exit_reason, ExitReason::Stalled));
     // Far below the default stall timeout of 30 seconds.
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+#[test]
+fn terminating_a_session_stops_what_its_driver_started() {
+    let pidfile = NamedTempFile::new().unwrap();
+    let assignment =
+        format!("CHILD_PIDFILE={}", pidfile.path().display());
+    let (driver, _specification_bundle, _specification) =
+        driver(&[&assignment]);
+    let mut session = driver.new_session(RunId::default()).unwrap();
+    let child: libc::pid_t = std::fs::read_to_string(pidfile.path())
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    // SAFETY: `kill` has no memory safety requirements.
+    assert_eq!(unsafe { libc::kill(child, 0) }, 0, "child is running");
+    session.terminate().unwrap();
+    // The driver exits on `terminate`, but its child would live on.
+    assert_ne!(unsafe { libc::kill(child, 0) }, 0, "child is stopped");
 }

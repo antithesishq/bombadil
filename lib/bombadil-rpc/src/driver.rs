@@ -1,4 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -44,6 +45,9 @@ impl InterfaceDriver for ExternalDriver {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
+            // Its own process group, so that stopping the session also stops
+            // whatever the driver started.
+            .process_group(0)
             .spawn()
             .with_context(|| format!("failed to start `{}`", self.program))?;
         let stdin = child.stdin.take();
@@ -158,14 +162,38 @@ impl ExternalSession {
             Err(error) => error.to_string(),
         }
     }
+
+    /// Stops what is left of the driver's process group: SIGTERM first,
+    /// then SIGKILL after `TERMINATE_TIMEOUT`. Returns once the group is
+    /// gone, so that what its processes held (devices, locks, ports) is
+    /// free for the next session.
+    fn stop_process_group(&mut self) {
+        let group = -(self.child.id() as libc::pid_t);
+        for signal in [libc::SIGTERM, libc::SIGKILL] {
+            // SAFETY: `kill` has no memory safety requirements.
+            unsafe { libc::kill(group, signal) };
+            let deadline = Instant::now() + TERMINATE_TIMEOUT;
+            loop {
+                // Reap the driver itself; as a zombie it still counts as a
+                // member of the group.
+                let _ = self.child.try_wait();
+                // SAFETY: as above; signal 0 only checks for existence.
+                if unsafe { libc::kill(group, 0) } != 0 {
+                    return;
+                }
+                if Instant::now() >= deadline {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+        }
+        log::warn!("driver process group {} did not exit", -group);
+    }
 }
 
 impl Drop for ExternalSession {
     fn drop(&mut self) {
-        if let Ok(None) = self.child.try_wait() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
-        }
+        self.stop_process_group();
     }
 }
 
@@ -186,15 +214,17 @@ impl InterfaceSession for ExternalSession {
             self.stdin = None;
         }
         let deadline = Instant::now() + TERMINATE_TIMEOUT;
-        while Instant::now() < deadline {
-            if self.child.try_wait()?.is_some() {
-                return Ok(());
+        while self.child.try_wait()?.is_none() {
+            if Instant::now() >= deadline {
+                log::warn!(
+                    "driver did not exit within {TERMINATE_TIMEOUT:?}, stopping it"
+                );
+                break;
             }
             thread::sleep(Duration::from_millis(20));
         }
-        log::warn!("driver did not exit within {TERMINATE_TIMEOUT:?}, killing");
-        self.child.kill()?;
-        self.child.wait()?;
+        // Children the driver left behind would otherwise outlive Bombadil.
+        self.stop_process_group();
         Ok(())
     }
 
