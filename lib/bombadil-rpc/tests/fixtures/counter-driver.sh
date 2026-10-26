@@ -2,7 +2,13 @@
 # A fake external driver for a counter app. It speaks protocol version 0
 # (or the version in $PROTOCOL) and has a bug: nothing caps the count.
 # With $STALL_MS set, it declares that stall timeout and then hangs.
+# With $CHILD_PIDFILE set, it starts a long-running child and writes its pid
+# there, without ever stopping it.
 count=0
+if [ -n "$CHILD_PIDFILE" ]; then
+  sleep 1000 &
+  echo $! >"$CHILD_PIDFILE"
+fi
 state() {
   printf '{"type":"state","state":{"count":%d}}\n' "$count"
 }

@@ -635,6 +635,7 @@ dependencies = [
  "bombadil",
  "bombadil-schema",
  "hegeltest",
+ "libc",
  "log",
  "rand 0.10.2",
  "serde",

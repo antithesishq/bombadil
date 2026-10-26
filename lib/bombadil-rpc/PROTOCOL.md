@@ -33,9 +33,14 @@ driver exits
    stalled if no `state` arrives within the stall timeout: 30 seconds, or
    `stall_timeout_ms` from `hello`. This also bounds the wait for the first
    `state`, so drivers of slow-starting apps should raise it.
-4. On `terminate`, the driver shuts the app down and exits. Bombadil kills
-   it if it hasn't exited after 5 seconds, and also if Bombadil itself
-   stops.
+4. On `terminate`, the driver shuts the app down and exits. The driver
+   runs in its own process group. Once the driver has exited, or after 5
+   seconds if it hasn't, Bombadil sends SIGTERM to that group, then SIGKILL
+   5 seconds later, and waits until the group is gone before the next
+   session starts or Bombadil exits. The same happens if a session ends
+   any other way. Processes that should outlive a session, such as an
+   emulator or an adb server, must leave the group (for example with
+   `setsid`) or be started outside the driver.
 
 If the driver can't continue, it sends `{"type":"error","message":"..."}`
 and exits. Bombadil ends the run with that error. Exiting without an
