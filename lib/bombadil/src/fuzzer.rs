@@ -415,8 +415,7 @@ impl<
                 iteration,
                 run_id,
             );
-            let test_start = Time::from_system_time(SystemTime::now());
-            if test_start > self.fuzz_deadline {
+            if Time::from_system_time(SystemTime::now()) > self.fuzz_deadline {
                 break;
             }
             let run_seed = rng.next_u64();
@@ -434,6 +433,9 @@ impl<
                 .driver
                 .new_session(run_id)
                 .expect("driver initiate failed");
+            // The run's time limit counts from when its session is ready, so
+            // drivers that take long to start still get the whole run.
+            let test_start = Time::from_system_time(SystemTime::now());
 
             let mut strategy = FuzzStrategy {
                 inner: (self.strategy)(),
