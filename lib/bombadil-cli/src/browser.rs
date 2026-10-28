@@ -766,18 +766,20 @@ fn browser_fuzz(
     fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
-        strategy: move || WeightedStrategy {
-            inner: TestStrategy {
-                rng: AntithesisRng,
-                mode: TestMode::RandomWalk,
-                exit_on_violation: false,
-                test_start: None,
-                deadline: None,
-                violations_count: 0,
-                allow_urls: allow_urls.clone(),
-                quiet: true,
-            },
-            weights: weights.clone(),
+        strategy: move || {
+            WeightedStrategy::new(
+                TestStrategy {
+                    rng: AntithesisRng,
+                    mode: TestMode::RandomWalk,
+                    exit_on_violation: false,
+                    test_start: None,
+                    deadline: None,
+                    violations_count: 0,
+                    allow_urls: allow_urls.clone(),
+                    quiet: true,
+                },
+                weights.clone(),
+            )
         },
         interrupted,
         time_limit_fuzz: fuzz_options.time_limit_fuzz,

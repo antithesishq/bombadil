@@ -232,6 +232,9 @@ fn json_leaves(value: &serde_json::Value, path: &str, out: &mut Vec<String>) {
     }
 }
 
+/// A state key → action key → weight table (the shape of `Weights::states`).
+pub type WeightsTable = HashMap<String, HashMap<String, f64>>;
+
 /// Learned action weights per state, as produced by training on traces
 /// (see [`StepModel`]).
 #[derive(Debug, Clone, Deserialize)]
@@ -247,6 +250,11 @@ pub struct Weights {
     pub simhash: SimhashLookup,
     /// State simhash (16 hex digits) → action key → non-negative weight.
     pub states: HashMap<String, HashMap<String, f64>>,
+    /// Per state and action, the most likely next state key. When present, an
+    /// action's weight is divided by sqrt(1 + visits in this run of that
+    /// state), so that a run spreads over its states.
+    #[serde(default)]
+    pub next: Option<HashMap<String, HashMap<String, String>>>,
     /// The `states` simhashes, sorted.
     #[serde(skip)]
     simhashes: Vec<(u64, String)>,
@@ -319,7 +327,7 @@ impl Weights {
 
     /// The learned state nearest to `hash` within the radius; ties go to the
     /// smaller simhash.
-    fn nearest(&self, hash: u64) -> Option<&HashMap<String, f64>> {
+    fn nearest(&self, hash: u64) -> Option<(&str, &HashMap<String, f64>)> {
         let mut best: Option<(u32, &str)> = None;
         for (candidate, key) in &self.simhashes {
             let distance = (candidate ^ hash).count_ones();
@@ -329,7 +337,7 @@ impl Weights {
                 best = Some((distance, key));
             }
         }
-        best.and_then(|(_, key)| self.states.get(key))
+        best.and_then(|(_, key)| self.states.get(key).map(|w| (key, w)))
     }
 
     /// Replaces the spec weights with learned ones when a learned state is
@@ -342,15 +350,42 @@ impl Weights {
         snapshots: &[Snapshot],
         tree: Tree<T>,
     ) -> (Tree<T>, bool) {
+        self.reweight_in(None, state, snapshots, tree)
+    }
+
+    /// The learned state key nearest to `state`, if any (within the radius).
+    pub fn state_key(
+        &self,
+        state: &(impl RunState + ?Sized),
+        snapshots: &[Snapshot],
+    ) -> Option<&str> {
+        combine(&state_hashes(state, snapshots), &self.simhash.weights)
+            .and_then(|hash| self.nearest(hash))
+            .map(|(key, _)| key)
+    }
+
+    /// [`Weights::reweight`] with another weights table looked up at the same
+    /// state key. `None`, or a table without the state, uses the file's
+    /// weights.
+    pub fn reweight_in<A, T: ActionTemplate<A> + Clone>(
+        &self,
+        table: Option<&WeightsTable>,
+        state: &(impl RunState + ?Sized),
+        snapshots: &[Snapshot],
+        tree: Tree<T>,
+    ) -> (Tree<T>, bool) {
         let Some(pruned) = tree.clone().prune() else {
             return (tree, false);
         };
         let learned =
             combine(&state_hashes(state, snapshots), &self.simhash.weights)
                 .and_then(|hash| self.nearest(hash));
-        let Some(learned) = learned else {
+        let Some((state_key, learned)) = learned else {
             return (tree, false);
         };
+        let learned = table
+            .and_then(|table| table.get(state_key))
+            .unwrap_or(learned);
 
         let leaves = pruned.leaves_with_probabilities();
         let keys: Vec<String> =
@@ -407,6 +442,55 @@ impl Weights {
 pub struct WeightedStrategy<Inner> {
     pub inner: Inner,
     pub weights: Option<Arc<Weights>>,
+    /// Visits per learned state key in this run. Counted in `reweight`, which
+    /// the runner calls before `on_new_state`, hence the cell.
+    visits: std::cell::RefCell<HashMap<String, u32>>,
+}
+
+impl<Inner> WeightedStrategy<Inner> {
+    pub fn new(inner: Inner, weights: Option<Arc<Weights>>) -> Self {
+        WeightedStrategy {
+            inner,
+            weights,
+            visits: std::cell::RefCell::new(HashMap::new()),
+        }
+    }
+
+    /// Counts the visit of the current state. None when the file has no `next`
+    /// table or the state is not learned.
+    fn episodic_table(
+        &self,
+        weights: &Weights,
+        state_key: Option<&str>,
+    ) -> Option<WeightsTable> {
+        let next = weights.next.as_ref()?;
+        let key = state_key?;
+        let mut visits = self.visits.borrow_mut();
+        *visits.entry(key.to_string()).or_insert(0) += 1;
+        let learned = weights.states.get(key)?;
+        let adjusted = episodic_weights(learned, next.get(key), &visits);
+        Some(HashMap::from([(key.to_string(), adjusted)]))
+    }
+}
+
+/// A state's learned weights with each action divided by sqrt(1 + visits
+/// in this run of its likely next state).
+pub fn episodic_weights(
+    learned: &HashMap<String, f64>,
+    nexts: Option<&HashMap<String, String>>,
+    visits: &HashMap<String, u32>,
+) -> HashMap<String, f64> {
+    learned
+        .iter()
+        .map(|(action, w)| {
+            let seen = nexts
+                .and_then(|n| n.get(action))
+                .and_then(|next| visits.get(next))
+                .copied()
+                .unwrap_or(0);
+            (action.clone(), w / (1.0 + seen as f64).sqrt())
+        })
+        .collect()
 }
 
 impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
@@ -458,7 +542,13 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
     ) -> Tree<Session::ActionTemplate> {
         let tree = self.inner.reweight(state, snapshots, tree);
         match &self.weights {
-            Some(weights) => weights.reweight(state, snapshots, tree).0,
+            Some(weights) => {
+                let key = weights.state_key(state, snapshots);
+                let episodic = self.episodic_table(weights, key);
+                weights
+                    .reweight_in(episodic.as_ref(), state, snapshots, tree)
+                    .0
+            }
             None => tree,
         }
     }
@@ -519,6 +609,7 @@ mod tests {
             },
             simhashes: Vec::new(),
             states: HashMap::from([(format!("{stored:016x}"), learned)]),
+            next: None,
         }
         .index()
         .unwrap()
@@ -711,4 +802,26 @@ mod tests {
         assert_eq!(leaves, vec!["a=\"x\"", "b.0=1", "b.1.c=null"]);
     }
 
+    #[test]
+    fn episodic_divides_by_visits_of_the_next_state() {
+        // a leads to a state visited 3 times this run (weight / 2), b to one
+        // visited once (/ sqrt 2), c to an unvisited or unknown one (as is).
+        let learned = HashMap::from([
+            ("a".to_string(), 8.0),
+            ("b".to_string(), 8.0),
+            ("c".to_string(), 8.0),
+        ]);
+        let nexts = HashMap::from([
+            ("a".to_string(), "s3".to_string()),
+            ("b".to_string(), "s1".to_string()),
+        ]);
+        let visits =
+            HashMap::from([("s3".to_string(), 3), ("s1".to_string(), 1)]);
+        let adjusted = episodic_weights(&learned, Some(&nexts), &visits);
+        assert_eq!(adjusted["a"], 4.0);
+        assert!((adjusted["b"] - 8.0 / 2f64.sqrt()).abs() < 1e-9);
+        assert_eq!(adjusted["c"], 8.0);
+        // The file's `next` for another state does not apply.
+        assert_eq!(episodic_weights(&learned, None, &visits)["a"], 8.0);
+    }
 }

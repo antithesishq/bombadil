@@ -429,18 +429,20 @@ pub fn run(command: Command) {
                 fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
-                    strategy: move || WeightedStrategy {
-                        inner: TerminalStrategy {
-                            rng: AntithesisRng,
-                            mode: TerminalTestMode::RandomWalk,
-                            test_start: None,
-                            violations_count: 0,
-                            exit_on_violation: false,
-                            deadline: None,
-                            states_seen: 0,
-                            quiet: true,
-                        },
-                        weights: weights.clone(),
+                    strategy: move || {
+                        WeightedStrategy::new(
+                            TerminalStrategy {
+                                rng: AntithesisRng,
+                                mode: TerminalTestMode::RandomWalk,
+                                test_start: None,
+                                violations_count: 0,
+                                exit_on_violation: false,
+                                deadline: None,
+                                states_seen: 0,
+                                quiet: true,
+                            },
+                            weights.clone(),
+                        )
                     },
                     interrupted,
                     time_limit_fuzz,
