@@ -63,6 +63,13 @@ pub trait ActionTemplate<Action> {
 
     fn accepts(&self, original: &Action) -> bool;
 
+    /// Whether this template is the one `original` was generated from. Stricter
+    /// than `accepts`, which replay needs: two links to one page accept each
+    /// other's clicks. Default: `accepts`.
+    fn produced(&self, original: &Action) -> bool {
+        self.accepts(original)
+    }
+
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }
 

@@ -467,6 +467,26 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
         }
     }
 
+    fn produced(&self, original: &BrowserAction) -> bool {
+        match (self, original) {
+            (
+                BrowserAction::Click { fingerprint, .. },
+                BrowserAction::Click {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            )
+            | (
+                BrowserAction::DoubleClick { fingerprint, .. },
+                BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            ) => fingerprint == original_fingerprint,
+            _ => self.accepts(original),
+        }
+    }
+
     fn accepts(&self, original: &BrowserAction) -> bool {
         match (self, original) {
             (BrowserAction::Back, BrowserAction::Back) => true,

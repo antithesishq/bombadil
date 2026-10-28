@@ -52,10 +52,14 @@ impl StepModel {
             .map(|(template, probability)| (action_key(template), probability))
             .collect();
         let action_taken = previous.and_then(|(tree, action)| {
-            tree.values()
-                .into_iter()
-                .find(|template| template.accepts(action))
-                .map(|template| action_key(template))
+            let templates = tree.values();
+            templates
+                .iter()
+                .find(|template| template.produced(action))
+                .or_else(|| {
+                    templates.iter().find(|template| template.accepts(action))
+                })
+                .map(|template| action_key(*template))
         });
         StepModel {
             actions_available,
@@ -596,6 +600,57 @@ mod tests {
             StepModel::new(&tree(), Some((&previous, &Key("b"))));
         assert_eq!(model.action_taken, Some(action_key(&Key("b"))));
         assert_eq!(model.actions_available.len(), 3);
+    }
+
+    /// Two links to one page accept each other's clicks (replay); the step
+    /// is still credited to the link that was clicked.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    struct Loose(&'static str, u8);
+
+    impl ActionTemplate<Loose> for Loose {
+        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Loose {
+            self.clone()
+        }
+        fn accepts(&self, original: &Loose) -> bool {
+            self.1 == original.1
+        }
+        fn produced(&self, original: &Loose) -> bool {
+            self == original
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write(self.0.as_bytes());
+        }
+    }
+
+    #[test]
+    fn action_taken_prefers_the_producing_template() {
+        let tree = Tree::Branch {
+            branches: vec![
+                (
+                    1,
+                    Tree::Leaf {
+                        value: Loose("first", 1),
+                    },
+                ),
+                (
+                    1,
+                    Tree::Leaf {
+                        value: Loose("second", 1),
+                    },
+                ),
+            ],
+        };
+        let model = StepModel::new(
+            &tree,
+            Some((&tree, &Loose("second", 1))),
+        );
+        assert_eq!(model.action_taken, Some(action_key(&Loose("second", 1))));
+        // Without an exact producer, the accepting one still counts.
+        let model = StepModel::new(
+            &tree,
+            Some((&tree, &Loose("other", 1))),
+        );
+        assert_eq!(model.action_taken, Some(action_key(&Loose("first", 1))));
     }
 
     #[test]
