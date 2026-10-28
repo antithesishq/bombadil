@@ -63,6 +63,15 @@ pub trait ActionTemplate<Action> {
 
     fn accepts(&self, original: &Action) -> bool;
 
+    /// Whether this template, which accepts `original`, is the one that
+    /// generated it. `accepts` is loose on purpose, so that replay finds an
+    /// action again; a trace credits a step to the template that says yes
+    /// here, and to the first accepting one when none does. A driver that
+    /// cannot tell keeps the default.
+    fn produced(&self, _original: &Action) -> bool {
+        true
+    }
+
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }
 

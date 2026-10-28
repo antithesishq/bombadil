@@ -61,17 +61,23 @@ impl<A> Picked<A> {
     }
 }
 
-/// Key of the first of `actions_available` that accepts `action`, for an
-/// action replayed from a trace.
+/// Key of the template among `actions_available` that an action replayed
+/// from a trace is credited to: the first that accepts and produced it, or
+/// the first that accepts it when none did.
 pub fn accepting_key<A, T: ActionTemplate<A>>(
     actions_available: &Leaves<'_, T>,
     action: &A,
 ) -> Option<ActionKey> {
-    actions_available
-        .as_slice()
-        .iter()
-        .find(|(template, _)| template.accepts(action))
-        .map(|(template, _)| action_key(*template))
+    let mut accepting = None;
+    for (template, _) in actions_available.as_slice() {
+        if template.accepts(action) {
+            if template.produced(action) {
+                return Some(action_key(*template));
+            }
+            accepting.get_or_insert(*template);
+        }
+    }
+    accepting.map(action_key)
 }
 
 /// The template's `category_hash` under [`StableHasher`].
@@ -159,6 +165,7 @@ mod tests {
     use crate::tree::Weight;
     use hegel::TestCase;
     use hegel::generators::{booleans, integers};
+    use std::convert::Infallible;
     use std::hash::Hash;
 
     #[derive(Clone, Debug, PartialEq)]
@@ -169,6 +176,25 @@ mod tests {
             self.clone()
         }
         fn accepts(&self, original: &Key) -> bool {
+            self == original
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write(self.0.as_bytes());
+        }
+    }
+
+    /// Accepts any action of its group; produced only its own.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Loose(&'static str, u8);
+
+    impl ActionTemplate<Loose> for Loose {
+        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Loose {
+            self.clone()
+        }
+        fn accepts(&self, original: &Loose) -> bool {
+            self.1 == original.1
+        }
+        fn produced(&self, original: &Loose) -> bool {
             self == original
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
@@ -201,6 +227,21 @@ mod tests {
         let tree = trees(tc, 2, &mut 0);
         tc.note(&format!("tree: {tree:?}"));
         tree
+    }
+
+    /// A tree of distinct templates in few groups, so that several accept
+    /// the same action, and its templates in depth-first order.
+    fn loose_tree(tc: &TestCase) -> (Tree<Loose>, Vec<Loose>) {
+        let mut templates = vec![];
+        let tree = trees(tc, 2, &mut 0)
+            .try_map(&mut |Key(name)| {
+                let group = tc.draw_silent(integers::<u8>().max_value(2));
+                templates.push(Loose(name, group));
+                Ok::<_, Infallible>(Loose(name, group))
+            })
+            .unwrap();
+        tc.note(&format!("tree: {tree:?}"));
+        (tree, templates)
     }
 
     #[hegel::test]
@@ -252,6 +293,34 @@ mod tests {
             Some(picked.template)
         );
         assert_eq!(accepting_key(&leaves, &Key("other")), None);
+    }
+
+    #[hegel::test]
+    fn accepting_key_is_the_producing_template_among_accepting(tc: TestCase) {
+        let (tree, templates) = loose_tree(&tc);
+        tc.assume(!templates.is_empty());
+        let template = &templates
+            [tc.draw(integers::<usize>().max_value(templates.len() - 1))];
+        let action = template.generate(&mut rand::rng());
+
+        assert_eq!(
+            accepting_key(&tree.leaves(), &action),
+            Some(action_key(template))
+        );
+    }
+
+    #[hegel::test]
+    fn accepting_key_is_the_first_accepting_template_without_a_producer(
+        tc: TestCase,
+    ) {
+        let (tree, templates) = loose_tree(&tc);
+        let action = Loose("other", tc.draw(integers::<u8>().max_value(2)));
+
+        let expected = templates
+            .iter()
+            .find(|template| template.1 == action.1)
+            .map(action_key);
+        assert_eq!(accepting_key(&tree.leaves(), &action), expected);
     }
 
     #[test]
