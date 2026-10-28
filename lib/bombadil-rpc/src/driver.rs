@@ -81,6 +81,7 @@ impl InterfaceDriver for ExternalDriver {
             messages,
             extractor,
             stall_timeout: Duration::from_millis(STALL_TIMEOUT_DEFAULT_MS),
+            last_timestamp: None,
         };
         session.handshake()?;
         Ok(session)
@@ -93,12 +94,17 @@ pub struct ExternalSession {
     messages: mpsc::Receiver<Result<DriverMessage>>,
     extractor: SnapshotExtractor,
     stall_timeout: Duration,
+    last_timestamp: Option<SystemTime>,
 }
 
 #[derive(Debug)]
 pub struct ExternalState {
     pub timestamp: SystemTime,
     pub value: json::Value,
+    /// `false` if the driver reported the state before the app settled.
+    pub settled: bool,
+    /// Why the driver didn't perform the action before this state.
+    pub not_applied: Option<String>,
 }
 
 impl RunState for ExternalState {
@@ -234,10 +240,42 @@ impl InterfaceSession for ExternalSession {
     ) -> Option<DriverEvent<ExternalState>> {
         let error = |error: anyhow::Error| DriverEvent::Error(Arc::new(error));
         Some(match self.messages.recv_timeout(timeout) {
-            Ok(Ok(DriverMessage::State { state })) => {
+            Ok(Ok(DriverMessage::State {
+                state,
+                settled,
+                not_applied,
+                timestamp_us,
+            })) => {
+                let timestamp =
+                    timestamp_us.map_or_else(SystemTime::now, |micros| {
+                        SystemTime::UNIX_EPOCH + Duration::from_micros(micros)
+                    });
+                if let Some(last) = self.last_timestamp
+                    && timestamp < last
+                {
+                    return Some(error(anyhow!(
+                        "driver sent a state timestamped before the previous one"
+                    )));
+                }
+                if not_applied.is_some() && self.last_timestamp.is_none() {
+                    return Some(error(anyhow!(
+                        "driver sent `not_applied` with its first state"
+                    )));
+                }
+                self.last_timestamp = Some(timestamp);
+                if !settled {
+                    log::info!(
+                        "driver reported a state before the app settled"
+                    );
+                }
+                if let Some(reason) = &not_applied {
+                    log::info!("driver did not apply the action: {reason}");
+                }
                 DriverEvent::StateChanged(Arc::new(ExternalState {
-                    timestamp: SystemTime::now(),
+                    timestamp,
                     value: state,
+                    settled,
+                    not_applied,
                 }))
             }
             Ok(Ok(DriverMessage::Error { message })) => error(anyhow!(message)),

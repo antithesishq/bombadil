@@ -4,11 +4,14 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
-use bombadil::driver::{InterfaceDriver, InterfaceSession, RunId};
+use bombadil::driver::{
+    DriverEvent, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
+};
 use bombadil::runner;
 use bombadil::shrink::load_trace_actions;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Verifier;
+use bombadil_rpc::action::ExternalAction;
 use bombadil_rpc::driver::ExternalDriver;
 use bombadil_rpc::trace::ExternalTraceWriter;
 use bombadil_rpc::{ExitReason, ExternalStrategy, ExternalTestMode};
@@ -137,8 +140,7 @@ fn stops_when_driver_exceeds_its_declared_stall_timeout() {
 #[test]
 fn terminating_a_session_stops_what_its_driver_started() {
     let pidfile = NamedTempFile::new().unwrap();
-    let assignment =
-        format!("CHILD_PIDFILE={}", pidfile.path().display());
+    let assignment = format!("CHILD_PIDFILE={}", pidfile.path().display());
     let (driver, _specification_bundle, _specification) =
         driver(&[&assignment]);
     let mut session = driver.new_session(RunId::default()).unwrap();
@@ -152,4 +154,68 @@ fn terminating_a_session_stops_what_its_driver_started() {
     session.terminate().unwrap();
     // The driver exits on `terminate`, but its child would live on.
     assert_ne!(unsafe { libc::kill(child, 0) }, 0, "child is stopped");
+}
+
+#[test]
+fn records_what_the_driver_says_about_each_state() {
+    let (driver, _specification_bundle, _specification) =
+        driver(&["EXTRAS=1700000000000000"]);
+    let output = tempfile::tempdir().unwrap();
+    let mut trace_writer =
+        ExternalTraceWriter::initialize(output.path().to_path_buf(), false)
+            .unwrap();
+    let mut session = driver.new_session(RunId::default()).unwrap();
+    let mut previous = None;
+    for action in [
+        None,
+        Some(json!("Reset")),
+        Some(json!({ "Increment": { "by": 2 } })),
+        Some(json!("Reset")),
+    ] {
+        if let (Some(action), Some(previous)) = (&action, previous.take()) {
+            session
+                .apply(ExternalAction(action.clone()), previous)
+                .unwrap();
+        }
+        let Some(DriverEvent::StateChanged(state)) =
+            session.next_event(Duration::from_secs(10))
+        else {
+            panic!("no state");
+        };
+        trace_writer
+            .write(&state, action.map(ExternalAction).as_ref(), &[], &[])
+            .unwrap();
+        previous = Some(state);
+    }
+    session.terminate().unwrap();
+    drop(trace_writer);
+
+    let entries: Vec<json::Value> =
+        std::fs::read_to_string(output.path().join("trace.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| json::from_str(line).unwrap())
+            .collect();
+    let field = |key: &str| -> Vec<json::Value> {
+        entries
+            .iter()
+            .map(|entry| entry.get(key).cloned().unwrap_or(json::Value::Null))
+            .collect()
+    };
+    // The driver's own timestamps, not when Bombadil received the states.
+    assert_eq!(
+        field("timestamp"),
+        [0, 1000, 2000, 3000]
+            .map(|offset| json!(1_700_000_000_000_000u64 + offset))
+    );
+    // Only the reset of a zero count wasn't applied; the second reset was.
+    assert_eq!(
+        field("not_applied"),
+        [json!(null), json!("already zero"), json!(null), json!(null)]
+    );
+    // Only the state after the increment wasn't settled.
+    assert_eq!(
+        field("settled"),
+        [json!(null), json!(null), json!(false), json!(null)]
+    );
 }
