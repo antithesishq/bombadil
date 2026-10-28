@@ -10,13 +10,27 @@ use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil::tree::Leaves;
 use bombadil_schema::TraceEntry;
+use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use crate::action::{ExternalAction, ExternalActionTemplate};
 use crate::driver::{ExternalSession, ExternalState};
 
-/// A trace entry of an external driver: its actions and states are JSON.
-pub type ExternalTraceEntry = TraceEntry<json::Value, json::Value>;
+/// A trace entry of an external driver: its actions and states are JSON,
+/// and it records what the driver said about the state besides the state
+/// itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExternalTraceEntry {
+    #[serde(flatten)]
+    pub entry: TraceEntry<json::Value, json::Value>,
+    /// Present, and `false`, only if the driver reported the state before
+    /// the app settled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settled: Option<bool>,
+    /// Why the driver didn't perform `action`, if it didn't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_applied: Option<String>,
+}
 
 pub struct ExternalOutputWriter {
     pub root_path: PathBuf,
@@ -66,11 +80,18 @@ impl TraceWriter<ExternalSession> for ExternalTraceWriter {
     ) -> Result<()> {
         let last_action = action_previous.map(|picked| &picked.action);
         let entry = ExternalTraceEntry {
-            timestamp: state.timestamp(),
-            action: last_action.map(|action| action.0.clone()),
-            state: state.value.clone(),
-            snapshots: snapshots.iter().map(ToSchema::to_schema).collect(),
-            violations: violations.iter().map(ToSchema::to_schema).collect(),
+            entry: TraceEntry {
+                timestamp: state.timestamp(),
+                action: last_action.map(|action| action.0.clone()),
+                state: state.value.clone(),
+                snapshots: snapshots.iter().map(ToSchema::to_schema).collect(),
+                violations: violations
+                    .iter()
+                    .map(ToSchema::to_schema)
+                    .collect(),
+            },
+            settled: (!state.settled).then_some(false),
+            not_applied: state.not_applied.clone(),
         };
         json::to_writer(&mut self.file, &entry)?;
         self.file.write_all(b"\n")?;

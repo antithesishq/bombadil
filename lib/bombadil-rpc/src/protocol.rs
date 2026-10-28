@@ -22,11 +22,32 @@ pub enum DriverMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         stall_timeout_ms: Option<u64>,
     },
-    /// The app has settled into a new state: once after `hello`, and once
-    /// after each `apply`.
-    State { state: json::Value },
+    /// The app's state: once after `hello`, and once after each `apply`.
+    State {
+        state: json::Value,
+        /// `false` if the driver gave up waiting for the app to settle and
+        /// reports the state as it was.
+        #[serde(default = "settled_default", skip_serializing_if = "is_true")]
+        settled: bool,
+        /// Why the driver didn't perform the action it was sent, if it
+        /// didn't. Only valid after an `apply`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        not_applied: Option<String>,
+        /// When the driver read the state, in microseconds since the Unix
+        /// epoch. Defaults to when Bombadil receives it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timestamp_us: Option<u64>,
+    },
     /// The driver can't continue the session.
     Error { message: String },
+}
+
+fn settled_default() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 /// Sent by Bombadil on the driver's stdin.

@@ -53,7 +53,7 @@ error, or writing a line that isn't a valid message, also ends the run.
 | Message | Fields |
 | --- | --- |
 | `hello` | `protocol`: integer, `name`: string, `stall_timeout_ms`: optional integer |
-| `state` | `state`: any JSON value |
+| `state` | `state`: any JSON value, `settled`: optional boolean, `not_applied`: optional string, `timestamp_us`: optional integer |
 | `error` | `message`: string |
 
 ### From Bombadil
@@ -67,10 +67,26 @@ error, or writing a line that isn't a valid message, also ends the run.
 
 `state` is whatever JSON describes the app well enough for properties to
 check it, typically a tree of visible views with their identifiers, roles,
-labels, values and frames. Bombadil timestamps a state when it receives
-it. The specification reads states with `extract` from
-`@antithesishq/bombadil/external`, so its state type must match what the
-driver sends.
+labels, values and frames. The specification reads states with `extract`
+from `@antithesishq/bombadil/external`, so its state type must match what
+the driver sends.
+
+Besides `state`, the message says how the driver got it. Bombadil records
+these fields in the trace, but specifications don't see them:
+
+- `settled`: `false` if the driver gave up waiting for the app to settle
+  (for example on a cap for endless animations) and reports the state as
+  it was. Defaults to `true`.
+- `not_applied`: the reason, if the driver didn't perform the action it
+  was sent, for example because the node it names is gone or the system
+  refused the input. The state is then the current one, unchanged by the
+  action. Not allowed on the first state.
+- `timestamp_us`: when the driver read the state, in microseconds since
+  the Unix epoch, on the clock of the machine Bombadil runs on. Timing
+  properties such as `within(...)` and time limits use it, so a driver
+  that reads a device's clock must convert to the host's. It must not go
+  backwards within a session. Defaults to when Bombadil receives the
+  state.
 
 ## Actions
 
