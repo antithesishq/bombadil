@@ -553,10 +553,16 @@ impl<
                 self.interrupted.clone(),
             );
 
-            log::info!(
-                "worker {} finished runner::run (iteration={iteration}, run_id={run_id}, result={result:?})",
-                self.worker_id,
-            );
+            match &result {
+                Ok(value) => log::info!(
+                    "worker {} finished runner::run (iteration={iteration}, run_id={run_id}, result={value:?})",
+                    self.worker_id,
+                ),
+                Err(error) => log::error!(
+                    "worker {} run ended with an error (iteration={iteration}, run_id={run_id}): {error:#}",
+                    self.worker_id,
+                ),
+            }
             if let Err(error) = result
                 && let Err(error) = self.worker_tx.send(WorkerMessage::Failed {
                     run_id,
