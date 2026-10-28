@@ -467,6 +467,14 @@ impl<
                 "worker {} finished runner::run (iteration={iteration}, run_id={run_id}, result={result:?})",
                 self.worker_id,
             );
+            // Logged at a level the default log shows, or a whole batch runs
+            // short unnoticed.
+            if let Err(error) = &result {
+                log::error!(
+                    "worker {} run {run_id} ended with an error: {error:#}",
+                    self.worker_id,
+                );
+            }
 
             if log::log_enabled!(log::Level::Debug) && self.swarm {
                 for (hash, templates) in strategy.excluded {
