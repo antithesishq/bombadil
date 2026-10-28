@@ -4,7 +4,7 @@ use crate::match_pattern::MatchPattern;
 use crate::url::parse_browser_url;
 use anyhow::{Result, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, accepting_key};
+use bombadil::model::{Picked, matching_key};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
@@ -109,7 +109,7 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
                 if let Some(action_original) = actions_original.pop_front() {
                     let available_actions = leaves.as_slice();
                     if let Some(template) =
-                        accepting_key(leaves, &action_original)
+                        matching_key(leaves, &action_original)
                     {
                         Ok(Picked {
                             action: action_original,

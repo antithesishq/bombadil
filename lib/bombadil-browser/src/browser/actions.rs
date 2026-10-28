@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::driver::{ActionTemplate, FromGeneratedAction};
+use bombadil::driver::{ActionMatch, ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
@@ -467,10 +467,12 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
         }
     }
 
-    fn accepts(&self, original: &BrowserAction) -> bool {
+    fn matches(&self, original: &BrowserAction) -> ActionMatch {
         match (self, original) {
-            (BrowserAction::Back, BrowserAction::Back) => true,
-            (BrowserAction::Forward, BrowserAction::Forward) => true,
+            (BrowserAction::Back, BrowserAction::Back) => ActionMatch::Exact,
+            (BrowserAction::Forward, BrowserAction::Forward) => {
+                ActionMatch::Exact
+            }
             (
                 BrowserAction::Click {
                     fingerprint: candidate_fingerprint,
@@ -480,8 +482,8 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     fingerprint: original_fingerprint,
                     ..
                 },
-            ) => candidate_fingerprint.matches(original_fingerprint),
-            (
+            )
+            | (
                 BrowserAction::DoubleClick {
                     fingerprint: candidate_fingerprint,
                     ..
@@ -490,11 +492,19 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     fingerprint: original_fingerprint,
                     ..
                 },
-            ) => candidate_fingerprint.matches(original_fingerprint),
+            ) => {
+                if !candidate_fingerprint.matches(original_fingerprint) {
+                    ActionMatch::No
+                } else if candidate_fingerprint == original_fingerprint {
+                    ActionMatch::Exact
+                } else {
+                    ActionMatch::Loose
+                }
+            }
             (
                 BrowserAction::TypeText { text: generator },
                 BrowserAction::TypeText { text: original },
-            ) => generator.accepts(original),
+            ) => ActionMatch::exact_if(generator.accepts(original)),
             (
                 BrowserAction::PressKey {
                     code: code_candidate,
@@ -502,7 +512,7 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 BrowserAction::PressKey {
                     code: code_original,
                 },
-            ) => code_candidate == code_original,
+            ) => ActionMatch::exact_if(code_candidate == code_original),
             (
                 BrowserAction::ScrollUp {
                     origin: origin_candidate,
@@ -512,10 +522,10 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     origin: origin_original,
                     distance: distance_original,
                 },
-            ) => {
+            ) => ActionMatch::exact_if(
                 origin_candidate.accepts(origin_original)
-                    && distance_candidate.contains(distance_original)
-            }
+                    && distance_candidate.contains(distance_original),
+            ),
 
             (
                 BrowserAction::ScrollDown {
@@ -526,12 +536,14 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     origin: origin_original,
                     distance: distance_original,
                 },
-            ) => {
+            ) => ActionMatch::exact_if(
                 origin_candidate.accepts(origin_original)
-                    && distance_candidate.contains(distance_original)
+                    && distance_candidate.contains(distance_original),
+            ),
+            (BrowserAction::Reload, BrowserAction::Reload) => {
+                ActionMatch::Exact
             }
-            (BrowserAction::Reload, BrowserAction::Reload) => true,
-            (BrowserAction::Wait, BrowserAction::Wait) => true,
+            (BrowserAction::Wait, BrowserAction::Wait) => ActionMatch::Exact,
             (
                 BrowserAction::SetFileInputFiles {
                     selector: candidate_selector,
@@ -541,7 +553,7 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     selector: original_selector,
                     ..
                 },
-            ) => candidate_selector == original_selector,
+            ) => ActionMatch::exact_if(candidate_selector == original_selector),
             (
                 BrowserAction::MouseDrag {
                     from,
@@ -555,30 +567,32 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     steps: original_steps,
                     delay_millis: original_delay,
                 },
-            ) => {
+            ) => ActionMatch::exact_if(
                 from.accepts(original_from)
                     && to.accepts(original_to)
                     && steps.contains(original_steps)
-                    && delay_millis.contains(original_delay)
-            }
+                    && delay_millis.contains(original_delay),
+            ),
             (
                 BrowserAction::SetViewport { width, height },
                 BrowserAction::SetViewport {
                     width: original_width,
                     height: original_height,
                 },
-            ) => {
+            ) => ActionMatch::exact_if(
                 width.contains(original_width)
-                    && height.contains(original_height)
-            }
+                    && height.contains(original_height),
+            ),
             (
                 BrowserAction::Custom { name, arguments },
                 BrowserAction::Custom {
                     name: original_name,
                     arguments: original_arguments,
                 },
-            ) => name == original_name && arguments == original_arguments,
-            _ => false,
+            ) => ActionMatch::exact_if(
+                name == original_name && arguments == original_arguments,
+            ),
+            _ => ActionMatch::No,
         }
     }
 
@@ -631,6 +645,8 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    use bombadil::model::{action_key, matching_key};
+    use bombadil::tree::Tree;
     use hegel::{
         Generator, TestCase,
         generators::{integers, text},
@@ -735,9 +751,9 @@ mod tests {
     }
 
     // Replay invariant: for every valid template T and RNG state r,
-    // T.accepts(&T.generate(r)) == true.
+    // T.matches(&T.generate(r)) == Match::Exact.
     #[hegel::test]
-    fn templates_accept_their_generated_actions(tc: TestCase) {
+    fn templates_match_their_generated_actions_exactly(tc: TestCase) {
         let seed = tc.draw(integers());
         let templates = tc.draw(action_templates().print_as_debug());
         let variants: HashSet<_> =
@@ -750,9 +766,73 @@ mod tests {
         for template in templates {
             let mut rng = StdRng::seed_from_u64(seed);
             let action = template.generate(&mut rng);
-            assert!(
-                template.accepts(&action),
-                "template {template:?} rejected {action:?} with seed {seed}"
+            assert_eq!(
+                template.matches(&action),
+                ActionMatch::Exact,
+                "template {template:?}, action {action:?}, seed {seed}"
+            );
+        }
+    }
+
+    #[hegel::composite]
+    fn action_templates_with_twins(
+        tc: &TestCase,
+    ) -> Vec<BrowserActionTemplate> {
+        use BrowserAction::*;
+
+        let mut templates = tc.draw_silent(action_templates());
+        let twin = |fingerprint: &Fingerprint| Fingerprint {
+            text_content: Some("twin".into()),
+            ..fingerprint.clone()
+        };
+        let twins: Vec<BrowserActionTemplate> = templates
+            .iter()
+            .filter_map(|template| match template {
+                Click { fingerprint, point } => Some(Click {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }),
+                DoubleClick { fingerprint, point } => Some(DoubleClick {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }),
+                _ => None,
+            })
+            .collect();
+        templates.extend(twins);
+        for last in (1..templates.len()).rev() {
+            let other = tc.draw_silent(integers::<usize>().max_value(last));
+            templates.swap(last, other);
+        }
+        templates
+    }
+
+    #[hegel::test]
+    fn replayed_action_is_credited_to_the_template_that_generated_it(
+        tc: TestCase,
+    ) {
+        let seed = tc.draw(integers());
+        let templates = tc.draw(action_templates_with_twins().print_as_debug());
+        let tree = Tree::Branch {
+            branches: templates
+                .iter()
+                .map(|template| {
+                    (
+                        1,
+                        Tree::Leaf {
+                            value: template.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        };
+        let leaves = tree.leaves();
+        for template in &templates {
+            let action = template.generate(&mut StdRng::seed_from_u64(seed));
+            assert_eq!(
+                matching_key(&leaves, &action),
+                Some(action_key(template)),
+                "{action:?} generated by {template:?}"
             );
         }
     }

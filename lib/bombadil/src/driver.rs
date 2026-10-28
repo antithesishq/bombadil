@@ -48,13 +48,34 @@ pub trait RunState {
     fn timestamp(&self) -> Time;
 }
 
+/// How a template relates to an action replayed from a trace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActionMatch {
+    /// The template does not generate the action.
+    No,
+    /// The action is accepted by (or contained in) the template.
+    Loose,
+    /// The action and the template are effectively equal.
+    Exact,
+}
+
+impl ActionMatch {
+    pub fn exact_if(matches: bool) -> ActionMatch {
+        if matches {
+            ActionMatch::Exact
+        } else {
+            ActionMatch::No
+        }
+    }
+}
+
 pub trait ActionTemplate<Action> {
     fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
         rng: &mut Rng,
     ) -> Action;
 
-    fn accepts(&self, original: &Action) -> bool;
+    fn matches(&self, original: &Action) -> ActionMatch;
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
 }

@@ -699,6 +699,7 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::driver::ActionMatch;
     use hegel::generators::{booleans, floats, integers, vecs};
     use hegel::{Generator, TestCase};
 
@@ -709,8 +710,8 @@ mod tests {
         fn generate<R: TryRng + RngExt>(&self, _: &mut R) -> Key {
             self.clone()
         }
-        fn accepts(&self, original: &Key) -> bool {
-            self == original
+        fn matches(&self, original: &Key) -> ActionMatch {
+            ActionMatch::exact_if(self == original)
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write_u8(self.0);

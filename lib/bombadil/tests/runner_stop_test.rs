@@ -12,8 +12,8 @@ use serde_json as json;
 use tempfile::NamedTempFile;
 
 use bombadil::driver::{
-    ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
-    InterfaceSession, NoopTraceWriter, RunId, RunState,
+    ActionMatch, ActionTemplate, DriverEvent, FromGeneratedAction,
+    InterfaceDriver, InterfaceSession, NoopTraceWriter, RunId, RunState,
 };
 use bombadil::model::Picked;
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
@@ -44,8 +44,8 @@ impl ActionTemplate<FakeAction> for FakeAction {
         self.clone()
     }
 
-    fn accepts(&self, _original: &FakeAction) -> bool {
-        true
+    fn matches(&self, _original: &FakeAction) -> ActionMatch {
+        ActionMatch::Exact
     }
 
     fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {

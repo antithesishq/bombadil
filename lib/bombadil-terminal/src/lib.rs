@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, accepting_key};
+use bombadil::model::{Picked, matching_key};
 use bombadil::render::Formatted;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::convert::ToSchema;
@@ -61,7 +61,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
                 let original = actions.pop_front().ok_or_else(|| {
                     anyhow!("no remaining actions in reproduce queue")
                 })?;
-                if let Some(template) = accepting_key(leaves, &original) {
+                if let Some(template) = matching_key(leaves, &original) {
                     Ok(Picked {
                         action: original,
                         template,

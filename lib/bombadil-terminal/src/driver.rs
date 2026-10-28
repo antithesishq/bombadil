@@ -8,7 +8,8 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Result, anyhow};
 use bombadil::driver::{
-    ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession, RunId,
+    ActionMatch, ActionTemplate, DriverEvent, InterfaceDriver,
+    InterfaceSession, RunId,
 };
 use bombadil::render::{Format, Formatted};
 use bombadil::specification::bundler::bundle;
@@ -93,8 +94,8 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
         }
     }
 
-    fn accepts(&self, original: &TerminalAction) -> bool {
-        match (self, original) {
+    fn matches(&self, original: &TerminalAction) -> ActionMatch {
+        ActionMatch::exact_if(match (self, original) {
             (
                 TerminalAction::TypeText {
                     text: text_template,
@@ -132,7 +133,7 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
                 true
             }
             _ => false,
-        }
+        })
     }
 
     fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {

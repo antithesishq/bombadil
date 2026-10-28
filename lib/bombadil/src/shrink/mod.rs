@@ -23,7 +23,7 @@ use crossbeam_channel as mpmc;
 
 use crate::{
     driver::{InterfaceDriver, InterfaceSession, RunId, TraceWriter},
-    model::{Picked, accepting_key},
+    model::{Picked, matching_key},
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
     specification::domain::Snapshot,
     tree::{Leaves, Tree},
@@ -435,7 +435,7 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
         while let Some(&index) = self.candidate.get(self.position) {
             self.position += 1;
             let action = &self.actions[index as usize];
-            if let Some(template) = accepting_key(leaves, action) {
+            if let Some(template) = matching_key(leaves, action) {
                 if self.executed.len() + 1 >= self.bound.load(Ordering::SeqCst)
                 {
                     return Ok(ControlFlow::Stop(RunOutcome::Pruned));

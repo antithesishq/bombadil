@@ -8,7 +8,7 @@ use std::hash::Hasher;
 use bombadil_schema::ActionKey;
 use rand::{RngExt, TryRng};
 
-use crate::driver::ActionTemplate;
+use crate::driver::{ActionMatch, ActionTemplate};
 use crate::tree::Leaves;
 use stdx::hash::StableHasher;
 
@@ -61,17 +61,23 @@ impl<A> Picked<A> {
     }
 }
 
-/// Key of the first of `actions_available` that accepts `action`, for an
-/// action replayed from a trace.
-pub fn accepting_key<A, T: ActionTemplate<A>>(
+/// Selects the best-matching action template of the given available ones,
+/// and returns its key if found.
+pub fn matching_key<A, T: ActionTemplate<A>>(
     actions_available: &Leaves<'_, T>,
     action: &A,
 ) -> Option<ActionKey> {
-    actions_available
-        .as_slice()
-        .iter()
-        .find(|(template, _)| template.accepts(action))
-        .map(|(template, _)| action_key(*template))
+    let mut loose = None;
+    for (template, _) in actions_available.as_slice() {
+        match template.matches(action) {
+            ActionMatch::Exact => return Some(action_key(*template)),
+            ActionMatch::Loose => {
+                loose.get_or_insert(*template);
+            }
+            ActionMatch::No => {}
+        }
+    }
+    loose.map(action_key)
 }
 
 /// The template's `category_hash` under [`StableHasher`].
@@ -88,6 +94,7 @@ mod tests {
     use crate::tree::Weight;
     use hegel::TestCase;
     use hegel::generators::{booleans, integers};
+    use std::convert::Infallible;
 
     #[derive(Clone, Debug, PartialEq)]
     struct Key(&'static str);
@@ -96,8 +103,30 @@ mod tests {
         fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Key {
             self.clone()
         }
-        fn accepts(&self, original: &Key) -> bool {
-            self == original
+        fn matches(&self, original: &Key) -> ActionMatch {
+            ActionMatch::exact_if(self == original)
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write(self.0.as_bytes());
+        }
+    }
+
+    /// Matches any action of its group, and only its own exactly.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Loose(&'static str, u8);
+
+    impl ActionTemplate<Loose> for Loose {
+        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Loose {
+            self.clone()
+        }
+        fn matches(&self, original: &Loose) -> ActionMatch {
+            if self == original {
+                ActionMatch::Exact
+            } else if self.1 == original.1 {
+                ActionMatch::Loose
+            } else {
+                ActionMatch::No
+            }
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write(self.0.as_bytes());
@@ -129,6 +158,21 @@ mod tests {
         let tree = trees(tc, 2, &mut 0);
         tc.note(&format!("tree: {tree:?}"));
         tree
+    }
+
+    /// A tree of distinct templates in few groups, so that several match
+    /// the same action, and its templates in depth-first order.
+    fn loose_tree(tc: &TestCase) -> (Tree<Loose>, Vec<Loose>) {
+        let mut templates = vec![];
+        let tree = trees(tc, 2, &mut 0)
+            .try_map(&mut |Key(name)| {
+                let group = tc.draw_silent(integers::<u8>().max_value(2));
+                templates.push(Loose(name, group));
+                Ok::<_, Infallible>(Loose(name, group))
+            })
+            .unwrap();
+        tc.note(&format!("tree: {tree:?}"));
+        (tree, templates)
     }
 
     #[hegel::test]
@@ -176,10 +220,38 @@ mod tests {
         let picked = Picked::generate(template, &mut rand::rng());
         assert_eq!(picked.template, action_key(template));
         assert_eq!(
-            accepting_key(&leaves, &picked.action),
+            matching_key(&leaves, &picked.action),
             Some(picked.template)
         );
-        assert_eq!(accepting_key(&leaves, &Key("other")), None);
+        assert_eq!(matching_key(&leaves, &Key("other")), None);
+    }
+
+    #[hegel::test]
+    fn matching_key_is_the_exact_match_among_the_matching(tc: TestCase) {
+        let (tree, templates) = loose_tree(&tc);
+        tc.assume(!templates.is_empty());
+        let template = &templates
+            [tc.draw(integers::<usize>().max_value(templates.len() - 1))];
+        let action = template.generate(&mut rand::rng());
+
+        assert_eq!(
+            matching_key(&tree.leaves(), &action),
+            Some(action_key(template))
+        );
+    }
+
+    #[hegel::test]
+    fn matching_key_is_the_first_loose_match_without_an_exact_one(
+        tc: TestCase,
+    ) {
+        let (tree, templates) = loose_tree(&tc);
+        let action = Loose("other", tc.draw(integers::<u8>().max_value(2)));
+
+        let expected = templates
+            .iter()
+            .find(|template| template.1 == action.1)
+            .map(action_key);
+        assert_eq!(matching_key(&tree.leaves(), &action), expected);
     }
 
     #[test]

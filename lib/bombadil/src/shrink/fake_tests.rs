@@ -25,8 +25,8 @@ use super::{
 };
 use crate::{
     driver::{
-        ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
-        InterfaceSession, RunId, RunState, TraceWriter,
+        ActionMatch, ActionTemplate, DriverEvent, FromGeneratedAction,
+        InterfaceDriver, InterfaceSession, RunId, RunState, TraceWriter,
     },
     model::Picked,
     render::Format,
@@ -72,8 +72,8 @@ impl ActionTemplate<FakeAction> for FakeAction {
         *self
     }
 
-    fn accepts(&self, original: &FakeAction) -> bool {
-        self == original
+    fn matches(&self, original: &FakeAction) -> ActionMatch {
+        ActionMatch::exact_if(self == original)
     }
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H) {
