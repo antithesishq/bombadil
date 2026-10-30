@@ -408,14 +408,41 @@ impl ActionGenerator {
                     value.display(),
                 ))
             })?;
-        value_tree.try_map(&mut |action_value| {
-            A::from_generated(action_value).map_err(|error| {
-                SpecificationError::OtherError(format!(
-                    "failed to convert generated action from `{}`: {}",
-                    self.name, error,
-                ))
-            })
-        })
+        // A leaf Bombadil cannot perform (a point off the viewport, an id
+        // beside a structural path) is dropped from this step's tree and
+        // logged. The run ends only when the whole tree was dropped.
+        let mut dropped = 0usize;
+        let mut first_error: Option<SpecificationError> = None;
+        let converted: Tree<Option<A>> = value_tree.try_map(&mut |action_value| {
+            match A::from_generated(action_value) {
+                Ok(action) => Ok::<_, SpecificationError>(Some(action)),
+                Err(error) => {
+                    dropped += 1;
+                    log::error!(
+                        "dropped a generated action from `{}`: {}",
+                        self.name,
+                        error
+                    );
+                    if first_error.is_none() {
+                        first_error = Some(SpecificationError::OtherError(format!(
+                            "failed to convert generated action from `{}`: {}",
+                            self.name, error,
+                        )));
+                    }
+                    Ok(None)
+                }
+            }
+        })?;
+        let unwrap = &mut |action: Option<A>| {
+            Ok::<_, SpecificationError>(action.expect("filtered to the converted leaves"))
+        };
+        if dropped == 0 {
+            return Ok(converted.try_map(unwrap)?);
+        }
+        match converted.filter(&|action| action.is_some()).prune() {
+            Some(kept) => Ok(kept.try_map(unwrap)?),
+            None => Err(first_error.expect("a dropped leaf recorded its error").into()),
+        }
     }
 }
 
