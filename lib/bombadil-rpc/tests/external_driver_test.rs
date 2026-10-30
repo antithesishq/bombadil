@@ -5,16 +5,19 @@ use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
 use bombadil::driver::{
-    DriverEvent, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
+    DriverEvent, InterfaceDriver, InterfaceSession, OutputWriter, RunId,
+    TraceWriter,
 };
 use bombadil::runner;
-use bombadil::shrink::load_trace_actions;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Verifier;
 use bombadil_rpc::action::ExternalAction;
 use bombadil_rpc::driver::ExternalDriver;
-use bombadil_rpc::trace::ExternalTraceWriter;
+use bombadil_rpc::trace::{
+    ExternalOutputWriter, ExternalTraceWriter, load_trace_actions,
+};
 use bombadil_rpc::{ExitReason, ExternalStrategy, ExternalTestMode};
+use bombadil_trace::{TraceDriver, TraceFileWriter, open_trace};
 use rand::{SeedableRng, rngs::StdRng};
 use serde_json::{self as json, json};
 use tempfile::NamedTempFile;
@@ -59,9 +62,9 @@ fn driver(env: &[&str]) -> (ExternalDriver, Arc<str>, NamedTempFile) {
 fn finds_violation_through_external_driver() {
     let (driver, specification_bundle, _specification) = driver(&[]);
     let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("arbitrary.custom");
     let mut trace_writer =
-        ExternalTraceWriter::initialize(output.path().to_path_buf(), false)
-            .unwrap();
+        ExternalTraceWriter::initialize(path.clone(), false).unwrap();
     let mut strategy = ExternalStrategy {
         rng: StdRng::seed_from_u64(1),
         mode: ExternalTestMode::RandomWalk,
@@ -83,20 +86,33 @@ fn finds_violation_through_external_driver() {
     drop(trace_writer);
 
     assert!(matches!(exit_reason, ExitReason::ExitOnViolation));
-    let trace =
-        load_trace_actions::<json::Value>(&output.path().join("trace.jsonl"))
-            .unwrap();
+    let trace = load_trace_actions(&path).unwrap();
+    assert!(load_trace_actions(output.path()).is_err());
     assert!(trace.violations_earliest.contains_key("countAtMostThree"));
     // The count only exceeds three after at least two increments.
     assert!(trace.actions.len() >= 2);
     for action in &trace.actions {
         assert!(
-            *action == json!("Reset")
-                || *action == json!({ "Increment": { "by": 1 } })
-                || *action == json!({ "Increment": { "by": 2 } }),
-            "unexpected action {action}"
+            action.0 == json!("Reset")
+                || action.0 == json!({ "Increment": { "by": 1 } })
+                || action.0 == json!({ "Increment": { "by": 2 } }),
+            "unexpected action {action:?}"
         );
     }
+
+    strategy.mode = ExternalTestMode::Reproduce(trace.actions.into());
+    strategy.violations_count = 0;
+    let mut session = driver.new_session(RunId::default()).unwrap();
+    let replay = runner::run(
+        &mut session,
+        &mut strategy,
+        Verifier::new(&specification_bundle).unwrap(),
+        &mut bombadil::driver::NoopTraceWriter,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert!(matches!(replay, ExitReason::ExitOnViolation));
+    assert_eq!(strategy.violations_count, 1);
 }
 
 #[test]
@@ -162,7 +178,7 @@ fn records_what_the_driver_says_about_each_state() {
         driver(&["EXTRAS=1700000000000000"]);
     let output = tempfile::tempdir().unwrap();
     let mut trace_writer =
-        ExternalTraceWriter::initialize(output.path().to_path_buf(), false)
+        ExternalTraceWriter::initialize(output.path().join("trace.bin"), false)
             .unwrap();
     let mut session = driver.new_session(RunId::default()).unwrap();
     let mut previous = None;
@@ -188,14 +204,17 @@ fn records_what_the_driver_says_about_each_state() {
         previous = Some(state);
     }
     session.terminate().unwrap();
+    trace_writer.finish().unwrap();
     drop(trace_writer);
 
-    let entries: Vec<json::Value> =
-        std::fs::read_to_string(output.path().join("trace.jsonl"))
-            .unwrap()
-            .lines()
-            .map(|line| json::from_str(line).unwrap())
-            .collect();
+    let mut reader =
+        open_trace::<json::Value>(&output.path().join("trace.bin")).unwrap();
+    assert_eq!(reader.driver, TraceDriver::Unknown(0xFFFF));
+    let entries: Vec<json::Value> = reader
+        .by_ref()
+        .map(|state| state.unwrap().metadata)
+        .collect();
+    assert!(reader.finished());
     let field = |key: &str| -> Vec<json::Value> {
         entries
             .iter()
@@ -218,4 +237,90 @@ fn records_what_the_driver_says_about_each_state() {
         field("settled"),
         [json!(null), json!(null), json!(false), json!(null)]
     );
+    assert_eq!(
+        field("state"),
+        [
+            json!({"count": 0}),
+            json!({"count": 0}),
+            json!({"count": 2}),
+            json!({"count": 0})
+        ]
+    );
+}
+
+#[test]
+fn refuses_other_drivers_and_empty_traces() {
+    for driver in [
+        TraceDriver::Browser,
+        TraceDriver::Terminal,
+        TraceDriver::Unknown(0xFFFF),
+    ] {
+        let output = tempfile::tempdir().unwrap();
+        let mut writer = TraceFileWriter::<json::Value>::create(
+            &output.path().join("trace.bin"),
+            driver,
+            false,
+        )
+        .unwrap();
+        writer.finish().unwrap();
+        let error = load_trace_actions(&output.path().join("trace.bin"))
+            .unwrap_err()
+            .to_string();
+        if driver == TraceDriver::Unknown(0xFFFF) {
+            assert!(error.contains("holds no states"), "{error}");
+        } else {
+            assert!(error.contains("external"), "{error}");
+        }
+    }
+}
+
+#[test]
+fn outputs_are_files_and_leave_siblings_alone() {
+    let output = tempfile::tempdir().unwrap();
+    let sibling = output.path().join("trace.jsonl");
+    std::fs::write(&sibling, b"unrelated").unwrap();
+    let path = output.path().join("arbitrary.custom");
+    for overwrite in [false, true] {
+        ExternalTraceWriter::initialize(path.clone(), overwrite)
+            .unwrap()
+            .finish()
+            .unwrap();
+        assert!(path.is_file());
+        assert_eq!(
+            open_trace::<json::Value>(&path).unwrap().driver,
+            TraceDriver::Unknown(0xFFFF)
+        );
+        assert_eq!(std::fs::read(&sibling).unwrap(), b"unrelated");
+        assert!(
+            ExternalTraceWriter::initialize(
+                output.path().to_path_buf(),
+                overwrite
+            )
+            .is_err()
+        );
+        let missing = output.path().join("missing");
+        assert!(
+            ExternalTraceWriter::initialize(missing.join("trace"), overwrite)
+                .is_err()
+        );
+        assert!(!missing.exists());
+    }
+    let before = std::fs::read(&path).unwrap();
+    assert!(ExternalTraceWriter::initialize(path.clone(), false).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let mut writer = ExternalOutputWriter {
+        root_path: output.path().join("campaign.custom"),
+        overwrite: false,
+    };
+    for run in [0, 7] {
+        writer.trace_writer(RunId(run)).unwrap().finish().unwrap();
+        assert!(
+            output
+                .path()
+                .join(format!("campaign-{run}.custom"))
+                .is_file()
+        );
+    }
+    assert!(!output.path().join("runs").exists());
+    assert_eq!(std::fs::read(&sibling).unwrap(), b"unrelated");
 }

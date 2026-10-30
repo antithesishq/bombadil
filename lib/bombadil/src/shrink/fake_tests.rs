@@ -492,8 +492,8 @@ fn shrink_actions_with_writer(
     };
     let steps_max = executed.len() as u64 + 1;
     shrink(ShrinkOptions {
+        specification_bundle: bundle_code().into(),
         driver: Arc::new(FakeDriver {
-            bundle_code: bundle_code(),
             triggers,
             flakiness: Flakiness::Deterministic,
             seed: 0,

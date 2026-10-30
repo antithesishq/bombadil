@@ -1,18 +1,21 @@
-use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use bombadil::driver::{OutputWriter, RunId, RunState, TraceWriter};
 use bombadil::runner::PropertyViolation;
+use bombadil::shrink::TraceActions;
 use bombadil::specification::convert::ToSchema;
 use bombadil::specification::domain::Snapshot;
 use bombadil_schema::TraceEntry;
+use bombadil_trace::{TraceDriver, TraceFileWriter, open_trace};
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
 use crate::action::ExternalAction;
 use crate::driver::{ExternalSession, ExternalState};
+
+const TRACE_DRIVER: TraceDriver = TraceDriver::Unknown(0xFFFF);
 
 /// A trace entry of an external driver: its actions and states are JSON,
 /// and it records what the driver said about the state besides the state
@@ -39,31 +42,21 @@ impl OutputWriter<ExternalSession> for ExternalOutputWriter {
     type TraceWriter = ExternalTraceWriter;
 
     fn trace_writer(&mut self, run_id: RunId) -> Result<Self::TraceWriter> {
-        let run_path = self.root_path.join("runs").join(run_id.to_string());
+        let run_path =
+            bombadil_trace::numbered_trace_path(&self.root_path, run_id.0);
         ExternalTraceWriter::initialize(run_path, self.overwrite)
     }
 }
 
-/// Writes `trace.jsonl`, one [`ExternalTraceEntry`] per state.
+/// Writes a trace file, one [`ExternalTraceEntry`] per state.
 pub struct ExternalTraceWriter {
-    file: BufWriter<File>,
+    file: TraceFileWriter<ExternalTraceEntry>,
 }
 
 impl ExternalTraceWriter {
     pub fn initialize(run_path: PathBuf, overwrite: bool) -> Result<Self> {
-        std::fs::create_dir_all(&run_path)?;
-        let trace_path = run_path.join("trace.jsonl");
-        if trace_path.try_exists()? && !overwrite {
-            anyhow::bail!(
-                "trace.jsonl already exists at {}. \
-                 Use --output-path-overwrite to overwrite, or choose a different --output-path.",
-                trace_path.display(),
-            );
-        }
-        log::info!("storing run trace in {}", run_path.display());
-        Ok(Self {
-            file: BufWriter::new(File::create(&trace_path)?),
-        })
+        let file = TraceFileWriter::create(&run_path, TRACE_DRIVER, overwrite)?;
+        Ok(Self { file })
     }
 }
 
@@ -89,10 +82,38 @@ impl TraceWriter<ExternalSession> for ExternalTraceWriter {
             settled: (!state.settled).then_some(false),
             not_applied: state.not_applied.clone(),
         };
-        json::to_writer(&mut self.file, &entry)?;
-        self.file.write_all(b"\n")?;
-        // Flushed per entry so a trace survives the driver crashing us.
-        self.file.flush()?;
-        Ok(())
+        self.file.write_state(entry, None)
     }
+
+    fn finish(&mut self) -> Result<()> {
+        self.file.finish()
+    }
+}
+
+pub fn load_trace_actions(path: &Path) -> Result<TraceActions<ExternalAction>> {
+    let mut trace = TraceActions {
+        actions: Vec::new(),
+        violations_earliest: BTreeMap::new(),
+    };
+    let mut states = 0;
+    for state in open_trace::<ExternalTraceEntry>(path)?
+        .expect_driver(TRACE_DRIVER)?
+        .without_payloads()
+    {
+        let entry = state?.metadata.entry;
+        states += 1;
+        if let Some(action) = entry.action {
+            trace.actions.push(ExternalAction(action));
+        }
+        for violation in entry.violations {
+            trace
+                .violations_earliest
+                .entry(violation.name)
+                .or_insert(trace.actions.len());
+        }
+    }
+    if states == 0 {
+        bail!("{} holds no states", path.display());
+    }
+    Ok(trace)
 }

@@ -629,6 +629,7 @@ dependencies = [
  "boa_engine",
  "bombadil",
  "bombadil-schema",
+ "bombadil-trace",
  "libc",
  "log",
  "rand 0.10.2",

@@ -6,7 +6,7 @@ use std::{
 };
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::bundler::bundle;
