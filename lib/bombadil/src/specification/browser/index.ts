@@ -172,6 +172,9 @@ function nonBlank(value: string | null | undefined): string | null {
   return value && value.trim().length > 0 ? value : null;
 }
 
+const AUTO_ID =
+  /^(?:_r_[0-9a-z]+_|:r[0-9a-z]+:|mui-\d+|radix-[\w:-]+|headlessui-[\w-]+|(?=[\w-]*\d)(?=[\w-]*[a-z])(?=[\w-]*[A-Z])[A-Za-z0-9_-]{16,}(?:-[a-z]+)?)$/;
+
 export function getFingerprint(element: Element): Fingerprint {
   const attribute = (name: string) => nonBlank(element.getAttribute(name));
 
@@ -183,7 +186,11 @@ export function getFingerprint(element: Element): Fingerprint {
     attribute("data-cy") ??
     attribute("data-test");
 
-  const id = attribute("id");
+  // An auto-generated id (React/MUI `:r1:`, radix, headlessui, a nanoid)
+  // changes on every mount, so nothing learned about its action key would carry
+  // over a reload.
+  const rawId = attribute("id");
+  const id = rawId && AUTO_ID.test(rawId) ? null : rawId;
   const role = attribute("role");
 
   const labelledBy = attribute("aria-labelledby");
