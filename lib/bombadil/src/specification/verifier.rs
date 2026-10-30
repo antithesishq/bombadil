@@ -408,14 +408,24 @@ impl ActionGenerator {
                     value.display(),
                 ))
             })?;
-        value_tree.try_map(&mut |action_value| {
-            A::from_generated(action_value).map_err(|error| {
-                SpecificationError::OtherError(format!(
-                    "failed to convert generated action from `{}`: {}",
-                    self.name, error,
-                ))
-            })
-        })
+        // A leaf that does not convert is dropped for this step only.
+        let mut dropped_count = 0usize;
+        let mut error_first = None;
+        let actions = value_tree.filter_map(&mut |action_value| {
+            A::from_generated(action_value)
+                .inspect_err(|_| dropped_count += 1)
+                .map_err(|error| error_first.get_or_insert(error))
+                .ok()
+        });
+        if let Some(error) = error_first {
+            log::warn!(
+                "dropped {} generated action(s) from `{}`, the first: {}",
+                dropped_count,
+                self.name,
+                error
+            );
+        }
+        Ok(actions)
     }
 }
 
@@ -1246,6 +1256,67 @@ mod tests {
                     },
                 )],
             })
+        );
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Even(u64);
+
+    impl FromGeneratedAction for Even {
+        fn from_generated(value: json::Value) -> anyhow::Result<Self> {
+            match value.as_u64() {
+                Some(number) if number % 2 == 0 => Ok(Even(number)),
+                _ => anyhow::bail!("{value} is not an even number"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_action_generator_drops_unconvertible_actions() {
+        let mut verifier = verifier(
+            r#"
+            import { actions, weighted } from "@antithesishq/bombadil";
+
+            export const mixed = weighted([
+              [3, actions(() => [1, 2, "three", 4])],
+              [2, actions(() => [5])],
+            ]);
+            "#,
+        );
+
+        let time = time_from_millis(0);
+        let result: StepResult<Even> = verifier.step(&[], time).unwrap();
+
+        let leaf = |n: u64| Tree::Leaf { value: Even(n) };
+        let empty = || Tree::Branch { branches: vec![] };
+        assert_eq!(
+            result.actions,
+            Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![
+                            (
+                                3,
+                                Tree::Branch {
+                                    branches: vec![
+                                        (1, empty()),
+                                        (1, leaf(2)),
+                                        (1, empty()),
+                                        (1, leaf(4)),
+                                    ],
+                                },
+                            ),
+                            (
+                                2,
+                                Tree::Branch {
+                                    branches: vec![(1, empty())],
+                                },
+                            ),
+                        ],
+                    },
+                )],
+            }
         );
     }
 
