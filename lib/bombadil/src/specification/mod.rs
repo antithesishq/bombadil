@@ -12,3 +12,5 @@ pub mod verifier;
 mod abstract_location_tests;
 #[cfg(test)]
 mod console_errors_tests;
+#[cfg(test)]
+mod fingerprint_id_tests;
