@@ -192,38 +192,39 @@ where
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
         log::debug!("spawning {worker_id}");
-        let handle = thread::spawn(move || {
-            let fuzz_worker_thread = FuzzWorkerThread {
-                driver,
-                specification_bundle,
-                strategy,
-                output_writer,
-                templates,
-                worker_tx,
-                interrupted,
-                seed,
-                time_limit: time_limit_run,
-                fuzz_deadline,
-                worker_id,
-                run_id_next,
-                swarm,
-            };
-            let outcome =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    fuzz_worker_thread.run()
-                }));
-            outcome.err().map(|payload| {
-                let message = payload
-                    .downcast_ref::<&'static str>()
-                    .map(|s| (*s).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| {
-                        "<non-string panic payload>".to_string()
-                    });
-                log::error!("worker {worker_id} panicked: {message}");
-                message
-            })
-        });
+        let handle = thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(
+            move || {
+                let fuzz_worker_thread = FuzzWorkerThread {
+                    driver,
+                    specification_bundle,
+                    strategy,
+                    output_writer,
+                    templates,
+                    worker_tx,
+                    interrupted,
+                    seed,
+                    time_limit: time_limit_run,
+                    fuzz_deadline,
+                    worker_id,
+                    run_id_next,
+                    swarm,
+                };
+                let outcome = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| fuzz_worker_thread.run()),
+                );
+                outcome.err().map(|payload| {
+                    let message = payload
+                        .downcast_ref::<&'static str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| {
+                            "<non-string panic payload>".to_string()
+                        });
+                    log::error!("worker {worker_id} panicked: {message}");
+                    message
+                })
+            },
+        )?;
         workers.push(Worker {
             worker_id,
             run_id: None,

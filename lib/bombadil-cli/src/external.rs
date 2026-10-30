@@ -9,15 +9,15 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::model::Recorded;
-use bombadil::shrink::load_trace_actions;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Verifier;
 use bombadil::{fuzzer, runner};
 use bombadil_rpc::action::ExternalAction;
 use bombadil_rpc::driver::ExternalDriver;
-use bombadil_rpc::trace::{ExternalOutputWriter, ExternalTraceWriter};
+use bombadil_rpc::trace::{
+    ExternalOutputWriter, ExternalTraceWriter, load_trace_actions,
+};
 use bombadil_rpc::{ExitReason, ExternalStrategy, ExternalTestMode};
-use serde_json as json;
 
 use crate::duration;
 use crate::fuzz_report;
@@ -85,15 +85,14 @@ pub enum Command {
         /// s (seconds), m (minutes), h (hours), or d (days).
         #[arg(long, value_parser = duration::parse_duration)]
         time_limit: Option<Duration>,
-        /// Where to store output data (trace.jsonl). Defaults to a
-        /// fresh temporary directory.
+        /// Trace FILE to write (any filename). Defaults to a unique file
+        /// in system temp. Parent directories must already exist.
         #[arg(long)]
         output_path: Option<PathBuf>,
         /// Overwrite any existing trace at `--output-path`.
         #[arg(long)]
         output_path_overwrite: bool,
-        /// Reproduce a previous test run from a trace file (file path
-        /// or directory containing `trace.jsonl`).
+        /// Reproduce a previous test run from a trace FILE (not a directory).
         #[arg(long, value_name = "TRACE_FILE")]
         reproduce: Option<PathBuf>,
         #[clap(flatten)]
@@ -120,8 +119,8 @@ pub enum Command {
         /// driver process.
         #[arg(long, default_value = "1")]
         parallelism: NonZeroUsize,
-        /// Where to store output data. Defaults to a fresh temporary
-        /// directory.
+        /// Trace file base: run.bin writes sibling files run-0.bin,
+        /// run-1.bin, etc. Defaults to a unique base in system temp.
         #[arg(long)]
         output_path: Option<PathBuf>,
         /// Overwrite any existing traces at `--output-path`.
@@ -240,10 +239,7 @@ pub fn run(command: Command) -> Result<()> {
             driver,
         } => {
             let (driver, specification_bundle) = driver.driver()?;
-            let options = shrink_options.resolve(|path| {
-                Ok(load_trace_actions::<json::Value>(path)?
-                    .map_actions(ExternalAction))
-            })?;
+            let options = shrink_options.resolve(load_trace_actions)?;
             let result =
                 bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
                     driver: Arc::new(driver),
@@ -296,6 +292,5 @@ fn interrupt_handler() -> Result<Arc<AtomicBool>> {
 fn load_reproduce_actions(
     path: &Path,
 ) -> Result<VecDeque<Recorded<ExternalAction>>> {
-    let trace = load_trace_actions::<json::Value>(path)?;
-    Ok(trace.map_actions(ExternalAction).actions.into())
+    Ok(load_trace_actions(path)?.actions.into())
 }
