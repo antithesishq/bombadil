@@ -25,6 +25,8 @@ pub enum DriverMessage {
     /// The app's state: once after `hello`, and once after each `apply`.
     State {
         state: json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        screenshot_png: Option<String>,
         /// `false` if the driver gave up waiting for the app to settle and
         /// reports the state as it was.
         #[serde(default = "settled_default", skip_serializing_if = "is_true")]

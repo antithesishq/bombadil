@@ -86,7 +86,7 @@ impl TraceWriter<ExternalSession> for ExternalTraceWriter {
             settled: (!state.settled).then_some(false),
             not_applied: state.not_applied.clone(),
         };
-        self.file.write_state(entry, None)
+        self.file.write_state(entry, state.screenshot_png.clone())
     }
 
     fn finish(&mut self) -> Result<()> {

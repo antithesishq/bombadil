@@ -40,7 +40,7 @@ pub struct TraceArgs {
     #[arg(long)]
     color: bool,
     /// Write the screenshot of each state shown into this directory, as
-    /// `<index>.<format>` (browser traces), or `<index>.bin` for a format
+    /// `<index>.<format>` (browser or external traces), or `<index>.bin` for a format
     /// other than png and jpeg. A file already there is left as it is if
     /// it holds the same screenshot, and refused otherwise
     #[arg(long, value_name = "DIRECTORY")]
@@ -188,8 +188,12 @@ fn show_into(
     if show_screen && states.driver != TraceDriver::Terminal {
         bail!("--screen only applies to terminal traces");
     }
-    if args.screenshots.is_some() && states.driver != TraceDriver::Browser {
-        bail!("--screenshots only applies to browser traces");
+    let external = states.driver == TraceDriver::Unknown(0xFFFF);
+    if args.screenshots.is_some()
+        && states.driver != TraceDriver::Browser
+        && !external
+    {
+        bail!("--screenshots only applies to browser or external traces");
     }
     if args.drop_excluded && !args.json {
         bail!("--drop-excluded only applies with --json");
@@ -247,6 +251,7 @@ fn show_into(
                 directory,
                 &state,
                 extracted,
+                external,
             )?),
             _ => None,
         };
@@ -596,11 +601,16 @@ fn extract_screenshot(
     directory: &Path,
     state: &State<Box<RawValue>>,
     extracted: &mut Extracted,
+    external: bool,
 ) -> Result<Screenshot> {
     let Some(location) = state.payload_location else {
         return Ok(Screenshot::Missing);
     };
-    let format = read_browser_state(state.metadata.get()).screenshot;
+    let format = if external {
+        Some("png".to_string())
+    } else {
+        read_browser_state(state.metadata.get()).screenshot
+    };
     let (extension, unknown_format) = match format {
         Some(format)
             if browser_trace::screenshot_media_type(&format).is_some() =>
@@ -1571,6 +1581,36 @@ mod tests {
     }
 
     #[test]
+    fn extracts_external_screenshots_with_shared_and_missing_payloads() {
+        let directory = tempfile::tempdir().unwrap();
+        let png = std::sync::Arc::new(
+            b"\x89PNG\r\n\x1a\nexternal screenshot fixture".to_vec(),
+        );
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &directory.path().join(TRACE_FILE_NAME),
+            TraceDriver::Unknown(0xFFFF),
+            false,
+        )
+        .unwrap();
+        for payload in [Some(png.clone()), None, Some(png.clone())] {
+            writer
+                .write_state(
+                    serde_json::json!({"state":{"screenshot":"not-a-format"}}),
+                    payload,
+                )
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let screenshots = directory.path().join("screenshots");
+        let args = screenshot_args(directory.path(), &screenshots);
+        let result = show(&args, &mut Vec::new()).unwrap();
+        assert_eq!(result.written, 2);
+        assert_eq!(std::fs::read(screenshots.join("0.png")).unwrap(), *png);
+        assert_eq!(std::fs::read(screenshots.join("2.png")).unwrap(), *png);
+        assert!(!screenshots.join("1.png").exists());
+    }
+
+    #[test]
     fn extracts_browser_screenshots() {
         let directory = tempfile::tempdir().unwrap();
         write_browser_states(
@@ -1897,7 +1937,7 @@ mod tests {
         let error = show(&args, &mut Vec::new()).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "--screenshots only applies to browser traces"
+            "--screenshots only applies to browser or external traces"
         );
     }
 

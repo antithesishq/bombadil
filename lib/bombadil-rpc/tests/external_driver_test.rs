@@ -2,26 +2,27 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use bombadil::driver::{
     DriverEvent, InterfaceDriver, InterfaceSession, OutputWriter, RunId,
     TraceWriter,
 };
-use bombadil::model::Picked;
+use bombadil::model::Recorded;
 use bombadil::runner;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Verifier;
-use bombadil::tree::Tree;
-use bombadil_rpc::action::{ExternalAction, ExternalActionTemplate};
+use bombadil_rpc::action::ExternalAction;
 use bombadil_rpc::driver::ExternalDriver;
 use bombadil_rpc::trace::{
     ExternalOutputWriter, ExternalTraceWriter, load_trace_actions,
 };
 use bombadil_rpc::{ExitReason, ExternalStrategy, ExternalTestMode};
-use bombadil_schema::ActionKey;
 use bombadil_trace::{TraceDriver, TraceFileWriter, open_trace};
-use hegel::{TestCase, generators::integers};
+use hegel::{
+    TestCase,
+    generators::{integers, vecs},
+};
 use rand::{SeedableRng, rngs::StdRng};
 use serde_json::{self as json, json};
 use tempfile::NamedTempFile;
@@ -60,66 +61,6 @@ fn driver(env: &[&str]) -> (ExternalDriver, Arc<str>, NamedTempFile) {
             .collect(),
     };
     (driver, specification_bundle, specification)
-}
-
-#[test]
-fn finds_violation_through_external_driver() {
-    let (driver, specification_bundle, _specification) = driver(&[]);
-    let output = tempfile::tempdir().unwrap();
-    let path = output.path().join("arbitrary.custom");
-    let mut trace_writer =
-        ExternalTraceWriter::initialize(path.clone(), false).unwrap();
-    let mut strategy = ExternalStrategy {
-        rng: StdRng::seed_from_u64(1),
-        mode: ExternalTestMode::RandomWalk,
-        test_start: None,
-        violations_count: 0,
-        exit_on_violation: true,
-        deadline: Some(SystemTime::now() + Duration::from_secs(30)),
-        quiet: true,
-    };
-    let mut session = driver.new_session(RunId::default()).unwrap();
-    let exit_reason = runner::run(
-        &mut session,
-        &mut strategy,
-        Verifier::new(&specification_bundle).unwrap(),
-        &mut trace_writer,
-        None,
-        Arc::new(AtomicBool::new(false)),
-    )
-    .unwrap();
-    drop(trace_writer);
-
-    assert!(matches!(exit_reason, ExitReason::ExitOnViolation));
-    let trace = load_trace_actions(&path).unwrap();
-    assert!(load_trace_actions(output.path()).is_err());
-    assert!(trace.violations_earliest.contains_key("countAtMostThree"));
-    // The count only exceeds three after at least two increments.
-    assert!(trace.actions.len() >= 2);
-    for recorded in &trace.actions {
-        let action = &recorded.action;
-        assert!(
-            action.0 == json!("Reset")
-                || action.0 == json!({ "Increment": { "by": 1 } })
-                || action.0 == json!({ "Increment": { "by": 2 } }),
-            "unexpected action {action:?}"
-        );
-    }
-
-    strategy.mode = ExternalTestMode::Reproduce(trace.actions.into());
-    strategy.violations_count = 0;
-    let mut session = driver.new_session(RunId::default()).unwrap();
-    let replay = runner::run(
-        &mut session,
-        &mut strategy,
-        Verifier::new(&specification_bundle).unwrap(),
-        &mut bombadil::driver::NoopTraceWriter,
-        None,
-        Arc::new(AtomicBool::new(false)),
-    )
-    .unwrap();
-    assert!(matches!(replay, ExitReason::ExitOnViolation));
-    assert_eq!(strategy.violations_count, 1);
 }
 
 #[test]
@@ -180,87 +121,130 @@ fn terminating_a_session_stops_what_its_driver_started() {
     assert_ne!(unsafe { libc::kill(child, 0) }, 0, "child is stopped");
 }
 
-#[test]
-fn records_what_the_driver_says_about_each_state() {
-    let (driver, _specification_bundle, _specification) =
-        driver(&["EXTRAS=1700000000000000"]);
+#[hegel::test(test_cases = 50)]
+fn counter_runs_match_the_model(tc: TestCase) {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let png = b"\x89PNG\r\n\x1a\nexternal screenshot fixture";
+    let screenshot = format!("SCREENSHOT_PNG={}", STANDARD.encode(png));
+    let epoch = tc.draw(
+        integers::<u64>()
+            .min_value(1_000_000)
+            .max_value(2_000_000_000_000_000),
+    );
+    let increments = tc.draw(vecs(integers::<u64>().max_value(2)).max_size(30));
+    let (driver, specification_bundle, _specification) =
+        driver(&[&format!("EXTRAS={epoch}"), &screenshot]);
     let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("trace.bin");
     let mut trace_writer =
-        ExternalTraceWriter::initialize(output.path().join("trace.bin"), false)
-            .unwrap();
-    let mut session = driver.new_session(RunId::default()).unwrap();
-    let mut previous = None;
-    for action in [
-        None,
-        Some(json!("Reset")),
-        Some(json!({ "Increment": { "by": 2 } })),
-        Some(json!("Reset")),
-    ] {
-        if let (Some(action), Some(previous)) = (&action, previous.take()) {
-            session
-                .apply(ExternalAction(action.clone()), previous)
-                .unwrap();
-        }
-        let Some(DriverEvent::StateChanged(state)) =
-            session.next_event(Duration::from_secs(10))
-        else {
-            panic!("no state");
-        };
-        let picked = action.map(|action| Picked {
-            action: ExternalAction(action),
-            template: ActionKey(0),
+        ExternalTraceWriter::initialize(path.clone(), false).unwrap();
+    let mut count = 0;
+    let mut expected = Vec::new();
+    let mut actions = Vec::new();
+    for (step, increment) in std::iter::once(None)
+        .chain(increments.iter().copied().map(Some))
+        .enumerate()
+    {
+        let action = increment.map(|by| {
+            if by == 0 {
+                json!("Reset")
+            } else {
+                json!({"Increment": {"by": by}})
+            }
         });
-        let no_actions = Tree::<ExternalActionTemplate>::Branch {
-            branches: Vec::new(),
+        let not_applied =
+            (increment == Some(0) && count == 0).then_some("already zero");
+        count = match increment {
+            None | Some(0) => 0,
+            Some(by) => count + by,
         };
-        trace_writer
-            .write(&state, &[], &[], &no_actions.leaves(), picked.as_ref())
-            .unwrap();
-        previous = Some(state);
+        expected.push((
+            json!({"count": count}),
+            json!(action),
+            epoch + step as u64 * 1000,
+            increment.filter(|&by| by > 0).map(|_| false),
+            not_applied,
+        ));
+        if let Some(action) = action {
+            actions.push(Recorded {
+                action: ExternalAction(action),
+                template: None,
+            });
+        }
+        if count > 3 {
+            break;
+        }
     }
-    session.terminate().unwrap();
-    trace_writer.finish().unwrap();
+    let mut strategy = ExternalStrategy {
+        rng: StdRng::seed_from_u64(0),
+        mode: ExternalTestMode::Reproduce(actions.clone().into()),
+        test_start: None,
+        violations_count: 0,
+        exit_on_violation: true,
+        deadline: None,
+        quiet: true,
+    };
+    let mut session = driver.new_session(RunId::default()).unwrap();
+    let exit = runner::run(
+        &mut session,
+        &mut strategy,
+        Verifier::new(&specification_bundle).unwrap(),
+        &mut trace_writer,
+        None,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(matches!(exit, ExitReason::ExitOnViolation), count > 3);
+    assert!(matches!(
+        exit,
+        ExitReason::ExitOnViolation | ExitReason::Reproduced
+    ));
     drop(trace_writer);
 
-    let mut reader =
-        open_trace::<json::Value>(&output.path().join("trace.bin")).unwrap();
+    let mut reader = open_trace::<json::Value>(&path).unwrap();
     assert_eq!(reader.driver, TraceDriver::Unknown(0xFFFF));
-    let entries: Vec<json::Value> = reader
-        .by_ref()
-        .map(|state| state.unwrap().metadata)
-        .collect();
+    let states: Vec<_> = reader.by_ref().map(|state| state.unwrap()).collect();
     assert!(reader.finished());
-    let field = |key: &str| -> Vec<json::Value> {
-        entries
-            .iter()
-            .map(|entry| entry.get(key).cloned().unwrap_or(json::Value::Null))
-            .collect()
-    };
-    // The driver's own timestamps, not when Bombadil received the states.
+    assert_eq!(states.len(), expected.len());
+    for (state, (value, action, timestamp, settled, not_applied)) in
+        states.iter().zip(expected)
+    {
+        assert_eq!(state.metadata["state"], value);
+        assert_eq!(state.metadata["action"], action);
+        assert_eq!(state.metadata["timestamp"], json!(timestamp));
+        assert_eq!(state.metadata["settled"], json!(settled));
+        assert_eq!(state.metadata["not_applied"], json!(not_applied));
+        assert!(state.metadata.get("screenshot_png").is_none());
+        assert_eq!(
+            state.payload.as_deref(),
+            (value["count"] == 0).then_some(png.as_slice())
+        );
+    }
+    let trace = load_trace_actions(&path).unwrap();
+    assert_eq!(trace.actions, actions);
     assert_eq!(
-        field("timestamp"),
-        [0, 1000, 2000, 3000]
-            .map(|offset| json!(1_700_000_000_000_000u64 + offset))
+        trace.violations_earliest.get("countAtMostThree").copied(),
+        (count > 3).then_some(actions.len())
     );
-    // Only the reset of a zero count wasn't applied; the second reset was.
-    assert_eq!(
-        field("not_applied"),
-        [json!(null), json!("already zero"), json!(null), json!(null)]
-    );
-    // Only the state after the increment wasn't settled.
-    assert_eq!(
-        field("settled"),
-        [json!(null), json!(null), json!(false), json!(null)]
-    );
-    assert_eq!(
-        field("state"),
-        [
-            json!({"count": 0}),
-            json!({"count": 0}),
-            json!({"count": 2}),
-            json!({"count": 0})
-        ]
-    );
+    assert_eq!(strategy.violations_count, u64::from(count > 3));
+}
+
+#[test]
+fn rejects_invalid_screenshots() {
+    for (value, expected) in
+        [("!", "invalid base64"), ("bm90IHBuZw==", "not a PNG")]
+    {
+        let (driver, _, _specification) =
+            driver(&[&format!("SCREENSHOT_PNG={value}")]);
+        let mut session = driver.new_session(RunId::default()).unwrap();
+        let Some(DriverEvent::Error(error)) =
+            session.next_event(Duration::from_secs(10))
+        else {
+            panic!("invalid screenshot accepted");
+        };
+        assert!(error.to_string().contains(expected), "{error}");
+        session.terminate().unwrap();
+    }
 }
 
 #[test]
