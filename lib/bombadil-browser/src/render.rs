@@ -71,6 +71,27 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                     content_str
                 )
             }
+            BrowserAction::Hover { fingerprint, point } => {
+                let content_str = fingerprint
+                    .text_content
+                    .as_ref()
+                    .map(|c| {
+                        format!(
+                            ", content: {}",
+                            styled::maybe_blue(format!("{:?}", c))
+                        )
+                    })
+                    .unwrap_or_default();
+                write!(
+                    f,
+                    "{} <{}> (x: {}, y: {}{})",
+                    styled::maybe_bold("Hovering".to_string()),
+                    fingerprint.tag,
+                    styled::maybe_blue(format!("{}", Formatted(&point.x))),
+                    styled::maybe_blue(format!("{}", Formatted(&point.y))),
+                    content_str
+                )
+            }
             BrowserAction::TypeText { text } => {
                 write!(
                     f,

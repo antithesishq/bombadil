@@ -38,6 +38,10 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         fingerprint: Fingerprint,
         point: Point<F64>,
     },
+    Hover {
+        fingerprint: Fingerprint,
+        point: Point<F64>,
+    },
     TypeText {
         text: Text,
     },
@@ -193,6 +197,16 @@ impl BrowserAction {
                         .r#type(input::DispatchMouseEventType::MouseReleased)
                         .build()
                         .map_err(|err| anyhow!(err))?,
+                    Some(session_id),
+                )?;
+            }
+            BrowserAction::Hover { point, .. } => {
+                connection.send(
+                    input::DispatchMouseEventParams::new(
+                        input::DispatchMouseEventType::MouseMoved,
+                        point.x,
+                        point.y,
+                    ),
                     Some(session_id),
                 )?;
             }
@@ -412,6 +426,10 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     point: point.generate(rng),
                 }
             }
+            BrowserAction::Hover { fingerprint, point } => BrowserAction::Hover {
+                fingerprint: fingerprint.clone(),
+                point: point.generate(rng),
+            },
             BrowserAction::TypeText { text } => BrowserAction::TypeText {
                 text: text.generate(rng),
             },
@@ -482,6 +500,13 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     fingerprint: original_fingerprint,
                     ..
                 },
+            )
+            | (
+                BrowserAction::Hover { fingerprint, .. },
+                BrowserAction::Hover {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
             ) => fingerprint == original_fingerprint,
             _ => self.accepts(original),
         }
@@ -507,6 +532,16 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     ..
                 },
                 BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            )
+            | (
+                BrowserAction::Hover {
+                    fingerprint: candidate_fingerprint,
+                    ..
+                },
+                BrowserAction::Hover {
                     fingerprint: original_fingerprint,
                     ..
                 },
@@ -612,6 +647,9 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::DoubleClick { fingerprint, .. } => {
                 ("DoubleClick", fingerprint).hash(hasher);
             }
+            BrowserAction::Hover { fingerprint, .. } => {
+                ("Hover", fingerprint).hash(hasher);
+            }
             BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
             }
@@ -704,6 +742,10 @@ mod tests {
                 point: point(tc),
             },
             DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point(tc),
+            },
+            Hover {
                 fingerprint,
                 point: point(tc),
             },

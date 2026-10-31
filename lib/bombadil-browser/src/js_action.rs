@@ -29,6 +29,11 @@ pub enum JsAction {
         delay_millis: Option<JsRange>,
     },
     #[serde(rename_all = "camelCase")]
+    Hover {
+        fingerprint: JsFingerprint,
+        point: JsPoint,
+    },
+    #[serde(rename_all = "camelCase")]
     TypeText {
         text: JsStringGenerator,
         #[deprecated]
@@ -104,6 +109,10 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                     point: point.try_into()?,
                 }
             }
+            JsAction::Hover { fingerprint, point } => BrowserAction::Hover {
+                fingerprint: fingerprint.try_into()?,
+                point: point.try_into()?,
+            },
             JsAction::TypeText {
                 text,
                 #[allow(deprecated)]

@@ -111,6 +111,31 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ),
                     ]),
                 ),
+                BrowserAction::Hover {
+                    point, fingerprint, ..
+                } => (
+                    html!(
+                        <>
+                            <span class="action-name">{"Hover"}</span>
+                            <span class="element-tag">
+                                {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
+                            </span>
+                        </>
+                    ),
+                    Some(vec![
+                        ("Position", format_point(point)),
+                        (
+                            "Content",
+                            format!(
+                                "{:?}",
+                                fingerprint
+                                    .text_content
+                                    .clone()
+                                    .unwrap_or("".into())
+                            ),
+                        ),
+                    ]),
+                ),
                 BrowserAction::TypeText { text, .. } => (
                     html!(
                         <>

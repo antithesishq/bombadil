@@ -262,6 +262,12 @@ pub enum BrowserAction {
         #[deprecated]
         delay_millis: Option<u64>,
     },
+    /// Move the pointer onto an element without pressing, for menus that open
+    /// on hover.
+    Hover {
+        fingerprint: Fingerprint,
+        point: Point,
+    },
     TypeText {
         text: String,
         #[deprecated]
