@@ -29,6 +29,11 @@ pub enum JsAction {
         delay_millis: Option<JsRange>,
     },
     #[serde(rename_all = "camelCase")]
+    Hover {
+        fingerprint: JsFingerprint,
+        point: JsPoint,
+    },
+    #[serde(rename_all = "camelCase")]
     TypeText {
         text: JsStringGenerator,
         #[deprecated]
@@ -104,6 +109,10 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                     point: point.try_into()?,
                 }
             }
+            JsAction::Hover { fingerprint, point } => BrowserAction::Hover {
+                fingerprint: fingerprint.try_into()?,
+                point: point.try_into()?,
+            },
             JsAction::TypeText {
                 text,
                 #[allow(deprecated)]
@@ -306,10 +315,227 @@ impl TryFrom<JsPoint> for Point<RangeInclusive<f64>> {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use hegel::{
+        Generator, TestCase,
+        generators::{
+            FloatGenerator, booleans, floats, integers, optional, sampled_from,
+            text,
+        },
+    };
 
     use crate::browser::actions::BrowserAction;
 
     use super::*;
+
+    type PointTemplate = Point<RangeInclusive<f64>>;
+
+    type JsPointerAction = fn(JsFingerprint, JsPoint) -> JsAction;
+    type PointerTemplate =
+        fn(Fingerprint, PointTemplate) -> BrowserActionTemplate;
+
+    const POINTER_ACTIONS: [(JsPointerAction, PointerTemplate); 3] = [
+        (
+            |fingerprint, point| JsAction::Click { fingerprint, point },
+            |fingerprint, point| BrowserAction::Click { fingerprint, point },
+        ),
+        (
+            |fingerprint, point| {
+                #[allow(deprecated)]
+                JsAction::DoubleClick {
+                    fingerprint,
+                    point,
+                    delay_millis: None,
+                }
+            },
+            |fingerprint, point| BrowserAction::DoubleClick {
+                fingerprint,
+                point,
+            },
+        ),
+        (
+            |fingerprint, point| JsAction::Hover { fingerprint, point },
+            |fingerprint, point| BrowserAction::Hover { fingerprint, point },
+        ),
+    ];
+
+    /// The identifiers other than the tag and the structural path, in
+    /// declaration order.
+    fn js_fingerprint(
+        tag: String,
+        identifiers: [Option<String>; 9],
+        structural_path: Option<String>,
+    ) -> JsFingerprint {
+        let [
+            test_id,
+            id,
+            role,
+            accessible_name,
+            href,
+            name_attr,
+            placeholder,
+            input_type,
+            text_content,
+        ] = identifiers;
+        JsFingerprint {
+            test_id,
+            id,
+            role,
+            accessible_name,
+            tag,
+            href,
+            name_attr,
+            placeholder,
+            input_type,
+            text_content,
+            structural_path,
+        }
+    }
+
+    /// Either identifiers or a structural path, never both.
+    #[hegel::composite]
+    fn js_fingerprints(tc: &TestCase) -> JsFingerprint {
+        let tag = tc.draw(text());
+        if tc.draw(booleans()) {
+            js_fingerprint(tag, Default::default(), Some(tc.draw(text())))
+        } else {
+            let identifiers =
+                std::array::from_fn(|_| tc.draw(optional(text())));
+            js_fingerprint(tag, identifiers, None)
+        }
+    }
+
+    fn coordinates() -> FloatGenerator<f64> {
+        floats::<f64>()
+            .min_value(0.0)
+            .allow_nan(false)
+            .allow_infinity(false)
+    }
+
+    #[hegel::composite]
+    fn coordinate_ranges(tc: &TestCase) -> RangeInclusive<f64> {
+        let start = tc.draw(coordinates());
+        let end = tc.draw(coordinates().min_value(start));
+        start..=end
+    }
+
+    /// A single number when the range allows it and the draw says so.
+    fn js_range(tc: &TestCase, range: &RangeInclusive<f64>) -> JsRange {
+        if range.start() == range.end() && tc.draw(booleans()) {
+            JsRange::Fixed(*range.start())
+        } else {
+            JsRange::Range((*range.start(), *range.end()))
+        }
+    }
+
+    /// Negative, not finite, or with its ends swapped.
+    #[hegel::composite]
+    fn js_ranges_invalid(tc: &TestCase) -> JsRange {
+        let valid = tc.draw(coordinates());
+        let invalid = if tc.draw(booleans()) {
+            tc.draw(sampled_from(vec![
+                f64::NAN,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            ]))
+        } else {
+            tc.draw(
+                floats::<f64>()
+                    .max_value(-f64::MIN_POSITIVE)
+                    .allow_nan(false),
+            )
+        };
+        match tc.draw(integers::<u8>().max_value(3)) {
+            0 => JsRange::Fixed(invalid),
+            1 => JsRange::Range((invalid, valid)),
+            2 => JsRange::Range((valid, invalid)),
+            _ => {
+                let low = tc.draw(coordinates().max_value(1e9));
+                let gap =
+                    tc.draw(floats::<f64>().min_value(1.0).max_value(1e9));
+                JsRange::Range((low + gap, low))
+            }
+        }
+    }
+
+    #[hegel::test]
+    fn pointer_actions_keep_their_fingerprint_and_point(tc: TestCase) {
+        let js_fingerprint = tc.draw(js_fingerprints().print_as_debug());
+        let fingerprint = Fingerprint {
+            test_id: js_fingerprint.test_id.clone(),
+            id: js_fingerprint.id.clone(),
+            role: js_fingerprint.role.clone(),
+            accessible_name: js_fingerprint.accessible_name.clone(),
+            tag: js_fingerprint.tag.clone(),
+            href: js_fingerprint.href.clone(),
+            name_attr: js_fingerprint.name_attr.clone(),
+            placeholder: js_fingerprint.placeholder.clone(),
+            input_type: js_fingerprint.input_type.clone(),
+            text_content: js_fingerprint.text_content.clone(),
+            structural_path: js_fingerprint.structural_path.clone(),
+        };
+        let point = Point {
+            x: tc.draw(coordinate_ranges()),
+            y: tc.draw(coordinate_ranges()),
+        };
+        let js_point = JsPoint {
+            x: js_range(&tc, &point.x),
+            y: js_range(&tc, &point.y),
+        };
+        for (js_action, template) in POINTER_ACTIONS {
+            let converted: BrowserActionTemplate =
+                js_action(js_fingerprint.clone(), js_point.clone())
+                    .try_into()
+                    .unwrap();
+            assert_eq!(converted, template(fingerprint.clone(), point.clone()));
+        }
+    }
+
+    #[hegel::test]
+    fn pointer_actions_reject_a_structural_path_beside_an_identifier(
+        tc: TestCase,
+    ) {
+        let mut identifiers: [Option<String>; 9] =
+            std::array::from_fn(|_| tc.draw(optional(text())));
+        let required = tc.draw(integers::<usize>().max_value(8));
+        if identifiers[required].is_none() {
+            identifiers[required] = Some(tc.draw(text()));
+        }
+        let fingerprint =
+            js_fingerprint(tc.draw(text()), identifiers, Some(tc.draw(text())));
+        let point = JsPoint {
+            x: JsRange::Fixed(tc.draw(coordinates())),
+            y: JsRange::Fixed(tc.draw(coordinates())),
+        };
+        for (js_action, _) in POINTER_ACTIONS {
+            let result: Result<BrowserActionTemplate> =
+                js_action(fingerprint.clone(), point.clone()).try_into();
+            let error = result.unwrap_err().to_string();
+            assert!(error.contains("structural_path"), "{error}");
+        }
+    }
+
+    #[hegel::test]
+    fn pointer_actions_reject_an_invalid_point(tc: TestCase) {
+        let fingerprint = tc.draw(js_fingerprints().print_as_debug());
+        let valid = JsRange::Fixed(tc.draw(coordinates()));
+        let invalid = tc.draw(js_ranges_invalid().print_as_debug());
+        let point = if tc.draw(booleans()) {
+            JsPoint {
+                x: invalid,
+                y: valid,
+            }
+        } else {
+            JsPoint {
+                x: valid,
+                y: invalid,
+            }
+        };
+        for (js_action, _) in POINTER_ACTIONS {
+            let result: Result<BrowserActionTemplate> =
+                js_action(fingerprint.clone(), point.clone()).try_into();
+            assert!(result.is_err(), "{result:?}");
+        }
+    }
 
     #[test]
     fn test_deserialize_js_action_with_float_integers() {

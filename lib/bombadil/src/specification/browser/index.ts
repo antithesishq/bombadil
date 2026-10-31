@@ -30,6 +30,7 @@ export type Action<Number = number, String = string> =
         delayMillis?: Range;
       };
     }
+  | { Hover: { fingerprint: Fingerprint; point: Point<Number> } }
   | {
       TypeText: {
         text: String;
