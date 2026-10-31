@@ -180,21 +180,25 @@ where
         let worker_shared = worker_shared.clone();
         let job_receiver = job_receiver.clone();
         let result_sender = result_sender.clone();
-        workers.push(thread::spawn(move || {
-            while let Ok(job) = job_receiver.recv() {
-                let (outcome, executed) = worker_shared.run(&job);
-                if result_sender
-                    .send(JobResult {
-                        job,
-                        outcome,
-                        executed,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        }));
+        workers.push(
+            thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(
+                move || {
+                    while let Ok(job) = job_receiver.recv() {
+                        let (outcome, executed) = worker_shared.run(&job);
+                        if result_sender
+                            .send(JobResult {
+                                job,
+                                outcome,
+                                executed,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                },
+            )?,
+        );
     }
     drop(result_sender);
 
