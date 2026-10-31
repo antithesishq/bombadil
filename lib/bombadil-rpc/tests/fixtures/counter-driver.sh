@@ -14,12 +14,16 @@ if [ -n "$CHILD_PIDFILE" ]; then
   echo $! >"$CHILD_PIDFILE"
 fi
 state() {
+  screenshot=
+  if [ -n "$SCREENSHOT_PNG" ] && [ "$count" -eq 0 ]; then
+    screenshot=",\"screenshot_png\":\"$SCREENSHOT_PNG\""
+  fi
   if [ -n "$EXTRAS" ]; then
-    printf '{"type":"state","state":{"count":%d},"timestamp_us":%d%s}\n' \
-      "$count" $((EXTRAS + step * 1000)) "$1"
+    printf '{"type":"state","state":{"count":%d},"timestamp_us":%d%s%s}\n' \
+      "$count" $((EXTRAS + step * 1000)) "$1" "$screenshot"
     step=$((step + 1))
   else
-    printf '{"type":"state","state":{"count":%d}}\n' "$count"
+    printf '{"type":"state","state":{"count":%d}%s}\n' "$count" "$screenshot"
   fi
 }
 if [ -n "$STALL_MS" ]; then

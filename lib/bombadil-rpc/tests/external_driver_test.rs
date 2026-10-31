@@ -174,8 +174,11 @@ fn terminating_a_session_stops_what_its_driver_started() {
 
 #[test]
 fn records_what_the_driver_says_about_each_state() {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    let png = b"\x89PNG\r\n\x1a\nexternal screenshot fixture";
+    let screenshot = format!("SCREENSHOT_PNG={}", STANDARD.encode(png));
     let (driver, _specification_bundle, _specification) =
-        driver(&["EXTRAS=1700000000000000"]);
+        driver(&["EXTRAS=1700000000000000", &screenshot]);
     let output = tempfile::tempdir().unwrap();
     let mut trace_writer =
         ExternalTraceWriter::initialize(output.path().join("trace.bin"), false)
@@ -210,11 +213,30 @@ fn records_what_the_driver_says_about_each_state() {
     let mut reader =
         open_trace::<json::Value>(&output.path().join("trace.bin")).unwrap();
     assert_eq!(reader.driver, TraceDriver::Unknown(0xFFFF));
-    let entries: Vec<json::Value> = reader
-        .by_ref()
-        .map(|state| state.unwrap().metadata)
-        .collect();
+    let states: Vec<_> = reader.by_ref().map(|state| state.unwrap()).collect();
     assert!(reader.finished());
+    assert_eq!(
+        states
+            .iter()
+            .map(|s| s.payload.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            Some(png.as_slice()),
+            Some(png.as_slice()),
+            None,
+            Some(png.as_slice())
+        ],
+    );
+    assert_eq!(
+        states.iter().map(|s| s.payload_from).collect::<Vec<_>>(),
+        [Some(0), Some(0), None, Some(0)],
+    );
+    let entries: Vec<_> = states.into_iter().map(|s| s.metadata).collect();
+    assert!(
+        entries
+            .iter()
+            .all(|entry| entry.get("screenshot_png").is_none())
+    );
     let field = |key: &str| -> Vec<json::Value> {
         entries
             .iter()
@@ -246,6 +268,24 @@ fn records_what_the_driver_says_about_each_state() {
             json!({"count": 0})
         ]
     );
+}
+
+#[test]
+fn rejects_invalid_screenshots() {
+    for (value, expected) in
+        [("!", "invalid base64"), ("bm90IHBuZw==", "not a PNG")]
+    {
+        let (driver, _, _specification) =
+            driver(&[&format!("SCREENSHOT_PNG={value}")]);
+        let mut session = driver.new_session(RunId::default()).unwrap();
+        let Some(DriverEvent::Error(error)) =
+            session.next_event(Duration::from_secs(10))
+        else {
+            panic!("invalid screenshot accepted");
+        };
+        assert!(error.to_string().contains(expected), "{error}");
+        session.terminate().unwrap();
+    }
 }
 
 #[test]

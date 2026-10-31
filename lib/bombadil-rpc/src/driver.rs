@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, anyhow, bail};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use boa_engine::JsValue;
 use bombadil::driver::{
     DriverEvent, InterfaceDriver, InterfaceSession, RunId, RunState,
@@ -101,6 +102,7 @@ pub struct ExternalSession {
 pub struct ExternalState {
     pub timestamp: SystemTime,
     pub value: json::Value,
+    pub screenshot_png: Option<Arc<Vec<u8>>>,
     /// `false` if the driver reported the state before the app settled.
     pub settled: bool,
     /// Why the driver didn't perform the action before this state.
@@ -242,10 +244,33 @@ impl InterfaceSession for ExternalSession {
         Some(match self.messages.recv_timeout(timeout) {
             Ok(Ok(DriverMessage::State {
                 state,
+                screenshot_png,
                 settled,
                 not_applied,
                 timestamp_us,
             })) => {
+                let screenshot_png = match screenshot_png
+                    .map(|encoded| {
+                        let bytes = STANDARD
+                            .decode(encoded)
+                            .context("invalid base64 in screenshot_png")?;
+                        if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+                            bail!("screenshot_png is not a PNG image");
+                        }
+                        if bytes.len()
+                            > bombadil_trace::RECORD_PAYLOAD_BYTES_MAX
+                        {
+                            bail!(
+                                "screenshot_png exceeds the trace payload limit"
+                            );
+                        }
+                        Ok(Arc::new(bytes))
+                    })
+                    .transpose()
+                {
+                    Ok(image) => image,
+                    Err(cause) => return Some(error(cause)),
+                };
                 let timestamp =
                     timestamp_us.map_or_else(SystemTime::now, |micros| {
                         SystemTime::UNIX_EPOCH + Duration::from_micros(micros)
@@ -274,6 +299,7 @@ impl InterfaceSession for ExternalSession {
                 DriverEvent::StateChanged(Arc::new(ExternalState {
                     timestamp,
                     value: state,
+                    screenshot_png,
                     settled,
                     not_applied,
                 }))

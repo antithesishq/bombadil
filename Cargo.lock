@@ -626,6 +626,7 @@ name = "bombadil-rpc"
 version = "0.7.10"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "boa_engine",
  "bombadil",
  "bombadil-schema",
