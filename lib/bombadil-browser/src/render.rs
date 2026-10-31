@@ -6,7 +6,34 @@ use bombadil::{
 };
 use bombadil_browser_keys::key_name;
 
+use bombadil_schema::browser::Fingerprint;
+
 use crate::browser::actions::BrowserAction;
+use crate::geometry::Point;
+
+fn format_pointer_action<F64: Format>(
+    f: &mut Formatter,
+    verb: &str,
+    fingerprint: &Fingerprint,
+    point: &Point<F64>,
+) -> Result<(), std::fmt::Error> {
+    write!(
+        f,
+        "{} <{}> (x: {}, y: {}",
+        styled::bold(verb),
+        fingerprint.tag,
+        styled::blue(Formatted(&point.x)),
+        styled::blue(Formatted(&point.y)),
+    )?;
+    if let Some(content) = &fingerprint.text_content {
+        write!(
+            f,
+            ", content: {}",
+            styled::blue(format_args!("{content:?}"))
+        )?;
+    }
+    write!(f, ")")
+}
 
 impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
     for BrowserAction<U8, U16, U64, F64, Text>
@@ -30,46 +57,13 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                 write!(f, "{}", styled::maybe_bold("Waiting".to_string()))
             }
             BrowserAction::Click { fingerprint, point } => {
-                let content_str = fingerprint
-                    .text_content
-                    .as_ref()
-                    .map(|c| {
-                        format!(
-                            ", content: {}",
-                            styled::maybe_blue(format!("{:?}", c))
-                        )
-                    })
-                    .unwrap_or_default();
-                write!(
-                    f,
-                    "{} <{}> (x: {}, y: {}{})",
-                    styled::maybe_bold("Clicking".to_string()),
-                    fingerprint.tag,
-                    styled::maybe_blue(format!("{}", Formatted(&point.x))),
-                    styled::maybe_blue(format!("{}", Formatted(&point.y))),
-                    content_str
-                )
+                format_pointer_action(f, "Clicking", fingerprint, point)
             }
             BrowserAction::DoubleClick { fingerprint, point } => {
-                let content_str = fingerprint
-                    .text_content
-                    .as_ref()
-                    .map(|c| {
-                        format!(
-                            ", content: {}",
-                            styled::maybe_blue(format!("{:?}", c))
-                        )
-                    })
-                    .unwrap_or_default();
-                write!(
-                    f,
-                    "{} <{}> (x: {}, y: {}{})",
-                    styled::maybe_bold("Double-clicking".to_string()),
-                    fingerprint.tag,
-                    styled::maybe_blue(format!("{}", Formatted(&point.x))),
-                    styled::maybe_blue(format!("{}", Formatted(&point.y))),
-                    content_str
-                )
+                format_pointer_action(f, "Double-clicking", fingerprint, point)
+            }
+            BrowserAction::Hover { fingerprint, point } => {
+                format_pointer_action(f, "Hovering", fingerprint, point)
             }
             BrowserAction::TypeText { text } => {
                 write!(

@@ -38,6 +38,10 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         fingerprint: Fingerprint,
         point: Point<F64>,
     },
+    Hover {
+        fingerprint: Fingerprint,
+        point: Point<F64>,
+    },
     TypeText {
         text: Text,
     },
@@ -172,14 +176,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.send(
-                    input::DispatchMouseEventParams::new(
-                        input::DispatchMouseEventType::MouseMoved,
-                        point.x,
-                        point.y,
-                    ),
-                    Some(session_id),
-                )?;
+                move_pointer(connection, session_id, point)?;
                 connection.send(
                     builder
                         .clone()
@@ -205,14 +202,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                connection.send(
-                    input::DispatchMouseEventParams::new(
-                        input::DispatchMouseEventType::MouseMoved,
-                        point.x,
-                        point.y,
-                    ),
-                    Some(session_id),
-                )?;
+                move_pointer(connection, session_id, point)?;
                 connection.send(
                     builder
                         .clone()
@@ -228,6 +218,9 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
                 )?;
+            }
+            BrowserAction::Hover { point, .. } => {
+                move_pointer(connection, session_id, point)?;
             }
             BrowserAction::TypeText { text } => {
                 for char in text.chars() {
@@ -392,6 +385,22 @@ impl BrowserAction {
     }
 }
 
+fn move_pointer(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    point: &Point<f64>,
+) -> Result<()> {
+    connection.send(
+        input::DispatchMouseEventParams::new(
+            input::DispatchMouseEventType::MouseMoved,
+            point.x,
+            point.y,
+        ),
+        Some(session_id),
+    )?;
+    Ok(())
+}
+
 impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
     fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
@@ -408,6 +417,12 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
             BrowserAction::DoubleClick { fingerprint, point } => {
                 BrowserAction::DoubleClick {
+                    fingerprint: fingerprint.clone(),
+                    point: point.generate(rng),
+                }
+            }
+            BrowserAction::Hover { fingerprint, point } => {
+                BrowserAction::Hover {
                     fingerprint: fingerprint.clone(),
                     point: point.generate(rng),
                 }
@@ -487,6 +502,16 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     ..
                 },
                 BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            )
+            | (
+                BrowserAction::Hover {
+                    fingerprint: candidate_fingerprint,
+                    ..
+                },
+                BrowserAction::Hover {
                     fingerprint: original_fingerprint,
                     ..
                 },
@@ -582,10 +607,10 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
         }
     }
 
-    /// Only clicks can be told apart, by the element's whole fingerprint.
-    /// Overlapping `TypeText` generators or `SetViewport` ranges have their
-    /// own keys but generate actions that either could have, so the first
-    /// accepting one is credited.
+    /// Only clicks and hovers can be told apart, by the element's whole
+    /// fingerprint. Overlapping `TypeText` generators or `SetViewport`
+    /// ranges have their own keys but generate actions that either could
+    /// have, so the first accepting one is credited.
     fn produced(&self, original: &BrowserAction) -> bool {
         match (self, original) {
             (
@@ -598,6 +623,13 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             | (
                 BrowserAction::DoubleClick { fingerprint, .. },
                 BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            )
+            | (
+                BrowserAction::Hover { fingerprint, .. },
+                BrowserAction::Hover {
                     fingerprint: original_fingerprint,
                     ..
                 },
@@ -615,6 +647,9 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
             BrowserAction::DoubleClick { fingerprint, .. } => {
                 ("DoubleClick", fingerprint).hash(hasher);
+            }
+            BrowserAction::Hover { fingerprint, .. } => {
+                ("Hover", fingerprint).hash(hasher);
             }
             BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
@@ -710,6 +745,10 @@ mod tests {
                 point: point(tc),
             },
             DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point(tc),
+            },
+            Hover {
                 fingerprint,
                 point: point(tc),
             },
@@ -795,8 +834,27 @@ mod tests {
         }
     }
 
-    /// Every template, plus a twin of each click whose fingerprint differs
-    /// from it and matches it, in any order.
+    #[hegel::test]
+    fn templates_reject_actions_of_other_variants(tc: TestCase) {
+        let seed = tc.draw(integers());
+        let templates = tc.draw(action_templates().print_as_debug());
+        for template in &templates {
+            let action = template.generate(&mut StdRng::seed_from_u64(seed));
+            for other in &templates {
+                if std::mem::discriminant(other)
+                    != std::mem::discriminant(template)
+                {
+                    assert!(
+                        !other.accepts(&action),
+                        "template {other:?} accepted {action:?} with seed {seed}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Every template, plus a twin of each click and hover whose fingerprint
+    /// differs from it and matches it, in any order.
     #[hegel::composite]
     fn action_templates_with_twins(
         tc: &TestCase,
@@ -816,6 +874,10 @@ mod tests {
                     point: point.clone(),
                 }),
                 DoubleClick { fingerprint, point } => Some(DoubleClick {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }),
+                Hover { fingerprint, point } => Some(Hover {
                     fingerprint: twin(fingerprint),
                     point: point.clone(),
                 }),
@@ -882,6 +944,10 @@ mod tests {
                 point: point.clone(),
             },
             DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point.clone(),
+            },
+            Hover {
                 fingerprint,
                 point: point.clone(),
             },
@@ -934,6 +1000,7 @@ mod tests {
         Forward db87399e7f8d9fdf
         Click 72474e52f53e216f
         DoubleClick d1d66493adc47ad6
+        Hover e7f01d4949383311
         TypeText 9432d62189972886
         TypeText 70ea82526866c7ea
         PressKey c93bc450d62fd98b
