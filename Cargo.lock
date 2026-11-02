@@ -659,6 +659,7 @@ version = "0.7.10"
 dependencies = [
  "anyhow",
  "crc32fast",
+ "hegeltest",
  "log",
  "serde",
  "serde_json",
