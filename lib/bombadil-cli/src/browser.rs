@@ -218,7 +218,9 @@ pub struct TargetOptions {
     pub device_scale_factor: f64,
 
     /// What types of JavaScript to instrument for coverage tracking.
-    /// Comma-separated list of: "files", "inline"
+    /// Comma-separated list of: "files", "inline". While any is instrumented,
+    /// the page's service workers are bypassed, since scripts they answer
+    /// could not be instrumented.
     #[arg(long, default_value = "files,inline", value_parser = parse_instrumentation_config)]
     pub instrument_javascript: InstrumentationConfig,
 

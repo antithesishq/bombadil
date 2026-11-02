@@ -43,6 +43,17 @@ pub fn instrument_js_coverage(
         )
         .context("failed enabling request interception")?;
 
+    // Requests answered by a service worker never reach Fetch interception,
+    // so the page would run uninstrumented scripts.
+    if config.instrument_files || config.instrument_inline {
+        connection
+            .send(
+                network::SetBypassServiceWorkerParams::new(true),
+                Some(session_id),
+            )
+            .context("failed bypassing service workers")?;
+    }
+
     let events = connection.events.subscribe::<fetch::EventRequestPaused>();
 
     let session_id = session_id.clone();
