@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use crate::{
     ENVELOPE_LEN, RECORD_HEADER_LEN, TRACE_FILE_NAME, TraceDriver,
     envelope::read_envelope,
-    record::{RawRecord, RecordHeader, RecordReader, read_full},
+    record::{RawRecord, RecordHeader, RecordReader},
     tag,
 };
 
@@ -174,19 +174,19 @@ fn read_payload(file: &File, offset: u64) -> Result<Vec<u8>> {
         file,
         position: header_offset,
     };
-    let mut header = [0; RECORD_HEADER_LEN];
-    if read_full(&mut file, &mut header)? < header.len() {
+    let (header, read) = RecordHeader::read(&mut file)?;
+    if read < RECORD_HEADER_LEN {
         bail!("no state payload there");
     }
     // The offset was given by the caller, so a mismatch more likely
     // means it isn't a payload offset than that the file is damaged.
-    if !RecordHeader::checksum_matches(&header) {
+    if !header.checksum_matches() {
         bail!(
             "no state payload at offset {offset} (no record header \
              before it)"
         );
     }
-    let header = RecordHeader::parse(header)?;
+    header.check()?;
     if header.tag != tag::STATE_PAYLOAD {
         bail!("no state payload there (record tag {})", header.tag);
     }
@@ -370,6 +370,7 @@ mod tests {
         write_envelope, write_record,
     };
     use serde::Deserialize;
+    use zerocopy::{FromBytes, IntoBytes};
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Metadata {
@@ -389,7 +390,7 @@ mod tests {
         StateReader::new(file)?.collect()
     }
 
-    // Records start at 16, 37, 55, 76 and 97, and the file ends at 114.
+    // Records start at 16, 39, 59, 82 and 105, and the file ends at 124.
     fn three_states() -> Vec<u8> {
         trace(&[
             (tag::STATE_WITH_PAYLOAD, br#"{"n":0}"#),
@@ -460,6 +461,22 @@ mod tests {
 
         // A run directory reads its trace.bin, as with `open_trace`.
         assert_eq!(read_payload_at(directory.path(), offset).unwrap(), b"two");
+
+        // A header with a matching checksum is still checked.
+        let mut file = three_states();
+        let header = offset as usize - RECORD_HEADER_LEN;
+        let mut record =
+            RecordHeader::read_from_bytes(&file[header..offset as usize])
+                .unwrap();
+        record.set_reserved(1);
+        file[header..offset as usize].copy_from_slice(record.as_bytes());
+        std::fs::write(&path, &file).unwrap();
+        let error =
+            format!("{:#}", read_payload_at(&path, offset).unwrap_err());
+        assert!(
+            error.contains("unsupported record header (reserved field set)"),
+            "{error}"
+        );
 
         // An empty payload at the very end: its offset is the file length,
         // which is not past the end.
@@ -641,7 +658,7 @@ mod tests {
         let file = three_states();
         // Cut after state 2's metadata, at a record boundary, and inside
         // its payload record's header and payload.
-        for length in [97, 100, 113] {
+        for length in [105, 108, 123] {
             let states = states(&file[..length]).unwrap();
             assert_eq!(states.len(), 2, "cut at {length}");
             assert_eq!(states[1].metadata, Metadata { n: 1 });
@@ -671,9 +688,9 @@ mod tests {
     #[test]
     fn keeps_every_complete_state_before_a_bad_record() {
         let file = three_states();
-        // State 2's metadata (bytes 76..97) cut short: states 0 and 1
+        // State 2's metadata (bytes 82..105) cut short: states 0 and 1
         // are complete, and the trace ends without an error.
-        let states = states(&file[..85]).unwrap();
+        let states = states(&file[..91]).unwrap();
         assert_eq!(states.len(), 2);
         assert_eq!(states[1].metadata, Metadata { n: 1 });
 

@@ -29,18 +29,23 @@
 //! | Offset | Size          | Field                     |
 //! | -----: | ------------: | :------------------------ |
 //! |      0 |             2 | Tag (`u16`)               |
-//! |      2 |             4 | Payload length (`u32`)    |
-//! |      6 |             4 | Header CRC-32 (`u32`)     |
-//! |     10 |             4 | Payload CRC-32 (`u32`)    |
-//! |     14 | `payload_len` | Payload                   |
+//! |      2 |             2 | Reserved, zero (`u16`)    |
+//! |      4 |             4 | Payload length (`u32`)    |
+//! |      8 |             4 | Header CRC-32 (`u32`)     |
+//! |     12 |             4 | Payload CRC-32 (`u32`)    |
+//! |     16 | `payload_len` | Payload                   |
 //!
-//! Both are CRC-32 (IEEE). The header CRC covers the tag and the payload
-//! length, so a corrupted length is detected before it is trusted; the
-//! payload CRC covers the payload. A corrupted record is reported instead
-//! of misread. The payload length bounds the record. A record's payload
-//! is at most 256 MiB; readers reject larger lengths. Tags are assigned in
-//! [`tag`]; a tag with [`tag::OPTIONAL`] set may be skipped by readers
-//! that don't know it, and any other unknown tag is rejected.
+//! Both are CRC-32 (IEEE). The header CRC covers the first 8 bytes (the
+//! tag, the reserved field and the payload length), so a corrupted length
+//! is detected before it is trusted; the payload CRC covers the payload.
+//! A corrupted record is reported instead of misread. The reserved field
+//! is the header struct's padding made explicit, since zerocopy refuses
+//! implicit padding. Writers set it to zero, and readers reject a record
+//! where it isn't, so the field stays free to use. The payload length
+//! bounds the record. A record's payload is at most 256 MiB; readers
+//! reject larger lengths. Tags are assigned in [`tag`]; a tag with
+//! [`tag::OPTIONAL`] set may be skipped by readers that don't know it,
+//! and any other unknown tag is rejected.
 //!
 //! A trace is a sequence of states. Each state's JSON metadata is held by
 //! a [`tag::STATE`] record if the state has no payload, or by a
@@ -114,33 +119,22 @@ pub const WRITER_FAILED_EARLIER: &str = "trace writer failed earlier";
 const MAGIC: &[u8; 8] = b"BMBDTRC\0";
 const FORMAT_VERSION: u16 = 1;
 
-const ENVELOPE_LEN: usize = 16;
-const ENVELOPE_MAGIC_OFFSET: usize = 0;
-const ENVELOPE_VERSION_OFFSET: usize = 8;
-const ENVELOPE_DRIVER_OFFSET: usize = 10;
-const ENVELOPE_CRC_OFFSET: usize = 12;
+// The envelope and record headers are `repr(C)` structs of native
+// integers, read and written as they are in memory. The format is
+// little-endian, so they would be misread on a big-endian target.
+#[cfg(target_endian = "big")]
+compile_error!("bombadil-trace supports only little-endian targets");
 
-const RECORD_HEADER_LEN: usize = 14;
-const RECORD_TAG_OFFSET: usize = 0;
-const RECORD_LENGTH_OFFSET: usize = 2;
-const RECORD_HEADER_CRC_OFFSET: usize = 6;
-const RECORD_PAYLOAD_CRC_OFFSET: usize = 10;
+const ENVELOPE_LEN: usize = size_of::<envelope::Envelope>();
+const RECORD_HEADER_LEN: usize = size_of::<record::RecordHeader>();
 
 /// Largest payload accepted, checked before writing and before reading
 /// so a corrupted length is reported rather than trusted.
 pub const RECORD_PAYLOAD_BYTES_MAX: usize = 256 * 1024 * 1024;
 
-// The fields are contiguous and in the documented order.
-const _: () =
-    assert!(ENVELOPE_MAGIC_OFFSET + MAGIC.len() == ENVELOPE_VERSION_OFFSET);
-const _: () = assert!(ENVELOPE_VERSION_OFFSET + 2 == ENVELOPE_DRIVER_OFFSET);
-const _: () = assert!(ENVELOPE_DRIVER_OFFSET + 2 == ENVELOPE_CRC_OFFSET);
-const _: () = assert!(ENVELOPE_CRC_OFFSET + 4 == ENVELOPE_LEN);
-const _: () = assert!(RECORD_TAG_OFFSET + 2 == RECORD_LENGTH_OFFSET);
-const _: () = assert!(RECORD_LENGTH_OFFSET + 4 == RECORD_HEADER_CRC_OFFSET);
-const _: () =
-    assert!(RECORD_HEADER_CRC_OFFSET + 4 == RECORD_PAYLOAD_CRC_OFFSET);
-const _: () = assert!(RECORD_PAYLOAD_CRC_OFFSET + 4 == RECORD_HEADER_LEN);
+// The documented sizes, so a change to the structs' layout is caught.
+const _: () = assert!(ENVELOPE_LEN == 16);
+const _: () = assert!(RECORD_HEADER_LEN == 16);
 // A payload length must fit the u32 field.
 const _: () = assert!(RECORD_PAYLOAD_BYTES_MAX <= u32::MAX as usize);
 
@@ -218,17 +212,17 @@ mod tests {
                 // Envelope: magic, version 1, driver 1, CRC.
                 b'B', b'M', b'B', b'D', b'T', b'R', b'C', 0, 1, 0, 1, 0, 0x3a,
                 0x15, 0x2d, 0xee,
-                // State with payload record: tag 3, length 2, header CRC,
-                // payload CRC, "{}".
-                3, 0, 2, 0, 0, 0, 0x86, 0x1b, 0x5f, 0x9d, 0x43, 0xbf, 0xa6,
-                0xa3, b'{', b'}',
-                // State payload record: tag 2, length 2, header CRC,
-                // payload CRC, "ab".
-                2, 0, 2, 0, 0, 0, 0x23, 0xc8, 0x03, 0x56, 0x6d, 0x48, 0x83,
-                0x9e, b'a', b'b',
-                // End record: tag 5, length 0, header CRC, payload CRC
-                // (of no bytes).
-                5, 0, 0, 0, 0, 0, 0x10, 0x30, 0x0f, 0xe1, 0, 0, 0, 0,
+                // State with payload record: tag 3, reserved, length 2,
+                // header CRC, payload CRC, "{}".
+                3, 0, 0, 0, 2, 0, 0, 0, 0x01, 0x10, 0xa4, 0x41, 0x43, 0xbf,
+                0xa6, 0xa3, b'{', b'}',
+                // State payload record: tag 2, reserved, length 2, header
+                // CRC, payload CRC, "ab".
+                2, 0, 0, 0, 2, 0, 0, 0, 0x9f, 0x10, 0x0e, 0x8d, 0x6d, 0x48,
+                0x83, 0x9e, b'a', b'b',
+                // End record: tag 5, reserved, length 0, header CRC,
+                // payload CRC (of no bytes).
+                5, 0, 0, 0, 0, 0, 0, 0, 0x0d, 0xd1, 0xc2, 0x2d, 0, 0, 0, 0,
             ]
         );
     }

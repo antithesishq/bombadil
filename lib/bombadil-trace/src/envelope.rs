@@ -2,16 +2,33 @@ use std::{
     fmt,
     fs::File,
     io::{self, Read, Write},
+    mem::offset_of,
     path::Path,
 };
 
 use anyhow::{Context, Result, bail};
+use zerocopy::{FromBytes, Immutable, IntoBytes};
 
 use crate::{
-    ENVELOPE_CRC_OFFSET, ENVELOPE_DRIVER_OFFSET, ENVELOPE_LEN,
-    ENVELOPE_MAGIC_OFFSET, ENVELOPE_VERSION_OFFSET, FORMAT_VERSION, MAGIC,
-    TRACE_FILE_NAME, record::read_full,
+    ENVELOPE_LEN, FORMAT_VERSION, MAGIC, TRACE_FILE_NAME, record::read_full,
 };
+
+/// The envelope, as laid out in the file.
+#[derive(FromBytes, IntoBytes, Immutable)]
+#[repr(C)]
+pub(crate) struct Envelope {
+    magic: [u8; 8],
+    version: u16,
+    driver: u16,
+    crc: u32,
+}
+
+impl Envelope {
+    /// The CRC of the fields before `crc`.
+    fn compute_crc(&self) -> u32 {
+        crc32fast::hash(&self.as_bytes()[..offset_of!(Envelope, crc)])
+    }
+}
 
 /// The driver that wrote a trace.
 ///
@@ -67,18 +84,14 @@ pub fn write_envelope(
     writer: &mut impl Write,
     driver: TraceDriver,
 ) -> io::Result<()> {
-    let code = driver_code(driver)?;
-    let mut envelope = [0; ENVELOPE_LEN];
-    envelope[ENVELOPE_MAGIC_OFFSET..ENVELOPE_VERSION_OFFSET]
-        .copy_from_slice(MAGIC);
-    envelope[ENVELOPE_VERSION_OFFSET..ENVELOPE_DRIVER_OFFSET]
-        .copy_from_slice(&FORMAT_VERSION.to_le_bytes());
-    envelope[ENVELOPE_DRIVER_OFFSET..ENVELOPE_CRC_OFFSET]
-        .copy_from_slice(&code.to_le_bytes());
-    let crc = crc32fast::hash(&envelope[..ENVELOPE_CRC_OFFSET]);
-    envelope[ENVELOPE_CRC_OFFSET..ENVELOPE_LEN]
-        .copy_from_slice(&crc.to_le_bytes());
-    writer.write_all(&envelope)
+    let mut envelope = Envelope {
+        magic: *MAGIC,
+        version: FORMAT_VERSION,
+        driver: driver_code(driver)?,
+        crc: 0,
+    };
+    envelope.crc = envelope.compute_crc();
+    writer.write_all(envelope.as_bytes())
 }
 
 /// The code to write for `driver`, if it may be written (see
@@ -101,45 +114,36 @@ pub(crate) fn read_envelope(reader: &mut impl Read) -> Result<TraceDriver> {
     parse_envelope(&envelope[..read])
 }
 
-fn parse_envelope(envelope: &[u8]) -> Result<TraceDriver> {
-    if envelope.len() < ENVELOPE_LEN {
-        // Empty, or cut in the envelope: report that rather than a
-        // file of another kind, unless it can't be the start of a trace.
-        let magic_length = envelope.len().min(MAGIC.len());
-        if envelope[..magic_length] == MAGIC[..magic_length] {
-            bail!(
-                "empty or truncated trace ({} bytes, the envelope alone \
-                 is {ENVELOPE_LEN})",
-                envelope.len()
-            );
-        }
-    }
-    if !has_magic(envelope) {
+fn parse_envelope(bytes: &[u8]) -> Result<TraceDriver> {
+    // Not even the start of a trace.
+    let magic_length = bytes.len().min(MAGIC.len());
+    if bytes[..magic_length] != MAGIC[..magic_length] {
         bail!("not a bombadil trace");
     }
-    let field = |offset: usize| {
-        u16::from_le_bytes([envelope[offset], envelope[offset + 1]])
-    };
-    let format_version = field(ENVELOPE_VERSION_OFFSET);
-    if format_version != FORMAT_VERSION {
+    let Ok(envelope) = Envelope::read_from_bytes(bytes) else {
+        // Empty, or cut in the envelope: report that rather than a file
+        // of another kind.
         bail!(
-            "unsupported trace format version {format_version} \
-             (expected {FORMAT_VERSION})"
+            "empty or truncated trace ({} bytes, the envelope alone is \
+             {ENVELOPE_LEN})",
+            bytes.len()
+        );
+    };
+    if envelope.version != FORMAT_VERSION {
+        bail!(
+            "unsupported trace format version {} (expected \
+             {FORMAT_VERSION})",
+            envelope.version
         );
     }
-    let crc = u32::from_le_bytes(
-        envelope[ENVELOPE_CRC_OFFSET..ENVELOPE_LEN]
-            .try_into()
-            .expect("4 bytes"),
-    );
-    if crc32fast::hash(&envelope[..ENVELOPE_CRC_OFFSET]) != crc {
+    if envelope.compute_crc() != envelope.crc {
         bail!("corrupt trace envelope (checksum mismatch)");
     }
-    Ok(TraceDriver::from_code(field(ENVELOPE_DRIVER_OFFSET)))
+    Ok(TraceDriver::from_code(envelope.driver))
 }
 
 fn has_magic(bytes: &[u8]) -> bool {
-    bytes.get(ENVELOPE_MAGIC_OFFSET..ENVELOPE_VERSION_OFFSET) == Some(MAGIC)
+    bytes.starts_with(MAGIC)
 }
 
 /// The driver of the binary trace at `path` (a trace file or a run
@@ -222,16 +226,15 @@ mod tests {
             );
         }
 
-        let mut newer = bytes.clone();
-        newer[ENVELOPE_VERSION_OFFSET..ENVELOPE_DRIVER_OFFSET]
-            .copy_from_slice(&2u16.to_le_bytes());
-        let error = read_envelope(&mut newer.as_slice()).unwrap_err();
+        let mut newer = Envelope::read_from_bytes(&bytes).unwrap();
+        newer.version = 2;
+        let error = read_envelope(&mut newer.as_bytes()).unwrap_err();
         assert!(error.to_string().contains("format version 2"), "{error}");
 
         // Terminal (1) flipped to browser (2) would otherwise be misread.
-        let mut flipped = bytes.clone();
-        flipped[ENVELOPE_DRIVER_OFFSET] = 2;
-        let error = read_envelope(&mut flipped.as_slice()).unwrap_err();
+        let mut flipped = Envelope::read_from_bytes(&bytes).unwrap();
+        flipped.driver = 2;
+        let error = read_envelope(&mut flipped.as_bytes()).unwrap_err();
         assert!(error.to_string().contains("checksum"), "{error}");
     }
 
