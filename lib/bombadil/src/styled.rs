@@ -364,7 +364,7 @@ mod tests {
 
     use bombadil_schema::{
         EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
-        Violation,
+        UntilViolation, Violation,
     };
 
     use super::*;
@@ -389,6 +389,97 @@ mod tests {
     fn render_violation(violation: &PropertyViolation) -> String {
         let markup = bombadil_schema::markup::render_violation(violation);
         markup_to_styled(&markup, test_start())
+    }
+
+    #[test]
+    fn test_until_pending_right_preserves_observations_when_rendered() {
+        use std::cell::Cell;
+        use std::convert::Infallible;
+
+        use bombadil_ltl::eval::{Evaluator, Value};
+        use bombadil_ltl::formula::Formula as LtlFormula;
+
+        use crate::specification::convert::{PrettyFunction, ToSchema};
+        use crate::specification::domain::{
+            BombadilDomain, Snapshot as DomainSnapshot, UniqueSnapshots,
+        };
+
+        let formula: LtlFormula<BombadilDomain<PrettyFunction>> =
+            LtlFormula::Until(
+                Box::new(LtlFormula::Thunk {
+                    function: PrettyFunction("loading.current".into()),
+                    negated: false,
+                }),
+                Box::new(LtlFormula::Next(Box::new(LtlFormula::Thunk {
+                    function: PrettyFunction("ready.current".into()),
+                    negated: false,
+                }))),
+            );
+        let time = Cell::new(time_at(5));
+        let mut evaluate_thunk = |function: &PrettyFunction, negated: bool| {
+            let (index, name) = match function.0.as_str() {
+                "loading.current" => (0, "loading"),
+                "ready.current" => (1, "ready"),
+                _ => unreachable!(),
+            };
+            Ok::<_, Infallible>((
+                LtlFormula::Pure {
+                    value: negated,
+                    pretty: function.0.clone(),
+                },
+                [(
+                    (index, time.get()),
+                    DomainSnapshot {
+                        index,
+                        name: Some(name.into()),
+                        value: serde_json::json!(false),
+                        time: time.get(),
+                    },
+                )]
+                .into_iter()
+                .collect::<UniqueSnapshots>(),
+            ))
+        };
+        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+        let Value::Residual(residual) =
+            evaluator.evaluate(&formula, time.get()).unwrap()
+        else {
+            panic!("expected pending until")
+        };
+        time.set(time_at(10));
+        let Value::False(violation, _) =
+            evaluator.step(&residual, time.get()).unwrap()
+        else {
+            panic!("expected failed until")
+        };
+        let rendered = render_violation(&PropertyViolation {
+            name: "loadingUntilNextReady".into(),
+            violation: violation.to_schema(),
+        });
+        let rendered = regex::Regex::new(r"\x1b\[[0-9;]*m")
+            .unwrap()
+            .replace_all(&rendered, "");
+        assert!(rendered.contains("until next ready.current"), "{rendered}");
+        assert!(rendered.contains("loading = false"), "{rendered}");
+        assert!(rendered.contains("ready = false"), "{rendered}");
+        assert!(rendered.contains("at 00:05.000"), "{rendered}");
+        assert!(rendered.contains("at 00:10.000"), "{rendered}");
+    }
+
+    #[test]
+    fn test_until_test_end_names_missing_condition() {
+        let violation = PropertyViolation {
+            name: "loadingUntilReady".into(),
+            violation: Violation::Until {
+                left: Box::new(thunk("loading.current")),
+                right: Box::new(thunk("ready.current")),
+                start: time_at(0),
+                reason: UntilViolation::TestEnded,
+            },
+        };
+        let rendered = render_violation(&violation);
+        assert!(rendered.contains("ready.current"), "{rendered}");
+        assert!(rendered.contains("never held"), "{rendered}");
     }
 
     #[test]
