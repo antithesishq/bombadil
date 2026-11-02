@@ -42,6 +42,16 @@ pub fn instrument_js_coverage(
         )
         .context("failed enabling request interception")?;
 
+    // A service worker answers requests from its own cache, bypassing request
+    // interception, so the page would run the uninstrumented bundle. Always
+    // load from the network.
+    connection
+        .send(
+            network::SetBypassServiceWorkerParams::new(true),
+            Some(session_id),
+        )
+        .context("failed bypassing service workers")?;
+
     let events = connection.events.subscribe::<fetch::EventRequestPaused>();
 
     let session_id = session_id.clone();
