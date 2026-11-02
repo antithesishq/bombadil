@@ -12,5 +12,6 @@ serde_json.workspace = true
 zerocopy.workspace = true
 
 [dev-dependencies]
+hegeltest.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tempfile.workspace = true

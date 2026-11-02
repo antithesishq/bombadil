@@ -402,22 +402,6 @@ mod tests {
     }
 
     #[test]
-    fn pairs_states_with_their_payloads() {
-        let file = three_states();
-        let states = states(&file).unwrap();
-        assert_eq!(states.len(), 3);
-        assert_eq!(states[0].metadata, Metadata { n: 0 });
-        assert_eq!(states[0].payload.as_deref(), Some(&b"zero"[..]));
-        assert_eq!(states[1].payload, None);
-        assert_eq!(states[1].payload_length, None);
-        assert_eq!(states[2].index, 2);
-        assert_eq!(states[2].payload.as_deref(), Some(&b"two"[..]));
-
-        let offset = states[2].payload_offset.unwrap() as usize;
-        assert_eq!(&file[offset..offset + 3], b"two");
-    }
-
-    #[test]
     fn reads_payloads_at_their_offsets() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(TRACE_FILE_NAME);
@@ -687,17 +671,11 @@ mod tests {
 
     #[test]
     fn keeps_every_complete_state_before_a_bad_record() {
-        let file = three_states();
-        // State 2's metadata (bytes 82..105) cut short: states 0 and 1
-        // are complete, and the trace ends without an error.
-        let states = states(&file[..91]).unwrap();
-        assert_eq!(states.len(), 2);
-        assert_eq!(states[1].metadata, Metadata { n: 1 });
-
         // State 2's payload corrupted: states 0 and 1, then the error.
         // State 2 isn't complete without its payload.
-        let mut corrupt = file.clone();
-        corrupt[file.len() - 1] ^= 1;
+        let mut corrupt = three_states();
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
         let results: Vec<_> = StateReader::<_, Metadata>::new(&corrupt[..])
             .unwrap()
             .collect();

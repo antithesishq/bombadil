@@ -62,6 +62,10 @@ pub(crate) fn read_full(
     Ok(filled)
 }
 
+/// How many bytes of a payload [`RecordHeader::read_payload`] reads at a
+/// time.
+pub(crate) const PAYLOAD_READ_CHUNK: usize = 64 * 1024;
+
 /// A record's header, as laid out in the file.
 #[derive(FromBytes, IntoBytes, Immutable)]
 #[repr(C)]
@@ -146,7 +150,7 @@ impl RecordHeader {
         // Read in chunks, so a large payload isn't allocated before the
         // input is known to hold it.
         let mut payload = keep.then(Vec::new);
-        let mut chunk = vec![0; self.length().min(64 * 1024)];
+        let mut chunk = vec![0; self.length().min(PAYLOAD_READ_CHUNK)];
         let mut remaining = self.length();
         while remaining > 0 {
             let wanted = remaining.min(chunk.len());
@@ -274,7 +278,7 @@ impl<R: Read> RecordReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ENVELOPE_LEN, tag};
+    use crate::tag;
 
     fn records(file: &[u8]) -> Result<Vec<RawRecord>> {
         let mut reader = RecordReader::new(file);
@@ -286,21 +290,6 @@ mod tests {
         write_record(&mut file, tag::STATE, &[b"{", b"}"]).unwrap();
         write_record(&mut file, tag::STATE_PAYLOAD, &[b"payload"]).unwrap();
         file
-    }
-
-    #[test]
-    fn reads_records_with_offsets() {
-        let records = records(&two_records()).unwrap();
-        assert_eq!(records.len(), 2);
-        assert_eq!(records[0].payload.as_deref(), Some(&b"{}"[..]));
-        assert_eq!(records[0].payload_offset, (ENVELOPE_LEN + 16) as u64);
-        assert_eq!(records[1].index, 1);
-        assert_eq!(records[1].tag, tag::STATE_PAYLOAD);
-        assert_eq!(records[1].payload_length, 7);
-        assert_eq!(
-            records[1].payload_offset,
-            (ENVELOPE_LEN + 16 + 2 + 16) as u64
-        );
     }
 
     #[test]

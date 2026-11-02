@@ -392,36 +392,6 @@ mod tests {
     }
 
     #[test]
-    fn writes_states_that_read_back() {
-        let directory = tempfile::tempdir().unwrap();
-        let mut writer = TraceFileWriter::create(
-            directory.path(),
-            TraceDriver::Terminal,
-            false,
-        )
-        .unwrap();
-        writer
-            .write_state(Metadata { n: 0 }, Some(Arc::new(b"zero".to_vec())))
-            .unwrap();
-        writer.write_state(Metadata { n: 1 }, None).unwrap();
-        writer.finish().unwrap();
-        let error = writer.write_state(Metadata { n: 2 }, None).unwrap_err();
-        assert!(error.to_string().contains("already finished"), "{error}");
-
-        let mut reader = open_trace::<Metadata>(directory.path()).unwrap();
-        assert_eq!(reader.driver, TraceDriver::Terminal);
-        let states = reader
-            .by_ref()
-            .collect::<Result<Vec<State<Metadata>>>>()
-            .unwrap();
-        assert!(reader.finished());
-        assert_eq!(states.len(), 2);
-        assert_eq!(states[0].metadata, Metadata { n: 0 });
-        assert_eq!(states[0].payload.as_deref(), Some(&b"zero"[..]));
-        assert_eq!(states[1].payload, None);
-    }
-
-    #[test]
     fn written_states_reach_the_file_without_finishing() {
         let directory = tempfile::tempdir().unwrap();
         let mut writer = TraceFileWriter::create(

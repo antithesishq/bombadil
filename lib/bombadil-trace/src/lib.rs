@@ -100,6 +100,8 @@
 mod envelope;
 mod reader;
 mod record;
+#[cfg(test)]
+mod roundtrip_tests;
 mod writer;
 
 pub use envelope::{TraceDriver, trace_driver, write_envelope};
