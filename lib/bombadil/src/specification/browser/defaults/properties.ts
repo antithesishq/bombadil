@@ -126,7 +126,7 @@ const consoleErrors = extract((state) =>
       message: e.args
         .map((a) => (typeof a === "string" ? a : JSON.stringify(a)))
         .join(" ")
-        .split("\n")[0],
+        .split("\n")[0] ?? "",
     })),
 ).setStateKeyBehavior("excluded");
 
