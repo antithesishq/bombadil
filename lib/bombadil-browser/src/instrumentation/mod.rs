@@ -140,6 +140,22 @@ impl BlockRegistry {
         let blocks = table.blocks.get(cursor..).unwrap_or_default().to_vec();
         (blocks, table.blocks.len())
     }
+
+    /// Writes every registered block to `path`, one JSON object per line:
+    /// the table that trace `branches` ids refer to (`--coverage-symbols`).
+    pub fn write(&self, path: &std::path::Path) -> std::io::Result<()> {
+        use std::io::Write;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let (blocks, _) = self.since(0);
+        let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+        for block in blocks {
+            serde_json::to_writer(&mut file, &block)?;
+            file.write_all(b"\n")?;
+        }
+        file.flush()
+    }
 }
 
 #[cfg(test)]

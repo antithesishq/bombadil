@@ -22,7 +22,7 @@ pub struct BrowserStateSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions_available: Option<Vec<(String, f64)>>,
     /// Ids of the code blocks run since the previous state, sorted. The
-    /// run's `blocks.jsonl` says where each id is.
+    /// table written by `--coverage-symbols` says where each id is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branches: Option<Vec<u32>>,
 }

@@ -166,6 +166,13 @@ pub struct RunSharedOptions {
     #[arg(long)]
     pub output_path_overwrite: bool,
 
+    /// Write the table of instrumented coverage blocks that trace `branches`
+    /// ids refer to (id, script, function, line, column, original source) to
+    /// this file, as JSON lines, when the command ends. Without it no table
+    /// is written.
+    #[arg(long, value_name = "FILE")]
+    pub coverage_symbols: Option<PathBuf>,
+
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
@@ -643,9 +650,11 @@ fn browser_test(
         FileTraceWriter::initialize(
             output_path.clone(),
             shared_options.output_path_overwrite,
-            blocks,
         )?,
     )?;
+    if let Some(path) = &shared_options.coverage_symbols {
+        blocks.write(path)?;
+    }
 
     let heading = {
         let TestResult {
@@ -754,7 +763,6 @@ fn browser_fuzz(
     let output_writer = FileOutputWriter {
         root_path: output_path.clone(),
         overwrite: shared_options.output_path_overwrite,
-        blocks: blocks.clone(),
     };
 
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
@@ -763,7 +771,7 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
-        blocks,
+        blocks: blocks.clone(),
     });
 
     fuzzer::fuzz(fuzzer::FuzzOptions {
@@ -791,6 +799,9 @@ fn browser_fuzz(
         parallelism: fuzz_options.parallelism,
         output_writer,
     })?;
+    if let Some(path) = &shared_options.coverage_symbols {
+        blocks.write(path)?;
+    }
 
     // TODO: return result from `fuzz` that can be used to print something like the following:
 
@@ -932,7 +943,6 @@ fn browser_shrink(
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
         browser_options_from_target(&target, downloads.path())?;
-    let blocks = BlockRegistry::default();
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
@@ -941,7 +951,7 @@ fn browser_shrink(
             ".",
             &specification.module_specifier,
         )?),
-        blocks: blocks.clone(),
+        blocks: Default::default(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
@@ -956,9 +966,7 @@ fn browser_shrink(
             allow_urls: allow_urls.clone(),
             quiet: true,
         },
-        trace_writer: move |path| {
-            FileTraceWriter::initialize(path, false, blocks.clone())
-        },
+        trace_writer: |path| FileTraceWriter::initialize(path, false),
         trace: options.trace.map_actions(|action| action.to_internal()),
         property_name: options.property_name,
         output_path: options.output_path.clone(),
