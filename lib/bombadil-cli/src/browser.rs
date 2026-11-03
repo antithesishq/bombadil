@@ -169,9 +169,9 @@ pub struct RunSharedOptions {
     pub output_path_overwrite: bool,
 
     /// Write the table of instrumented coverage blocks that trace `branches`
-    /// ids refer to (id, script, function, line) to this file, as JSON
-    /// lines, as scripts are instrumented. The file must not exist, and its
-    /// parent must. Without it no table is written.
+    /// ids refer to (id, script, function, line, column, original source)
+    /// to this file, as JSON lines, as scripts are instrumented. The file
+    /// must not exist, and its parent must. Without it no table is written.
     #[arg(long = "coverage-symbols", value_name = "FILE")]
     pub coverage_symbols_path: Option<PathBuf>,
 
@@ -1036,8 +1036,7 @@ fn browser_shrink(
 mod tests {
     use super::*;
 
-    const BLOCK_ROW: &str =
-        "{\"id\":7,\"script\":\"/app.js\",\"function\":\"<top>\",\"line\":1}\n";
+    const BLOCK_ROW: &str = "{\"id\":7,\"script\":\"/app.js\",\"function\":\"<top>\",\"line\":1,\"column\":0}\n";
 
     fn block() -> instrumentation::Block {
         instrumentation::Block {
@@ -1045,6 +1044,10 @@ mod tests {
             script: "/app.js".into(),
             function: "<top>".into(),
             line: 1,
+            column: 0,
+            source: None,
+            source_line: None,
+            vendor: false,
         }
     }
 

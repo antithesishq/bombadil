@@ -19,5 +19,5 @@ console.log(example(true, 1, 2));
 
 </body></html>
 ---- blocks ----
- 620589614  /test#inline0:3  example
- 247887533  /test#inline0:3  example
+ 620589614  /test#inline0:3:15  example
+ 247887533  /test#inline0:3:19  example

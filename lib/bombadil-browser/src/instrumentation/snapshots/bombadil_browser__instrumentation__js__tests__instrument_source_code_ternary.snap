@@ -15,5 +15,5 @@ function example(a, b, c) {
 console.log(example(true, 1, 2));
 
 ---- blocks ----
-1447678055  /test.js:3  example
-1015584228  /test.js:3  example
+1447678055  /test.js:3:27  example
+1015584228  /test.js:3:31  example

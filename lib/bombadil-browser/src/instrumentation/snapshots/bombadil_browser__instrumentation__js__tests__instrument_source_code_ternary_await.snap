@@ -14,5 +14,5 @@ async function example(a) {
 }
 
 ---- blocks ----
-1447678055  /test.js:3  example
-1015584228  /test.js:3  example
+1447678055  /test.js:3:27  example
+1015584228  /test.js:3:41  example

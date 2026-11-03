@@ -1,6 +1,7 @@
 pub mod html;
 pub mod js;
 pub mod source_id;
+pub mod source_map;
 
 use std::io::{self, Write};
 use std::iter;
@@ -42,14 +43,40 @@ impl Default for InstrumentationConfig {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Block {
     pub id: u32,
-    /// The script's [`source_id::SourceId`].
+    /// The script's [`source_id::SourceId`]. With a `source`, the script
+    /// the block was first seen in.
     pub script: Arc<str>,
     /// Enclosing class and named function names joined by `.`, or `<top>`.
-    /// Anonymous functions count as their enclosing name.
+    /// Anonymous functions count as their enclosing name. With a `source`,
+    /// names are the original ones where the map has them.
     pub function: Arc<str>,
-    /// 1-based line in the script. For inline scripts, relative to the
-    /// script's own text.
+    /// 1-based line in the script as served. For inline scripts, relative
+    /// to the script's own text.
     pub line: u32,
+    /// 0-based column (UTF-16 units) of the block on that line.
+    pub column: u32,
+    /// The original file the block came from, by the script's source map,
+    /// as its [`source_map::source_key`]. The ID of a block with a source is
+    /// made from it instead of from `script`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Arc<str>>,
+    /// 1-based line in `source`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<u32>,
+    /// `source` is on the map's ignore list: code the bundler marks as not
+    /// the app's own (node_modules, generated runtime).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vendor: bool,
+}
+
+impl Block {
+    /// What the ID is made from, with the ordinal.
+    fn id_key(&self) -> (&str, &str) {
+        (
+            self.source.as_deref().unwrap_or(&self.script),
+            &self.function,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +151,7 @@ impl BlockRegistry {
     /// Adds the `blocks` whose IDs are not yet registered.
     pub fn register(&self, blocks: impl IntoIterator<Item = Block>) {
         let table = &mut *self.lock();
+        let mut source_differs = false;
         for block in blocks {
             let Some(&index) = table.ids.get(&block.id) else {
                 let index = table.blocks.len();
@@ -137,15 +165,27 @@ impl BlockRegistry {
                 continue;
             };
             let registered = &table.blocks[index];
-            if (&registered.script, &registered.function)
-                != (&block.script, &block.function)
-            {
+            if registered.id_key() != block.id_key() {
                 log::warn!(
                     "block ID {} of {} in {} is taken by {} in {}, which gets its coverage",
                     block.id,
                     block.function,
-                    block.script,
+                    block.id_key().0,
                     registered.function,
+                    registered.id_key().0,
+                );
+            } else if !source_differs
+                && let Some(source) = &block.source
+                && registered.source_line != block.source_line
+                && registered.script != block.script
+            {
+                // Once per script: every block after the first that
+                // differs would say the same. A script that loads again
+                // after an edit has its own lines shifted, which is fine.
+                source_differs = true;
+                log::warn!(
+                    "{source} is not the same in {} as in {} (two files with one source key, or one file bundled differently): their blocks share IDs and coverage",
+                    block.script,
                     registered.script,
                 );
             }
@@ -196,9 +236,20 @@ impl Instrumented {
         let mut snapshot = format!("{}\n---- blocks ----\n", self.text);
         for block in &self.blocks {
             snapshot.push_str(&format!(
-                "{:>10}  {}:{}  {}\n",
-                block.id, block.script, block.line, block.function
+                "{:>10}  {}:{}:{}  {}",
+                block.id,
+                block.script,
+                block.line,
+                block.column,
+                block.function
             ));
+            if let (Some(source), Some(line)) =
+                (&block.source, block.source_line)
+            {
+                let vendor = if block.vendor { " (vendor)" } else { "" };
+                snapshot.push_str(&format!("  {source}:{line}{vendor}"));
+            }
+            snapshot.push('\n');
         }
         snapshot
     }
@@ -209,7 +260,7 @@ mod tests {
     use super::*;
     use hegel::{
         Generator, TestCase,
-        generators::{integers, text, vecs},
+        generators::{booleans, integers, optional, text, vecs},
     };
     use std::collections::BTreeSet;
 
@@ -221,6 +272,10 @@ mod tests {
             script: tc.draw_silent(text()).into(),
             function: tc.draw_silent(text()).into(),
             line: tc.draw_silent(integers::<u32>().min_value(1).max_value(9)),
+            column: tc.draw_silent(integers::<u32>().max_value(9)),
+            source: tc.draw_silent(optional(text())).map(Arc::from),
+            source_line: tc.draw_silent(optional(integers::<u32>())),
+            vendor: tc.draw_silent(booleans()),
         }
     }
 
@@ -275,12 +330,23 @@ mod tests {
             .blocks()
             .iter()
             .map(|block| {
-                serde_json::json!({
+                let mut expected = serde_json::json!({
                     "id": block.id,
                     "script": &*block.script,
                     "function": &*block.function,
                     "line": block.line,
-                })
+                    "column": block.column,
+                });
+                if let Some(source) = &block.source {
+                    expected["source"] = (&**source).into();
+                }
+                if let Some(source_line) = block.source_line {
+                    expected["source_line"] = source_line.into();
+                }
+                if block.vendor {
+                    expected["vendor"] = true.into();
+                }
+                expected
             })
             .collect();
         assert_eq!(lines, expected);
