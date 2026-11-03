@@ -530,6 +530,7 @@ mod tests {
                     name: None,
                     value: json::json!(false),
                     time,
+                    excluded: false,
                 }],
                 time,
             )
@@ -564,12 +565,14 @@ mod tests {
                         name: None,
                         value: json::json!(true),
                         time,
+                        excluded: false,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(true),
                         time,
+                        excluded: false,
                     },
                 ],
                 time,
@@ -605,12 +608,14 @@ mod tests {
                         name: None,
                         value: json::json!(false),
                         time,
+                        excluded: false,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(true),
                         time,
+                        excluded: false,
                     },
                 ],
                 time,
@@ -646,12 +651,14 @@ mod tests {
                         name: None,
                         value: json::json!(false),
                         time,
+                        excluded: false,
                     },
                     Snapshot {
                         index: 1,
                         name: None,
                         value: json::json!(false),
                         time,
+                        excluded: false,
                     },
                 ],
                 time,
@@ -685,6 +692,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )
@@ -731,6 +739,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )
@@ -770,6 +779,7 @@ mod tests {
                     name: None,
                     value: json::json!(0),
                     time,
+                    excluded: false,
                 }],
                 time,
             )
@@ -805,6 +815,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )
@@ -858,6 +869,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )
@@ -923,6 +935,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )
@@ -976,6 +989,7 @@ mod tests {
                         name: None,
                         value: json::json!(i),
                         time: time_from_millis(0),
+                        excluded: false,
                     }],
                     time_from_millis(0),
                 )
@@ -997,6 +1011,7 @@ mod tests {
                     name: None,
                     value: json::json!(5),
                     time: time_from_millis(0),
+                    excluded: false,
                 }],
                 time_from_millis(0),
             )
@@ -1016,6 +1031,7 @@ mod tests {
                     name: None,
                     value: json::json!(0),
                     time: time_from_millis(0),
+                    excluded: false,
                 }],
                 time_from_millis(0),
             )
@@ -1035,6 +1051,7 @@ mod tests {
                     name: None,
                     value: json::json!(5),
                     time: time_from_millis(0),
+                    excluded: false,
                 }],
                 time_from_millis(0),
             )
@@ -1070,6 +1087,7 @@ mod tests {
                     name: None,
                     value: json::json!(false),
                     time,
+                    excluded: false,
                 }],
                 time,
             )
@@ -1090,6 +1108,7 @@ mod tests {
                     name: None,
                     value: json::json!(true),
                     time,
+                    excluded: false,
                 }],
                 time,
             )
@@ -1123,6 +1142,7 @@ mod tests {
                     name: None,
                     value: json::json!(0),
                     time: time_from_millis(0),
+                    excluded: false,
                 }],
                 time_from_millis(0),
             )
@@ -1138,6 +1158,7 @@ mod tests {
                     name: None,
                     value: json::json!(10),
                     time: time_from_millis(3),
+                    excluded: false,
                 }],
                 time_from_millis(3),
             )
@@ -1158,6 +1179,7 @@ mod tests {
                     name: None,
                     value: json::json!(0),
                     time: time_from_millis(4),
+                    excluded: false,
                 }],
                 time_from_millis(4),
             )
@@ -1177,6 +1199,7 @@ mod tests {
                     name: None,
                     value: json::json!(0),
                     time: time_from_millis(6),
+                    excluded: false,
                 }],
                 time_from_millis(6),
             )
@@ -1310,6 +1333,7 @@ mod tests {
                         name: None,
                         value: json::json!(enabled),
                         time,
+                        excluded: false,
                     }],
                     time,
                 )

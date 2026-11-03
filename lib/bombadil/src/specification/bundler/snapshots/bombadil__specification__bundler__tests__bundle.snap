@@ -1,5 +1,6 @@
 ---
 source: lib/bombadil/src/specification/bundler/mod.rs
+assertion_line: 998
 expression: bundle
 ---
 (function() {
@@ -444,6 +445,7 @@ expression: bundle
     	/** Brand for the bundler's naming helper (`__bombadilNamed`). */
     	__bombadilExtractor = true;
     	name = null;
+    	stateKeyBehavior = "included";
     	index;
     	snapshot;
     	constructor(runtime, extract) {
@@ -465,6 +467,10 @@ expression: bundle
     	}
     	named(name) {
     		this.name = name;
+    		return this;
+    	}
+    	setStateKeyBehavior(behavior) {
+    		this.stateKeyBehavior = behavior;
     		return this;
     	}
     	/**
@@ -522,7 +528,8 @@ expression: bundle
     				return {
     					index,
     					name: extractor.name,
-    					value: extractor.run(state)
+    					value: extractor.run(state),
+    					excluded: extractor.stateKeyBehavior === "excluded"
     				};
     			} finally {
     				this.extractingDepth--;

@@ -1,8 +1,17 @@
 export type TimeUnit = "milliseconds" | "seconds";
 
+/**
+ * How a cell takes part in the state key. `excluded`: never in the key; its
+ * snapshot is still recorded. `default`: in the key, and the tooling may advise
+ * about it (the shipped extractors). `included`: in the key on the user's word
+ * (user `extract` cells).
+ */
+export type StateKeyBehavior = "excluded" | "default" | "included";
+
 export interface Cell<T> {
   get current(): T;
   update(snapshot: T): void;
+  setStateKeyBehavior(behavior: StateKeyBehavior): this;
 }
 
 export type JSON =
@@ -18,6 +27,7 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   /** Brand for the bundler's naming helper (`__bombadilNamed`). */
   public readonly __bombadilExtractor = true;
   public name: string | null = null;
+  public stateKeyBehavior: StateKeyBehavior = "included";
   public readonly index: number;
   private snapshot: T | undefined;
 
@@ -46,6 +56,11 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
 
   named(name: string) {
     this.name = name;
+    return this;
+  }
+
+  setStateKeyBehavior(behavior: StateKeyBehavior): this {
+    this.stateKeyBehavior = behavior;
     return this;
   }
 
@@ -78,6 +93,7 @@ type RunExtractorResult = {
   index: number;
   name: string | null;
   value: JSON;
+  excluded: boolean;
 };
 
 export class Runtime<S> {
@@ -119,6 +135,7 @@ export class Runtime<S> {
           index,
           name: extractor.name,
           value: extractor.run(state),
+          excluded: extractor.stateKeyBehavior === "excluded",
         };
       } finally {
         this.extractingDepth--;

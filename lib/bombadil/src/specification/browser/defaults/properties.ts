@@ -128,7 +128,7 @@ const consoleErrors = extract((state) =>
         .join(" ")
         .split("\n")[0],
     })),
-);
+).setStateKeyBehavior("excluded");
 
 export const noConsoleErrors: Formula = always(
   () => consoleErrors.current?.length === 0,

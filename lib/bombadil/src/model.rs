@@ -104,6 +104,9 @@ pub fn state_hashes(
 ) -> BTreeMap<String, u64> {
     let mut hashes = state.hashes();
     for snapshot in snapshots {
+        if snapshot.excluded {
+            continue;
+        }
         let Some(name) = &snapshot.name else { continue };
         let mut leaves = Vec::new();
         json_leaves(&snapshot.value, "", &mut leaves);

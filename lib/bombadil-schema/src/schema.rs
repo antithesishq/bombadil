@@ -97,6 +97,10 @@ pub struct Snapshot {
     pub name: Option<String>,
     pub value: serde_json::Value,
     pub time: Time,
+    /// The cell is kept out of the state key (its `StateKeyBehavior` is
+    /// `excluded`); the snapshot is still recorded.
+    #[serde(default)]
+    pub excluded: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
