@@ -17,6 +17,7 @@ struct PartialSnapshot {
     pub index: usize,
     pub name: Option<String>,
     pub value: Option<json::Value>,
+    pub excluded: bool,
 }
 
 pub struct Extractors {
@@ -137,6 +138,7 @@ impl Extractors {
                 name: partial.name.clone(),
                 value: partial.value.clone().unwrap_or(json::Value::Null),
                 time,
+                excluded: partial.excluded,
             })
             .collect();
 
