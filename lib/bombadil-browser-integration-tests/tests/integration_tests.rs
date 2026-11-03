@@ -390,6 +390,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             },
         };
 
+        let allow_urls = allow_urls
+            .unwrap_or(vec![MatchPattern::from_origin(&origin).unwrap()]);
         let downloads_directory = TempDir::new().unwrap();
         let browser_options = BrowserOptions {
             create_target: true,
@@ -399,6 +401,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                 device_scale_factor: 1.0,
             },
             instrumentation: Default::default(),
+            allow_urls: allow_urls.clone(),
             downloads_directory: downloads_directory.path().to_path_buf(),
             grant_permissions,
             extra_headers,
@@ -475,9 +478,6 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
             }
         }
-
-        let allow_urls = allow_urls
-            .unwrap_or(vec![MatchPattern::from_origin(&origin).unwrap()]);
 
         let mut strategy = TestStrategy {
             rng: rand::prelude::StdRng::seed_from_u64(seed),
@@ -647,6 +647,59 @@ fn test_unhandled_promise_rejection() {
 fn test_other_domain() {
     BrowserIntegrationTest::new("other-domain")
         .time_limit(Duration::from_secs(5))
+        .run();
+}
+
+#[test]
+fn test_other_domain_document_is_never_loaded() {
+    BrowserIntegrationTest::new("other-domain")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks, back } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const title = extract((state) => state.document.title);
+
+export const staysOffOtherDomain = always(
+  () => !title.current.startsWith("Other Domain")
+);
+"##,
+        )
+        .run();
+}
+
+#[test]
+fn test_outside_allow_url_script_and_frame_load_uninstrumented() {
+    BrowserIntegrationTest::new("outside-allow-url")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const outputs = extract((state) =>
+  ["own", "other", "frame"].map(
+    (id) => state.document.getElementById(id)?.textContent ?? ""
+  ).join(", ")
+);
+
+export const loaded = eventually(
+  () => outputs.current === "instrumented, as served, frame loaded"
+).within(3, "seconds");
+"##,
+        )
+        .run();
+}
+
+#[test]
+fn test_file_origin_instruments_its_script_files() {
+    BrowserIntegrationTest::new("file-origin-script")
+        .file_origin()
+        .time_limit(Duration::from_secs(5))
+        .expect_blocks_hit()
         .run();
 }
 
@@ -1334,6 +1387,7 @@ fn test_cookie_domain() {
         .cookies(vec![
             BrowserCookie::parse("session=bombadil; Domain=localhost").unwrap(),
         ])
+        .allow_urls(vec![MatchPattern::parse("http://localhost/*").unwrap()])
         .time_limit(Duration::from_secs(15))
         .specification(
             r##"
