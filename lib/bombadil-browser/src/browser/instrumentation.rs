@@ -173,13 +173,18 @@ pub fn instrument_js_coverage(
                     );
                     body.clone()
                 } else {
+                    let source_map = instrumentation::source_map::fetch(
+                        &event.request.url,
+                        &body,
+                    );
                     let instrumented =
-                        instrumentation::js::instrument_source_code(
+                        instrumentation::js::instrument_source_code_with_map(
                             source_id,
                             &body,
                             // As we can't know if the script is an ES module or a regular script,
                             // we use this source type to let the parser decide.
                             SourceType::unambiguous(),
+                            source_map.as_ref(),
                         )?;
                     blocks.register(instrumented.blocks);
                     instrumented.text

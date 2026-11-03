@@ -1,6 +1,7 @@
 pub mod html;
 pub mod js;
 pub mod source_id;
+pub mod source_map;
 
 use crate::match_pattern::MatchPattern;
 
@@ -54,8 +55,20 @@ pub struct Block {
     /// Names of the enclosing classes and named functions, joined by `.`,
     /// or `<top>`. Anonymous functions belong to their enclosing name.
     pub function: String,
-    /// 1-based line of the block in the original script.
+    /// 1-based line of the block in the script as served.
     pub line: u32,
+    /// 0-based column (UTF-16 units) of the block on that line.
+    pub column: u32,
+    /// The original file the block came from, by the script's source map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// 1-based line in `source`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_line: Option<u32>,
+    /// `source` is on the map's ignore list: code the bundler marks as not
+    /// the app's own (node_modules, generated runtime).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub vendor: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,6 +173,10 @@ mod tests {
             script: tc.draw_silent(text().alphabet("/ab").max_size(2)),
             function: tc.draw_silent(text().alphabet("fg.").max_size(2)),
             line: tc.draw_silent(integers::<u32>().min_value(1).max_value(9)),
+            column: tc.draw_silent(integers::<u32>().max_value(9)),
+            source: None,
+            source_line: None,
+            vendor: false,
         }
     }
 

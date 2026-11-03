@@ -18,7 +18,7 @@ use oxc::{
 use oxc_traverse::{Ancestor, Traverse, TraverseCtx, traverse_mut};
 
 use crate::instrumentation::{
-    Block, Instrumented, block_id, source_id::SourceId,
+    Block, Instrumented, block_id, source_id::SourceId, source_map::SourceMap,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,10 +72,30 @@ pub fn instrument_source_code(
     source_text: &str,
     source_type: SourceType,
 ) -> InstrumentationResult<Instrumented> {
+    instrument_source_code_with_map(source_id, source_text, source_type, None)
+}
+
+/// As [`instrument_source_code`], with each block resolved to its original
+/// file and line through the script's source map when there is one.
+pub fn instrument_source_code_with_map(
+    source_id: SourceId,
+    source_text: &str,
+    source_type: SourceType,
+    source_map: Option<&SourceMap>,
+) -> InstrumentationResult<Instrumented> {
     let allocator = Allocator::default();
     let mut program = parse(&allocator, source_text, source_type)?;
-    let blocks =
+    let mut blocks =
         instrument_program(&allocator, &mut program, source_id, source_text)?;
+    if let Some(map) = source_map {
+        for block in &mut blocks {
+            if let Some(original) = map.lookup(block.line, block.column) {
+                block.source = Some(original.source);
+                block.source_line = Some(original.line);
+                block.vendor = original.ignored;
+            }
+        }
+    }
 
     let prelude = parse(&allocator, PRELUDE, source_type)?;
     program.body.splice(0..0, prelude.body);
@@ -123,8 +143,20 @@ fn instrument_program<'a>(
         named: Vec::new(),
         ordinals: HashMap::new(),
         blocks: Vec::new(),
+        spans: Vec::new(),
     };
     traverse_mut(&mut instrumenter, allocator, program, scopes, ());
+    // Columns in UTF-16 units, as source maps count them.
+    for (block, start) in
+        instrumenter.blocks.iter_mut().zip(&instrumenter.spans)
+    {
+        let line_start =
+            instrumenter.line_starts[block.line as usize - 1] as usize;
+        block.column = source_text
+            .get(line_start..*start as usize)
+            .map(|text| text.encode_utf16().count() as u32)
+            .unwrap_or(0);
+    }
 
     Ok(instrumenter.blocks)
 }
@@ -138,6 +170,8 @@ struct Instrumenter {
     /// Per function path.
     ordinals: HashMap<String, u32>,
     blocks: Vec<Block>,
+    /// Byte offset of each block's start, parallel to `blocks`.
+    spans: Vec<u32>,
 }
 
 /// The name a function or class gets from where it's defined, when it has
@@ -191,11 +225,16 @@ impl Instrumenter {
             .line_starts
             .partition_point(|&start| start <= span.start)
             as u32;
+        self.spans.push(span.start);
         self.blocks.push(Block {
             id,
             script: self.source_id.0.clone(),
             function,
             line,
+            column: 0,
+            source: None,
+            source_line: None,
+            vendor: false,
         });
         id
     }
