@@ -60,6 +60,47 @@ pub fn instrument_js_coverage(
     let (error_tx, error_rx) = mpmc::bounded(1);
     let worker = thread::spawn(move || -> Result<()> {
         let intercept = |event: &fetch::EventRequestPaused| -> Result<()> {
+            if !config.is_url_allowed(&event.request.url) {
+                if event.resource_type == network::ResourceType::Document {
+                    // A navigation outside the allowed URLs never loads. The
+                    // page shows the browser's error page and the test strategy
+                    // navigates back.
+                    log::info!(
+                        "blocked navigation to disallowed URL: {}",
+                        event.request.url
+                    );
+                    return connection
+                        .send(
+                            fetch::FailRequestParams::new(
+                                event.request_id.clone(),
+                                network::ErrorReason::BlockedByClient,
+                            ),
+                            Some(&session_id),
+                        )
+                        .map(|_| ())
+                        .context("failed blocking request");
+                }
+                log::debug!(
+                    "passing through script from a disallowed URL: {}",
+                    event.request.url
+                );
+                return connection
+                    .send(
+                        fetch::ContinueRequestParams::builder()
+                            .request_id(event.request_id.clone())
+                            .build()
+                            .map_err(|error| {
+                                anyhow!(
+                                    "failed building ContinueRequestParams: {}",
+                                    error
+                                )
+                            })?,
+                        Some(&session_id),
+                    )
+                    .map(|_| ())
+                    .context("failed continuing request");
+            }
+
             // Any non-200 upstream response is forwarded as-is.
             if let Some(status) = event.response_status_code
                 && status != 200

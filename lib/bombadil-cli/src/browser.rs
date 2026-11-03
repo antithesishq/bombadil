@@ -344,7 +344,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             reproduce_args.extend(launch_options.reproduce_args());
 
             let browser_options =
-                browser_options_from_target(&shared.target, downloads.path());
+                browser_options_from_target(&shared.target, downloads.path())?;
             let debugger_options = launch_options.debugger_options()?;
             browser_test(
                 mode,
@@ -375,7 +375,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_target(&shared.target, downloads.path())
+                ..browser_options_from_target(&shared.target, downloads.path())?
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
@@ -402,7 +402,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             let browser_options = browser_options_from_target(
                 &run_shared_options.target,
                 downloads.path(),
-            );
+            )?;
             let debugger_options = launch_options.debugger_options()?;
             browser_fuzz(
                 output_path,
@@ -474,6 +474,7 @@ fn parse_instrumentation_config(
     Ok(InstrumentationConfig {
         instrument_files,
         instrument_inline,
+        allow_urls: vec![],
     })
 }
 
@@ -489,15 +490,17 @@ fn downloads_directory() -> Result<TempDir> {
 fn browser_options_from_target(
     target: &TargetOptions,
     downloads_path: &Path,
-) -> BrowserOptions {
-    BrowserOptions {
+) -> Result<BrowserOptions> {
+    let mut instrumentation = target.instrument_javascript.clone();
+    instrumentation.allow_urls = resolve_allow_urls(target)?;
+    Ok(BrowserOptions {
         create_target: true,
         emulation: Emulation {
             width: target.width,
             height: target.height,
             device_scale_factor: target.device_scale_factor,
         },
-        instrumentation: target.instrument_javascript.clone(),
+        instrumentation,
         downloads_directory: downloads_path.to_path_buf(),
         grant_permissions: target
             .chrome_grant_permissions
@@ -508,7 +511,7 @@ fn browser_options_from_target(
         virtual_time_policy: target.chrome_virtual_time_policy.clone(),
         extra_headers: target.headers.iter().cloned().collect(),
         cookies: target.cookies.clone(),
-    }
+    })
 }
 
 /// Load a user-provided specification, or use the defaults provided by Bombadil.
@@ -928,7 +931,7 @@ fn browser_shrink(
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
-        browser_options_from_target(&target, downloads.path());
+        browser_options_from_target(&target, downloads.path())?;
     let blocks = BlockRegistry::default();
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),

@@ -2,11 +2,16 @@ pub mod html;
 pub mod js;
 pub mod source_id;
 
+use crate::match_pattern::MatchPattern;
+
 /// Configuration for which types of JavaScript to instrument
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstrumentationConfig {
     pub instrument_files: bool,
     pub instrument_inline: bool,
+    /// The URLs under test. A script from elsewhere runs uninstrumented, and a
+    /// document from elsewhere is blocked. Empty allows every URL.
+    pub allow_urls: Vec<MatchPattern>,
 }
 
 impl InstrumentationConfig {
@@ -14,6 +19,7 @@ impl InstrumentationConfig {
         Self {
             instrument_files: true,
             instrument_inline: true,
+            allow_urls: vec![],
         }
     }
 
@@ -21,7 +27,15 @@ impl InstrumentationConfig {
         Self {
             instrument_files: false,
             instrument_inline: false,
+            allow_urls: vec![],
         }
+    }
+
+    pub fn is_url_allowed(&self, url: &str) -> bool {
+        self.allow_urls.is_empty()
+            || url::Url::parse(url)
+                .map(|url| self.allow_urls.iter().any(|p| p.matches(&url)))
+                .unwrap_or(false)
     }
 }
 
