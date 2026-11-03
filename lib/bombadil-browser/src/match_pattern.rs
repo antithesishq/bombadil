@@ -140,6 +140,11 @@ impl MatchPattern {
         }
     }
 
+    /// Whether any pattern could match `url`, going by its scheme.
+    pub fn covers_scheme(url: &Url) -> bool {
+        SchemePattern::Any.matches(url.scheme())
+    }
+
     pub fn matches(&self, url: &Url) -> bool {
         self.scheme.matches(url.scheme())
             && self.host.matches(url.host_str())

@@ -1,4 +1,5 @@
 use crate::cookie::BrowserCookie;
+use crate::match_pattern::MatchPattern;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -18,6 +19,9 @@ pub struct BrowserOptions {
     pub emulation: Emulation,
     pub create_target: bool,
     pub instrumentation: crate::instrumentation::InstrumentationConfig,
+    /// The URLs under test. A document outside them is not loaded into the
+    /// page's main frame, and a script outside them runs uninstrumented.
+    pub allow_urls: Vec<MatchPattern>,
     pub downloads_directory: PathBuf,
     pub grant_permissions: Vec<String>,
     pub extra_headers: HashMap<String, String>,
