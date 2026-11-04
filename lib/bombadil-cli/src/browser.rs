@@ -728,7 +728,7 @@ fn browser_fuzz(
         })?;
     }
 
-    let specification_bundle =
+    let specification_bundle: Arc<str> =
         Arc::from(bundle(".", &specification.module_specifier)?);
 
     let output_writer = FileOutputWriter {
@@ -741,12 +741,13 @@ fn browser_fuzz(
         origin: shared_options.target.origin.url,
         browser_options,
         debugger_options,
-        specification_bundle,
+        specification_bundle: specification_bundle.clone(),
     });
 
     fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
+        specification_bundle,
         strategy: move || TestStrategy {
             rng: AntithesisRng,
             mode: TestMode::RandomWalk,
@@ -902,18 +903,18 @@ fn browser_shrink(
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
         browser_options_from_target(&target, downloads.path());
+    let specification_bundle: Arc<str> =
+        Arc::from(bundle(".", &specification.module_specifier)?);
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
         debugger_options,
-        specification_bundle: Arc::from(bundle(
-            ".",
-            &specification.module_specifier,
-        )?),
+        specification_bundle: specification_bundle.clone(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
         driver,
+        specification_bundle,
         strategy: move || TestStrategy {
             rng: AntithesisRng,
             mode: TestMode::RandomWalk,

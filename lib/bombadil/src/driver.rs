@@ -9,10 +9,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json as json;
 
 use crate::runner::PropertyViolation;
-use crate::{
-    render::Format,
-    specification::{domain::Snapshot, verifier::Verifier},
-};
+use crate::{render::Format, specification::domain::Snapshot};
 
 /// Convert a JSON value produced by a specification's action generator
 /// into a validated action.
@@ -39,7 +36,7 @@ impl Display for RunId {
 /// A driver runs a user interface of some sort (the system under test).
 pub trait InterfaceDriver {
     type Session: InterfaceSession;
-    fn new_session(&self, run_id: RunId) -> Result<(Self::Session, Verifier)>;
+    fn new_session(&self, run_id: RunId) -> Result<Self::Session>;
 }
 
 pub trait RunState {
@@ -134,7 +131,7 @@ pub trait InterfaceSession {
 
     /// Amount of time we'll wait for `next_event` to return an event
     /// before considering the driver stalled.
-    const STALL_TIMEOUT: Duration;
+    fn stall_timeout(&self) -> Duration;
 
     fn terminate(&mut self) -> Result<()>;
 

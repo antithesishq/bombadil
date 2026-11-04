@@ -26,7 +26,7 @@ use crate::{
         ActionTemplate, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
     },
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
-    specification::domain::Snapshot,
+    specification::{domain::Snapshot, verifier::Verifier},
     tree::Tree,
 };
 
@@ -61,6 +61,8 @@ impl Default for ShrinkSettings {
 
 pub struct ShrinkOptions<Driver: InterfaceDriver, MakeStrategy, MakeWriter> {
     pub driver: Arc<Driver>,
+    /// Bundled specification each run builds its verifier from.
+    pub specification_bundle: Arc<str>,
     pub strategy: MakeStrategy,
     pub trace_writer: MakeWriter,
     pub trace: TraceActions<<Driver::Session as InterfaceSession>::Action>,
@@ -117,6 +119,7 @@ where
 {
     let ShrinkOptions {
         driver,
+        specification_bundle,
         strategy,
         trace_writer,
         trace,
@@ -160,6 +163,7 @@ where
     let bound = Arc::new(AtomicUsize::new(trace_length_truncated + 1));
     let worker_shared = Arc::new(WorkerShared {
         driver,
+        specification_bundle,
         strategy,
         trace_writer,
         actions,
@@ -176,21 +180,25 @@ where
         let worker_shared = worker_shared.clone();
         let job_receiver = job_receiver.clone();
         let result_sender = result_sender.clone();
-        workers.push(thread::spawn(move || {
-            while let Ok(job) = job_receiver.recv() {
-                let (outcome, executed) = worker_shared.run(&job);
-                if result_sender
-                    .send(JobResult {
-                        job,
-                        outcome,
-                        executed,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-            }
-        }));
+        workers.push(
+            thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(
+                move || {
+                    while let Ok(job) = job_receiver.recv() {
+                        let (outcome, executed) = worker_shared.run(&job);
+                        if result_sender
+                            .send(JobResult {
+                                job,
+                                outcome,
+                                executed,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                },
+            )?,
+        );
     }
     drop(result_sender);
 
@@ -342,6 +350,7 @@ enum RunOutcome {
 
 struct WorkerShared<Driver: InterfaceDriver, MakeStrategy, MakeWriter> {
     driver: Arc<Driver>,
+    specification_bundle: Arc<str>,
     strategy: MakeStrategy,
     trace_writer: MakeWriter,
     actions: Arc<[<Driver::Session as InterfaceSession>::Action]>,
@@ -373,8 +382,8 @@ where
         let outcome = (|| {
             let path = self.attempts_path.join(job.run_id.to_string());
             let mut writer = (self.trace_writer)(path)?;
-            let (mut session, verifier) =
-                self.driver.new_session(job.run_id)?;
+            let verifier = Verifier::new(&self.specification_bundle)?;
+            let mut session = self.driver.new_session(job.run_id)?;
             runner::run(
                 &mut session,
                 &mut strategy,

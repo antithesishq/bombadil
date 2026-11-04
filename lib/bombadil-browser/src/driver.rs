@@ -5,7 +5,6 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
 use bombadil::driver::RunId;
-use bombadil::specification::verifier::Verifier;
 use bombadil::{
     driver::{DriverEvent, InterfaceDriver, InterfaceSession},
     specification::domain::Snapshot,
@@ -44,9 +43,7 @@ pub struct BrowserDriver {
 impl InterfaceDriver for BrowserDriver {
     type Session = BrowserSession;
 
-    fn new_session(&self, _: RunId) -> Result<(Self::Session, Verifier)> {
-        let verifier = Verifier::new(&self.specification_bundle)?;
-
+    fn new_session(&self, _: RunId) -> Result<Self::Session> {
         let coverage = if self.browser_options.instrumentation
             == InstrumentationConfig::none()
         {
@@ -77,15 +74,12 @@ impl InterfaceDriver for BrowserDriver {
 
         browser.initiate()?;
 
-        Ok((
-            BrowserSession {
-                _chromium: chromium,
-                browser,
-                specification_bundle: self.specification_bundle.clone(),
-                coverage,
-            },
-            verifier,
-        ))
+        Ok(BrowserSession {
+            _chromium: chromium,
+            browser,
+            specification_bundle: self.specification_bundle.clone(),
+            coverage,
+        })
     }
 }
 
@@ -110,7 +104,9 @@ impl InterfaceSession for BrowserSession {
     type ActionTemplate = BrowserActionTemplate;
     type State = BrowserState;
 
-    const STALL_TIMEOUT: Duration = NAVIGATION_TIMEOUT.saturating_mul(2);
+    fn stall_timeout(&self) -> Duration {
+        NAVIGATION_TIMEOUT.saturating_mul(2)
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.browser.terminate()

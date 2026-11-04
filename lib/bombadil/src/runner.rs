@@ -255,10 +255,10 @@ fn run_test<
                     );
                     return strategy.on_time_limit();
                 }
-                if waiting_since.elapsed() >= Session::STALL_TIMEOUT {
+                if waiting_since.elapsed() >= driver.stall_timeout() {
                     log::error!(
                         "driver stalled: no event for {:?}, stopping",
-                        Session::STALL_TIMEOUT
+                        driver.stall_timeout()
                     );
                     return strategy.on_stalled();
                 }

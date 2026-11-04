@@ -11,11 +11,10 @@ use bombadil::driver::{
     ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession, RunId,
 };
 use bombadil::render::{Format, Formatted};
-use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
+use bombadil::specification::extract::SnapshotExtractor;
 use bombadil::specification::generators::StringGenerator;
-use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil::styled;
 use bombadil_schema::terminal::{
     self, ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
@@ -35,7 +34,7 @@ use libghostty_vt::{
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
 
-use crate::extractors::Extractors;
+use crate::js::terminal_state_to_js;
 use crate::pty::{PtyOutput, PtyProcess, ReadResult};
 use crate::state::TerminalState;
 
@@ -250,37 +249,17 @@ pub struct TerminalProgramOptions {
 }
 
 pub struct TerminalDriver {
-    specification_bundle: Arc<str>,
-    program_options: TerminalProgramOptions,
-}
-
-impl TerminalDriver {
-    pub fn new(
-        specification: Specification,
-        program_options: TerminalProgramOptions,
-    ) -> Result<Self> {
-        let specification_bundle: Arc<str> =
-            bundle(".", &specification.module_specifier)
-                .map_err(|e| anyhow!("bundle failed: {e}"))?
-                .into();
-
-        Ok(TerminalDriver {
-            specification_bundle,
-            program_options,
-        })
-    }
+    pub specification_bundle: Arc<str>,
+    pub program_options: TerminalProgramOptions,
 }
 
 impl InterfaceDriver for TerminalDriver {
     type Session = TerminalSession;
 
     #[hotpath::measure]
-    fn new_session(
-        &self,
-        _run_id: RunId,
-    ) -> std::result::Result<(Self::Session, Verifier), anyhow::Error> {
-        let verifier = Verifier::new(&self.specification_bundle)?;
-        let extractor = Extractors::initialize(&self.specification_bundle)?;
+    fn new_session(&self, _run_id: RunId) -> Result<Self::Session> {
+        let extractor =
+            SnapshotExtractor::initialize(&self.specification_bundle)?;
 
         let mut terminal = Terminal::new(
             self.program_options.size.columns,
@@ -310,29 +289,26 @@ impl InterfaceDriver for TerminalDriver {
 
         sleep(INITIATE_STARTUP_DELAY);
 
-        Ok((
-            TerminalSession {
-                extractor,
-                terminal,
-                process,
-                output,
-                size: self.program_options.size,
-                quiescence_timeout: self.program_options.quiescence_timeout,
-                last_action: None,
-                last_output_at: Instant::now(),
-                render_state: RenderState::new()?,
-                row_iterator: RowIterator::new()?,
-                cell_iterator: CellIterator::new()?,
-                snapshot_capacity: 0,
-                snapshot_failed: false,
-            },
-            verifier,
-        ))
+        Ok(TerminalSession {
+            extractor,
+            terminal,
+            process,
+            output,
+            size: self.program_options.size,
+            quiescence_timeout: self.program_options.quiescence_timeout,
+            last_action: None,
+            last_output_at: Instant::now(),
+            render_state: RenderState::new()?,
+            row_iterator: RowIterator::new()?,
+            cell_iterator: CellIterator::new()?,
+            snapshot_capacity: 0,
+            snapshot_failed: false,
+        })
     }
 }
 
 pub struct TerminalSession {
-    extractor: Extractors,
+    extractor: SnapshotExtractor,
     terminal: Terminal<'static, 'static>,
     process: Rc<RefCell<PtyProcess>>,
     output: PtyOutput,
@@ -449,7 +425,9 @@ impl InterfaceSession for TerminalSession {
     type State = TerminalState;
 
     // `next_event` always returns within the quiescence timeout.
-    const STALL_TIMEOUT: Duration = Duration::MAX;
+    fn stall_timeout(&self) -> Duration {
+        Duration::MAX
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.process.borrow_mut().kill();
@@ -530,7 +508,9 @@ impl InterfaceSession for TerminalSession {
         state: Arc<TerminalState>,
         _last_action: Option<&TerminalAction>,
     ) -> Result<Vec<Snapshot>> {
-        self.extractor.run_extractors(state)
+        let time = bombadil_schema::Time::from_system_time(state.timestamp);
+        self.extractor
+            .run(time, |context| Ok(terminal_state_to_js(state, context)))
     }
 
     fn state_timestamp(state: &TerminalState) -> SystemTime {

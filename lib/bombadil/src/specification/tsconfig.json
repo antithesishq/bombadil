@@ -37,6 +37,9 @@
       "@antithesishq/bombadil/terminal/defaults/actions": [
         "./terminal/defaults/actions.ts"
       ],
+      "@antithesishq/bombadil/external": [
+        "./external/index.ts"
+      ],
       "@antithesishq/bombadil/internal": [
         "./internal.ts"
       ],

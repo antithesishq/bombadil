@@ -1,16 +1,12 @@
-use std::sync::Arc;
-
+use crate::specification::domain::Snapshot;
 use anyhow::{Result, anyhow};
 use boa_engine::{
     Context, JsError, JsObject, JsValue, NativeFunction, Source,
     context::ContextBuilder, js_string,
 };
-use bombadil::specification::domain::Snapshot;
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
-
-use crate::{js::terminal_state_to_js, state::TerminalState};
 
 #[derive(Debug, Clone, Deserialize)]
 struct PartialSnapshot {
@@ -19,12 +15,14 @@ struct PartialSnapshot {
     pub value: Option<json::Value>,
 }
 
-pub struct Extractors {
+/// Runs a specification's extractors over driver states, in a JS
+/// context of its own, to produce the snapshots its properties read.
+pub struct SnapshotExtractor {
     context: Context,
     runtime: JsObject,
 }
 
-impl Extractors {
+impl SnapshotExtractor {
     pub fn initialize(bundle_code: &str) -> Result<Self> {
         let mut context = ContextBuilder::default()
             .build()
@@ -100,16 +98,18 @@ impl Extractors {
             .ok_or(anyhow!("runtime is not an object"))?
             .clone();
 
-        Ok(Extractors { context, runtime })
+        Ok(SnapshotExtractor { context, runtime })
     }
 
+    /// Extracts snapshots at `time` from the state that `to_js` builds
+    /// in this extractor's JS context.
     #[hotpath::measure]
-    pub fn run_extractors(
+    pub fn run(
         &mut self,
-        state: Arc<TerminalState>,
+        time: Time,
+        to_js: impl FnOnce(&mut Context) -> Result<JsValue>,
     ) -> Result<Vec<Snapshot>> {
-        let time = Time::from_system_time(state.timestamp);
-        let state_value = terminal_state_to_js(state, &mut self.context);
+        let state_value = to_js(&mut self.context)?;
         let run_extractors_fn = self
             .runtime
             .get(js_string!("runExtractors"), &mut self.context)

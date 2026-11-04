@@ -571,6 +571,7 @@ dependencies = [
  "bombadil-browser",
  "bombadil-browser-keys",
  "bombadil-ltl",
+ "bombadil-rpc",
  "bombadil-schema",
  "bombadil-terminal",
  "bombadil-trace",
@@ -618,6 +619,24 @@ dependencies = [
  "anyhow",
  "hegeltest",
  "hotpath",
+]
+
+[[package]]
+name = "bombadil-rpc"
+version = "0.7.10"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "boa_engine",
+ "bombadil",
+ "bombadil-schema",
+ "bombadil-trace",
+ "libc",
+ "log",
+ "rand 0.10.2",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

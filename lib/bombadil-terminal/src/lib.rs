@@ -21,7 +21,6 @@ use crate::driver::{TerminalAction, TerminalActionTemplate, TerminalSession};
 use crate::state::TerminalState;
 
 pub mod driver;
-pub mod extractors;
 pub mod js;
 pub mod pty;
 pub mod state;

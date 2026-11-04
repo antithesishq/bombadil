@@ -27,7 +27,7 @@ use crate::{
     runner::{
         self, ControlFlow, PropertiesState, PropertyViolation, RunStrategy,
     },
-    specification::domain::Snapshot,
+    specification::{domain::Snapshot, verifier::Verifier},
     styled::{maybe_bold, maybe_red},
     tree::Tree,
 };
@@ -95,6 +95,8 @@ pub struct FuzzOptions<
 > {
     pub rng: Rng,
     pub driver: Arc<D>,
+    /// Bundled specification each run builds its verifier from.
+    pub specification_bundle: Arc<str>,
     /// Creates the driver-specific strategy that each run uses. It
     /// decides when a run stops and which actions are allowed, but
     /// its choice of action is ignored. It should not print.
@@ -117,6 +119,7 @@ pub fn fuzz<
     FuzzOptions {
         mut rng,
         driver,
+        specification_bundle,
         strategy,
         interrupted,
         time_limit_fuzz,
@@ -143,40 +146,43 @@ where
         let worker_id = WorkerId(i);
         let run_id_next = run_id_next.clone();
         let driver = driver.clone();
+        let specification_bundle = specification_bundle.clone();
         let strategy = strategy.clone();
         let output_writer = output_writer.clone();
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
         log::debug!("spawning {worker_id}");
-        let handle = thread::spawn(move || {
-            let fuzz_worker_thread = FuzzWorkerThread {
-                driver,
-                strategy,
-                output_writer,
-                worker_tx,
-                interrupted,
-                seed,
-                time_limit: time_limit_run,
-                fuzz_deadline,
-                worker_id,
-                run_id_next,
-                swarm,
-            };
-            let outcome =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    fuzz_worker_thread.run()
-                }));
-            if let Err(payload) = outcome {
-                let message = payload
-                    .downcast_ref::<&'static str>()
-                    .map(|s| (*s).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| {
-                        "<non-string panic payload>".to_string()
-                    });
-                log::error!("worker {worker_id} panicked: {message}");
-            }
-        });
+        let handle = thread::Builder::new().stack_size(8 * 1024 * 1024).spawn(
+            move || {
+                let fuzz_worker_thread = FuzzWorkerThread {
+                    driver,
+                    specification_bundle,
+                    strategy,
+                    output_writer,
+                    worker_tx,
+                    interrupted,
+                    seed,
+                    time_limit: time_limit_run,
+                    fuzz_deadline,
+                    worker_id,
+                    run_id_next,
+                    swarm,
+                };
+                let outcome = std::panic::catch_unwind(
+                    std::panic::AssertUnwindSafe(|| fuzz_worker_thread.run()),
+                );
+                if let Err(payload) = outcome {
+                    let message = payload
+                        .downcast_ref::<&'static str>()
+                        .map(|s| (*s).to_string())
+                        .or_else(|| payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| {
+                            "<non-string panic payload>".to_string()
+                        });
+                    log::error!("worker {worker_id} panicked: {message}");
+                }
+            },
+        )?;
         workers.push(Worker {
             worker_id,
             run_id: None,
@@ -375,6 +381,7 @@ struct FuzzWorkerThread<
     MakeStrategy,
 > {
     driver: Arc<D>,
+    specification_bundle: Arc<str>,
     strategy: Arc<MakeStrategy>,
     output_writer: Arc<Mutex<Writer>>,
     worker_tx: mpmc::Sender<WorkerMessage<D::Session>>,
@@ -409,8 +416,7 @@ impl<
                 iteration,
                 run_id,
             );
-            let test_start = Time::from_system_time(SystemTime::now());
-            if test_start > self.fuzz_deadline {
+            if Time::from_system_time(SystemTime::now()) > self.fuzz_deadline {
                 break;
             }
             let run_seed = rng.next_u64();
@@ -422,10 +428,15 @@ impl<
             } else {
                 FuzzMode::RandomWalk
             };
-            let (mut session, verifier) = self
+            let verifier = Verifier::new(&self.specification_bundle)
+                .expect("specification initiate failed");
+            let mut session = self
                 .driver
                 .new_session(run_id)
                 .expect("driver initiate failed");
+            // The run's time limit counts from when its session is ready, so
+            // drivers that take long to start still get the whole run.
+            let test_start = Time::from_system_time(SystemTime::now());
 
             let mut strategy = FuzzStrategy {
                 inner: (self.strategy)(),

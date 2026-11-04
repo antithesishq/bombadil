@@ -76,19 +76,13 @@ struct FakeDriver {
 impl InterfaceDriver for FakeDriver {
     type Session = FakeSession;
 
-    fn new_session(
-        &self,
-        _run_id: RunId,
-    ) -> std::result::Result<(FakeSession, Verifier), anyhow::Error> {
+    fn new_session(&self, _run_id: RunId) -> Result<FakeSession> {
         self.initiated.store(true, Ordering::SeqCst);
-        Ok((
-            FakeSession {
-                terminated: self.terminated.clone(),
-                next_event_calls: self.next_event_calls.clone(),
-                terminate_fails: false,
-            },
-            dummy_verifier(),
-        ))
+        Ok(FakeSession {
+            terminated: self.terminated.clone(),
+            next_event_calls: self.next_event_calls.clone(),
+            terminate_fails: false,
+        })
     }
 }
 
@@ -103,7 +97,9 @@ impl InterfaceSession for FakeSession {
     type ActionTemplate = FakeAction;
     type State = FakeState;
 
-    const STALL_TIMEOUT: Duration = Duration::MAX;
+    fn stall_timeout(&self) -> Duration {
+        Duration::MAX
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
@@ -217,7 +213,8 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
 
     let mut trace_writer = NoopTraceWriter;
 
-    let (mut session, verifier) = driver
+    let verifier = dummy_verifier();
+    let mut session = driver
         .new_session(RunId::default())
         .expect("driver failed to initiate");
     runner::run(
@@ -259,7 +256,9 @@ impl<const STALL_MILLIS: u64> InterfaceSession for StuckSession<STALL_MILLIS> {
     type ActionTemplate = FakeAction;
     type State = FakeState;
 
-    const STALL_TIMEOUT: Duration = Duration::from_millis(STALL_MILLIS);
+    fn stall_timeout(&self) -> Duration {
+        Duration::from_millis(STALL_MILLIS)
+    }
 
     fn terminate(&mut self) -> Result<()> {
         self.terminated.store(true, Ordering::SeqCst);
