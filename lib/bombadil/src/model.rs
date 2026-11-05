@@ -895,6 +895,24 @@ mod tests {
     }
 
     #[test]
+    fn weights_file_reads_defaults() {
+        // state-model query.py writes `simhash.defaults` (null = absent) next
+        // to the weights; a file without it keys as before.
+        let lookup: SimhashLookup = serde_json::from_str(
+            r#"{"weights": {"location": 1, "coverage./app.js#badge": 63},
+                "radius": 1,
+                "defaults": {"coverage./app.js#badge": null, "snapshot.combo": 42}}"#,
+        )
+        .unwrap();
+        assert_eq!(lookup.defaults.get("coverage./app.js#badge"), Some(&None));
+        assert_eq!(lookup.defaults.get("snapshot.combo"), Some(&Some(42)));
+        let plain: SimhashLookup =
+            serde_json::from_str(r#"{"weights": {"location": 1}}"#).unwrap();
+        assert!(plain.defaults.is_empty());
+        assert_eq!(plain.radius, 0);
+    }
+
+    #[test]
     fn json_leaves_flatten_paths() {
         let mut leaves = Vec::new();
         json_leaves(
