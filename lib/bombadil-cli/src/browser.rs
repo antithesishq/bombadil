@@ -174,11 +174,13 @@ pub struct RunSharedOptions {
     pub coverage_symbols: Option<PathBuf>,
 
     /// Record, per state, a `cov.<script>#<function>` hash for every function
-    /// of the app's own code whose blocks ran in that step (see
-    /// `instrumentation::function_hashes`): coverage as state key
-    /// components, selectable by a key's weights like any named hash.
-    #[arg(long)]
-    pub coverage_components: bool,
+    /// whose blocks ran in that step (see `instrumentation::function_hashes`):
+    /// coverage as state key components, selectable by a key's weights like
+    /// any named hash. The value lists script id prefixes to include, comma
+    /// separated (`/app.js`, `/assets/chunks/theme`); without a value every
+    /// script that is not vendor code is included.
+    #[arg(long, value_name = "SCRIPT_PREFIXES", num_args = 0..=1, default_missing_value = "")]
+    pub coverage_components: Option<String>,
 
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
@@ -549,6 +551,18 @@ fn load_specification(target: &TargetOptions) -> Specification {
     }
 }
 
+/// `--coverage-components` as the script prefixes to include: `None` when
+/// the flag is absent, an empty list for the flag without a value.
+fn coverage_scripts(value: Option<&str>) -> Option<Vec<String>> {
+    value.map(|v| {
+        v.split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_string)
+            .collect()
+    })
+}
+
 fn resolve_allow_urls(target: &TargetOptions) -> Result<Vec<MatchPattern>> {
     if target.allow_urls.is_empty() {
         Ok(vec![
@@ -636,7 +650,7 @@ fn browser_test(
     }
 
     bombadil_browser::instrumentation::set_coverage_components(
-        shared_options.coverage_components,
+        coverage_scripts(shared_options.coverage_components.as_deref()),
     );
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let origin = shared_options.target.origin.url;
@@ -776,7 +790,7 @@ fn browser_fuzz(
     };
 
     bombadil_browser::instrumentation::set_coverage_components(
-        shared_options.coverage_components,
+        coverage_scripts(shared_options.coverage_components.as_deref()),
     );
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let driver = Arc::new(BrowserDriver {

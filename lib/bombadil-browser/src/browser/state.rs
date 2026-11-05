@@ -78,8 +78,10 @@ impl BrowserState {
     /// [`BlockRegistry::function_hashes`]).
     pub(crate) fn compute_hashes(&mut self, blocks: &BlockRegistry) {
         let mut hashes = BTreeMap::new();
-        if crate::instrumentation::coverage_components() {
-            hashes.extend(blocks.function_hashes(&self.coverage.branches));
+        if let Some(scripts) = crate::instrumentation::coverage_components() {
+            hashes.extend(
+                blocks.function_hashes(&self.coverage.branches, &scripts),
+            );
         }
         self.hashes = hashes;
     }

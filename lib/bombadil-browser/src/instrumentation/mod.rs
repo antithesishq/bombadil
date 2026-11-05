@@ -160,66 +160,83 @@ impl BlockRegistry {
         file.flush()
     }
 
-    /// Per-function coverage components of a step: for every function of the
-    /// app's own code whose blocks ran (`ids`: the step's `branches`), the entry
-    /// `coverage.<script>#<function>` holds the hash of the ids that ran, as sorted
-    /// decimal strings (the twin of state-model's `layout_search.py`
-    /// `coverage.*` candidates). A function that did not run has no entry, so its
-    /// slice of a state key is zeros: the component's default. Vendor blocks
-    /// (the source map's ignore list, or a `node_modules` source) are left out,
-    /// as in `query.py vendor_blocks`.
+    /// Per-function coverage components of a step: see
+    /// [`function_hashes_with`], here over the registered blocks.
     pub fn function_hashes(
         &self,
         ids: &[u32],
+        scripts: &[String],
     ) -> std::collections::BTreeMap<String, u64> {
         let table = self.0.lock().expect("block registry poisoned");
-        let mut groups: std::collections::BTreeMap<String, Vec<u32>> =
-            std::collections::BTreeMap::new();
-        for id in ids {
-            let Some(&index) = table.ids.get(id) else {
-                continue;
-            };
-            let block = &table.blocks[index];
-            let vendor = block.vendor
-                || block
-                    .source
-                    .as_deref()
-                    .is_some_and(|source| source.contains("/node_modules/"));
-            if vendor {
-                continue;
-            }
-            groups
-                .entry(format!("coverage.{}#{}", block.script, block.function))
-                .or_default()
-                .push(*id);
-        }
-        drop(table);
-        groups
-            .into_iter()
-            .filter_map(|(name, mut ids)| {
-                ids.sort_unstable();
-                let features: Vec<String> =
-                    ids.iter().map(u32::to_string).collect();
-                bombadil::model::feature_hash(
-                    features.iter().map(String::as_str),
-                )
-                .map(|hash| (name, hash))
-            })
-            .collect()
+        function_hashes_with(ids, scripts, |id| {
+            table.ids.get(&id).map(|&index| &table.blocks[index])
+        })
     }
 }
 
-/// Whether every state carries the per-function coverage hashes of
-/// [`BlockRegistry::function_hashes`] (`--coverage-components`).
-static COVERAGE_COMPONENTS: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+/// The script ID prefixes whose functions get coverage hashes
+/// (`--coverage-components`). `None` for none, and an empty list for every
+/// script that is not vendor code.
+static COVERAGE_COMPONENTS: std::sync::Mutex<Option<Vec<String>>> =
+    std::sync::Mutex::new(None);
 
-pub fn set_coverage_components(on: bool) {
-    COVERAGE_COMPONENTS.store(on, std::sync::atomic::Ordering::Relaxed);
+pub fn set_coverage_components(scripts: Option<Vec<String>>) {
+    *COVERAGE_COMPONENTS
+        .lock()
+        .expect("coverage components poisoned") = scripts;
 }
 
-pub fn coverage_components() -> bool {
-    COVERAGE_COMPONENTS.load(std::sync::atomic::Ordering::Relaxed)
+pub fn coverage_components() -> Option<Vec<String>> {
+    COVERAGE_COMPONENTS
+        .lock()
+        .expect("coverage components poisoned")
+        .clone()
+}
+
+/// For every non-vendor function whose blocks ran (`ids`),
+/// `coverage.<script>#<function>` holds the hash of the IDs that ran. A
+/// function that did not run has no entry. `scripts` restricts the functions to
+/// scripts whose ID starts with one of the prefixes (empty: all of them).
+///
+/// `block` resolves an ID to its block. Public so that training can derive the
+/// same components from a recorded block table.
+pub fn function_hashes_with<'a>(
+    ids: &[u32],
+    scripts: &[String],
+    block: impl Fn(u32) -> Option<&'a Block>,
+) -> std::collections::BTreeMap<String, u64> {
+    let mut groups: std::collections::BTreeMap<String, Vec<u32>> =
+        std::collections::BTreeMap::new();
+    for id in ids {
+        let Some(block) = block(*id) else {
+            continue;
+        };
+        let vendor = block.vendor
+            || block
+                .source
+                .as_deref()
+                .is_some_and(|source| source.contains("/node_modules/"));
+        if vendor
+            || !(scripts.is_empty()
+                || scripts.iter().any(|p| block.script.starts_with(p)))
+        {
+            continue;
+        }
+        groups
+            .entry(format!("coverage.{}#{}", block.script, block.function))
+            .or_default()
+            .push(*id);
+    }
+    groups
+        .into_iter()
+        .filter_map(|(name, mut ids)| {
+            ids.sort_unstable();
+            let features: Vec<String> =
+                ids.iter().map(u32::to_string).collect();
+            bombadil::model::feature_hash(features.iter().map(String::as_str))
+                .map(|hash| (name, hash))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -352,12 +369,10 @@ mod tests {
             block(0x7000_0004, "render", true),
         ]);
         // Order of ids does not matter; a vendor block and an unknown id are left out.
-        let hashes = registry.function_hashes(&[
-            0x7000_0002,
-            0x7000_0004,
-            0x7000_0001,
-            0x7000_0009,
-        ]);
+        let hashes = registry.function_hashes(
+            &[0x7000_0002, 0x7000_0004, 0x7000_0001, 0x7000_0009],
+            &[],
+        );
         let expected =
             bombadil::model::feature_hash(["1879048193", "1879048194"])
                 .unwrap();
@@ -369,7 +384,19 @@ mod tests {
             )])
         );
         // A function that did not run has no entry.
-        assert!(registry.function_hashes(&[0x7000_0004]).is_empty());
-        assert_eq!(registry.function_hashes(&[0x7000_0003]).len(), 1);
+        assert!(registry.function_hashes(&[0x7000_0004], &[]).is_empty());
+        assert_eq!(registry.function_hashes(&[0x7000_0003], &[]).len(), 1);
+        // Script prefixes: only the listed scripts' functions.
+        assert_eq!(
+            registry
+                .function_hashes(&[0x7000_0003], &["/app".to_string()])
+                .len(),
+            1
+        );
+        assert!(
+            registry
+                .function_hashes(&[0x7000_0003], &["/vendor".to_string()])
+                .is_empty()
+        );
     }
 }
