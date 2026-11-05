@@ -504,6 +504,14 @@ fn run_failing(
 
 #[test]
 fn run_reports_the_first_error_and_still_finishes_and_terminates() {
+    #[derive(Debug)]
+    struct Case<'a> {
+        run_fails: bool,
+        finish_failure: Option<&'static str>,
+        terminate_fails: bool,
+        expected_error: Option<&'a str>,
+    }
+
     // Installed before running, so nothing logged is missed.
     logged_errors();
     let finish = Some("finish failed");
@@ -515,31 +523,64 @@ fn run_reports_the_first_error_and_still_finishes_and_terminates() {
     let finish_repeated_error =
         format!("failed to finish the trace: {repeated}");
     let cases = [
-        ((false, None, false), None),
-        ((true, finish, true), Some("run failed")),
-        ((true, None, true), Some("run failed")),
-        ((true, finish_repeated, false), Some("run failed")),
-        (
-            (false, finish, true),
-            Some("failed to finish the trace: finish failed"),
-        ),
-        (
-            (false, None, true),
-            Some("failed to terminate the session: terminate failed"),
-        ),
-        (
-            (false, finish, false),
-            Some("failed to finish the trace: finish failed"),
-        ),
-        (
-            (false, finish_repeated, false),
-            Some(finish_repeated_error.as_str()),
-        ),
+        Case {
+            run_fails: false,
+            finish_failure: None,
+            terminate_fails: false,
+            expected_error: None,
+        },
+        Case {
+            run_fails: true,
+            finish_failure: finish,
+            terminate_fails: true,
+            expected_error: Some("run failed"),
+        },
+        Case {
+            run_fails: true,
+            finish_failure: None,
+            terminate_fails: true,
+            expected_error: Some("run failed"),
+        },
+        Case {
+            run_fails: true,
+            finish_failure: finish_repeated,
+            terminate_fails: false,
+            expected_error: Some("run failed"),
+        },
+        Case {
+            run_fails: false,
+            finish_failure: finish,
+            terminate_fails: true,
+            expected_error: Some("failed to finish the trace: finish failed"),
+        },
+        Case {
+            run_fails: false,
+            finish_failure: None,
+            terminate_fails: true,
+            expected_error: Some(
+                "failed to terminate the session: terminate failed",
+            ),
+        },
+        Case {
+            run_fails: false,
+            finish_failure: finish,
+            terminate_fails: false,
+            expected_error: Some("failed to finish the trace: finish failed"),
+        },
+        Case {
+            run_fails: false,
+            finish_failure: finish_repeated,
+            terminate_fails: false,
+            expected_error: Some(finish_repeated_error.as_str()),
+        },
     ];
-    for ((run, finish, terminate), expected) in cases {
-        let outcome = run_failing(run, finish, terminate);
-        let case = (run, finish, terminate);
-        assert_eq!(outcome.error.as_deref(), expected, "{case:?}");
+    for case in cases {
+        let outcome = run_failing(
+            case.run_fails,
+            case.finish_failure,
+            case.terminate_fails,
+        );
+        assert_eq!(outcome.error.as_deref(), case.expected_error, "{case:?}");
         assert_eq!(outcome.finish_calls, 1, "{case:?}");
         assert!(outcome.terminate_called, "{case:?}");
     }
