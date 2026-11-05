@@ -152,6 +152,32 @@ pub fn combine(
     Some(combined)
 }
 
+/// [`combine`] with per-step allocation for the names that have a default
+/// (see [`SimhashLookup::defaults`]): such a name counts only when its hash
+/// is present and differs from its default; the split is over the names
+/// that count. Names without a default keep their fixed share, so a weights
+/// file without `defaults` keys exactly as before.
+pub fn combine_with_defaults(
+    hashes: &BTreeMap<String, u64>,
+    weights: &BTreeMap<String, i64>,
+    defaults: &BTreeMap<String, Option<u64>>,
+) -> Option<u64> {
+    if defaults.is_empty() {
+        return combine(hashes, weights);
+    }
+    let active: BTreeMap<String, i64> = weights
+        .iter()
+        .filter(|(name, _)| match defaults.get(*name) {
+            None => true,
+            Some(default) => hashes
+                .get(*name)
+                .is_some_and(|hash| Some(*hash) != *default),
+        })
+        .map(|(name, weight)| (name.clone(), *weight))
+        .collect();
+    combine(hashes, &active)
+}
+
 /// Splits 64 bits in proportion to `weights` by largest remainder; ties go to
 /// the earlier weight.
 fn allocate_bits(weights: &[u64]) -> Vec<u32> {
@@ -283,6 +309,18 @@ pub struct SimhashLookup {
     /// The largest Hamming distance at which a learned state still applies.
     #[serde(default)]
     pub radius: u32,
+    /// Per name, the hash the component is at when it has nothing to say
+    /// (`null`: absent). A name with a default takes part in a state's bit
+    /// split only when its hash is present and off its default; otherwise
+    /// it is dropped and the other names share its bits
+    /// ([`combine_with_defaults`]). A goal component (a `coverage.<function>`
+    /// hash with default `null`, a snapshot of a counter at its idle value)
+    /// then splits the states only where it is active, and its weight
+    /// decides how many bits the route components keep there: at the
+    /// lookup's radius 1, a weight ≥ 63 × theirs leaves them within the
+    /// radius, so the goal component alone keys those states.
+    #[serde(default)]
+    pub defaults: BTreeMap<String, Option<u64>>,
 }
 
 impl Weights {
@@ -362,9 +400,13 @@ impl Weights {
         state: &(impl RunState + ?Sized),
         snapshots: &[Snapshot],
     ) -> Option<&str> {
-        combine(&state_hashes(state, snapshots), &self.simhash.weights)
-            .and_then(|hash| self.nearest(hash))
-            .map(|(key, _)| key)
+        combine_with_defaults(
+            &state_hashes(state, snapshots),
+            &self.simhash.weights,
+            &self.simhash.defaults,
+        )
+        .and_then(|hash| self.nearest(hash))
+        .map(|(key, _)| key)
     }
 
     /// [`Weights::reweight`] with another weights table looked up at the same
@@ -380,9 +422,12 @@ impl Weights {
         let Some(pruned) = tree.clone().prune() else {
             return (tree, false);
         };
-        let learned =
-            combine(&state_hashes(state, snapshots), &self.simhash.weights)
-                .and_then(|hash| self.nearest(hash));
+        let learned = combine_with_defaults(
+            &state_hashes(state, snapshots),
+            &self.simhash.weights,
+            &self.simhash.defaults,
+        )
+        .and_then(|hash| self.nearest(hash));
         let Some((state_key, learned)) = learned else {
             return (tree, false);
         };
@@ -609,6 +654,7 @@ mod tests {
             simhash: SimhashLookup {
                 weights: BTreeMap::from([("place".to_string(), 1)]),
                 radius,
+                defaults: BTreeMap::new(),
             },
             simhashes: Vec::new(),
             states: HashMap::from([(format!("{stored:016x}"), learned)]),
@@ -791,6 +837,61 @@ mod tests {
         assert_eq!(combine(&hashes, &half), Some(0x0000_0002_ffff_ffff));
         let only_c = BTreeMap::from([("c".to_string(), 1)]);
         assert_eq!(combine(&hashes, &only_c), None);
+    }
+
+    #[test]
+    fn combine_defaults_reallocate_bits() {
+        // Twin of train.py's `combine` with `defaults` (state-model LOG #438).
+        let weights =
+            BTreeMap::from([("a".to_string(), 1), ("b".to_string(), 1)]);
+        let both = BTreeMap::from([
+            ("a".to_string(), u64::MAX),
+            ("b".to_string(), 0b10),
+        ]);
+        let only_a = BTreeMap::from([("a".to_string(), u64::MAX)]);
+        // No defaults: as `combine`, an absent name keeps its zero slice.
+        let none = BTreeMap::new();
+        assert_eq!(
+            combine_with_defaults(&both, &weights, &none),
+            Some(0x0000_0002_ffff_ffff)
+        );
+        assert_eq!(
+            combine_with_defaults(&only_a, &weights, &none),
+            Some(0x0000_0000_ffff_ffff)
+        );
+        // b defaults to absent: present and off default it keys as before;
+        // absent it drops out and a takes all 64 bits.
+        let absent = BTreeMap::from([("b".to_string(), None)]);
+        assert_eq!(
+            combine_with_defaults(&both, &weights, &absent),
+            Some(0x0000_0002_ffff_ffff)
+        );
+        assert_eq!(
+            combine_with_defaults(&only_a, &weights, &absent),
+            Some(u64::MAX)
+        );
+        // b defaults to a value: at that value it drops out too.
+        let idle = BTreeMap::from([("b".to_string(), Some(0b10))]);
+        assert_eq!(
+            combine_with_defaults(&both, &weights, &idle),
+            Some(u64::MAX)
+        );
+        let off = BTreeMap::from([
+            ("a".to_string(), u64::MAX),
+            ("b".to_string(), 0b11),
+        ]);
+        assert_eq!(
+            combine_with_defaults(&off, &weights, &idle),
+            Some(0x0000_0003_ffff_ffff)
+        );
+        // A goal weight of 63 x the route's leaves the route one bit.
+        let goal =
+            BTreeMap::from([("a".to_string(), 1), ("b".to_string(), 63)]);
+        assert_eq!(allocate_bits(&[1, 63]), vec![1, 63]);
+        assert_eq!(
+            combine_with_defaults(&only_a, &goal, &absent),
+            Some(u64::MAX)
+        );
     }
 
     #[test]

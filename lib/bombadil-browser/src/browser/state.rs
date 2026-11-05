@@ -1,3 +1,4 @@
+use crate::instrumentation::BlockRegistry;
 use crate::instrumentation::js::{
     EDGES_CURRENT, EDGES_PREVIOUS, HITS, NAMESPACE,
 };
@@ -73,11 +74,14 @@ impl RunState for BrowserState {
 }
 
 impl BrowserState {
-    /// Computes [`BrowserState::hashes`]: the driver's own named hashes of the
-    /// state (none yet; the page's location is the `abstractLocation` default
-    /// extract, a snapshot like any other).
-    pub(crate) fn compute_hashes(&mut self) {
-        self.hashes = BTreeMap::new();
+    /// Computes [`BrowserState::hashes`] (see
+    /// [`BlockRegistry::function_hashes`]).
+    pub(crate) fn compute_hashes(&mut self, blocks: &BlockRegistry) {
+        let mut hashes = BTreeMap::new();
+        if crate::instrumentation::coverage_components() {
+            hashes.extend(blocks.function_hashes(&self.coverage.branches));
+        }
+        self.hashes = hashes;
     }
 }
 

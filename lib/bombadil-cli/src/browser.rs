@@ -173,6 +173,13 @@ pub struct RunSharedOptions {
     #[arg(long, value_name = "FILE")]
     pub coverage_symbols: Option<PathBuf>,
 
+    /// Record, per state, a `cov.<script>#<function>` hash for every function
+    /// of the app's own code whose blocks ran in that step (see
+    /// `instrumentation::function_hashes`): coverage as state key
+    /// components, selectable by a key's weights like any named hash.
+    #[arg(long)]
+    pub coverage_components: bool,
+
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
@@ -628,6 +635,9 @@ fn browser_test(
         );
     }
 
+    bombadil_browser::instrumentation::set_coverage_components(
+        shared_options.coverage_components,
+    );
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let origin = shared_options.target.origin.url;
 
@@ -765,6 +775,9 @@ fn browser_fuzz(
         overwrite: shared_options.output_path_overwrite,
     };
 
+    bombadil_browser::instrumentation::set_coverage_components(
+        shared_options.coverage_components,
+    );
     let allow_urls = resolve_allow_urls(&shared_options.target)?;
     let driver = Arc::new(BrowserDriver {
         origin: shared_options.target.origin.url,

@@ -118,7 +118,8 @@ pub struct BlockRegistry(std::sync::Arc<std::sync::Mutex<BlockTable>>);
 #[derive(Debug, Default)]
 struct BlockTable {
     blocks: Vec<Block>,
-    ids: std::collections::BTreeSet<u32>,
+    /// Each registered id's position in `blocks`.
+    ids: std::collections::BTreeMap<u32, usize>,
 }
 
 impl BlockRegistry {
@@ -127,7 +128,9 @@ impl BlockRegistry {
     pub fn register(&self, blocks: impl IntoIterator<Item = Block>) {
         let mut table = self.0.lock().expect("block registry poisoned");
         for block in blocks {
-            if table.ids.insert(block.id) {
+            if !table.ids.contains_key(&block.id) {
+                let index = table.blocks.len();
+                table.ids.insert(block.id, index);
                 table.blocks.push(block);
             }
         }
@@ -156,6 +159,67 @@ impl BlockRegistry {
         }
         file.flush()
     }
+
+    /// Per-function coverage components of a step: for every function of the
+    /// app's own code whose blocks ran (`ids`: the step's `branches`), the entry
+    /// `coverage.<script>#<function>` holds the hash of the ids that ran, as sorted
+    /// decimal strings (the twin of state-model's `layout_search.py`
+    /// `coverage.*` candidates). A function that did not run has no entry, so its
+    /// slice of a state key is zeros: the component's default. Vendor blocks
+    /// (the source map's ignore list, or a `node_modules` source) are left out,
+    /// as in `query.py vendor_blocks`.
+    pub fn function_hashes(
+        &self,
+        ids: &[u32],
+    ) -> std::collections::BTreeMap<String, u64> {
+        let table = self.0.lock().expect("block registry poisoned");
+        let mut groups: std::collections::BTreeMap<String, Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for id in ids {
+            let Some(&index) = table.ids.get(id) else {
+                continue;
+            };
+            let block = &table.blocks[index];
+            let vendor = block.vendor
+                || block
+                    .source
+                    .as_deref()
+                    .is_some_and(|source| source.contains("/node_modules/"));
+            if vendor {
+                continue;
+            }
+            groups
+                .entry(format!("coverage.{}#{}", block.script, block.function))
+                .or_default()
+                .push(*id);
+        }
+        drop(table);
+        groups
+            .into_iter()
+            .filter_map(|(name, mut ids)| {
+                ids.sort_unstable();
+                let features: Vec<String> =
+                    ids.iter().map(u32::to_string).collect();
+                bombadil::model::feature_hash(
+                    features.iter().map(String::as_str),
+                )
+                .map(|hash| (name, hash))
+            })
+            .collect()
+    }
+}
+
+/// Whether every state carries the per-function coverage hashes of
+/// [`BlockRegistry::function_hashes`] (`--coverage-components`).
+static COVERAGE_COMPONENTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_coverage_components(on: bool) {
+    COVERAGE_COMPONENTS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn coverage_components() -> bool {
+    COVERAGE_COMPONENTS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(test)]
@@ -263,5 +327,49 @@ mod tests {
             .map(|id| id.to_string())
             .join("\n")
         );
+    }
+
+    fn block(id: u32, function: &str, vendor: bool) -> Block {
+        Block {
+            id,
+            script: "/app.js".into(),
+            function: function.into(),
+            line: 1,
+            column: 0,
+            source: None,
+            source_line: None,
+            vendor,
+        }
+    }
+
+    #[test]
+    fn function_hashes_group_a_steps_blocks_by_function() {
+        let registry = BlockRegistry::default();
+        registry.register([
+            block(0x7000_0001, "badge", false),
+            block(0x7000_0002, "badge", false),
+            block(0x7000_0003, "noteStart", false),
+            block(0x7000_0004, "render", true),
+        ]);
+        // Order of ids does not matter; a vendor block and an unknown id are left out.
+        let hashes = registry.function_hashes(&[
+            0x7000_0002,
+            0x7000_0004,
+            0x7000_0001,
+            0x7000_0009,
+        ]);
+        let expected =
+            bombadil::model::feature_hash(["1879048193", "1879048194"])
+                .unwrap();
+        assert_eq!(
+            hashes,
+            std::collections::BTreeMap::from([(
+                "coverage./app.js#badge".to_string(),
+                expected
+            )])
+        );
+        // A function that did not run has no entry.
+        assert!(registry.function_hashes(&[0x7000_0004]).is_empty());
+        assert_eq!(registry.function_hashes(&[0x7000_0003]).len(), 1);
     }
 }
