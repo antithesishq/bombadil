@@ -3,11 +3,13 @@ pub mod js;
 pub mod source_id;
 pub mod source_map;
 
+use std::collections::{BTreeMap, HashMap};
 use std::io::{self, Write};
 use std::iter;
 use std::sync::{Arc, mpsc};
 
 use bombadil::hash::{FNV_OFFSET, fnv1a64_from};
+use bombadil::model::FeatureHasher;
 use source_id::{SourceId, SourceIds};
 
 /// Configuration for which types of JavaScript to instrument
@@ -123,18 +125,113 @@ pub struct BlockRegistry(std::sync::Arc<std::sync::Mutex<BlockTable>>);
 struct BlockTable {
     blocks: Vec<Block>,
     /// Position in `blocks` by ID.
-    ids: std::collections::BTreeMap<u32, usize>,
+    ids: BTreeMap<u32, usize>,
     source_ids: SourceIds,
     /// Receives each new block, in registration order.
     new_blocks: Option<mpsc::Sender<Block>>,
+    components: Option<Components>,
+}
+
+/// Which scripts' functions get a coverage hash per state
+/// (`--coverage-components`). Vendor code never does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CoverageComponents {
+    AllScripts,
+    /// Scripts whose ID starts with one of the prefixes.
+    ScriptPrefixes(Vec<String>),
+}
+
+impl CoverageComponents {
+    fn includes(&self, script: &str) -> bool {
+        match self {
+            CoverageComponents::AllScripts => true,
+            CoverageComponents::ScriptPrefixes(prefixes) => {
+                prefixes.iter().any(|prefix| script.starts_with(prefix))
+            }
+        }
+    }
+}
+
+/// The functions of the registered blocks that get a coverage hash, worked
+/// out as blocks are registered so that a state only looks its blocks up.
+#[derive(Debug)]
+struct Components {
+    scripts: CoverageComponents,
+    /// `coverage.<script>#<function>` of each function.
+    names: Vec<String>,
+    /// Position in `names` by script and function. `None` for a script
+    /// that is left out.
+    functions: HashMap<(Arc<str>, Arc<str>), Option<usize>>,
+    /// Each block's position in `names`, in the order of
+    /// [`BlockTable::blocks`]. `None` for vendor code and scripts left out.
+    functions_of_blocks: Vec<Option<usize>>,
+    /// Scratch space of [`BlockRegistry::function_hashes`], empty between
+    /// calls: the hash so far of each function, and the functions that
+    /// have one.
+    hashers: Vec<Option<FeatureHasher>>,
+    functions_ran: Vec<usize>,
+}
+
+impl Components {
+    fn new(scripts: CoverageComponents) -> Self {
+        Components {
+            scripts,
+            names: Vec::new(),
+            functions: HashMap::new(),
+            functions_of_blocks: Vec::new(),
+            hashers: Vec::new(),
+            functions_ran: Vec::new(),
+        }
+    }
+
+    fn register(&mut self, block: &Block) {
+        let vendor = block.vendor
+            || block.source.as_deref().is_some_and(|source| {
+                // A source key has no leading `/`.
+                source.starts_with("node_modules/")
+                    || source.contains("/node_modules/")
+            });
+        let function = if vendor {
+            None
+        } else {
+            *self
+                .functions
+                .entry((block.script.clone(), block.function.clone()))
+                .or_insert_with(|| {
+                    self.scripts.includes(&block.script).then(|| {
+                        self.names.push(format!(
+                            "coverage.{}#{}",
+                            block.script, block.function
+                        ));
+                        self.hashers.push(None);
+                        self.names.len() - 1
+                    })
+                })
+        };
+        self.functions_of_blocks.push(function);
+    }
 }
 
 impl BlockRegistry {
+    /// A registry whose blocks give states their
+    /// [`BlockRegistry::function_hashes`].
+    pub fn with_coverage_components(scripts: CoverageComponents) -> Self {
+        BlockRegistry(Arc::new(std::sync::Mutex::new(BlockTable {
+            components: Some(Components::new(scripts)),
+            ..BlockTable::default()
+        })))
+    }
+
     /// A registry that sends each new block on the returned channel, in
     /// registration order, until [`BlockRegistry::close`].
-    pub fn with_channel() -> (Self, mpsc::Receiver<Block>) {
+    pub fn with_channel(
+        components: Option<CoverageComponents>,
+    ) -> (Self, mpsc::Receiver<Block>) {
         let (sender, receiver) = mpsc::channel();
-        let registry = BlockRegistry::default();
+        let registry = components.map_or_else(
+            BlockRegistry::default,
+            BlockRegistry::with_coverage_components,
+        );
         registry.lock().new_blocks = Some(sender);
         (registry, receiver)
     }
@@ -160,6 +257,9 @@ impl BlockRegistry {
                     // The receiver is gone if writing failed, which the
                     // writer reports.
                     let _ = new_blocks.send(block.clone());
+                }
+                if let Some(components) = &mut table.components {
+                    components.register(&block);
                 }
                 table.blocks.push(block);
                 continue;
@@ -211,6 +311,52 @@ impl BlockRegistry {
     fn blocks(&self) -> Vec<Block> {
         self.lock().blocks.clone()
     }
+
+    /// For every function with blocks among `ids` (those that ran, sorted
+    /// as [`crate::browser::state::Coverage::branches`] is),
+    /// `coverage.<script>#<function>` holds the
+    /// [`bombadil::model::feature_hash`] of those IDs in decimal. Vendor
+    /// code and scripts outside the [`CoverageComponents`] have no entry,
+    /// and a registry without coverage components gives none.
+    pub fn function_hashes(&self, ids: &[u32]) -> BTreeMap<String, u64> {
+        debug_assert!(ids.is_sorted());
+        let table = &mut *self.lock();
+        let Some(components) = &mut table.components else {
+            return BTreeMap::new();
+        };
+        let Components {
+            names,
+            functions_of_blocks,
+            hashers,
+            functions_ran,
+            ..
+        } = components;
+        for id in ids {
+            let Some(function) = table
+                .ids
+                .get(id)
+                .and_then(|&index| functions_of_blocks[index])
+            else {
+                continue;
+            };
+            let mut digits = [0; 10];
+            let digits = decimal(*id, &mut digits);
+            match &mut hashers[function] {
+                Some(hasher) => hasher.feature(digits),
+                hasher @ None => {
+                    *hasher = Some(FeatureHasher::new(digits));
+                    functions_ran.push(function);
+                }
+            }
+        }
+        functions_ran
+            .drain(..)
+            .filter_map(|function| {
+                let hasher = hashers[function].take()?;
+                Some((names[function].clone(), hasher.finish()))
+            })
+            .collect()
+    }
 }
 
 /// Writes the blocks of `new_blocks` as JSON lines until the channel closes,
@@ -228,6 +374,19 @@ pub fn write_blocks(
         writer.flush()?;
     }
     Ok(())
+}
+
+/// `number` in decimal, written at the end of `buffer`.
+fn decimal(mut number: u32, buffer: &mut [u8; 10]) -> &[u8] {
+    let mut start = buffer.len();
+    loop {
+        start -= 1;
+        buffer[start] = b'0' + (number % 10) as u8;
+        number /= 10;
+        if number == 0 {
+            return &buffer[start..];
+        }
+    }
 }
 
 #[cfg(test)]
@@ -260,7 +419,8 @@ mod tests {
     use super::*;
     use hegel::{
         Generator, TestCase,
-        generators::{booleans, integers, optional, text, vecs},
+        generators::{booleans, integers, optional, sampled_from, text, vecs},
+        one_of,
     };
     use std::collections::BTreeSet;
 
@@ -311,7 +471,7 @@ mod tests {
                 .max_size(6)
                 .print_as_debug(),
         );
-        let (registry, new_blocks) = BlockRegistry::with_channel();
+        let (registry, new_blocks) = BlockRegistry::with_channel(None);
         for batch in batches {
             registry.register(batch);
         }
@@ -373,5 +533,139 @@ mod tests {
             .map(|id| id.to_string())
             .join("\n")
         );
+    }
+
+    /// Blocks of a few scripts, functions and sources, so that functions
+    /// have several blocks and sources are in and out of `node_modules`.
+    #[hegel::composite]
+    fn blocks_of_few_functions(tc: &TestCase) -> Block {
+        let script = one_of!(
+            sampled_from(&["/app.js", "/assets/chunk.js", "/assets/app.js"])
+                .map(str::to_string),
+            text()
+        );
+        let source = one_of!(
+            sampled_from(&[
+                "src/app.ts",
+                "node_modules/react/index.js",
+                "packages/node_modules/lodash/map.js",
+                "src/node_modules",
+                "src/my_node_modules/x.js",
+            ])
+            .map(str::to_string),
+            text()
+        );
+        Block {
+            id: tc.draw_silent(integers::<u32>().max_value(31)),
+            script: tc.draw_silent(script).into(),
+            function: tc
+                .draw_silent(one_of!(
+                    sampled_from(&["<top>", "render", "Store.add"])
+                        .map(str::to_string),
+                    text()
+                ))
+                .into(),
+            line: tc.draw_silent(integers::<u32>().min_value(1)),
+            column: tc.draw_silent(integers::<u32>()),
+            source: tc.draw_silent(optional(source)).map(Arc::from),
+            source_line: tc.draw_silent(optional(integers::<u32>())),
+            vendor: tc.draw_silent(booleans()),
+        }
+    }
+
+    #[hegel::composite]
+    fn coverage_components(tc: &TestCase) -> CoverageComponents {
+        if tc.draw_silent(booleans()) {
+            return CoverageComponents::AllScripts;
+        }
+        let prefix = one_of!(
+            sampled_from(&["/a", "/app.js", "/assets/", "/assets/app.js?"])
+                .map(str::to_string),
+            text()
+        );
+        CoverageComponents::ScriptPrefixes(tc.draw_silent(vecs(prefix)))
+    }
+
+    /// Sorted IDs, some of them registered and some of them of any block
+    /// at all.
+    #[hegel::composite]
+    fn ids_ran(tc: &TestCase) -> Vec<u32> {
+        let ids: BTreeSet<u32> = tc
+            .draw_silent(vecs(one_of!(
+                integers::<u32>().max_value(31),
+                integers::<u32>()
+            )))
+            .into_iter()
+            .collect();
+        ids.into_iter().collect()
+    }
+
+    #[hegel::test]
+    fn function_hashes_are_of_the_included_functions_ids(tc: TestCase) {
+        let components = tc.draw(coverage_components().print_as_debug());
+        let batches = tc.draw(
+            vecs(vecs(blocks_of_few_functions()).max_size(24))
+                .max_size(4)
+                .print_as_debug(),
+        );
+        let registry =
+            BlockRegistry::with_coverage_components(components.clone());
+        for batch in batches {
+            registry.register(batch);
+            let ids = tc.draw(ids_ran());
+            let blocks = registry.blocks();
+
+            let mut ids_of_functions: BTreeMap<String, Vec<String>> =
+                BTreeMap::new();
+            for id in &ids {
+                let Some(block) = blocks.iter().find(|block| block.id == *id)
+                else {
+                    continue;
+                };
+                // Under a directory called node_modules.
+                let in_node_modules =
+                    block.source.as_deref().is_some_and(|source| {
+                        source
+                            .split('/')
+                            .rev()
+                            .skip(1)
+                            .any(|directory| directory == "node_modules")
+                    });
+                let included = match &components {
+                    CoverageComponents::AllScripts => true,
+                    CoverageComponents::ScriptPrefixes(prefixes) => prefixes
+                        .iter()
+                        .any(|prefix| block.script.starts_with(prefix)),
+                };
+                if included && !block.vendor && !in_node_modules {
+                    ids_of_functions
+                        .entry(format!(
+                            "coverage.{}#{}",
+                            block.script, block.function
+                        ))
+                        .or_default()
+                        .push(id.to_string());
+                }
+            }
+            let expected: BTreeMap<String, u64> = ids_of_functions
+                .into_iter()
+                .map(|(name, ids)| {
+                    let hash = bombadil::model::feature_hash(
+                        ids.iter().map(String::as_str),
+                    );
+                    (name, hash.unwrap())
+                })
+                .collect();
+            assert_eq!(registry.function_hashes(&ids), expected);
+        }
+    }
+
+    #[hegel::test]
+    fn function_hashes_are_none_without_coverage_components(tc: TestCase) {
+        let registry = BlockRegistry::default();
+        registry.register(
+            tc.draw(vecs(blocks_of_few_functions()).print_as_debug()),
+        );
+        assert!(registry.function_hashes(&tc.draw(ids_ran())).is_empty());
     }
 }

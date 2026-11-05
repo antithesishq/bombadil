@@ -140,14 +140,34 @@ impl Hasher for StableHasher {
 pub fn feature_hash<'a>(
     features: impl IntoIterator<Item = &'a str>,
 ) -> Option<u64> {
-    let mut hash = FNV_OFFSET;
-    let mut any = false;
+    let mut features = features.into_iter();
+    let mut hasher = FeatureHasher::new(features.next()?.as_bytes());
     for feature in features {
-        any = true;
-        hash = fnv1a64_from(hash, feature.bytes());
-        hash = fnv1a64_from(hash, *b"\n");
+        hasher.feature(feature.as_bytes());
     }
-    any.then(|| mix64(hash))
+    Some(hasher.finish())
+}
+
+/// [`feature_hash`] one feature at a time. It starts with a feature, as no
+/// features have no hash.
+#[derive(Clone, Copy, Debug)]
+pub struct FeatureHasher(u64);
+
+impl FeatureHasher {
+    pub fn new(feature: &[u8]) -> Self {
+        let mut hasher = FeatureHasher(FNV_OFFSET);
+        hasher.feature(feature);
+        hasher
+    }
+
+    pub fn feature(&mut self, feature: &[u8]) {
+        self.0 = fnv1a64_from(self.0, feature.iter().copied());
+        self.0 = fnv1a64_from(self.0, *b"\n");
+    }
+
+    pub fn finish(self) -> u64 {
+        mix64(self.0)
+    }
 }
 
 fn mix64(x: u64) -> u64 {

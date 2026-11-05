@@ -38,7 +38,9 @@ use bombadil_browser::strategy::{
 };
 use bombadil_browser::{
     browser::actions::BrowserAction,
-    instrumentation::{self, BlockRegistry, InstrumentationConfig},
+    instrumentation::{
+        self, BlockRegistry, CoverageComponents, InstrumentationConfig,
+    },
 };
 
 use crate::shrink::{self, ShrinkOptions};
@@ -174,6 +176,24 @@ pub struct RunSharedOptions {
     /// must not exist, and its parent must. Without it no table is written.
     #[arg(long = "coverage-symbols", value_name = "FILE")]
     pub coverage_symbols_path: Option<PathBuf>,
+
+    /// Give each state a `coverage.<script>#<function>` hash for every
+    /// function whose blocks ran in that step: coverage as named hashes of
+    /// the state. PREFIXES are script ID prefixes to include, comma separated
+    /// (`--coverage-components=/app.js,/assets/chunks/theme`); without them
+    /// every script is included. Vendor code never is. A script ID is the
+    /// path and query of the script's URL, behind its host when the script
+    /// is of another origin than the one under test
+    /// (`cdn.example.com/lib/`).
+    #[arg(
+        long,
+        value_name = "PREFIXES",
+        num_args = 0..,
+        require_equals = true,
+        value_delimiter = ',',
+        value_parser = clap::builder::NonEmptyStringValueParser::new(),
+    )]
+    pub coverage_components: Option<Vec<String>>,
 
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
@@ -543,6 +563,17 @@ fn load_specification(target: &TargetOptions) -> Specification {
     }
 }
 
+fn coverage_components(
+    shared_options: &RunSharedOptions,
+) -> Option<CoverageComponents> {
+    let prefixes = shared_options.coverage_components.as_ref()?;
+    Some(if prefixes.is_empty() {
+        CoverageComponents::AllScripts
+    } else {
+        CoverageComponents::ScriptPrefixes(prefixes.clone())
+    })
+}
+
 fn resolve_allow_urls(target: &TargetOptions) -> Result<Vec<MatchPattern>> {
     if target.allow_urls.is_empty() {
         Ok(vec![
@@ -621,9 +652,14 @@ impl CoverageSymbols {
     fn create(
         path: Option<&Path>,
         output_path: &Path,
+        components: Option<CoverageComponents>,
     ) -> Result<(BlockRegistry, Option<Self>)> {
         let Some(path) = path else {
-            return Ok((BlockRegistry::default(), None));
+            let blocks = components.map_or_else(
+                BlockRegistry::default,
+                BlockRegistry::with_coverage_components,
+            );
+            return Ok((blocks, None));
         };
         if stdx::fs::same_file(path, output_path)
             || stdx::fs::same_location(path, output_path)
@@ -636,7 +672,7 @@ impl CoverageSymbols {
         let file = File::create_new(path).with_context(|| {
             format!("creating coverage symbols file {}", path.display())
         })?;
-        let (blocks, new_blocks) = BlockRegistry::with_channel();
+        let (blocks, new_blocks) = BlockRegistry::with_channel(components);
         let writer = thread::Builder::new()
             .name("coverage-symbols".into())
             .spawn(move || instrumentation::write_blocks(new_blocks, file))?;
@@ -673,6 +709,7 @@ fn browser_test(
     let (blocks, coverage_symbols) = CoverageSymbols::create(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
+        coverage_components(&shared_options),
     )?;
     let specification = load_specification(&shared_options.target);
 
@@ -796,6 +833,7 @@ fn browser_fuzz(
     let (blocks, coverage_symbols) = CoverageSymbols::create(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
+        coverage_components(&shared_options),
     )?;
     let specification = load_specification(&shared_options.target);
 
@@ -1035,6 +1073,59 @@ fn browser_shrink(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use hegel::{
+        TestCase,
+        generators::{integers, text, vecs},
+    };
+
+    fn coverage_components(
+        argument: String,
+    ) -> Result<Option<Vec<String>>, clap::Error> {
+        let cli = crate::Cli::try_parse_from([
+            "bombadil",
+            "browser",
+            "test",
+            &argument,
+            "https://example.com",
+        ])?;
+        let crate::Command::Browser {
+            command: BrowserCommand::Test { shared, .. },
+        } = cli.command
+        else {
+            unreachable!()
+        };
+        assert_eq!(shared.target.origin.url.as_str(), "https://example.com/");
+        Ok(shared.coverage_components)
+    }
+
+    #[hegel::composite]
+    fn script_prefixes(tc: &TestCase) -> Vec<String> {
+        tc.draw_silent(vecs(text()))
+            .into_iter()
+            .map(|text| format!("/{}", text.replace(',', "")))
+            .collect()
+    }
+
+    #[hegel::test]
+    fn coverage_components_takes_prefixes_and_leaves_the_origin(tc: TestCase) {
+        let prefixes = tc.draw(script_prefixes());
+        let argument = if prefixes.is_empty() {
+            "--coverage-components".to_string()
+        } else {
+            format!("--coverage-components={}", prefixes.join(","))
+        };
+        assert_eq!(coverage_components(argument).unwrap(), Some(prefixes));
+    }
+
+    #[hegel::test]
+    fn coverage_components_rejects_an_empty_prefix(tc: TestCase) {
+        let mut prefixes = tc.draw(script_prefixes());
+        let index = tc.draw(integers().max_value(prefixes.len()));
+        prefixes.insert(index, String::new());
+        let argument = format!("--coverage-components={}", prefixes.join(","));
+        assert!(coverage_components(argument).is_err());
+    }
 
     const BLOCK_ROW: &str = "{\"id\":7,\"script\":\"/app.js\",\"function\":\"<top>\",\"line\":1,\"column\":0}\n";
 
@@ -1056,8 +1147,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("blocks.jsonl");
         let trace_path = directory.path().join("trace.bin");
-        let create =
-            |path: &Path| CoverageSymbols::create(Some(path), &trace_path);
+        let create = |path: &Path| {
+            CoverageSymbols::create(Some(path), &trace_path, None)
+        };
 
         assert!(create(&path).unwrap().1.is_some());
         assert!(create(&path).is_err());
@@ -1086,7 +1178,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("blocks.jsonl");
         let (blocks, symbols) =
-            CoverageSymbols::create(Some(&path), Path::new("trace.bin"))
+            CoverageSymbols::create(Some(&path), Path::new("trace.bin"), None)
                 .unwrap();
         blocks.register([block()]);
 

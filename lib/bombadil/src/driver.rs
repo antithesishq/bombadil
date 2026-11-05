@@ -50,8 +50,9 @@ pub trait RunState {
 
     /// Named 64-bit hashes of the state, as the driver defines them. Each is
     /// equal for two states when the hashed part of the state is.
-    fn hashes(&self) -> BTreeMap<String, u64> {
-        BTreeMap::new()
+    fn hashes(&self) -> &BTreeMap<String, u64> {
+        static NONE: BTreeMap<String, u64> = BTreeMap::new();
+        &NONE
     }
 }
 

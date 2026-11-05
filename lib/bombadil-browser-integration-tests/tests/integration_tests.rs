@@ -504,7 +504,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
         log::info!("starting runner with infrastructure safety timeout");
         let (result_tx, result_rx) = crossbeam_channel::bounded(1);
-        let (blocks, new_blocks) = BlockRegistry::with_channel();
+        let (blocks, new_blocks) = BlockRegistry::with_channel(None);
         {
             let trace_writer = trace_writer.clone();
             let blocks = blocks.clone();
