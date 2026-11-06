@@ -108,14 +108,25 @@ impl<T: Command> PendingResponse<T> {
     /// A response received before the deadline can be collected after it expires.
     #[hotpath::measure]
     pub fn wait(self) -> Result<T::Response> {
-        let (received_at, result) = match self
-            .reply_rx
-            .recv_deadline(self.deadline)
+        let deadline = self.deadline;
+        let method = self.method.clone();
+        match self.wait_deadline(deadline)? {
+            Some(value) => Ok(value),
+            None => {
+                bail!("timed out waiting for response for {}", method);
+            }
+        }
+    }
+
+    #[hotpath::measure]
+    pub fn wait_deadline(
+        &self,
+        deadline: Instant,
+    ) -> Result<Option<T::Response>> {
+        let (received_at, result) = match self.reply_rx.recv_deadline(deadline)
         {
             Ok(reply) => reply,
-            Err(mpmc::RecvTimeoutError::Timeout) => {
-                bail!("timed out waiting for response for {}", self.method);
-            }
+            Err(mpmc::RecvTimeoutError::Timeout) => return Ok(None),
             Err(mpmc::RecvTimeoutError::Disconnected) => {
                 bail!(
                     "channel disconnected while waiting for response for {}",
@@ -123,14 +134,17 @@ impl<T: Command> PendingResponse<T> {
                 );
             }
         };
-        if received_at > self.deadline {
-            bail!("timed out waiting for response for {}", self.method);
+        if received_at > deadline {
+            return Ok(None);
         }
         let value = result
             .with_context(|| format!("send failed for {}", self.method))?;
         log::debug!("got response for {} ({})", self.method, self.call_id);
-        serde_json::from_str(value.get())
-            .with_context(|| format!("decoding response for {}", self.method))
+        let value: T::Response = serde_json::from_str(value.get())
+            .with_context(|| {
+                format!("decoding response for {}", self.method)
+            })?;
+        Ok(Some(value))
     }
 }
 
