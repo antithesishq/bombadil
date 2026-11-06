@@ -1,16 +1,17 @@
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Seek},
     path::Path,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde::de::DeserializeOwned;
+use zerocopy::FromBytes;
 
 use crate::{
     ENVELOPE_LEN, RECORD_HEADER_LEN, TraceDriver,
     envelope::read_envelope,
-    record::{RawRecord, RecordHeader, RecordReader},
+    record::{PayloadRef, RawRecord, RecordHeader, RecordReader},
     tag,
 };
 
@@ -24,21 +25,42 @@ pub struct State<M> {
     /// skipped (see [`StateReader::without_payloads`]).
     pub payload: Option<Vec<u8>>,
     /// Byte offset of the payload in the trace file, for reading it again
-    /// later with [`read_payload_at`] without holding it in memory.
+    /// later with [`read_payload_at`] without holding it in memory. For a
+    /// payload shared with an earlier state, that of the earlier state's.
     pub payload_offset: Option<u64>,
     /// Size of the payload in bytes, even if it was skipped.
     pub payload_length: Option<usize>,
+    /// The state whose record holds the payload: this one, or an earlier
+    /// state with the same payload (see [`tag::STATE_PAYLOAD_REF`]).
+    pub payload_from: Option<usize>,
+}
+
+/// Where a state's payload is, to resolve references to it.
+#[derive(Clone, Copy)]
+struct PayloadLocation {
+    offset: u64,
+    length: usize,
+    crc: u32,
+    // The state whose record holds it.
+    from: usize,
 }
 
 /// Reads the states of a trace, in the order they were written, with
 /// their metadata deserialized as `M`.
 ///
-/// A bad record, or a state missing its payload, ends the states with an
-/// error, after every complete state before it. An incomplete last
-/// record, or a last state whose payload the trace ends before (from a
-/// run killed while writing), ends them with a logged warning instead,
-/// and without that state. A trace without a [`tag::END`] record also
-/// ends with a logged warning; see [`finished`](Self::finished).
+/// A state whose payload is shared with an earlier state (see
+/// [`tag::STATE_PAYLOAD_REF`]) gets the earlier state's offset and
+/// length, and, unless payloads are skipped, its bytes, read again from
+/// the record that holds them, once per reference: hence `R: Seek`. Read
+/// from a pipe, such a state fails unless payloads are skipped.
+///
+/// A bad record, a state missing its payload, or a payload reference that
+/// doesn't resolve ends the states with an error, after every complete
+/// state before it. An incomplete last record, or a last state whose
+/// payload the trace ends before (from a run killed while writing), ends
+/// them with a logged warning instead, and without that state. A trace
+/// without a [`tag::END`] record also ends with a logged warning; see
+/// [`finished`](Self::finished).
 pub struct StateReader<R, M> {
     pub driver: TraceDriver,
     records: RecordReader<R>,
@@ -50,6 +72,10 @@ pub struct StateReader<R, M> {
     // Whether the end record was read.
     finished: bool,
     keep_payloads: bool,
+    // Where the payloads in records of their own are, in the order of
+    // their states (`PayloadLocation::from`), to resolve references to
+    // them.
+    payloads: Vec<PayloadLocation>,
 }
 
 struct PendingState<M> {
@@ -114,9 +140,9 @@ pub fn read_payload_from(file: &File, offset: u64) -> Result<Vec<u8>> {
 }
 
 /// Reads `file` from `position` on, as [`read_payload_from`] says.
-struct PositionalReader<'a> {
-    file: &'a File,
-    position: u64,
+pub(crate) struct PositionalReader<'a> {
+    pub file: &'a File,
+    pub position: u64,
 }
 
 impl Read for PositionalReader<'_> {
@@ -186,7 +212,7 @@ fn read_payload(file: &File, offset: u64) -> Result<Vec<u8>> {
     }
 }
 
-impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
+impl<R: Read + Seek, M: DeserializeOwned> StateReader<R, M> {
     /// Reads the envelope from `reader`; states are read on iteration.
     pub fn new(mut reader: R) -> Result<Self> {
         let driver = read_envelope(&mut reader)?;
@@ -198,6 +224,7 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
             ended: false,
             finished: false,
             keep_payloads: true,
+            payloads: Vec::new(),
         })
     }
 
@@ -225,24 +252,75 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
         self
     }
 
-    fn state(&mut self, metadata: M, payload: Option<RawRecord>) -> State<M> {
+    /// The next state, with its payload (unless skipped) and where that
+    /// is, if it has one.
+    fn state(
+        &mut self,
+        metadata: M,
+        payload: Option<(Option<Vec<u8>>, PayloadLocation)>,
+    ) -> State<M> {
         let index = self.states_read;
         self.states_read += 1;
-        let (payload_offset, payload_length, payload) = match payload {
-            Some(record) => (
-                Some(record.payload_offset),
-                Some(record.payload_length),
-                record.payload,
-            ),
-            None => (None, None, None),
-        };
+        let location = payload.as_ref().map(|(_, location)| *location);
+        if let Some(location) = location
+            && location.from == index
+        {
+            self.payloads.push(location);
+        }
         State {
             index,
             metadata,
-            payload,
-            payload_offset,
-            payload_length,
+            payload: payload.and_then(|(payload, _)| payload),
+            payload_offset: location.map(|location| location.offset),
+            payload_length: location.map(|location| location.length),
+            payload_from: location.map(|location| location.from),
         }
+    }
+
+    /// Where the payload that the [`tag::STATE_PAYLOAD_REF`] `record`
+    /// refers to is, checked against the reference.
+    fn resolve(&self, record: &RawRecord) -> Result<PayloadLocation> {
+        let corrupt = |reason: String| {
+            anyhow!(
+                "corrupt payload reference in trace record {} ({reason})",
+                record.index
+            )
+        };
+        // The record reader keeps a reference's payload and checks its
+        // length.
+        let reference = record
+            .payload
+            .as_deref()
+            .and_then(|bytes| PayloadRef::read_from_bytes(bytes).ok())
+            .expect("a payload reference record of the right length");
+        let state = reference.state as usize;
+        if state >= self.states_read {
+            return Err(corrupt(format!(
+                "to state {state}, which isn't before state {}",
+                self.states_read
+            )));
+        }
+        // Only to a payload in a record of its own, as the writer writes
+        // them: not to a state without a payload, nor to a reference.
+        let Ok(found) = self
+            .payloads
+            .binary_search_by_key(&state, |location| location.from)
+        else {
+            return Err(corrupt(format!(
+                "to state {state}, which has no payload in a record of its \
+                 own"
+            )));
+        };
+        let location = self.payloads[found];
+        if location.length != reference.length as usize
+            || location.crc != reference.crc
+        {
+            return Err(corrupt(format!(
+                "to state {state}, whose payload's length or checksum \
+                 differs"
+            )));
+        }
+        Ok(location)
     }
 
     fn read_state(&mut self) -> Result<Option<State<M>>> {
@@ -313,16 +391,55 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
                         record: record.index,
                     });
                 }
-                tag::STATE_PAYLOAD => {
+                tag::STATE_PAYLOAD | tag::STATE_PAYLOAD_REF => {
                     let Some(pending) = self.pending.take() else {
+                        let what = if record.tag == tag::STATE_PAYLOAD {
+                            "state payload"
+                        } else {
+                            "payload reference"
+                        };
                         bail!(
-                            "state payload without a state expecting one in \
-                             trace record {}",
+                            "{what} without a state expecting one in trace \
+                             record {}",
                             record.index
                         );
                     };
+                    if record.tag == tag::STATE_PAYLOAD {
+                        let location = PayloadLocation {
+                            offset: record.payload_offset,
+                            length: record.payload_length,
+                            crc: record.payload_crc,
+                            from: self.states_read,
+                        };
+                        return Ok(Some(self.state(
+                            pending.metadata,
+                            Some((record.payload, location)),
+                        )));
+                    }
+                    let location = self.resolve(&record)?;
+                    // Read from the record that holds it, and checked
+                    // against the reference as well as that record.
+                    let payload = if self.keep_payloads {
+                        let payload = self
+                            .records
+                            .read_payload_again(
+                                location.offset,
+                                location.length,
+                                location.crc,
+                            )
+                            .with_context(|| {
+                                format!(
+                                    "failed to read the payload of state {} \
+                                     that trace record {} refers to",
+                                    location.from, record.index
+                                )
+                            })?;
+                        Some(payload)
+                    } else {
+                        None
+                    };
                     return Ok(Some(
-                        self.state(pending.metadata, Some(record)),
+                        self.state(pending.metadata, Some((payload, location))),
                     ));
                 }
                 tag if tag & tag::OPTIONAL != 0 => {}
@@ -337,7 +454,7 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
     }
 }
 
-impl<R: Read, M: DeserializeOwned> Iterator for StateReader<R, M> {
+impl<R: Read + Seek, M: DeserializeOwned> Iterator for StateReader<R, M> {
     type Item = Result<State<M>>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -355,13 +472,16 @@ impl<R: Read, M: DeserializeOwned> Iterator for StateReader<R, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Cursor, SeekFrom};
+
     use crate::{
         TRACE_FILE_NAME,
+        record::PayloadRef,
         test_log::{capture_warnings, warned},
         write_envelope, write_record,
     };
     use serde::Deserialize;
-    use zerocopy::{FromBytes, IntoBytes};
+    use zerocopy::IntoBytes;
 
     #[derive(Debug, Deserialize, PartialEq)]
     struct Metadata {
@@ -378,7 +498,7 @@ mod tests {
     }
 
     fn states(file: &[u8]) -> Result<Vec<State<Metadata>>> {
-        StateReader::new(file)?.collect()
+        StateReader::new(Cursor::new(file))?.collect()
     }
 
     // Records start at 16, 39, 59, 82 and 105, and the file ends at 124.
@@ -507,7 +627,7 @@ mod tests {
     /// Fails once with `error` after `fail_after` bytes, then reads on.
     /// Panics if called too often, so a retry loop can't spin forever.
     struct FailingReader<'a> {
-        bytes: &'a [u8],
+        bytes: Cursor<&'a [u8]>,
         fail_after: usize,
         error: Option<std::io::ErrorKind>,
         calls: usize,
@@ -531,12 +651,18 @@ mod tests {
         }
     }
 
+    impl Seek for FailingReader<'_> {
+        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+            self.bytes.seek(position)
+        }
+    }
+
     #[test]
     fn retries_interrupted_reads_and_stops_at_other_errors() {
         let file = three_states();
         let read = |fail_after, error| {
             StateReader::<_, Metadata>::new(FailingReader {
-                bytes: &file,
+                bytes: Cursor::new(&file),
                 fail_after,
                 error: Some(error),
                 calls: 0,
@@ -565,7 +691,8 @@ mod tests {
     fn reports_whether_the_trace_was_finished() {
         capture_warnings();
         let read = |file: &[u8]| {
-            let mut reader = StateReader::<_, Metadata>::new(file).unwrap();
+            let mut reader =
+                StateReader::<_, Metadata>::new(Cursor::new(file)).unwrap();
             let states = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
             assert!(reader.next().is_none());
             (states.len(), reader.finished())
@@ -587,9 +714,10 @@ mod tests {
             (tag::END, b""),
             (tag::STATE, br#"{"n":1}"#),
         ]);
-        let results: Vec<_> = StateReader::<_, Metadata>::new(&file[..])
-            .unwrap()
-            .collect();
+        let results: Vec<_> =
+            StateReader::<_, Metadata>::new(Cursor::new(&file[..]))
+                .unwrap()
+                .collect();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].as_ref().unwrap().metadata, Metadata { n: 0 });
         let error = format!("{:#}", results[1].as_ref().unwrap_err());
@@ -648,9 +776,10 @@ mod tests {
             (tag::STATE_WITH_PAYLOAD, br#"{"n":1}"#),
             (tag::STATE, br#"{"n":2}"#),
         ]);
-        let results: Vec<_> = StateReader::<_, Metadata>::new(&file[..])
-            .unwrap()
-            .collect();
+        let results: Vec<_> =
+            StateReader::<_, Metadata>::new(Cursor::new(&file[..]))
+                .unwrap()
+                .collect();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].as_ref().unwrap().metadata, Metadata { n: 0 });
         let error = format!("{:#}", results[1].as_ref().unwrap_err());
@@ -667,9 +796,10 @@ mod tests {
         let mut corrupt = three_states();
         let last = corrupt.len() - 1;
         corrupt[last] ^= 1;
-        let results: Vec<_> = StateReader::<_, Metadata>::new(&corrupt[..])
-            .unwrap()
-            .collect();
+        let results: Vec<_> =
+            StateReader::<_, Metadata>::new(Cursor::new(&corrupt[..]))
+                .unwrap()
+                .collect();
         assert_eq!(results.len(), 3);
         assert_eq!(results[1].as_ref().unwrap().metadata, Metadata { n: 1 });
         let error = format!("{:#}", results[2].as_ref().unwrap_err());
@@ -702,7 +832,8 @@ mod tests {
             (tag::STATE, br#"{"n":1}"#),
             (tag::END, b""),
         ]);
-        let mut reader = StateReader::<_, Metadata>::new(&file[..]).unwrap();
+        let mut reader =
+            StateReader::<_, Metadata>::new(Cursor::new(&file[..])).unwrap();
         assert_eq!(reader.next().unwrap().unwrap().metadata, Metadata { n: 0 });
         assert!(reader.next().unwrap().is_err());
         assert!(reader.next().is_none());
@@ -723,14 +854,278 @@ mod tests {
         assert!(error.to_string().contains("invalid state"), "{error}");
     }
 
+    /// A payload reference record's payload: to `state`, whose payload is
+    /// `payload`.
+    fn reference(state: u32, payload: &[u8]) -> Vec<u8> {
+        PayloadRef {
+            state,
+            length: payload.len() as u32,
+            crc: crc32fast::hash(payload),
+        }
+        .as_bytes()
+        .to_vec()
+    }
+
+    /// States 1 and 3 share state 0's payload; state 2 has its own.
+    fn shared_payloads() -> Vec<u8> {
+        trace(&[
+            (tag::STATE_WITH_PAYLOAD, br#"{"n":0}"#),
+            (tag::STATE_PAYLOAD, b"zero"),
+            (tag::STATE_WITH_PAYLOAD, br#"{"n":1}"#),
+            (tag::STATE_PAYLOAD_REF, &reference(0, b"zero")),
+            (tag::STATE_WITH_PAYLOAD, br#"{"n":2}"#),
+            (tag::STATE_PAYLOAD, b"two"),
+            (tag::STATE, br#"{"n":3}"#),
+            (tag::STATE_WITH_PAYLOAD, br#"{"n":4}"#),
+            (tag::STATE_PAYLOAD_REF, &reference(0, b"zero")),
+            (tag::END, b""),
+        ])
+    }
+
+    #[test]
+    fn rejects_references_that_dont_resolve() {
+        // State 2's payload refers to `reference`, after state 0 with a
+        // payload and state 1 without.
+        let error = |reference: &[u8], keep: bool| {
+            let file = trace(&[
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":0}"#),
+                (tag::STATE_PAYLOAD, b"zero"),
+                (tag::STATE, br#"{"n":1}"#),
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":2}"#),
+                (tag::STATE_PAYLOAD_REF, reference),
+                (tag::END, b""),
+            ]);
+            let mut reader =
+                StateReader::<_, Metadata>::new(Cursor::new(file)).unwrap();
+            if !keep {
+                reader = reader.without_payloads();
+            }
+            let results: Vec<_> = reader.collect();
+            // The states before it, then the error.
+            assert_eq!(results.len(), 3);
+            assert_eq!(
+                results[1].as_ref().unwrap().metadata,
+                Metadata { n: 1 }
+            );
+            let error = format!("{:#}", results[2].as_ref().unwrap_err());
+            assert!(
+                error.contains("corrupt payload reference in trace record 4"),
+                "{error}"
+            );
+            error
+        };
+        for keep in [true, false] {
+            for (reference, reason) in [
+                (reference(1, b"zero"), "which has no payload"),
+                (reference(2, b"zero"), "which isn't before state 2"),
+                (reference(5, b"zero"), "which isn't before state 2"),
+                (reference(u32::MAX, b"zero"), "which isn't before state 2"),
+                (reference(0, b"zerO"), "checksum differs"),
+                (reference(0, b"zero!"), "length or checksum differs"),
+                // The right checksum, the wrong length.
+                (
+                    PayloadRef {
+                        state: 0,
+                        length: 5,
+                        crc: crc32fast::hash(b"zero"),
+                    }
+                    .as_bytes()
+                    .to_vec(),
+                    "length or checksum differs",
+                ),
+            ] {
+                let error = error(&reference, keep);
+                assert!(error.contains(reason), "{error}");
+            }
+        }
+
+        // Of the wrong length: rejected by the record reader, as a bad
+        // record, after the states before it.
+        for (reference, length) in [
+            (b"xy".to_vec(), 2),
+            ([reference(0, b"zero"), vec![0]].concat(), 13),
+        ] {
+            let file = trace(&[
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":0}"#),
+                (tag::STATE_PAYLOAD, b"zero"),
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":1}"#),
+                (tag::STATE_PAYLOAD_REF, &reference),
+            ]);
+            let results: Vec<_> =
+                StateReader::<_, Metadata>::new(Cursor::new(file))
+                    .unwrap()
+                    .collect();
+            assert_eq!(results.len(), 2);
+            let error = format!("{:#}", results[1].as_ref().unwrap_err());
+            assert!(
+                error.contains(&format!(
+                    "failed to read trace record 3: corrupt payload \
+                     reference ({length} bytes, not 12)"
+                )),
+                "{error}"
+            );
+        }
+
+        // Not to another reference, even one that resolves.
+        for keep in [true, false] {
+            let file = trace(&[
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":0}"#),
+                (tag::STATE_PAYLOAD, b"zero"),
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":1}"#),
+                (tag::STATE_PAYLOAD_REF, &reference(0, b"zero")),
+                (tag::STATE_WITH_PAYLOAD, br#"{"n":2}"#),
+                (tag::STATE_PAYLOAD_REF, &reference(1, b"zero")),
+            ]);
+            let mut reader =
+                StateReader::<_, Metadata>::new(Cursor::new(file)).unwrap();
+            if !keep {
+                reader = reader.without_payloads();
+            }
+            let results: Vec<_> = reader.collect();
+            assert_eq!(results.len(), 3);
+            assert_eq!(results[1].as_ref().unwrap().payload_from, Some(0));
+            let error = format!("{:#}", results[2].as_ref().unwrap_err());
+            assert!(
+                error.contains(
+                    "corrupt payload reference in trace record 5 (to state \
+                     1, which has no payload in a record of its own)"
+                ),
+                "{error}"
+            );
+        }
+
+        let error =
+            states(&trace(&[(tag::STATE_PAYLOAD_REF, &reference(0, b""))]))
+                .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("payload reference without a state expecting one"),
+            "{error}"
+        );
+    }
+
+    /// Becomes `changed` once seeking, as the reader does only to read a
+    /// payload again: as if the file changed meanwhile.
+    struct ChangedBeforeReadingAgain {
+        bytes: Cursor<Vec<u8>>,
+        changed: Option<Vec<u8>>,
+    }
+
+    impl Read for ChangedBeforeReadingAgain {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.bytes.read(buffer)
+        }
+    }
+
+    impl Seek for ChangedBeforeReadingAgain {
+        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+            if let Some(changed) = self.changed.take() {
+                *self.bytes.get_mut() = changed;
+            }
+            self.bytes.seek(position)
+        }
+    }
+
+    #[test]
+    fn checks_payloads_read_again() {
+        let file = shared_payloads();
+        let offset = states(&file).unwrap()[0].payload_offset.unwrap() as usize;
+        let header = offset - RECORD_HEADER_LEN;
+        let flipped = |position: usize| {
+            let mut changed = file.clone();
+            changed[position] ^= 1;
+            changed
+        };
+        // State 0's record with another tag, and a valid header checksum.
+        let retagged = {
+            let mut changed = file.clone();
+            let old = RecordHeader::read_from_bytes(&changed[header..offset])
+                .unwrap();
+            let new = RecordHeader::new(
+                tag::OPTIONAL | 7,
+                old.length() as u32,
+                old.payload_crc,
+            );
+            changed[header..offset].copy_from_slice(new.as_bytes());
+            changed
+        };
+        // In state 0's payload, caught by its checksum; in its record's
+        // payload CRC field, caught as it differs from the reference's;
+        // and in its record's tag.
+        for (changed, reason) in [
+            (flipped(offset + 1), "corrupt record (checksum mismatch)"),
+            (
+                flipped(offset - 1),
+                "not the state payload read there before",
+            ),
+            (retagged, "not the state payload read there before"),
+        ] {
+            let reader = ChangedBeforeReadingAgain {
+                bytes: Cursor::new(file.clone()),
+                changed: Some(changed),
+            };
+            let results: Vec<_> =
+                StateReader::<_, Metadata>::new(reader).unwrap().collect();
+            assert_eq!(results.len(), 2, "{reason}");
+            assert_eq!(
+                results[0].as_ref().unwrap().payload.as_deref(),
+                Some(&b"zero"[..])
+            );
+            let error = format!("{:#}", results[1].as_ref().unwrap_err());
+            assert!(
+                error.contains(
+                    "failed to read the payload of state 0 that trace record \
+                     3 refers to"
+                ) && error.contains(reason),
+                "{error}"
+            );
+        }
+    }
+
+    /// Reads, but can't seek, as a pipe.
+    struct Unseekable(Cursor<Vec<u8>>);
+
+    impl Read for Unseekable {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.0.read(buffer)
+        }
+    }
+
+    impl Seek for Unseekable {
+        fn seek(&mut self, _: SeekFrom) -> std::io::Result<u64> {
+            Err(std::io::Error::other("illegal seek"))
+        }
+    }
+
+    /// A shared payload can't be read from a pipe, which says so, but
+    /// its location can.
+    #[test]
+    fn says_shared_payloads_need_a_seekable_trace() {
+        let reader = || Unseekable(Cursor::new(shared_payloads()));
+        let results: Vec<_> =
+            StateReader::<_, Metadata>::new(reader()).unwrap().collect();
+        assert_eq!(results.len(), 2);
+        let error = format!("{:#}", results[1].as_ref().unwrap_err());
+        assert!(error.contains("needs a seekable trace file"), "{error}");
+
+        let states = StateReader::<_, Metadata>::new(reader())
+            .unwrap()
+            .without_payloads()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(states.len(), 5);
+    }
+
     #[test]
     fn checks_the_driver() {
         let file = trace(&[]);
-        let error = StateReader::<_, Metadata>::new(file.as_slice())
-            .unwrap()
-            .expect_driver(TraceDriver::Browser)
-            .err()
-            .unwrap();
+        let error =
+            StateReader::<_, Metadata>::new(Cursor::new(file.as_slice()))
+                .unwrap()
+                .expect_driver(TraceDriver::Browser)
+                .err()
+                .unwrap();
         assert_eq!(
             error.to_string(),
             "not a browser trace (written by the terminal driver)"
