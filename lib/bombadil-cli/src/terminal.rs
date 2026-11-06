@@ -6,26 +6,24 @@ use std::{
 };
 
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
-use bombadil_schema::terminal::{
-    ProcessExitStatus, TerminalSize, TerminalTraceEntry,
-};
+use bombadil_schema::terminal::{ProcessExitStatus, TerminalSize};
 use bombadil_terminal::driver::{
     TerminalAction, TerminalDriver, TerminalProgramOptions,
 };
-use bombadil_terminal::trace::{TerminalOutputWriter, TerminalTraceWriter};
+use bombadil_terminal::trace::{
+    TerminalOutputWriter, TerminalTraceWriter, load_trace_actions,
+};
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use tempfile::TempDir;
 
 use crate::duration;
+use crate::output_path::resolve_output_file;
 use crate::shrink::{self, ShrinkOptions};
 
 mod defaults {
@@ -117,17 +115,17 @@ pub enum Command {
         /// program more time to finish drawing.
         #[arg(long, default_value_t = defaults::QUIESCENCE_TIMEOUT_MS)]
         quiescence_timeout_ms: u64,
-        /// Where to store output data (trace.jsonl). Defaults to a
-        /// fresh temporary directory.
+        /// Trace FILE to write (any filename). Defaults to a unique file
+        /// in system temp. Parent directories must already exist.
         #[arg(long)]
         output_path: Option<PathBuf>,
         /// Overwrite any existing trace at `--output-path`. Without this
-        /// flag, Bombadil refuses to write when trace.jsonl already exists.
+        /// flag, Bombadil refuses to replace an existing file.
         #[arg(long)]
         output_path_overwrite: bool,
-        /// Reproduce a previous test run from a trace file (file path
-        /// or directory containing `trace.jsonl`). Replays the recorded
-        /// actions in order instead of generating new ones.
+        /// Reproduce a previous test run from a trace file, not a directory.
+        /// Replays the recorded actions in order
+        /// instead of generating new ones.
         #[arg(long, value_name = "TRACE_FILE")]
         reproduce: Option<PathBuf>,
         /// The command to run as the system under test. Everything after
@@ -192,12 +190,12 @@ pub enum Command {
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
         command: Vec<String>,
-        /// Where to store output data (trace.jsonl). Defaults to a
-        /// fresh temporary directory.
+        /// Trace file base: run.bin writes sibling files run-0.bin,
+        /// run-1.bin, etc. Defaults to a unique base in system temp.
         #[arg(long)]
         output_path: Option<PathBuf>,
         /// Overwrite any existing trace at `--output-path`. Without this
-        /// flag, Bombadil refuses to write when trace.jsonl already exists.
+        /// flag, Bombadil refuses to replace an existing numbered file.
         #[arg(long)]
         output_path_overwrite: bool,
     },
@@ -235,7 +233,7 @@ pub fn run(command: Command) {
 
                 let specification = load_specification(specification_file);
 
-                let output_path = resolve_output_path(output_path)?;
+                let output_path = resolve_output_file(&output_path)?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(
@@ -281,7 +279,7 @@ pub fn run(command: Command) {
                     driver.new_session(RunId::default())?;
 
                 let mut trace_writer = TerminalTraceWriter::initialize(
-                    output_path.clone(),
+                    &output_path,
                     output_path_overwrite,
                 )?;
                 let exit_reason = runner::run(
@@ -388,7 +386,7 @@ pub fn run(command: Command) {
 
                 let specification = load_specification(specification_file);
 
-                let output_path = resolve_output_path(output_path)?;
+                let output_path = resolve_output_file(&output_path)?;
 
                 let output_writer = TerminalOutputWriter {
                     root_path: output_path.clone(),
@@ -458,39 +456,14 @@ pub fn run(command: Command) {
     }
 }
 
-fn resolve_output_path(output_path: Option<PathBuf>) -> Result<PathBuf> {
-    match output_path {
-        Some(path) => Ok(path),
-        None => Ok(TempDir::with_prefix("bombadil_terminal_")?
-            .keep()
-            .to_path_buf()),
-    }
-}
-
 fn load_reproduce_actions(
     path: &std::path::Path,
 ) -> Result<VecDeque<TerminalAction>> {
-    let trace_file_path = if path.is_dir() {
-        path.join("trace.jsonl")
-    } else {
-        path.to_path_buf()
-    };
-    let file = File::open(&trace_file_path).map_err(|error| {
-        anyhow!(
-            "failed to open trace file {}: {}",
-            trace_file_path.display(),
-            error
-        )
-    })?;
-    let mut actions: VecDeque<TerminalAction> = VecDeque::new();
-    for line in BufReader::new(file).lines() {
-        let line = line?;
-        let entry: TerminalTraceEntry = serde_json::from_str(&line)?;
-        if let Some(action) = entry.action {
-            actions.push_back(action.to_internal());
-        }
-    }
-    Ok(actions)
+    Ok(load_trace_actions(path)?
+        .actions
+        .into_iter()
+        .map(|action| action.to_internal())
+        .collect())
 }
 
 fn terminal_shrink(
@@ -509,8 +482,7 @@ fn terminal_shrink(
         [program, args @ ..] => (program.clone(), args.to_vec()),
         _ => bail!("expected `<program> [args...]` after `--`"),
     };
-    let options = shrink_options
-        .resolve::<bombadil_schema::terminal::TerminalAction>()?;
+    let options = shrink_options.resolve(load_trace_actions, true)?;
     let driver = Arc::new(TerminalDriver::new(
         load_specification(specification_file),
         TerminalProgramOptions {
@@ -534,7 +506,9 @@ fn terminal_shrink(
             states_seen: 0,
             quiet: true,
         },
-        trace_writer: |path| TerminalTraceWriter::initialize(path, false),
+        trace_writer: |path: PathBuf| {
+            TerminalTraceWriter::initialize(&path, false)
+        },
         trace: options.trace.map_actions(|action| action.to_internal()),
         property_name: options.property_name,
         output_path: options.output_path.clone(),

@@ -99,11 +99,43 @@ pub fn run<
 
     let result = run_test(session, verifier, writer, interrupted, strategy);
 
-    session.terminate()?;
+    // Even after a failed run, so the trace of what happened is complete.
+    let finished = writer.finish();
+    let terminated = session.terminate();
 
     log::debug!("test finished");
 
-    result
+    // The first error is returned, the run's before the others, and any
+    // others are logged rather than dropped. If the run failed, `finish`
+    // failing because writing had failed repeats the run's error, so it
+    // isn't logged again.
+    let mut errors = [
+        finished
+            .err()
+            .filter(|error| {
+                result.is_ok()
+                    || !error
+                        .to_string()
+                        .starts_with(bombadil_trace::WRITER_FAILED_EARLIER)
+            })
+            .map(|error| error.context("failed to finish the trace")),
+        terminated
+            .err()
+            .map(|error| error.context("failed to terminate the session")),
+    ]
+    .into_iter()
+    .flatten();
+    let first = match result {
+        Ok(value) => match errors.next() {
+            None => return Ok(value),
+            Some(error) => error,
+        },
+        Err(error) => error,
+    };
+    for error in errors {
+        log::error!("{error:#}");
+    }
+    Err(first)
 }
 
 fn run_test<

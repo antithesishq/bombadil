@@ -9,9 +9,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use zerocopy::{FromBytes, Immutable, IntoBytes};
 
-use crate::{
-    ENVELOPE_LEN, FORMAT_VERSION, MAGIC, TRACE_FILE_NAME, record::read_full,
-};
+use crate::{ENVELOPE_LEN, FORMAT_VERSION, MAGIC, record::read_full};
 
 /// The envelope, as laid out in the file.
 #[derive(FromBytes, IntoBytes, Immutable)]
@@ -146,19 +144,10 @@ fn has_magic(bytes: &[u8]) -> bool {
     bytes.starts_with(MAGIC)
 }
 
-/// The driver of the binary trace at `path` (a trace file or a run
-/// directory), or `None` if there is no binary trace there.
-///
-/// A `trace.bin` that isn't a valid trace is an error rather than `None`,
-/// so a damaged trace isn't mistaken for a missing one. Any other file is
-/// only a binary trace if it starts with the magic bytes.
+/// The driver of the trace file at `path`, or `None` if it is missing or
+/// does not start with the trace magic. Directories are rejected.
 pub fn trace_driver(path: &Path) -> Result<Option<TraceDriver>> {
-    let path = if path.is_dir() {
-        path.join(TRACE_FILE_NAME)
-    } else {
-        path.to_path_buf()
-    };
-    let mut file = match File::open(&path) {
+    let mut file = match File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
             return Ok(None);
@@ -172,8 +161,7 @@ pub fn trace_driver(path: &Path) -> Result<Option<TraceDriver>> {
     let read = read_full(&mut file, &mut envelope)
         .with_context(|| format!("failed to read {}", path.display()))?;
     let envelope = &envelope[..read];
-    let is_trace_file = path.file_name() == Some(TRACE_FILE_NAME.as_ref());
-    if !is_trace_file && !has_magic(envelope) {
+    if !has_magic(envelope) {
         // Some other file, e.g. a legacy JSON lines trace.
         return Ok(None);
     }
@@ -185,6 +173,7 @@ pub fn trace_driver(path: &Path) -> Result<Option<TraceDriver>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TRACE_FILE_NAME;
 
     #[test]
     fn envelope_round_trips_driver() {
@@ -241,16 +230,13 @@ mod tests {
     #[test]
     fn trace_driver_detects_binary_traces() {
         let directory = tempfile::tempdir().unwrap();
-        assert_eq!(trace_driver(directory.path()).unwrap(), None);
+        assert!(trace_driver(directory.path()).is_err());
 
         let mut bytes = Vec::new();
         write_envelope(&mut bytes, TraceDriver::Terminal).unwrap();
         let trace = directory.path().join(TRACE_FILE_NAME);
         std::fs::write(&trace, &bytes).unwrap();
-        assert_eq!(
-            trace_driver(directory.path()).unwrap(),
-            Some(TraceDriver::Terminal)
-        );
+        assert_eq!(trace_driver(&trace).unwrap(), Some(TraceDriver::Terminal));
         // Under another name, recognized by its magic bytes.
         let other = directory.path().join("other.bin");
         std::fs::copy(&trace, &other).unwrap();
@@ -260,8 +246,9 @@ mod tests {
         std::fs::write(&jsonl, "{\"timestamp\":0}\n").unwrap();
         assert_eq!(trace_driver(&jsonl).unwrap(), None);
 
-        // A damaged trace.bin is reported, not taken for a missing one.
-        std::fs::write(&trace, b"").unwrap();
+        // A damaged envelope is reported under any name.
+        bytes[12] ^= 1;
+        std::fs::write(&trace, &bytes).unwrap();
         assert!(trace_driver(directory.path()).is_err());
         assert!(trace_driver(&trace).is_err());
 

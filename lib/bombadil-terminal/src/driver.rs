@@ -51,6 +51,11 @@ const DRAIN_DURATION_MAX: Duration = Duration::from_secs(1);
 /// surface it as a driver error (which ends the current run).
 const HANG_QUIET_THRESHOLD: Duration = Duration::from_secs(5);
 
+/// How many bytes of an unfinished escape sequence ghostty retains so that
+/// a terminal snapshot taken mid-sequence can still be encoded. States
+/// sampled inside a longer sequence get no snapshot.
+const SNAPSHOT_CONTINUATION_MAX_BYTES: usize = 64 * 1024;
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum TerminalAction<U16 = u16, Text = String> {
     TypeText { text: Text },
@@ -287,7 +292,8 @@ impl InterfaceDriver for TerminalDriver {
             .set_scrollback_max_bytes(None)?
             .set_scrollback_max_lines(Some(
                 self.program_options.scrollback_lines_max,
-            ))?;
+            ))?
+            .set_continuation_max_bytes(SNAPSHOT_CONTINUATION_MAX_BYTES)?;
 
         let (process, output) = PtyProcess::spawn(
             self.program_options.size,
@@ -317,6 +323,8 @@ impl InterfaceDriver for TerminalDriver {
                 render_state: RenderState::new()?,
                 row_iterator: RowIterator::new()?,
                 cell_iterator: CellIterator::new()?,
+                snapshot_capacity: 0,
+                snapshot_failed: false,
             },
             verifier,
         ))
@@ -338,6 +346,11 @@ pub struct TerminalSession {
     render_state: RenderState<'static>,
     row_iterator: RowIterator<'static>,
     cell_iterator: CellIterator<'static>,
+    // Size of the last terminal snapshot, used to allocate the next one
+    // up front so encoding writes straight into its final buffer.
+    snapshot_capacity: usize,
+    // Whether encoding a snapshot has failed yet, to warn only once.
+    snapshot_failed: bool,
 }
 
 impl TerminalSession {
@@ -363,45 +376,16 @@ impl TerminalSession {
 
     #[hotpath::measure]
     fn extract_state(&mut self) -> Result<TerminalState> {
+        // Encoded before the render snapshot below borrows the terminal.
+        let terminal_snapshot = self.encode_terminal_snapshot();
         let snapshot = self.render_state.update(&self.terminal)?;
         let cursor = cursor_from_libghostty(&self.terminal, &snapshot)?;
-        let mut row_iter = self.row_iterator.update(&snapshot)?;
-
-        let mut cells = Vec::with_capacity(
-            usize::from(self.size.columns) * usize::from(self.size.rows),
-        );
-        while let Some(row) = row_iter.next() {
-            let mut cell_iter = self.cell_iterator.update(row)?;
-            while let Some(cell) = cell_iter.next() {
-                let style = style_from_ghostty(&cell.style()?);
-                cells.push(match cell.raw_cell()?.wide()? {
-                    // Trailing column of a wide character.
-                    CellWide::SpacerTail => {
-                        TerminalCell::Continuation { style }
-                    }
-                    // Right-margin placeholder left behind when a wide
-                    // character does not fit and soft-wraps to the next line;
-                    // nothing renders here.
-                    CellWide::SpacerHead => TerminalCell::Empty { style },
-                    kind => {
-                        let length = cell.graphemes_len()?;
-                        if length == 0 {
-                            TerminalCell::Empty { style }
-                        } else {
-                            let mut contents =
-                                SmallString::null_with_size(length);
-                            cell.graphemes_buf(&mut contents[0..length])?;
-                            TerminalCell::Occupied {
-                                contents,
-                                wide: kind == CellWide::Wide,
-                                style,
-                            }
-                        }
-                    }
-                });
-            }
-        }
-        let grid = TerminalGrid::from_cells(self.size, cells);
+        let grid = viewport_grid(
+            &snapshot,
+            &mut self.row_iterator,
+            &mut self.cell_iterator,
+            self.size,
+        )?;
 
         let scroll_offset = self
             .terminal
@@ -425,7 +409,37 @@ impl TerminalSession {
                 },
             ),
             last_action: self.last_action.clone(),
+            terminal_snapshot,
         })
+    }
+
+    #[hotpath::measure]
+    fn encode_terminal_snapshot(&mut self) -> Option<Arc<Vec<u8>>> {
+        // Encoded into a buffer presized from the previous snapshot, then
+        // shared with the trace writer without a further copy.
+        let mut buffer = Vec::with_capacity(
+            self.snapshot_capacity + self.snapshot_capacity / 8,
+        );
+        match self.terminal.encode_snapshot(&mut buffer) {
+            Ok(()) => {
+                self.snapshot_capacity = buffer.len();
+                Some(Arc::new(buffer))
+            }
+            Err(error) if !self.snapshot_failed => {
+                self.snapshot_failed = true;
+                log::warn!(
+                    "failed to encode terminal snapshot: {error} (e.g. an \
+                     escape sequence longer than \
+                     {SNAPSHOT_CONTINUATION_MAX_BYTES} bytes was unfinished); \
+                     the trace has no screen for such states"
+                );
+                None
+            }
+            Err(error) => {
+                log::debug!("failed to encode terminal snapshot: {error}");
+                None
+            }
+        }
     }
 }
 
@@ -522,6 +536,48 @@ impl InterfaceSession for TerminalSession {
     fn state_timestamp(state: &TerminalState) -> SystemTime {
         state.timestamp
     }
+}
+
+/// The cells of the viewport in a render `snapshot` of a terminal of
+/// `size`, as the properties see them.
+pub(crate) fn viewport_grid<'alloc>(
+    snapshot: &GhosttyRenderSnapshot<'alloc, '_>,
+    row_iterator: &mut RowIterator<'alloc>,
+    cell_iterator: &mut CellIterator<'alloc>,
+    size: TerminalSize,
+) -> Result<TerminalGrid> {
+    let mut row_iter = row_iterator.update(snapshot)?;
+    let mut cells =
+        Vec::with_capacity(usize::from(size.columns) * usize::from(size.rows));
+    while let Some(row) = row_iter.next() {
+        let mut cell_iter = cell_iterator.update(row)?;
+        while let Some(cell) = cell_iter.next() {
+            let style = style_from_ghostty(&cell.style()?);
+            cells.push(match cell.raw_cell()?.wide()? {
+                // Trailing column of a wide character.
+                CellWide::SpacerTail => TerminalCell::Continuation { style },
+                // Right-margin placeholder left behind when a wide
+                // character does not fit and soft-wraps to the next line;
+                // nothing renders here.
+                CellWide::SpacerHead => TerminalCell::Empty { style },
+                kind => {
+                    let length = cell.graphemes_len()?;
+                    if length == 0 {
+                        TerminalCell::Empty { style }
+                    } else {
+                        let mut contents = SmallString::null_with_size(length);
+                        cell.graphemes_buf(&mut contents[0..length])?;
+                        TerminalCell::Occupied {
+                            contents,
+                            wide: kind == CellWide::Wide,
+                            style,
+                        }
+                    }
+                }
+            });
+        }
+    }
+    Ok(TerminalGrid::from_cells(size, cells))
 }
 
 fn cursor_from_libghostty(
