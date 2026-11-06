@@ -11,6 +11,12 @@ pub enum Violation<D: Domain> {
         subformula: Box<Formula<D>>,
         reason: EventuallyViolation<D::Time>,
     },
+    Until {
+        left: Box<Formula<D>>,
+        right: Box<Formula<D>>,
+        start: D::Time,
+        reason: UntilViolation<D>,
+    },
     Always {
         violation: Box<Violation<D>>,
         subformula: Box<Formula<D>>,
@@ -36,6 +42,15 @@ pub enum Violation<D: Domain> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum EventuallyViolation<Time> {
     TimedOut(Time),
+    TestEnded,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum UntilViolation<D: Domain> {
+    BeforeRight {
+        left: Box<Violation<D>>,
+        right: Box<Violation<D>>,
+    },
     TestEnded,
 }
 
@@ -71,6 +86,25 @@ impl<D: Domain> Violation<D> {
                     reason: *reason,
                 }
             }
+            Violation::Until {
+                left,
+                right,
+                start,
+                reason,
+            } => Violation::Until {
+                left: Box::new(left.map_function_ref(f)),
+                right: Box::new(right.map_function_ref(f)),
+                start: *start,
+                reason: match reason {
+                    UntilViolation::BeforeRight { left, right } => {
+                        UntilViolation::BeforeRight {
+                            left: Box::new(left.map_function_ref(f)),
+                            right: Box::new(right.map_function_ref(f)),
+                        }
+                    }
+                    UntilViolation::TestEnded => UntilViolation::TestEnded,
+                },
+            },
             Violation::Always {
                 violation,
                 subformula,

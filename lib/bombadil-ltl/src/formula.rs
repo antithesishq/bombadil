@@ -42,6 +42,7 @@ pub enum Formula<D: Domain> {
     Next(Box<Formula<D>>),
     Always(Box<Formula<D>>, Option<D::Duration>),
     Eventually(Box<Formula<D>>, Option<D::Duration>),
+    Until(Box<Formula<D>>, Box<Formula<D>>),
 }
 
 impl<D: Domain> Formula<D> {
@@ -90,6 +91,10 @@ impl<D: Domain> Formula<D> {
             Formula::Eventually(formula, bound) => Formula::Eventually(
                 Box::new(formula.map_function_ref(f)),
                 *bound,
+            ),
+            Formula::Until(left, right) => Formula::Until(
+                Box::new(left.map_function_ref(f)),
+                Box::new(right.map_function_ref(f)),
             ),
         }
     }

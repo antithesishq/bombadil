@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use crate::schema::{
-    EventuallyViolation, Formula, PropertyViolation, Snapshot, Time, Violation,
+    EventuallyViolation, Formula, PropertyViolation, Snapshot, Time,
+    UntilViolation, Violation,
 };
 use serde_json::Value;
 use stdx::tree::{NodeId, Tree};
@@ -91,6 +92,54 @@ pub fn render_violation(violation: &PropertyViolation) -> Markup {
                                 render_formula(&mut tree, join_id, subformula);
                                 tree.insert(
                                     Node::Keyword("was never true".into()),
+                                    join_id,
+                                );
+                            }
+                        }
+                    }
+                    Violation::Until {
+                        left,
+                        right,
+                        start,
+                        reason,
+                    } => {
+                        let join_id = tree.insert(Node::Join, parent_id);
+                        tree.insert(Node::Text("as of".into()), join_id);
+                        tree.insert(Node::Time(*start), join_id);
+                        tree.insert(Node::Comma, join_id);
+                        render_formula(&mut tree, join_id, left);
+                        tree.insert(
+                            Node::Text("should hold until".into()),
+                            join_id,
+                        );
+                        render_formula(&mut tree, join_id, right);
+                        tree.insert(Node::Comma, join_id);
+                        match reason {
+                            UntilViolation::BeforeRight { left, right } => {
+                                tree.insert(
+                                    Node::Text("but before that".into()),
+                                    join_id,
+                                );
+                                stack.push(Work::Violation {
+                                    violation: right,
+                                    time: get_violation_time(right),
+                                    parent_id: join_id,
+                                });
+                                stack.push(Work::Node {
+                                    node: Node::Keyword("and".into()),
+                                    parent_id: join_id,
+                                });
+                                stack.push(Work::Violation {
+                                    violation: left,
+                                    time: get_violation_time(left),
+                                    parent_id: join_id,
+                                });
+                            }
+                            UntilViolation::TestEnded => {
+                                tree.insert(
+                                    Node::Text(
+                                        "but the terminating condition never held before the test ended".into(),
+                                    ),
                                     join_id,
                                 );
                             }
@@ -251,6 +300,10 @@ fn get_violation_time(violation: &Violation) -> Time {
                     ),
                 };
             }
+            Violation::Until { start, reason, .. } => match reason {
+                UntilViolation::BeforeRight { left, .. } => current = left,
+                UntilViolation::TestEnded => return *start,
+            },
             Violation::Implies { right, .. } => {
                 current = right.as_ref();
             }
@@ -425,6 +478,21 @@ fn render_formula(tree: &mut Markup, parent_id: NodeId, formula: &Formula) {
                     });
                     stack.push(Work::Node {
                         node: Node::Keyword("or".into()),
+                        parent_id: join_id,
+                    });
+                    stack.push(Work::Formula {
+                        formula: left,
+                        parent_id: join_id,
+                    });
+                }
+                Formula::Until(left, right) => {
+                    let join_id = tree.insert(Node::Join, parent_id);
+                    stack.push(Work::Formula {
+                        formula: right,
+                        parent_id: join_id,
+                    });
+                    stack.push(Work::Node {
+                        node: Node::Keyword("until".into()),
                         parent_id: join_id,
                     });
                     stack.push(Work::Formula {
