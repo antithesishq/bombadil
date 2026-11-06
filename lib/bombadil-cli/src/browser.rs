@@ -1,6 +1,6 @@
 use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Result, anyhow, bail};
 use bombadil_browser::{
     browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
@@ -11,10 +11,7 @@ use bombadil_browser::{
     trace::writer::{FileOutputWriter, FileTraceWriter},
 };
 use clap::Args;
-use serde_json as json;
 use std::{
-    fs::File,
-    io::{BufRead, BufReader},
     num::NonZeroUsize,
     path::{Path, PathBuf},
     str::FromStr,
@@ -33,17 +30,15 @@ use bombadil::{
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
-use bombadil_browser::{
-    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
-};
-use bombadil_schema::browser;
-
 use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
+use bombadil_browser::{
+    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
+};
 
 use crate::shrink::{self, ShrinkOptions};
-use crate::{duration, inspect_server, output_path};
+use crate::{browser_trace, duration, inspect_server, output_path};
 
 const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
@@ -88,11 +83,11 @@ Examples:
 
 const INSPECT_EXAMPLES: &str = "\
 Examples:
-  # Inspect the trace in an output directory named `my-test`
+  # Inspect the trace file named `my-test`
   bombadil browser inspect my-test
 
   # Serve on another port, without trying to open a browser
-  bombadil browser inspect --port 8080 --no-open my-test/trace.jsonl
+  bombadil browser inspect --port 8080 --no-open my-test
 ";
 
 #[derive(clap::Subcommand)]
@@ -142,7 +137,7 @@ pub enum BrowserCommand {
     /// Launch Bombadil Inspect to inspect a trace file
     #[command(after_help = INSPECT_EXAMPLES)]
     Inspect {
-        /// Path to trace.jsonl file or directory containing it
+        /// Trace FILE to inspect (any filename, not a directory)
         trace_path: PathBuf,
         /// Port to bind the inspect server to
         #[arg(long, default_value_t = 1073)]
@@ -158,12 +153,14 @@ pub struct RunSharedOptions {
     #[clap(flatten)]
     pub target: TargetOptions,
 
-    /// Where to store output data (trace, screenshots, etc.)
+    /// Trace FILE to write (any filename), with embedded screenshots.
+    /// For fuzz, a file base: run.bin writes run-0.bin, run-1.bin, etc.
+    /// Defaults to a unique file/base in system temp. Parents must exist.
     #[arg(long)]
     pub output_path: Option<PathBuf>,
 
     /// Overwrite any existing trace at `--output-path`. Without this flag,
-    /// Bombadil refuses to write when trace.jsonl already exists.
+    /// Bombadil refuses to replace an existing file.
     #[arg(long)]
     pub output_path_overwrite: bool,
 
@@ -325,6 +322,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             shared,
             launch_options,
         } => {
+            let downloads = downloads_directory()?;
             let mode = resolve_test_mode(&shared)?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             log::info!(
@@ -340,7 +338,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             reproduce_args.extend(launch_options.reproduce_args());
 
             let browser_options =
-                browser_options_from_target(&shared.target, &output_path);
+                browser_options_from_target(&shared.target, downloads.path());
             let debugger_options = launch_options.debugger_options()?;
             browser_test(
                 mode,
@@ -349,6 +347,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 shared,
                 browser_options,
                 debugger_options,
+                downloads,
             )
         }
         BrowserCommand::TestExternal {
@@ -356,6 +355,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             remote_debugger,
             create_target,
         } => {
+            let downloads = downloads_directory()?;
             let mode = resolve_test_mode(&shared)?;
             let output_path =
                 output_path::resolve_output_path(&shared.output_path)?;
@@ -369,7 +369,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_target(&shared.target, &output_path)
+                ..browser_options_from_target(&shared.target, downloads.path())
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
@@ -380,6 +380,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 shared,
                 browser_options,
                 debugger_options,
+                downloads,
             )
         }
         BrowserCommand::Fuzz {
@@ -387,13 +388,14 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             run_shared_options,
             fuzz_options,
         } => {
+            let downloads = downloads_directory()?;
             let output_path = output_path::resolve_output_path(
                 &run_shared_options.output_path,
             )?;
 
             let browser_options = browser_options_from_target(
                 &run_shared_options.target,
-                &output_path,
+                downloads.path(),
             );
             let debugger_options = launch_options.debugger_options()?;
             browser_fuzz(
@@ -408,7 +410,12 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             target,
             shrink_options,
             launch_options,
-        } => browser_shrink(target, shrink_options, launch_options),
+        } => browser_shrink(
+            target,
+            shrink_options,
+            launch_options,
+            downloads_directory()?,
+        ),
         BrowserCommand::Inspect {
             trace_path,
             port,
@@ -464,9 +471,18 @@ fn parse_instrumentation_config(
     })
 }
 
+fn downloads_directory() -> Result<TempDir> {
+    let downloads = TempDir::with_prefix("bombadil-downloads-")?;
+    log::info!(
+        "storing browser downloads in {}",
+        downloads.path().display()
+    );
+    Ok(downloads)
+}
+
 fn browser_options_from_target(
     target: &TargetOptions,
-    output_path: &Path,
+    downloads_path: &Path,
 ) -> BrowserOptions {
     BrowserOptions {
         create_target: true,
@@ -476,7 +492,7 @@ fn browser_options_from_target(
             device_scale_factor: target.device_scale_factor,
         },
         instrumentation: target.instrument_javascript.clone(),
-        downloads_directory: output_path.join("downloads"),
+        downloads_directory: downloads_path.to_path_buf(),
         grant_permissions: target
             .chrome_grant_permissions
             .split(',')
@@ -566,17 +582,11 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let trace_file_path =
-                output_path::resolve_browser_trace_file(path)?;
-            let trace_file = File::open(&trace_file_path)?;
-            let mut actions: Vec<BrowserAction> = vec![];
-            for line in BufReader::new(trace_file).lines() {
-                let line = line.context("failed to read line from trace")?;
-                let entry: browser::BrowserTraceEntry = json::from_str(&line)?;
-                if let Some(action) = entry.action {
-                    actions.push(action.to_internal());
-                }
-            }
+            let actions: Vec<BrowserAction> =
+                browser_trace::load_actions(path)?
+                    .iter()
+                    .map(ToInternal::to_internal)
+                    .collect();
             Ok(TestMode::Reproduce(actions.into()))
         }
     }
@@ -589,6 +599,7 @@ fn browser_test(
     shared_options: RunSharedOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    downloads: TempDir,
 ) -> Result<()> {
     let specification = load_specification(&shared_options.target);
 
@@ -683,6 +694,7 @@ fn browser_test(
         );
     }
 
+    downloads.close()?;
     if test_result.violations_count > 0 {
         std::process::exit(2);
     }
@@ -881,21 +893,15 @@ fn browser_shrink(
     target: TargetOptions,
     shrink_options: ShrinkOptions,
     launch_options: ManagedBrowserOptions,
+    downloads: TempDir,
 ) -> Result<()> {
     // Check the trace before looking for a browser to run it in.
-    let options = shrink_options.resolve(
-        |trace_path| {
-            bombadil::shrink::load_trace_actions::<browser::BrowserAction>(
-                &output_path::resolve_browser_trace_file(trace_path)?,
-            )
-        },
-        false,
-    )?;
+    let options = shrink_options.resolve(browser_trace::load_trace_actions)?;
     let debugger_options = launch_options.debugger_options()?;
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
-        browser_options_from_target(&target, &options.output_path);
+        browser_options_from_target(&target, downloads.path());
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,

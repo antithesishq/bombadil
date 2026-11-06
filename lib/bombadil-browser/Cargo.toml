@@ -14,6 +14,7 @@ base64.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-trace = { path = "../bombadil-trace" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 cdp = { path = "../cdp" }
 cdp_protocol = { path = "../cdp/protocol" }
@@ -40,7 +41,6 @@ libc.workspace = true
 
 [dev-dependencies]
 boa_engine.workspace = true
-bombadil-trace = { path = "../bombadil-trace" }
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
