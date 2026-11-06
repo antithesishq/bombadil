@@ -60,7 +60,7 @@ libc = "0.2"
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "d2036baeb605d31d09a9e2ba6d0c923e04c34d54" }
 log = "0.4.29"
 mime_guess = "2.0"
-mio = { version = "1", features = ["os-poll", "os-ext"] }
+mio = { version = "1", features = ["os-poll", "os-ext", "net"] }
 num-traits = "0.2"
 open = "5.0"
 oxc = { version = "0.125.0", features = ["codegen", "semantic", "transformer"] }

@@ -4,7 +4,8 @@ fn main() {
         .opt_level(3)
         .warnings(true)
         .warnings_into_errors(true)
-        .flag("-Wextra")
+        // `-Wextra` is a GCC/Clang flag; MSVC's cl.exe rejects it. Skip it there.
+        .flag_if_supported("-Wextra")
         .compile("libvoidstar_shim");
     println!("cargo::rerun-if-changed=src/libvoidstar_shim.c");
 }

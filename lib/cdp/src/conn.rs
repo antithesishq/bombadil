@@ -2,9 +2,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
+use std::net::ToSocketAddrs;
+#[cfg(test)]
 use std::net::TcpStream;
 use std::ops::Range;
-use std::os::fd::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -12,11 +13,11 @@ use std::time::{Duration, Instant};
 
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use crossbeam_channel as mpmc;
-use mio::unix::SourceFd;
+use mio::net::TcpStream as MioTcpStream;
 use mio::{Events as MioEvents, Interest, Poll, Token, Waker};
-use tungstenite::client::{IntoClientRequest, connect_with_config};
+use tungstenite::client::{IntoClientRequest, client_with_config};
+use tungstenite::handshake::HandshakeError;
 use tungstenite::protocol::WebSocketConfig;
-use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message as WsMessage, Utf8Bytes, WebSocket};
 
 use cdp_types::{CallId, CdpJsonEventMessage, Command, MethodCall, MethodId};
@@ -191,25 +192,64 @@ impl ConnectionInner {
         let config = WebSocketConfig::default()
             .max_message_size(None)
             .max_frame_size(None);
-        let (mut ws, _resp) = connect_with_config(url, Some(config), 3)?;
-        let fd_raw = {
-            let stream = ws.get_mut();
-            match stream {
-                MaybeTlsStream::Plain(stream) => {
-                    stream.set_nodelay(true)?;
-                    stream.set_nonblocking(true)?;
-                    stream.as_raw_fd()
+
+        // Connect through mio so the socket is a first-class mio source on
+        // every platform. Windows has no `SourceFd` for arbitrary sockets, so
+        // registering the mio `TcpStream` directly is the portable approach.
+        // CDP only ever talks plain ws:// to a local browser, so TLS is
+        // intentionally unsupported here.
+        let request = url.into_client_request()?;
+        let addr = resolve_ws_addr(request.uri())?;
+        let mut poll = Poll::new()?;
+        let mut mio_events = MioEvents::with_capacity(16);
+        let mut stream = MioTcpStream::connect(addr)?;
+        poll.registry()
+            .register(&mut stream, WEBSOCKET, Interest::WRITABLE)?;
+        // Wait for the non-blocking connect to complete.
+        loop {
+            poll.poll(&mut mio_events, Some(Duration::from_secs(30)))?;
+            if mio_events.is_empty() {
+                bail!("timed out establishing TCP connection to {addr}");
+            }
+            if let Some(err) = stream.take_error()? {
+                return Err(
+                    anyhow!("failed to connect to {addr}: {err}").into()
+                );
+            }
+            if stream.peer_addr().is_ok() {
+                break;
+            }
+        }
+        stream.set_nodelay(true)?;
+
+        // Drive the WebSocket handshake to completion over the non-blocking
+        // stream, re-polling whenever tungstenite reports WouldBlock.
+        poll.registry().reregister(
+            &mut stream,
+            WEBSOCKET,
+            Interest::READABLE.add(Interest::WRITABLE),
+        )?;
+        let mut handshake = client_with_config(request, stream, Some(config));
+        let (mut ws, _resp) = loop {
+            match handshake {
+                Ok(pair) => break pair,
+                Err(HandshakeError::Interrupted(mid)) => {
+                    poll.poll(&mut mio_events, Some(Duration::from_secs(30)))?;
+                    if mio_events.is_empty() {
+                        bail!(
+                            "timed out during WebSocket handshake with {addr}"
+                        );
+                    }
+                    handshake = mid.handshake();
                 }
-                _ => bail!("unsupported stream type"),
+                Err(HandshakeError::Failure(err)) => return Err(err.into()),
             }
         };
 
-        let poll = Poll::new()?;
-        poll.registry().register(
-            &mut SourceFd(&fd_raw),
-            WEBSOCKET,
-            Interest::READABLE,
-        )?;
+        // From here only readability drives the worker; write interest is
+        // added on demand by `set_write_interest`.
+        poll.registry()
+            .reregister(ws.get_mut(), WEBSOCKET, Interest::READABLE)?;
         let commands_waker = Arc::new(Waker::new(poll.registry(), COMMANDS)?);
 
         let (worker_tx, worker_rx) = mpmc::bounded(16);
@@ -373,7 +413,7 @@ enum DrainResult {
 }
 
 fn calls_drain(
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    ws: &mut WebSocket<MioTcpStream>,
     requests_rx: &mpmc::Receiver<WorkerRequest>,
     calls_in_flight: &mut CallsInFlight,
 ) -> Result<DrainResult> {
@@ -446,7 +486,7 @@ fn record_retryable_write() {
 }
 
 fn write_nonblocking(
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    ws: &mut WebSocket<MioTcpStream>,
     message: WsMessage,
 ) -> Result<()> {
     match ws.write(message) {
@@ -462,7 +502,7 @@ fn write_nonblocking(
 }
 
 fn flush_nonblocking(
-    ws: &mut WebSocket<MaybeTlsStream<TcpStream>>,
+    ws: &mut WebSocket<MioTcpStream>,
 ) -> Result<bool> {
     match ws.flush() {
         Ok(()) => Ok(false),
@@ -474,9 +514,27 @@ fn flush_nonblocking(
     }
 }
 
+/// Resolve the TCP address for a `ws://` URL so we can open a mio
+/// `TcpStream` to it directly. Only plain WebSocket to a local browser is
+/// used; `wss` would resolve to :443 but TLS is never negotiated.
+fn resolve_ws_addr(
+    uri: &tungstenite::http::Uri,
+) -> Result<std::net::SocketAddr> {
+    let host = uri
+        .host()
+        .ok_or_else(|| anyhow!("websocket url missing host: {uri}"))?;
+    let port = uri
+        .port_u16()
+        .unwrap_or(if uri.scheme_str() == Some("wss") { 443 } else { 80 });
+    (host, port)
+        .to_socket_addrs()?
+        .next()
+        .ok_or_else(|| anyhow!("could not resolve {host}:{port}"))
+}
+
 fn set_write_interest(
     poll: &Poll,
-    fd_raw: RawFd,
+    ws: &mut WebSocket<MioTcpStream>,
     registered: &mut bool,
     write_pending: bool,
 ) -> Result<()> {
@@ -490,7 +548,7 @@ fn set_write_interest(
         Interest::READABLE
     };
     poll.registry()
-        .reregister(&mut SourceFd(&fd_raw), WEBSOCKET, interest)?;
+        .reregister(ws.get_mut(), WEBSOCKET, interest)?;
     *registered = write_pending;
     Ok(())
 }
@@ -642,7 +700,7 @@ fn handle_message(
 }
 
 fn websocket_worker(
-    mut ws: WebSocket<MaybeTlsStream<TcpStream>>,
+    mut ws: WebSocket<MioTcpStream>,
     mut poll: Poll,
     requests_rx: mpmc::Receiver<WorkerRequest>,
     subscribers: Arc<Mutex<Subscribers>>,
@@ -653,10 +711,6 @@ fn websocket_worker(
     // other reason not receiving responses
     let mut calls_in_flight: CallsInFlight = HashMap::new();
     let mut mio_events = MioEvents::with_capacity(16);
-    let fd_raw = match ws.get_ref() {
-        MaybeTlsStream::Plain(stream) => stream.as_raw_fd(),
-        _ => bail!("unsupported stream type"),
-    };
     let mut write_interest_registered = false;
 
     loop {
@@ -669,7 +723,7 @@ fn websocket_worker(
         let mut write_pending = flush_nonblocking(&mut ws)?;
         set_write_interest(
             &poll,
-            fd_raw,
+            &mut ws,
             &mut write_interest_registered,
             write_pending,
         )?;
@@ -715,7 +769,7 @@ fn websocket_worker(
 
             set_write_interest(
                 &poll,
-                fd_raw,
+                &mut ws,
                 &mut write_interest_registered,
                 write_pending,
             )?;
