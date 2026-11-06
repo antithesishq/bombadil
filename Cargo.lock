@@ -654,6 +654,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bombadil-trace"
+version = "0.7.10"
+dependencies = [
+ "anyhow",
+ "crc32fast",
+ "hegeltest",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zerocopy",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
