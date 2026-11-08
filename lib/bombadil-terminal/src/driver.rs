@@ -25,6 +25,7 @@ use bombadil_schema::terminal::{
 use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal,
+    color::{PaletteIndex, Rgb},
     render::{
         CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
         RowIterator, Snapshot as GhosttyRenderSnapshot,
@@ -561,7 +562,7 @@ pub(crate) fn viewport_grid<'alloc>(
                 // nothing renders here.
                 CellWide::SpacerHead => TerminalCell::Empty { style },
                 kind => {
-                    let length = cell.graphemes_len()?;
+                    let length = cell.graphemes_len()? as usize;
                     if length == 0 {
                         TerminalCell::Empty { style }
                     } else {
@@ -594,14 +595,11 @@ fn cursor_from_libghostty(
         visual_style: terminal_cursor_visual_style_from_libghostty(
             snapshot.cursor_visual_style()?,
         ),
-        color: snapshot.cursor_color()?.map_or(
-            TerminalColor::None,
-            |ghostty_style::RgbColor { r, g, b }| TerminalColor::RGB {
-                r,
-                g,
-                b,
-            },
-        ),
+        color: snapshot
+            .cursor_color()?
+            .map_or(TerminalColor::None, |Rgb { r, g, b }| {
+                TerminalColor::RGB { r, g, b }
+            }),
     })
 }
 
@@ -653,16 +651,14 @@ fn style_from_ghostty(value: &ghostty_style::Style) -> TerminalStyle {
 fn color_from_ghostty(value: &ghostty_style::StyleColor) -> TerminalColor {
     match value {
         ghostty_style::StyleColor::None => TerminalColor::None,
-        ghostty_style::StyleColor::Palette(ghostty_style::PaletteIndex(
-            index,
-        )) => TerminalColor::Palette(*index),
-        ghostty_style::StyleColor::Rgb(ghostty_style::RgbColor { r, g, b }) => {
-            TerminalColor::RGB {
-                r: *r,
-                g: *g,
-                b: *b,
-            }
+        ghostty_style::StyleColor::Palette(PaletteIndex(index)) => {
+            TerminalColor::Palette(*index)
         }
+        ghostty_style::StyleColor::Rgb(Rgb { r, g, b }) => TerminalColor::RGB {
+            r: *r,
+            g: *g,
+            b: *b,
+        },
     }
 }
 
