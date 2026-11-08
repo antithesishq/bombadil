@@ -203,6 +203,11 @@ pub enum Command {
         /// flag, Bombadil refuses to replace an existing numbered file.
         #[arg(long)]
         output_path_overwrite: bool,
+        /// Write the table of action templates that trace `actions_available`
+        /// keys refer to (key, template as JSON) to this file, as JSON lines,
+        /// when the command ends. Without it no table is written.
+        #[arg(long, value_name = "FILE")]
+        action_templates: Option<PathBuf>,
     },
 }
 
@@ -377,6 +382,7 @@ pub fn run(command: Command) {
             command,
             output_path,
             output_path_overwrite,
+            action_templates,
         } => {
             let run_fuzz = || {
                 if antithesis::is_in_guest() {
@@ -451,6 +457,9 @@ pub fn run(command: Command) {
                     parallelism,
                     output_writer,
                 })?;
+                if let Some(path) = &action_templates {
+                    bombadil::model::write_templates(path)?;
+                }
 
                 Ok(())
             };

@@ -24,7 +24,8 @@ pub struct TerminalStateSummary {
     pub cursor: TerminalCursor,
     pub exit_status: Option<ProcessExitStatus>,
     /// Keys of the action templates available in this state, with their
-    /// spec probabilities (see `bombadil::model::StepModel`).
+    /// spec probabilities (see `bombadil::model::StepModel`). The table
+    /// written by `--action-templates` holds the template of each key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions_available: Option<Vec<(String, f64)>>,
     /// Key of the action template that led to this state.

@@ -143,6 +143,11 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
             TerminalAction::ScrollDown {} => "ScrollDown".hash(hasher),
         }
     }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::to_value(self)
+            .expect("terminal action template serializes")
+    }
 }
 
 impl<U16: Format, String: Format> Format for TerminalAction<U16, String> {

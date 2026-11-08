@@ -50,6 +50,9 @@ impl ActionTemplate<FakeAction> for FakeAction {
     fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         hasher.write_u8(0)
     }
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 impl FromGeneratedAction for FakeAction {

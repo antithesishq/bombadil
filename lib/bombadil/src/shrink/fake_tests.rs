@@ -78,6 +78,9 @@ impl ActionTemplate<FakeAction> for FakeAction {
     fn category_hash<H: Hasher>(&self, hasher: &mut H) {
         hasher.write_u8(self.0)
     }
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::Value::from(self.0)
+    }
 }
 
 impl FromGeneratedAction for FakeAction {

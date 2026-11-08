@@ -682,6 +682,11 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
         }
     }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::to_value(self)
+            .expect("browser action template serializes")
+    }
 }
 
 #[cfg(test)]

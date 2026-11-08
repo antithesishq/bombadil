@@ -29,7 +29,8 @@ use crate::tree::Tree;
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct StepModel {
     /// Key ([`action_key`]) of each available action template, with the
-    /// probability the spec weights give it.
+    /// probability the spec weights give it. The template itself is in the
+    /// table `--action-templates` writes ([`write_templates`]), once per key.
     pub actions_available: Vec<(String, f64)>,
     /// Key of the template, among the previous step's available ones, that
     /// generated the action leading to this state.
@@ -49,7 +50,11 @@ impl StepModel {
             .prune()
             .iter()
             .flat_map(|tree| tree.leaves_with_probabilities())
-            .map(|(template, probability)| (action_key(template), probability))
+            .map(|(template, probability)| {
+                let key = action_key(template);
+                register_template(&key, || template.to_json());
+                (key, probability)
+            })
             .collect();
         let action_taken = previous.and_then(|(tree, action)| {
             let templates = tree.values();
@@ -66,6 +71,44 @@ impl StepModel {
             action_taken,
         }
     }
+}
+
+/// Every action template offered so far in this process, in order of first
+/// sight. The table `--action-templates` writes, which trace
+/// `actions_available` keys refer to.
+static TEMPLATES: std::sync::Mutex<(Vec<(String, serde_json::Value)>, BTreeSet<String>)> =
+    std::sync::Mutex::new((Vec::new(), BTreeSet::new()));
+
+/// Records the template under `key` on its first sight; `json` is only
+/// called then.
+pub fn register_template(key: &str, json: impl FnOnce() -> serde_json::Value) {
+    let mut table = TEMPLATES.lock().expect("template table poisoned");
+    if table.1.insert(key.to_string()) {
+        table.0.push((key.to_string(), json()));
+    }
+}
+
+/// Registered templates from position `cursor` on, and the new cursor.
+pub fn templates_since(cursor: usize) -> (Vec<(String, serde_json::Value)>, usize) {
+    let table = TEMPLATES.lock().expect("template table poisoned");
+    let templates = table.0.get(cursor..).unwrap_or_default().to_vec();
+    (templates, table.0.len())
+}
+
+/// Writes every template offered so far to `path`, one JSON object `{"key": …,
+/// "template": …}` per line.
+pub fn write_templates(path: &Path) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let (templates, _) = templates_since(0);
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    for (key, template) in templates {
+        serde_json::to_writer(&mut file, &serde_json::json!({"key": key, "template": template}))?;
+        file.write_all(b"\n")?;
+    }
+    file.flush()
 }
 
 /// The template's `category_hash` under [`StableHasher`], as 16 hex digits.
@@ -619,6 +662,9 @@ mod tests {
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write(self.0.as_bytes());
         }
+        fn to_json(&self) -> serde_json::Value {
+            serde_json::Value::String(self.0.to_string())
+        }
     }
 
     struct At(u64);
@@ -759,6 +805,9 @@ mod tests {
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write(self.0.as_bytes());
+        }
+        fn to_json(&self) -> serde_json::Value {
+            serde_json::Value::String(self.0.to_string())
         }
     }
 

@@ -71,6 +71,12 @@ pub trait ActionTemplate<Action> {
     }
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
+
+    /// The full template as JSON, written once per action key to the table
+    /// `--action-templates` produces. It carries all of the template's
+    /// parameters, so that tooling can split a coarse template into finer ones
+    /// from the table and the trace alone.
+    fn to_json(&self) -> serde_json::Value;
 }
 
 pub trait OutputWriter<Session: InterfaceSession> {

@@ -18,7 +18,8 @@ pub struct BrowserStateSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_taken: Option<String>,
     /// Keys of the action templates available in this state, with their
-    /// spec probabilities.
+    /// spec probabilities. The table written by `--action-templates` holds
+    /// the template of each key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions_available: Option<Vec<(String, f64)>>,
     /// Ids of the code blocks run since the previous state, sorted. The

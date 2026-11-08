@@ -173,6 +173,12 @@ pub struct RunSharedOptions {
     #[arg(long, value_name = "FILE")]
     pub coverage_symbols: Option<PathBuf>,
 
+    /// Write the table of action templates that trace `actions_available`
+    /// keys refer to (key, template as JSON) to this file, as JSON lines,
+    /// when the command ends. Without it no table is written.
+    #[arg(long, value_name = "FILE")]
+    pub action_templates: Option<PathBuf>,
+
     /// Record, per state, a `cov.<script>#<function>` hash for every function
     /// whose blocks ran in that step (see `instrumentation::function_hashes`):
     /// coverage as state key components, selectable by a key's weights like
@@ -679,6 +685,9 @@ fn browser_test(
     if let Some(path) = &shared_options.coverage_symbols {
         blocks.write(path)?;
     }
+    if let Some(path) = &shared_options.action_templates {
+        bombadil::model::write_templates(path)?;
+    }
 
     let heading = {
         let TestResult {
@@ -828,6 +837,9 @@ fn browser_fuzz(
     })?;
     if let Some(path) = &shared_options.coverage_symbols {
         blocks.write(path)?;
+    }
+    if let Some(path) = &shared_options.action_templates {
+        bombadil::model::write_templates(path)?;
     }
 
     // TODO: return result from `fuzz` that can be used to print something like the following:
