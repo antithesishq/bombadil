@@ -412,6 +412,94 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
     assert!(state.terminal_snapshot.is_some());
 }
 
+/// Exercise the real PTY and verify that the observed complete frame and
+/// its recorded native snapshot agree. Exact chunk and deadline behavior
+/// is covered separately with controlled input and a virtual clock.
+#[test]
+fn test_synchronized_redraws() {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+        specification_file.write_all(br#"
+import { actions } from "@antithesishq/bombadil/terminal";
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
+"#).unwrap();
+        let driver = TerminalDriver::new(
+            Specification {
+                module_specifier: specification_file
+                    .path()
+                    .display()
+                    .to_string(),
+            },
+            bombadil_terminal::driver::TerminalProgramOptions {
+                size: TerminalSize {
+                    columns: 10,
+                    rows: 2,
+                },
+                scrollback_lines_max: MAX_SCROLLBACK,
+                quiescence_timeout: Duration::from_millis(10),
+                program: "sh".to_string(),
+                arguments: vec![
+                    "-c".into(),
+                    "stty -echo; printf READY; read input; \
+                     printf '\\033[H\\033[2J\\033[?2026hPART'; sleep 0.05; \
+                     printf '\\rFINAL\\033[?2026l'; read input"
+                        .into(),
+                ],
+            },
+        )
+        .unwrap();
+        let (mut session, _) = driver.new_session(RunId::default()).unwrap();
+        let Some(DriverEvent::StateChanged(initial)) =
+            session.next_event(Duration::MAX)
+        else {
+            panic!("expected initial state");
+        };
+        session
+            .apply(TerminalAction::TypeText { text: "\n".into() }, initial)
+            .unwrap();
+        let state = loop {
+            let Some(DriverEvent::StateChanged(state)) =
+                session.next_event(Duration::MAX)
+            else {
+                panic!("expected terminal state");
+            };
+            let text: String = (0..state.grid.size.columns)
+                .map(|x| match &state.grid[(0, x)] {
+                    TerminalCell::Occupied { contents, .. } => {
+                        contents.to_string()
+                    }
+                    _ => " ".to_string(),
+                })
+                .collect();
+            assert!(!text.starts_with("PART"), "captured an unfinished redraw");
+            if text.starts_with("FINAL") {
+                break state;
+            }
+        };
+        session.terminate().unwrap();
+        let snapshot =
+            state.terminal_snapshot.as_ref().expect("missing snapshot");
+        let lines =
+            bombadil_terminal::trace::render_screen(snapshot, None, false)
+                .unwrap();
+        assert_eq!(lines[0], "FINAL");
+        let restored = libghostty_vt::snapshot::Decoder::new_buf(snapshot)
+            .unwrap()
+            .decode()
+            .unwrap();
+        assert!(
+            !restored
+                .mode(libghostty_vt::mode::Mode::SYNC_OUTPUT)
+                .unwrap()
+        );
+        sender.send(()).unwrap();
+    });
+    receiver
+        .recv_timeout(TEST_TIMEOUT)
+        .expect("synchronized redraw test failed or stalled");
+}
+
 struct IntegrationTestStrategy {
     rng: ThreadRng,
     violations_count: u64,
