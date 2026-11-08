@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::rc::Rc;
@@ -309,6 +309,8 @@ impl InterfaceDriver for TerminalDriver {
             process.write(data);
         })?;
 
+        let render_progress = RenderProgress::track(&mut terminal)?;
+
         sleep(INITIATE_STARTUP_DELAY);
 
         Ok((
@@ -317,6 +319,7 @@ impl InterfaceDriver for TerminalDriver {
                 terminal,
                 process,
                 output,
+                render_progress,
                 size: self.program_options.size,
                 quiescence_timeout: self.program_options.quiescence_timeout,
                 last_action: None,
@@ -332,11 +335,78 @@ impl InterfaceDriver for TerminalDriver {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct RenderProgress {
+    held: bool,
+    completed: u64,
+}
+
+impl RenderProgress {
+    fn track(terminal: &mut Terminal<'_, '_>) -> Result<Rc<Cell<Self>>> {
+        let progress = Rc::new(Cell::new(Self::default()));
+        let callback_progress = progress.clone();
+        terminal.on_render_hold(move |_, held| {
+            let mut progress = callback_progress.get();
+            if !held {
+                progress.completed += 1;
+            }
+            progress.held = held;
+            callback_progress.set(progress);
+        })?;
+        Ok(progress)
+    }
+}
+
+/// Collect output until a completed redraw, a quiet gap, EOF, or the
+/// collection deadline. The reader and monotonic clock are supplied by
+/// the caller so the sampling policy is independent of PTY transport.
+fn collect_output(
+    terminal: &mut Terminal<'_, '_>,
+    render_progress: &Cell<RenderProgress>,
+    quiescence_timeout: Duration,
+    mut read: impl FnMut(Duration) -> ReadResult,
+    now: impl Fn() -> Instant,
+) -> bool {
+    let deadline = now() + DRAIN_DURATION_MAX;
+    let completed = render_progress.get().completed;
+    let mut received_any = false;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        if remaining.is_zero() {
+            break;
+        }
+        // A synchronized redraw can span several PTY chunks, with
+        // pauses longer than the ordinary quiet gap. Wait for its end,
+        // bounded by the same deadline used for continuous output.
+        let timeout = if render_progress.get().held {
+            remaining
+        } else {
+            quiescence_timeout.min(remaining)
+        };
+        match read(timeout) {
+            ReadResult::Chunk(data) => {
+                received_any = true;
+                terminal.vt_write(&data);
+                let progress = render_progress.get();
+                if progress.completed != completed && !progress.held {
+                    // Parse the whole chunk before encoding a snapshot.
+                    // If another hold began in this chunk, wait for it
+                    // rather than publishing its half-drawn screen.
+                    break;
+                }
+            }
+            ReadResult::Empty | ReadResult::Ended => break,
+        }
+    }
+    received_any
+}
+
 pub struct TerminalSession {
     extractor: Extractors,
     terminal: Terminal<'static, 'static>,
     process: Rc<RefCell<PtyProcess>>,
     output: PtyOutput,
+    render_progress: Rc<Cell<RenderProgress>>,
     size: TerminalSize,
     quiescence_timeout: Duration,
     last_action: Option<TerminalAction>,
@@ -357,22 +427,13 @@ pub struct TerminalSession {
 impl TerminalSession {
     #[hotpath::measure]
     fn drain_output(&mut self, quiescence_timeout: Duration) -> bool {
-        let deadline = Instant::now() + DRAIN_DURATION_MAX;
-        let mut received_any = false;
-        loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break;
-            }
-            match self.output.read_until(quiescence_timeout.min(remaining)) {
-                ReadResult::Chunk(data) => {
-                    received_any = true;
-                    self.terminal.vt_write(&data);
-                }
-                ReadResult::Empty | ReadResult::Ended => break,
-            }
-        }
-        received_any
+        collect_output(
+            &mut self.terminal,
+            &self.render_progress,
+            quiescence_timeout,
+            |timeout| self.output.read_until(timeout),
+            Instant::now,
+        )
     }
 
     #[hotpath::measure]
@@ -449,7 +510,8 @@ impl InterfaceSession for TerminalSession {
     type ActionTemplate = TerminalActionTemplate;
     type State = TerminalState;
 
-    // `next_event` always returns within the quiescence timeout.
+    // Output collection is bounded by DRAIN_DURATION_MAX, including a
+    // synchronized redraw whose application never releases its hold.
     const STALL_TIMEOUT: Duration = Duration::MAX;
 
     fn terminate(&mut self) -> Result<()> {
@@ -700,5 +762,170 @@ fn terminal_cursor_visual_style_from_libghostty(
             TerminalCursorVisualStyle::BlockHollow
         }
         _ => TerminalCursorVisualStyle::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+
+    use bytes::Bytes;
+
+    use super::*;
+
+    /// A stream with scheduled chunks and a monotonic virtual clock.
+    /// A read delivers the next due chunk or advances to its timeout.
+    struct TimedOutput {
+        now: Rc<Cell<Instant>>,
+        chunks: VecDeque<(Instant, ReadResult)>,
+    }
+
+    impl TimedOutput {
+        fn new(chunks: &[(u64, &'static [u8])]) -> Self {
+            let start = Instant::now();
+            Self {
+                now: Rc::new(Cell::new(start)),
+                chunks: chunks
+                    .iter()
+                    .map(|(millis, bytes)| {
+                        (
+                            start + Duration::from_millis(*millis),
+                            ReadResult::Chunk(Bytes::from_static(bytes)),
+                        )
+                    })
+                    .collect(),
+            }
+        }
+
+        fn read(&mut self, timeout: Duration) -> ReadResult {
+            let until = self.now.get() + timeout;
+            if self.chunks.front().is_some_and(|(at, _)| *at <= until) {
+                let (at, result) = self.chunks.pop_front().unwrap();
+                self.now.set(at);
+                result
+            } else {
+                self.now.set(until);
+                ReadResult::Empty
+            }
+        }
+    }
+
+    fn screen(terminal: &Terminal<'_, '_>) -> String {
+        let mut render = RenderState::new().unwrap();
+        let snapshot = render.update(terminal).unwrap();
+        let grid = viewport_grid(
+            &snapshot,
+            &mut RowIterator::new().unwrap(),
+            &mut CellIterator::new().unwrap(),
+            TerminalSize {
+                columns: 10,
+                rows: 2,
+            },
+        )
+        .unwrap();
+        crate::js::row_text(&grid, 0).trim_end().to_string()
+    }
+
+    #[test]
+    fn redraw_sampling() {
+        for (chunks, expected, elapsed) in [
+            // Ordinary output still waits for the quiet gap.
+            (&[(0, b"PLAIN".as_slice()), (20, b"LATE")][..], "PLAIN", 5),
+            // A completed redraw is sampled before later output, without
+            // paying the quiet gap.
+            (
+                &[
+                    (0, b"\x1b[?2026hFRAME\x1b[?2026l".as_slice()),
+                    (1, b"\rLATER"),
+                ][..],
+                "FRAME",
+                0,
+            ),
+            // The opening and closing sequences span chunks; the pause
+            // inside the hold is longer than the five-millisecond gap.
+            (
+                &[
+                    (0, b"\x1b[?20".as_slice()),
+                    (1, b"26hPART"),
+                    (20, b"\rFINAL\x1b[?202"),
+                    (30, b"6l"),
+                ][..],
+                "FINAL",
+                30,
+            ),
+            // One exact chunk ends a frame and opens the next redraw.
+            (
+                &[
+                    (
+                        0,
+                        b"\x1b[?2026hFIRST\x1b[?2026l\x1b[?2026h\rPART"
+                            .as_slice(),
+                    ),
+                    (20, b"\rFINAL\x1b[?2026l"),
+                ][..],
+                "FINAL",
+                20,
+            ),
+            // A hold that is never released expires at the collection
+            // deadline, not at the quiet gap or an unbounded wait.
+            (&[(0, b"\x1b[?2026hSTUCK".as_slice())][..], "STUCK", 1000),
+        ] {
+            let mut terminal = Terminal::new(10, 2).unwrap();
+            let progress = RenderProgress::track(&mut terminal).unwrap();
+            let mut output = TimedOutput::new(chunks);
+            let now = output.now.clone();
+            let start = now.get();
+            assert!(collect_output(
+                &mut terminal,
+                &progress,
+                Duration::from_millis(5),
+                |timeout| output.read(timeout),
+                || now.get(),
+            ));
+            assert_eq!(screen(&terminal), expected);
+            assert_eq!(now.get() - start, Duration::from_millis(elapsed));
+        }
+    }
+
+    #[test]
+    fn redraw_completion_does_not_leak_into_next_state() {
+        let mut terminal = Terminal::new(10, 2).unwrap();
+        let progress = RenderProgress::track(&mut terminal).unwrap();
+        let mut output = TimedOutput::new(&[
+            (0, b"\x1b[?2026hFIRST\x1b[?2026l"),
+            (1, b"\rSECOND"),
+            (3, b"!"),
+        ]);
+        let now = output.now.clone();
+        for expected in ["FIRST", "SECOND!"] {
+            collect_output(
+                &mut terminal,
+                &progress,
+                Duration::from_millis(5),
+                |timeout| output.read(timeout),
+                || now.get(),
+            );
+            assert_eq!(screen(&terminal), expected);
+        }
+    }
+
+    #[test]
+    fn continuous_output_does_not_extend_deadline() {
+        let mut terminal = Terminal::new(10, 2).unwrap();
+        let progress = RenderProgress::track(&mut terminal).unwrap();
+        let chunks: Vec<_> =
+            (0..300).map(|i| (i * 4, b"x".as_slice())).collect();
+        let mut output = TimedOutput::new(&chunks);
+        let now = output.now.clone();
+        let start = now.get();
+        collect_output(
+            &mut terminal,
+            &progress,
+            Duration::from_millis(5),
+            |timeout| output.read(timeout),
+            || now.get(),
+        );
+        assert_eq!(now.get() - start, Duration::from_secs(1));
+        assert!(!output.chunks.is_empty());
     }
 }
