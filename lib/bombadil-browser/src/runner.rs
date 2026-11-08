@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 use bombadil::driver::{InterfaceDriver, RunId, TraceWriter};
+use bombadil::model::TemplateRegistry;
 use bombadil::runner;
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::verifier::Specification;
@@ -26,6 +27,7 @@ pub fn launch<
     debugger_options: DebuggerOptions,
     blocks: BlockRegistry,
     mut trace_writer: Writer,
+    templates: Option<&TemplateRegistry>,
     interrupted: Arc<AtomicBool>,
     strategy: &mut S,
 ) -> Result<S::StopValue> {
@@ -47,6 +49,7 @@ pub fn launch<
         strategy,
         verifier,
         &mut trace_writer,
+        templates,
         interrupted,
     )
 }

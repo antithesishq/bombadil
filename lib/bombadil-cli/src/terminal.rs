@@ -23,9 +23,10 @@ use bombadil_terminal::trace::{
 };
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 
+use crate::action_templates::{ActionTemplates, ActionTemplatesOptions};
 use crate::duration;
 use crate::fuzz_report;
-use crate::output_path::resolve_output_path;
+use crate::output_path::{or_logged, resolve_output_path};
 use crate::shrink::{self, ShrinkOptions};
 
 mod defaults {
@@ -130,6 +131,8 @@ pub enum Command {
         /// instead of generating new ones.
         #[arg(long, value_name = "TRACE_FILE")]
         reproduce: Option<PathBuf>,
+        #[clap(flatten)]
+        action_templates: ActionTemplatesOptions,
         /// The command to run as the system under test. Everything after
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
@@ -188,6 +191,8 @@ pub enum Command {
         /// program more time to finish drawing.
         #[arg(long, default_value_t = defaults::QUIESCENCE_TIMEOUT_MS)]
         quiescence_timeout_ms: u64,
+        #[clap(flatten)]
+        action_templates: ActionTemplatesOptions,
         /// The command to run as the system under test. Everything after
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
@@ -225,6 +230,7 @@ pub fn run(command: Command) {
             output_path,
             output_path_overwrite,
             reproduce,
+            action_templates,
             command,
         } => {
             let run_test = || -> Result<()> {
@@ -236,6 +242,8 @@ pub fn run(command: Command) {
                 let specification = load_specification(specification_file);
 
                 let output_path = resolve_output_path(&output_path)?;
+                let action_templates =
+                    ActionTemplates::create(&action_templates)?;
 
                 let mode = match reproduce {
                     Some(path) => TerminalTestMode::Reproduce(
@@ -284,13 +292,17 @@ pub fn run(command: Command) {
                     &output_path,
                     output_path_overwrite,
                 )?;
-                let exit_reason = runner::run(
+                let result = runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
                     &mut trace_writer,
+                    action_templates.as_ref().map(ActionTemplates::registry),
                     interrupted,
-                )?;
+                );
+                let written =
+                    action_templates.map_or(Ok(()), ActionTemplates::finish);
+                let exit_reason = or_logged(result, written)?;
 
                 println!();
                 match exit_reason {
@@ -373,6 +385,7 @@ pub fn run(command: Command) {
             command,
             output_path,
             output_path_overwrite,
+            action_templates,
         } => {
             let run_fuzz = || {
                 if antithesis::is_in_guest() {
@@ -389,6 +402,8 @@ pub fn run(command: Command) {
                 let specification = load_specification(specification_file);
 
                 let output_path = resolve_output_path(&output_path)?;
+                let action_templates =
+                    ActionTemplates::create(&action_templates)?;
 
                 let output_writer = TerminalOutputWriter {
                     root_path: output_path.clone(),
@@ -437,7 +452,13 @@ pub fn run(command: Command) {
                     parallelism,
                     exit_on_violation,
                     output_writer,
-                })?;
+                    templates: action_templates
+                        .as_ref()
+                        .map(|templates| templates.registry().clone()),
+                });
+                let written =
+                    action_templates.map_or(Ok(()), ActionTemplates::finish);
+                let result = or_logged(result, written)?;
 
                 print!(
                     "{}",

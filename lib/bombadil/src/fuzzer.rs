@@ -24,7 +24,7 @@ use crate::{
         ActionTemplate, InterfaceDriver, InterfaceSession, OutputWriter, RunId,
         RunState,
     },
-    model::Picked,
+    model::{Picked, TemplateRegistry},
     render::Formatted,
     runner::{
         self, ControlFlow, PropertiesState, PropertyViolation, RunStrategy,
@@ -106,6 +106,8 @@ pub struct FuzzOptions<
     /// its choice of action is ignored. It should not print.
     pub strategy: MakeStrategy,
     pub output_writer: Writer,
+    /// Receives the action templates of every run.
+    pub templates: Option<TemplateRegistry>,
     pub interrupted: Arc<AtomicBool>,
     pub time_limit_fuzz: Duration,
     pub time_limit_run: Duration,
@@ -160,6 +162,7 @@ pub fn fuzz<
         parallelism,
         exit_on_violation,
         output_writer,
+        templates,
     }: FuzzOptions<D, Writer, Rng, MakeStrategy>,
 ) -> Result<FuzzResult>
 where
@@ -181,6 +184,7 @@ where
         let driver = driver.clone();
         let strategy = strategy.clone();
         let output_writer = output_writer.clone();
+        let templates = templates.clone();
         let seed = rng.next_u64();
         let interrupted = interrupted.clone();
         log::debug!("spawning {worker_id}");
@@ -189,6 +193,7 @@ where
                 driver,
                 strategy,
                 output_writer,
+                templates,
                 worker_tx,
                 interrupted,
                 seed,
@@ -460,6 +465,7 @@ struct FuzzWorkerThread<
     driver: Arc<D>,
     strategy: Arc<MakeStrategy>,
     output_writer: Arc<Mutex<Writer>>,
+    templates: Option<TemplateRegistry>,
     worker_tx: mpmc::Sender<WorkerMessage<D::Session>>,
     interrupted: Arc<AtomicBool>,
     seed: u64,
@@ -543,6 +549,7 @@ impl<
                 &mut strategy,
                 verifier,
                 &mut trace_writer,
+                self.templates.as_ref(),
                 self.interrupted.clone(),
             );
 

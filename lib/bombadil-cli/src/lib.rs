@@ -1,3 +1,4 @@
+mod action_templates;
 mod browser;
 mod browser_trace;
 mod duration;

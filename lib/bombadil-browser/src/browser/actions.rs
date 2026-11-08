@@ -677,9 +677,13 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    use bombadil::model::{Picked, Recorded, accepting_key, action_key};
+    use bombadil::model::{
+        Picked, Recorded, TemplateRegistry, accepting_key, action_key,
+        write_template_rows,
+    };
     use bombadil::specification::generators::{CharSetEntry, Regexp};
     use bombadil::tree::Tree;
+    use bombadil_schema::ActionKey;
     use hegel::{
         Generator, TestCase,
         generators::{integers, text},
@@ -804,6 +808,77 @@ mod tests {
                 "template {template:?} rejected {action:?} with seed {seed}"
             );
         }
+    }
+
+    fn template_table(templates: Vec<BrowserActionTemplate>) -> String {
+        let tree = Tree::Branch {
+            branches: templates
+                .into_iter()
+                .map(|value| (1, Tree::Leaf { value }))
+                .collect(),
+        };
+        let (registry, rows_new) = TemplateRegistry::with_channel();
+        registry.record(&tree.leaves()).unwrap();
+        registry.close();
+        let mut table = vec![];
+        write_template_rows(rows_new, &mut table).unwrap();
+        String::from_utf8(table).unwrap()
+    }
+
+    #[hegel::test]
+    fn template_table_rows_parse_back_to_their_templates(tc: TestCase) {
+        #[derive(Debug, PartialEq, Deserialize)]
+        struct Row {
+            key: ActionKey,
+            template: BrowserActionTemplate,
+        }
+
+        let templates = tc.draw(action_templates().print_as_debug());
+        let rows: Vec<Row> = template_table(templates.clone())
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let expected: Vec<Row> = templates
+            .into_iter()
+            .map(|template| Row {
+                key: action_key(&template),
+                template,
+            })
+            .collect();
+        assert_eq!(rows, expected);
+    }
+
+    #[test]
+    fn template_table_lines() {
+        use BrowserAction::*;
+
+        let point = Point {
+            x: 1.0..=2.0,
+            y: 3.0..=4.0,
+        };
+        insta::assert_snapshot!(template_table(vec![
+            Back,
+            Click {
+                fingerprint: Fingerprint {
+                    id: Some("save".into()),
+                    tag: "button".into(),
+                    ..Default::default()
+                },
+                point,
+            },
+            TypeText {
+                text: StringGenerator::Text { length: 0..=8 },
+            },
+            SetViewport {
+                width: 320..=1920,
+                height: 240..=1080,
+            },
+        ]), @r#"
+        {"key":"60e839e3a8241847","template":"Back"}
+        {"key":"31d8046783c7bb7e","template":{"Click":{"fingerprint":{"id":"save","tag":"button"},"point":{"x":{"start":1.0,"end":2.0},"y":{"start":3.0,"end":4.0}}}}}
+        {"key":"2b79694c55667d99","template":{"TypeText":{"text":{"Text":{"length":{"start":0,"end":8}}}}}}
+        {"key":"f0b94cef879752ec","template":{"SetViewport":{"width":{"start":320,"end":1920},"height":{"start":240,"end":1080}}}}
+        "#);
     }
 
     /// [`action_templates`] plus templates that overlap them, shuffled:
