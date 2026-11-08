@@ -30,6 +30,7 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
+    model::TemplateRegistry,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -176,6 +177,12 @@ pub struct RunSharedOptions {
     /// must not exist, and its parent must. Without it no table is written.
     #[arg(long = "coverage-symbols", value_name = "FILE")]
     pub coverage_symbols_path: Option<PathBuf>,
+
+    /// Write the table of action templates that trace `actions_available`
+    /// keys refer to (key, template as JSON) to this file, as JSON lines,
+    /// when the command ends. Without it no table is written.
+    #[arg(long, value_name = "FILE")]
+    pub action_templates: Option<PathBuf>,
 
     /// Give each state a `coverage.<script>#<function>` hash for every
     /// function whose blocks ran in that step: coverage as named hashes of
@@ -738,13 +745,25 @@ fn browser_test(
         blocks: blocks.clone(),
     };
 
+    let templates = shared_options
+        .action_templates
+        .as_ref()
+        .map(|_| TemplateRegistry::default());
     let trace_writer = FileTraceWriter::initialize(
         output_path.clone(),
         shared_options.output_path_overwrite,
-    )?;
+    )?
+    .with_templates(templates.clone());
     let result = run_with_writer(run_options, trace_writer);
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let result = output_path::or_logged(result, written);
+    let written = output_path::write_action_templates(
+        shared_options
+            .action_templates
+            .as_deref()
+            .zip(templates.as_ref()),
+    );
     let test_result = output_path::or_logged(result, written)?;
 
     let heading = {
@@ -848,9 +867,14 @@ fn browser_fuzz(
     let specification_bundle =
         Arc::from(bundle(".", &specification.module_specifier)?);
 
+    let templates = shared_options
+        .action_templates
+        .as_ref()
+        .map(|_| TemplateRegistry::default());
     let output_writer = FileOutputWriter {
         root_path: output_path.clone(),
         overwrite: shared_options.output_path_overwrite,
+        templates: templates.clone(),
     };
 
     let allow_urls = browser_options.allow_urls.clone();
@@ -884,6 +908,13 @@ fn browser_fuzz(
     });
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let result = output_path::or_logged(result, written);
+    let written = output_path::write_action_templates(
+        shared_options
+            .action_templates
+            .as_deref()
+            .zip(templates.as_ref()),
+    );
     output_path::or_logged(result, written)?;
 
     // TODO: return result from `fuzz` that can be used to print something like the following:

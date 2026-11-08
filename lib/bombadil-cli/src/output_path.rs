@@ -1,5 +1,7 @@
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use bombadil::model::TemplateRegistry;
 use bombadil_trace::{TraceDriver, trace_driver};
+use std::fs::File;
 use std::path::{Path, PathBuf};
 
 /// Validate a browser trace file, without interpreting directories.
@@ -48,6 +50,22 @@ pub fn or_logged<T>(first: Result<T>, second: Result<()>) -> Result<T> {
     }
 }
 
+/// Writes the `--action-templates` table.
+pub fn write_action_templates(
+    templates: Option<(&Path, &TemplateRegistry)>,
+) -> Result<()> {
+    let Some((path, registry)) = templates else {
+        return Ok(());
+    };
+    (|| {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        registry.write(&mut File::create(path)?)
+    })()
+    .with_context(|| format!("writing action templates to {}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +102,14 @@ mod tests {
         let default = resolve_output_path(&None).unwrap();
         assert!(!default.exists());
         assert_eq!(default.parent().unwrap(), std::env::temp_dir());
+    }
+
+    #[test]
+    fn action_templates_are_written_into_a_new_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("new/templates.jsonl");
+        write_action_templates(Some((&path, &TemplateRegistry::default())))
+            .unwrap();
+        assert!(path.exists());
     }
 }

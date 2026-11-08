@@ -3,10 +3,15 @@
 //! Actions are identified by their template's `category_hash` under
 //! [`StableHasher`].
 
+use std::collections::HashSet;
 use std::hash::Hasher;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
 
+use anyhow::{Context, Result};
 use bombadil_schema::ActionKey;
 use rand::{RngExt, TryRng};
+use serde::Serialize;
 
 use crate::driver::ActionTemplate;
 use crate::hash::{FNV_OFFSET, fnv1a64_from};
@@ -78,6 +83,82 @@ pub fn accepting_key<A, T: ActionTemplate<A>>(
         }
     }
     accepting.map(action_key)
+}
+
+/// The table `--action-templates` writes: the template behind each key in a
+/// trace's `actions_available`, in order of first sight. A key ignores some
+/// of its template's parameters (see `category_hash`), and the table holds
+/// the first template seen under it.
+#[derive(Clone, Default)]
+pub struct TemplateRegistry(Arc<Mutex<TemplateTable>>);
+
+#[derive(Default)]
+struct TemplateTable {
+    keys: HashSet<ActionKey>,
+    /// One `{"key": …, "template": …}` JSON object per key, each on its
+    /// own line.
+    lines: Vec<u8>,
+}
+
+#[derive(Serialize)]
+struct TemplateRow<'a, T> {
+    key: ActionKey,
+    template: &'a T,
+}
+
+impl TemplateRegistry {
+    /// Adds the templates of `leaves` whose keys are new. `model` is the
+    /// step model built from the same leaves.
+    pub fn record<T: Serialize>(
+        &self,
+        leaves: &Leaves<'_, T>,
+        model: &StepModel,
+    ) -> Result<()> {
+        let leaves = leaves.as_slice();
+        let keys = &model.actions_available;
+        debug_assert_eq!(leaves.len(), keys.len());
+
+        let mut unseen = Vec::new();
+        {
+            let table = self.0.lock().expect("template table poisoned");
+            for (index, (key, _)) in keys.iter().enumerate() {
+                if !table.keys.contains(key) {
+                    unseen.push((index, 0));
+                }
+            }
+        }
+        if unseen.is_empty() {
+            return Ok(());
+        }
+
+        // Serialized outside the lock, which other runs take at every step.
+        let mut lines = Vec::new();
+        for (index, line_end) in &mut unseen {
+            let row = TemplateRow {
+                key: keys[*index].0,
+                template: leaves[*index].0,
+            };
+            serde_json::to_writer(&mut lines, &row)
+                .context("serializing an action template")?;
+            lines.push(b'\n');
+            *line_end = lines.len();
+        }
+
+        let mut table = self.0.lock().expect("template table poisoned");
+        let mut line_start = 0;
+        for (index, line_end) in unseen {
+            if table.keys.insert(keys[index].0) {
+                table.lines.extend_from_slice(&lines[line_start..line_end]);
+            }
+            line_start = line_end;
+        }
+        Ok(())
+    }
+
+    pub fn write(&self, writer: &mut impl Write) -> std::io::Result<()> {
+        let table = self.0.lock().expect("template table poisoned");
+        writer.write_all(&table.lines)
+    }
 }
 
 /// The template's `category_hash` under [`StableHasher`].
@@ -204,7 +285,7 @@ mod tests {
     }
 
     /// Accepts any action of its group; produced only its own.
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Clone, Debug, PartialEq, Serialize)]
     struct Loose(&'static str, u8);
 
     impl ActionTemplate<Loose> for Loose {
@@ -341,6 +422,54 @@ mod tests {
             .find(|template| template.1 == action.1)
             .map(action_key);
         assert_eq!(accepting_key(&tree.leaves(), &action), expected);
+    }
+
+    #[derive(Debug, PartialEq, serde::Deserialize)]
+    struct Row {
+        key: ActionKey,
+        template: (String, u8),
+    }
+
+    // `Loose` templates of one name share a key whatever their group, so the
+    // table must hold the group seen first.
+    #[hegel::test]
+    fn template_table_holds_the_first_template_of_each_key_in_order(
+        tc: TestCase,
+    ) {
+        let registry = TemplateRegistry::default();
+        let mut expected: Vec<Row> = vec![];
+        for _ in 0..tc.draw(integers::<usize>().max_value(4)) {
+            let size = tc.draw(integers::<usize>().max_value(6));
+            let branches = (0..size)
+                .map(|_| {
+                    let name = tc
+                        .draw(hegel::generators::sampled_from(NAMES.to_vec()));
+                    let group = tc.draw(integers::<u8>().max_value(2));
+                    let value = Loose(name, group);
+                    let key = action_key(&value);
+                    if expected.iter().all(|row| row.key != key) {
+                        expected.push(Row {
+                            key,
+                            template: (name.to_string(), group),
+                        });
+                    }
+                    (1, Tree::Leaf { value })
+                })
+                .collect();
+            let tree = Tree::Branch { branches };
+            let leaves = tree.leaves();
+            let model = StepModel::new(&leaves, None);
+            registry.record(&leaves, &model).unwrap();
+        }
+
+        let mut table = vec![];
+        registry.write(&mut table).unwrap();
+        let rows: Vec<Row> = std::str::from_utf8(&table)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(rows, expected);
     }
 
     #[test]
