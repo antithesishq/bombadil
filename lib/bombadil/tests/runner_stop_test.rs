@@ -53,6 +53,9 @@ impl ActionTemplate<FakeAction> for FakeAction {
     fn to_json(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
+    fn contains(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 impl FromGeneratedAction for FakeAction {

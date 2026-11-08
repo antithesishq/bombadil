@@ -76,6 +76,36 @@ pub enum CharSetEntry {
     Literal(String),
 }
 
+/// A literal is covered if some entry accepts it, a range if some entry is a
+/// superset range.
+fn charset_covers(entries: &[CharSetEntry], entry: &CharSetEntry) -> bool {
+    match entry {
+        CharSetEntry::Literal(literal) => {
+            entries.iter().any(|e| e.accepts(literal))
+        }
+        CharSetEntry::Range(range) => entries.iter().any(|e| match e {
+            CharSetEntry::Range(outer) => {
+                outer.start() <= range.start() && outer.end() >= range.end()
+            }
+            _ => false,
+        }),
+    }
+}
+
+impl StringGenerator {
+    /// Whether `self`'s generatable set contains all of `other`'s. CharSets
+    /// compare by per-entry coverage, other variants by equality.
+    pub fn contains(&self, other: &StringGenerator) -> bool {
+        match (self, other) {
+            (
+                StringGenerator::CharSet { entries: outer },
+                StringGenerator::CharSet { entries: inner },
+            ) => inner.iter().all(|e| charset_covers(outer, e)),
+            _ => self == other,
+        }
+    }
+}
+
 impl CharSetEntry {
     fn accepts(&self, value: &str) -> bool {
         match self {

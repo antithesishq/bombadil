@@ -77,6 +77,11 @@ pub trait ActionTemplate<Action> {
     /// parameters, so that tooling can split a coarse template into finer ones
     /// from the table and the trace alone.
     fn to_json(&self) -> serde_json::Value;
+
+    /// Whether `self`'s generatable set contains all of `other`'s. Overlap
+    /// serving uses it to match an offered (coarse) template against a learned
+    /// (fine) one.
+    fn contains(&self, other: &Self) -> bool;
 }
 
 pub trait OutputWriter<Session: InterfaceSession> {

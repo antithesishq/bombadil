@@ -148,6 +148,31 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
         serde_json::to_value(self)
             .expect("terminal action template serializes")
     }
+
+    fn contains(&self, other: &Self) -> bool {
+        fn rc(o: &RangeInclusive<u16>, i: &RangeInclusive<u16>) -> bool {
+            o.start() <= i.start() && o.end() >= i.end()
+        }
+        match (self, other) {
+            (
+                TerminalAction::TypeText { text: a },
+                TerminalAction::TypeText { text: b },
+            ) => a.contains(b),
+            (
+                TerminalAction::Resize { size: a },
+                TerminalAction::Resize { size: b },
+            ) => rc(&a.columns, &b.columns) && rc(&a.rows, &b.rows),
+            (
+                TerminalAction::Click { row: ar, column: ac },
+                TerminalAction::Click { row: br, column: bc },
+            ) => rc(ar, br) && rc(ac, bc),
+            (TerminalAction::ScrollUp {}, TerminalAction::ScrollUp {}) => true,
+            (TerminalAction::ScrollDown {}, TerminalAction::ScrollDown {}) => {
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 impl<U16: Format, String: Format> Format for TerminalAction<U16, String> {

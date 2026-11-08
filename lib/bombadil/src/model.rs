@@ -327,6 +327,10 @@ pub struct Weights {
     /// state), so that a run spreads over its states.
     #[serde(default)]
     pub next: Option<HashMap<String, HashMap<String, String>>>,
+    /// Action key → the full fine template as JSON, for overlap serving. Empty
+    /// unless the weights were produced with templates.
+    #[serde(default)]
+    pub templates: HashMap<String, serde_json::Value>,
     /// The `states` simhashes, sorted.
     #[serde(skip)]
     simhashes: Vec<(u64, String)>,
@@ -428,7 +432,10 @@ impl Weights {
     /// near enough. Available actions without a learned weight get the mean
     /// learned weight of the state. Returns the tree to pick from and whether
     /// a learned state was found. Otherwise the spec weights are kept.
-    pub fn reweight<A, T: ActionTemplate<A> + Clone>(
+    pub fn reweight<
+        A,
+        T: ActionTemplate<A> + Clone + serde::de::DeserializeOwned,
+    >(
         &self,
         state: &(impl RunState + ?Sized),
         snapshots: &[Snapshot],
@@ -455,7 +462,10 @@ impl Weights {
     /// [`Weights::reweight`] with another weights table looked up at the same
     /// state key. `None`, or a table without the state, uses the file's
     /// weights.
-    pub fn reweight_in<A, T: ActionTemplate<A> + Clone>(
+    pub fn reweight_in<
+        A,
+        T: ActionTemplate<A> + Clone + serde::de::DeserializeOwned,
+    >(
         &self,
         table: Option<&WeightsTable>,
         state: &(impl RunState + ?Sized),
@@ -477,6 +487,36 @@ impl Weights {
         let learned = table
             .and_then(|table| table.get(state_key))
             .unwrap_or(learned);
+
+        // Overlap serving: expand each coarse offered template into the finer
+        // learned templates it is a strict superset of (`contains`). The
+        // offered template is kept alongside them when its own key is also
+        // learned. A template that contains no finer learned template is left
+        // unchanged. No-op when the weights carry no templates.
+        let pruned = if self.templates.is_empty() {
+            pruned
+        } else {
+            pruned.flat_map(&|offered: &T| {
+                let offered_key = action_key(offered);
+                let mut expansion: Vec<(u16, T)> = learned
+                    .keys()
+                    .filter(|key| **key != offered_key)
+                    .filter_map(|key| {
+                        let json = self.templates.get(key)?;
+                        let fine: T =
+                            serde_json::from_value(json.clone()).ok()?;
+                        offered.contains(&fine).then_some((1u16, fine))
+                    })
+                    .collect();
+                if expansion.is_empty() {
+                    return Vec::new(); // nothing finer learned: leave offered as-is
+                }
+                if learned.contains_key(&offered_key) {
+                    expansion.push((1u16, offered.clone()));
+                }
+                expansion
+            })
+        };
 
         let leaves = pruned.leaves_with_probabilities();
         let keys: Vec<String> =
@@ -649,8 +689,8 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
 mod tests {
     use super::*;
 
-    #[derive(Clone, Debug, PartialEq)]
-    struct Key(&'static str);
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Key(String);
 
     impl ActionTemplate<Key> for Key {
         fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Key {
@@ -664,6 +704,32 @@ mod tests {
         }
         fn to_json(&self) -> serde_json::Value {
             serde_json::Value::String(self.0.to_string())
+        }
+        fn contains(&self, other: &Self) -> bool {
+            self == other
+        }
+    }
+
+    // A shorter prefix is a strict superset of a longer one, which exercises
+    // the overlap `flat_map` (unlike `Key`, whose `contains` is `==`).
+    #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    struct Prefix(String);
+
+    impl ActionTemplate<Prefix> for Prefix {
+        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Prefix {
+            self.clone()
+        }
+        fn accepts(&self, original: &Prefix) -> bool {
+            original.0.starts_with(&self.0)
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write(self.0.as_bytes());
+        }
+        fn to_json(&self) -> serde_json::Value {
+            serde_json::Value::String(self.0.to_string())
+        }
+        fn contains(&self, other: &Self) -> bool {
+            other.0.starts_with(&self.0)
         }
     }
 
@@ -681,9 +747,9 @@ mod tests {
     fn tree() -> Tree<Key> {
         Tree::Branch {
             branches: vec![
-                (1, Tree::Leaf { value: Key("a") }),
-                (1, Tree::Leaf { value: Key("b") }),
-                (1, Tree::Leaf { value: Key("c") }),
+                (1, Tree::Leaf { value: Key("a".to_string()) }),
+                (1, Tree::Leaf { value: Key("b".to_string()) }),
+                (1, Tree::Leaf { value: Key("c".to_string()) }),
             ],
         }
     }
@@ -713,35 +779,35 @@ mod tests {
     #[test]
     fn reweight_known_state() {
         let learned = HashMap::from([
-            (action_key(&Key("a")), 3.0),
-            (action_key(&Key("b")), 0.0),
+            (action_key(&Key("a".to_string())), 3.0),
+            (action_key(&Key("b".to_string())), 0.0),
         ]);
         let (reweighted, hit) =
             weights(42, 0, learned).reweight(&At(42), &[], tree());
         assert!(hit);
         // c is unlisted and gets the mean learned weight (1.5).
-        let probabilities: Vec<(&str, f64)> = reweighted
+        let probabilities: Vec<(String, f64)> = reweighted
             .leaves_with_probabilities()
             .into_iter()
-            .map(|(k, p)| (k.0, (p * 100.0).round() / 100.0))
+            .map(|(k, p)| (k.0.clone(), (p * 100.0).round() / 100.0))
             .collect();
-        assert_eq!(probabilities, vec![("a", 0.67), ("b", 0.0), ("c", 0.33)]);
+        assert_eq!(probabilities, vec![("a".to_string(), 0.67), ("b".to_string(), 0.0), ("c".to_string(), 0.33)]);
     }
 
     #[test]
     fn reweight_prior_scales_spec_probabilities() {
         let spec = Tree::Branch {
             branches: vec![
-                (1, Tree::Leaf { value: Key("a") }),
-                (1, Tree::Leaf { value: Key("b") }),
-                (2, Tree::Leaf { value: Key("c") }),
+                (1, Tree::Leaf { value: Key("a".to_string()) }),
+                (1, Tree::Leaf { value: Key("b".to_string()) }),
+                (2, Tree::Leaf { value: Key("c".to_string()) }),
             ],
         };
         let probabilities =
-            |learned: &[(&'static str, f64)]| -> Vec<(&'static str, f64)> {
+            |learned: &[(&'static str, f64)]| -> Vec<(String, f64)> {
                 let learned = learned
                     .iter()
-                    .map(|(k, w)| (action_key(&Key(k)), *w))
+                    .map(|(k, w)| (action_key(&Key(k.to_string())), *w))
                     .collect();
                 let weights = Weights {
                     policy: Policy::Prior,
@@ -753,24 +819,24 @@ mod tests {
                 reweighted
                     .leaves_with_probabilities()
                     .into_iter()
-                    .map(|(k, p)| (k.0, (p * 100.0).round() / 100.0))
+                    .map(|(k, p)| (k.0.clone(), (p * 100.0).round() / 100.0))
                     .collect()
             };
         // Equal learned weights keep the spec's distribution.
         assert_eq!(
             probabilities(&[("a", 5.0), ("b", 5.0), ("c", 5.0)]),
-            vec![("a", 0.25), ("b", 0.25), ("c", 0.5)]
+            vec![("a".to_string(), 0.25), ("b".to_string(), 0.25), ("c".to_string(), 0.5)]
         );
         // c is unlisted and gets the mean learned weight (1.5).
         assert_eq!(
             probabilities(&[("a", 2.0), ("b", 1.0)]),
-            vec![("a", 0.33), ("b", 0.17), ("c", 0.5)]
+            vec![("a".to_string(), 0.33), ("b".to_string(), 0.17), ("c".to_string(), 0.5)]
         );
     }
 
     #[test]
     fn reweight_nearest_simhash_within_radius() {
-        let learned = HashMap::from([(action_key(&Key("a")), 1.0)]);
+        let learned = HashMap::from([(action_key(&Key("a".to_string())), 1.0)]);
         let near = weights(42 ^ 0b101, 2, learned.clone());
         assert!(near.reweight(&At(42), &[], tree()).1);
         let far = weights(42 ^ 0b111, 2, learned);
@@ -780,18 +846,37 @@ mod tests {
     }
 
     #[test]
+    fn reweight_overlap_expands_coarse_into_fine() {
+        // The learned state has a fine template ("xy") and the offered tree
+        // only the coarse one ("x").
+        let fine = Prefix("xy".to_string());
+        let learned = HashMap::from([(action_key(&fine), 5.0)]);
+        let mut w = weights(42, 0, learned);
+        w.templates =
+            HashMap::from([(action_key(&fine), fine.to_json())]);
+        let coarse = Tree::Leaf { value: Prefix("x".to_string()) };
+        let (reweighted, hit) = w.reweight(&At(42), &[], coarse);
+        assert!(hit, "reweight should fire at the stored state");
+        let leaves = reweighted.leaves_with_probabilities();
+        assert!(
+            leaves.iter().any(|(t, _)| **t == fine),
+            "coarse 'x' must expand into fine 'xy'; got {leaves:?}"
+        );
+    }
+
+    #[test]
     fn action_taken_is_the_accepting_template() {
         let previous = tree();
         let model =
-            StepModel::new(&tree(), Some((&previous, &Key("b"))));
-        assert_eq!(model.action_taken, Some(action_key(&Key("b"))));
+            StepModel::new(&tree(), Some((&previous, &Key("b".to_string()))));
+        assert_eq!(model.action_taken, Some(action_key(&Key("b".to_string()))));
         assert_eq!(model.actions_available.len(), 3);
     }
 
     /// Two links to one page accept each other's clicks (replay); the step
     /// is still credited to the link that was clicked.
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct Loose(&'static str, u8);
+    #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct Loose(String, u8);
 
     impl ActionTemplate<Loose> for Loose {
         fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Loose {
@@ -809,6 +894,9 @@ mod tests {
         fn to_json(&self) -> serde_json::Value {
             serde_json::Value::String(self.0.to_string())
         }
+        fn contains(&self, other: &Self) -> bool {
+            self == other
+        }
     }
 
     #[test]
@@ -818,28 +906,28 @@ mod tests {
                 (
                     1,
                     Tree::Leaf {
-                        value: Loose("first", 1),
+                        value: Loose("first".to_string(), 1),
                     },
                 ),
                 (
                     1,
                     Tree::Leaf {
-                        value: Loose("second", 1),
+                        value: Loose("second".to_string(), 1),
                     },
                 ),
             ],
         };
         let model = StepModel::new(
             &tree,
-            Some((&tree, &Loose("second", 1))),
+            Some((&tree, &Loose("second".to_string(), 1))),
         );
-        assert_eq!(model.action_taken, Some(action_key(&Loose("second", 1))));
+        assert_eq!(model.action_taken, Some(action_key(&Loose("second".to_string(), 1))));
         // Without an exact producer, the accepting one still counts.
         let model = StepModel::new(
             &tree,
-            Some((&tree, &Loose("other", 1))),
+            Some((&tree, &Loose("other".to_string(), 1))),
         );
-        assert_eq!(model.action_taken, Some(action_key(&Loose("first", 1))));
+        assert_eq!(model.action_taken, Some(action_key(&Loose("first".to_string(), 1))));
     }
 
     #[test]

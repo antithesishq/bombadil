@@ -687,6 +687,40 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
         serde_json::to_value(self)
             .expect("browser action template serializes")
     }
+
+    fn contains(&self, other: &Self) -> bool {
+        // Mirrors `category_hash`'s projection: match the variant and compare
+        // only the category fields. TypeText uses the generator superset.
+        use BrowserAction::*;
+        match (self, other) {
+            (Back, Back) | (Forward, Forward) | (Reload, Reload)
+            | (Wait, Wait) | (MouseDrag { .. }, MouseDrag { .. })
+            | (ScrollUp { .. }, ScrollUp { .. })
+            | (ScrollDown { .. }, ScrollDown { .. }) => true,
+            (Click { fingerprint: a, .. }, Click { fingerprint: b, .. })
+            | (
+                DoubleClick { fingerprint: a, .. },
+                DoubleClick { fingerprint: b, .. },
+            )
+            | (Hover { fingerprint: a, .. }, Hover { fingerprint: b, .. }) => {
+                a == b
+            }
+            (TypeText { text: a }, TypeText { text: b }) => a.contains(b),
+            (PressKey { code: a }, PressKey { code: b }) => a == b,
+            (SetViewport { width: aw, height: ah }, SetViewport { width: bw, height: bh }) => {
+                aw.start() <= bw.start()
+                    && aw.end() >= bw.end()
+                    && ah.start() <= bh.start()
+                    && ah.end() >= bh.end()
+            }
+            (
+                SetFileInputFiles { selector: a, .. },
+                SetFileInputFiles { selector: b, .. },
+            ) => a == b,
+            (Custom { name: a, .. }, Custom { name: b, .. }) => a == b,
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -704,6 +738,31 @@ mod tests {
         let start = tc.draw(integers().min_value(minimum).max_value(100));
         let end = tc.draw(integers().min_value(start).max_value(100));
         start..=end
+    }
+
+    // Overlap serving depends on round-tripping a fine template through to_json
+    // -> from_value, and on a coarse viewport range containing a fine point
+    // viewport.
+    #[test]
+    fn setviewport_json_roundtrip_and_contains() {
+        let fine: BrowserActionTemplate = BrowserAction::SetViewport {
+            width: 390..=390,
+            height: 800..=800,
+        };
+        let json = fine.to_json();
+        let back: BrowserActionTemplate =
+            serde_json::from_value(json.clone()).unwrap_or_else(|e| {
+                panic!("fine SetViewport JSON must round-trip, got {e} from {json}")
+            });
+        assert_eq!(back, fine, "round-trip changed the template");
+        let coarse: BrowserActionTemplate = BrowserAction::SetViewport {
+            width: 320..=1920,
+            height: 800..=800,
+        };
+        assert!(
+            coarse.contains(&fine),
+            "coarse viewport range must contain the fine point viewport"
+        );
     }
 
     fn coordinate_range(tc: &TestCase) -> RangeInclusive<f64> {

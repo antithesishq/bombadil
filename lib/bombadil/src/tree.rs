@@ -47,6 +47,32 @@ impl<T> Tree<T> {
         }
     }
 
+    /// Replace each leaf with the weighted sub-leaves `f` expands it into. An
+    /// empty expansion keeps the leaf unchanged.
+    pub fn flat_map(self, f: &impl Fn(&T) -> Vec<(Weight, T)>) -> Self {
+        match self {
+            Tree::Leaf { value } => {
+                let expansion = f(&value);
+                if expansion.is_empty() {
+                    Tree::Leaf { value }
+                } else {
+                    Tree::Branch {
+                        branches: expansion
+                            .into_iter()
+                            .map(|(w, v)| (w, Tree::Leaf { value: v }))
+                            .collect(),
+                    }
+                }
+            }
+            Tree::Branch { branches } => Tree::Branch {
+                branches: branches
+                    .into_iter()
+                    .map(|(w, t)| (w, t.flat_map(f)))
+                    .collect(),
+            },
+        }
+    }
+
     fn prune_to_size(&mut self) -> usize {
         match self {
             Tree::Leaf { .. } => 1,
