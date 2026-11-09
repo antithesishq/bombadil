@@ -647,6 +647,10 @@ jobs:
       - name: Verify each platform resolves to the right image
         run: |
           for platform in linux/amd64 linux/arm64; do
+            # Drop the local tag first: with the tag already present, Docker
+            # sees the same manifest-list digest and skips the pull, keeping
+            # the previous platform's image.
+            docker image rm "$IMAGE_TAG" 2>/dev/null || true
             docker pull --platform "$platform" "$IMAGE_TAG"
             actual=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")
             if [ "$actual" != "$platform" ]; then
