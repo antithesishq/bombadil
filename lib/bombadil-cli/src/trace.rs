@@ -34,8 +34,7 @@ pub struct TraceArgs {
     /// if it has one
     #[arg(long)]
     json: bool,
-    /// Show each state's screen (terminal traces). A piped trace is copied
-    /// to a temporary file as it is read, to read shared screens again
+    /// Show each state's screen (terminal traces)
     #[arg(long)]
     screen: bool,
     /// Show screens with their colors and styles, as ANSI escape sequences
@@ -45,9 +44,7 @@ pub struct TraceArgs {
     /// Write the screenshot of each state shown into this directory, as
     /// `<index>.<format>` (browser traces), or `<index>.bin` for a format
     /// other than png and jpeg. A file already there is left as it is if
-    /// it holds the same screenshot, and refused otherwise. A piped trace
-    /// is copied to a temporary file as it is read, to read screenshots
-    /// from
+    /// it holds the same screenshot, and refused otherwise
     #[arg(long, value_name = "DIRECTORY")]
     screenshots: Option<PathBuf>,
 }

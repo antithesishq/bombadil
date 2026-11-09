@@ -41,13 +41,8 @@ const PENDING_STATES_MAX: usize = 32;
 /// no END, so the trace reads as unfinished, and can only log a failure
 /// (unless a call already returned it).
 ///
-/// A payload identical to an earlier state's is written as a
-/// [`tag::STATE_PAYLOAD_REF`] record naming that state. The thread
-/// compares the previous payload in memory, and older ones with the bytes
-/// in the file, which it flushes first; it keeps only the CRC-32, length
-/// and offset of each distinct payload, and of at most 4 distinct
-/// payloads with the same CRC-32 and length. Payloads of 12 bytes or
-/// fewer, no larger than a reference, are always written in full.
+/// A payload identical to an earlier state's may be written as a
+/// [`tag::STATE_PAYLOAD_REF`] record instead of storing its bytes again.
 ///
 /// Once the thread has failed, every call fails: the first one with the
 /// error that stopped it, later ones with a copy of its message.
@@ -477,8 +472,7 @@ struct WrittenPayloads {
 const READ_BACK_CHUNK_BYTES: usize = 64 * 1024;
 
 /// How many distinct payloads with the same CRC-32 and length a writer
-/// keeps to compare later payloads with, as the [`TraceFileWriter`] and
-/// [crate] docs say.
+/// keeps to compare later payloads with.
 const CANDIDATES_PER_KEY_MAX: usize = 4;
 
 impl WrittenPayloads {

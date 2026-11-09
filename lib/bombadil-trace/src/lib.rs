@@ -82,12 +82,8 @@
 //! in the record the reference names, so payloads are read again by
 //! offset the same way.
 //!
-//! The writer refers only to identical payloads: it finds candidates by
-//! CRC-32 and length and compares their bytes. It doesn't refer to
-//! payloads of 12 bytes or fewer: their record, of 16 bytes and the
-//! payload, is no larger than a reference record. It keeps at most 4
-//! candidates per CRC-32 and length, so a payload whose CRC-32 and length
-//! many distinct earlier payloads share may be written again in full.
+//! The writer only shares identical payloads. It may write a repeated
+//! payload in full instead of using a reference.
 //!
 //! A run that is killed while writing leaves an incomplete last record:
 //! a partial header, or an intact header whose payload the file ends
