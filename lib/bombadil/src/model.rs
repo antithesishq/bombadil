@@ -221,6 +221,74 @@ pub fn combine_with_defaults(
     combine(hashes, &active)
 }
 
+/// The weighted structural components (weight > 0, no `defaults` entry)
+/// this spec can never produce: a name that is not `snapshot.<name>` of a
+/// snapshot the spec records in the key (the browser defaults' `abstractLocation`
+/// among them). Such weights are inert: the key never forms, [`Weights::nearest`]
+/// never matches, and the learned weights silently never apply. The classic
+/// causes are a weights file whose names do not match the spec (a sub-path
+/// such as `snapshot.window.inner`, a renamed extract) and an extract the
+/// spec has since excluded from the key. Checked by name, not by presence in
+/// one state, so a component merely absent in this state (a URL without
+/// segments yet) does not count. Goal components (with a `defaults` entry)
+/// are expected to be absent until active and are never reported.
+pub fn unservable_components(
+    weights: &BTreeMap<String, i64>,
+    defaults: &BTreeMap<String, Option<u64>>,
+    snapshots: &[Snapshot],
+) -> Vec<String> {
+    let keyable: BTreeSet<&str> = snapshots
+        .iter()
+        .filter(|s| !s.excluded)
+        .filter_map(|s| s.name.as_deref())
+        .collect();
+    weights
+        .iter()
+        .filter(|(name, weight)| **weight > 0 && !defaults.contains_key(*name))
+        .filter(|(name, _)| {
+            !name
+                .strip_prefix("snapshot.")
+                .is_some_and(|n| keyable.contains(n))
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// Warns once, so that a mis-keyed weights file fails loudly instead of
+/// silently no-opping for a whole run.
+fn warn_if_unservable(
+    weights: &BTreeMap<String, i64>,
+    defaults: &BTreeMap<String, Option<u64>>,
+    snapshots: &[Snapshot],
+) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    if WARNED.load(Ordering::Relaxed) {
+        return;
+    }
+    let unservable = unservable_components(weights, defaults, snapshots);
+    if unservable.is_empty() || WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let excluded: Vec<&str> = snapshots
+        .iter()
+        .filter(|s| s.excluded)
+        .filter_map(|s| s.name.as_deref())
+        .collect();
+    let mut keyable: Vec<&str> = snapshots
+        .iter()
+        .filter(|s| !s.excluded)
+        .filter_map(|s| s.name.as_deref())
+        .collect();
+    keyable.sort_unstable();
+    eprintln!(
+        "bombadil: warning: learned weights are INERT — the weighted state-key \
+         components {unservable:?} are nothing this spec records (keyable \
+         snapshots: {keyable:?}, excluded from the key: {excluded:?}). The learned weights will never apply; check the weights \
+         file's component names against the spec."
+    );
+}
+
 /// Splits 64 bits in proportion to `weights` by largest remainder; ties go to
 /// the earlier weight.
 fn allocate_bits(weights: &[u64]) -> Vec<u32> {
@@ -475,8 +543,14 @@ impl Weights {
         let Some(pruned) = tree.clone().prune() else {
             return (tree, false);
         };
+        let hashes = state_hashes(state, snapshots);
+        warn_if_unservable(
+            &self.simhash.weights,
+            &self.simhash.defaults,
+            snapshots,
+        );
         let learned = combine_with_defaults(
-            &state_hashes(state, snapshots),
+            &hashes,
             &self.simhash.weights,
             &self.simhash.defaults,
         )
@@ -861,6 +935,42 @@ mod tests {
         assert!(
             leaves.iter().any(|(t, _)| **t == fine),
             "coarse 'x' must expand into fine 'xy'; got {leaves:?}"
+        );
+    }
+
+    #[test]
+    fn unservable_components_are_checked_by_name_against_the_spec() {
+        let snapshot = |name: &str, excluded: bool| -> Snapshot {
+            serde_json::from_value(serde_json::json!({
+                "index": 0, "name": name, "value": {"inner": 1}, "time": 0, "excluded": excluded
+            }))
+            .expect("a snapshot")
+        };
+        let spec = [snapshot("window", false), snapshot("lastAction", true)];
+        let no_defaults = BTreeMap::new();
+        let weights = |names: &[&str]| -> BTreeMap<String, i64> {
+            names.iter().map(|n| (n.to_string(), 1)).collect()
+        };
+        // The footgun: a sub-path the spec never records as its own snapshot.
+        assert_eq!(
+            unservable_components(&weights(&["snapshot.window.inner"]), &no_defaults, &spec),
+            vec!["snapshot.window.inner".to_string()]
+        );
+        // A recorded snapshot is servable.
+        assert!(unservable_components(&weights(&["snapshot.window"]), &no_defaults, &spec).is_empty());
+        // An extract the spec excludes from the key is not servable either.
+        assert_eq!(
+            unservable_components(&weights(&["snapshot.lastAction"]), &no_defaults, &spec),
+            vec!["snapshot.lastAction".to_string()]
+        );
+        // Goal components (with a default) are expected absent until active.
+        let goal_defaults: BTreeMap<String, Option<u64>> =
+            BTreeMap::from([("coverage.f".to_string(), None)]);
+        assert!(unservable_components(&weights(&["coverage.f"]), &goal_defaults, &spec).is_empty());
+        // Presence in this state is not the test: a mixed key with one dead name still reports it.
+        assert_eq!(
+            unservable_components(&weights(&["snapshot.window", "snapshot.ui.open"]), &no_defaults, &spec),
+            vec!["snapshot.ui.open".to_string()]
         );
     }
 
