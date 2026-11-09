@@ -598,6 +598,64 @@ jobs:
             "$IMAGE_TAG-arm64"
           docker buildx imagetools inspect "$IMAGE_TAG"
 
+  # TEMPORARY: runs publish-docker's per-arch push and multi-arch manifest
+  # steps against a local registry on PRs, so they're verified before a
+  # release. Remove once it has passed.
+  test-publish-docker:
+    name: Test publish (docker, local registry)
+    needs: build-docker
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    env:
+      REGISTRY: localhost:5000
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bombadil-docker-image-*
+          merge-multiple: true
+      - name: Push per-architecture images
+        run: |
+          for pair in x86_64-linux:amd64 aarch64-linux:arm64; do
+            system="${pair%%:*}"
+            arch="${pair##*:}"
+            LOAD_OUTPUT=$(docker load -i "bombadil-docker-image-$system.tar.gz")
+            echo "$LOAD_OUTPUT"
+            LOADED_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
+            IMAGE_TAG="$REGISTRY/$LOADED_TAG"
+            docker tag "$LOADED_TAG" "$IMAGE_TAG-$arch"
+            docker push "$IMAGE_TAG-$arch"
+          done
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: network=host
+          buildkitd-config-inline: |
+            [registry."localhost:5000"]
+              http = true
+              insecure = true
+      - name: Push multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE_TAG" \
+            "$IMAGE_TAG-amd64" \
+            "$IMAGE_TAG-arm64"
+          docker buildx imagetools inspect "$IMAGE_TAG"
+      - name: Verify each platform resolves to the right image
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            docker pull --platform "$platform" "$IMAGE_TAG"
+            actual=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")
+            if [ "$actual" != "$platform" ]; then
+              echo "::error::Pulling $IMAGE_TAG for $platform gave a $actual image"
+              exit 1
+            fi
+            echo "$platform -> $actual"
+          done
+
   publish-manual:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-manual, release]
@@ -646,6 +704,7 @@ jobs:
       - smoke-test
       - smoke-test-docker
       - test-npm-package
+      - test-publish-docker
     runs-on: ubuntu-latest
     steps:
       - name: Check all jobs passed
