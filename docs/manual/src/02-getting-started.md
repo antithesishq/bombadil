@@ -80,10 +80,11 @@ Do not download the executable with your web browser. It will be blocked by Gate
 <details name="install">
 <summary>Linux</summary>
 
-Download the `bombadil` binary and make it executable:
+Download the `bombadil` binary for your architecture (`x86_64` or `aarch64`)
+and make it executable:
 
 ```bash
-curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/download/v%version%/bombadil-x86_64-linux
+curl -L -o bombadil https://github.com/antithesishq/bombadil/releases/download/v%version%/bombadil-$(uname -m)-linux
 chmod +x bombadil
 ```
 
@@ -145,7 +146,8 @@ See [its README](https://github.com/antithesishq/bombadil-action) for detailed i
 <details name="install">
 <summary>Docker</summary>
 
-Releases are published as tags [on Docker Hub](https://hub.docker.com/repository/docker/antithesishq/bombadil/general):
+Releases are published as tags [on Docker Hub](https://hub.docker.com/repository/docker/antithesishq/bombadil/general),
+with images for both `linux/amd64` and `linux/arm64`:
 
 ```bash
 docker run antithesishq/bombadil:%version% --version
