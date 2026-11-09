@@ -644,20 +644,28 @@ jobs:
             "$IMAGE_TAG-amd64" \
             "$IMAGE_TAG-arm64"
           docker buildx imagetools inspect "$IMAGE_TAG"
+      # Check the registry, not the local daemon: with the containerd image
+      # store, a pulled tag holds the whole index and `docker image inspect`
+      # always reports the host platform.
       - name: Verify each platform resolves to the right image
         run: |
-          for platform in linux/amd64 linux/arm64; do
-            # Drop the local tag first: with the tag already present, Docker
-            # sees the same manifest-list digest and skips the pull, keeping
-            # the previous platform's image.
-            docker image rm "$IMAGE_TAG" 2>/dev/null || true
-            docker pull --platform "$platform" "$IMAGE_TAG"
-            actual=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")
-            if [ "$actual" != "$platform" ]; then
-              echo "::error::Pulling $IMAGE_TAG for $platform gave a $actual image"
+          index=$(docker buildx imagetools inspect "$IMAGE_TAG" --format '{{json .Manifest}}')
+          configs=$(docker buildx imagetools inspect "$IMAGE_TAG" --format '{{json .Image}}')
+          for arch in amd64 arm64; do
+            platform="linux/$arch"
+            expected=$(docker buildx imagetools inspect "$IMAGE_TAG-$arch" --format '{{json .Manifest}}' | jq -r .digest)
+            actual=$(echo "$index" | jq -r --arg arch "$arch" \
+              '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')
+            config_arch=$(echo "$configs" | jq -r --arg p "$platform" '.[$p].architecture')
+            echo "$platform -> $actual (pushed $expected, config says $config_arch)"
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$IMAGE_TAG for $platform points at $actual, expected $expected"
               exit 1
             fi
-            echo "$platform -> $actual"
+            if [ "$config_arch" != "$arch" ]; then
+              echo "::error::$IMAGE_TAG for $platform has image config architecture $config_arch"
+              exit 1
+            fi
           done
 
   publish-manual:
