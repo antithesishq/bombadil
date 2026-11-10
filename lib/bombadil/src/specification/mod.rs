@@ -14,3 +14,5 @@ mod abstract_location_tests;
 mod console_errors_tests;
 #[cfg(test)]
 mod fingerprint_id_tests;
+#[cfg(test)]
+mod media_band_tests;
