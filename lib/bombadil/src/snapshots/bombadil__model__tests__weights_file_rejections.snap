@@ -1,0 +1,36 @@
+---
+source: lib/bombadil/src/model.rs
+expression: "errors.join(\"\\n\")"
+---
+{"format": 3, "simhash": {"weights": {}}, "states": {}}
+  unsupported weights format 3 (expected 4)
+{"states": {}}
+  missing field `format` at line 1 column 14
+{"format": 4, "key": {"components": ["snapshot.route"]}}
+  missing field `states` at line 1 column 56
+{"format": 4, "epsilon": 1.5, "key": {"components": ["snapshot.route"]}, "states": {}}
+  epsilon must be within [0, 1], got 1.5
+{"format": 4, "policy": "other", "key": {"components": ["snapshot.route"]}, "states": {}}
+  unknown variant `other`, expected `replace` or `prior` at line 1 column 31
+{"format": 4, "key": {}, "states": {}}
+  the key names no components and no goals
+{"format": 4, "key": {"weights": {"a": 1}}, "states": {}}
+  unknown field `weights`, expected `components` or `goals` at line 1 column 31
+{"format": 4, "key": {"components": ["a", "a"]}, "states": {}}
+  the key names the component a twice
+{"format": 4, "key": {"goals": {"a": -1}}, "states": {}}
+  invalid value: integer `-1`, expected u64 at line 1 column 39
+{"format": 4, "key": {"goals": {"a": "00000000000000aa"}}, "states": {}}
+  invalid type: string "00000000000000aa", expected u64 at line 1 column 55
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {"2a": {}}}
+  state key "2a" is not 16 lowercase hex digits
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {"00000000000000BB": {}}}
+  state key "00000000000000BB" is not 16 lowercase hex digits
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {"00000000000000bb": {"aa": 1}}}
+  an action key is 16 hex digits at line 1 column 93
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {"00000000000000bb": {"00000000000000aa": -1}}}
+  state 00000000000000bb: the weight of action 00000000000000aa is -1, which is not a non-negative number
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {}, "next": {"00000000000000bb": {"00000000000000aa": "2a"}}}
+  state key "2a" is not 16 lowercase hex digits
+{"format": 4, "key": {"components": ["snapshot.route"]}, "states": {}, "templates": {"00000000000000aa": 1}}
+  invalid type: integer `1`, expected a string at line 1 column 106
