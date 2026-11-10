@@ -5,7 +5,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
-        mpsc::{self, TryRecvError},
+        mpsc,
     },
     thread::JoinHandle,
 };
@@ -14,8 +14,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
 use crate::{
-    TraceDriver, WRITER_FAILED_EARLIER, envelope::driver_code,
-    record::check_payload_length, tag, write_envelope, write_record,
+    TraceDriver, WRITER_FAILED_EARLIER, chunk::ChunkWriter,
+    envelope::driver_code, record::check_payload_length, write_envelope,
 };
 
 // Bounds the number of in-flight states to cap memory while letting the
@@ -26,11 +26,6 @@ const PENDING_STATES_MAX: usize = 32;
 /// and disk I/O overlap with the test loop instead of stalling it. The
 /// bounded channel provides backpressure if the writer can't keep up.
 ///
-/// Whenever it has caught up, the thread flushes what it has written, so
-/// if the process is killed while it is idle the file holds every state.
-/// While it is behind, the queued states and those it has buffered (up
-/// to 8 KiB) are lost. Call [`finish`](Self::finish) to write the rest
-/// and the [`tag::END`] record, and learn whether everything was written.
 /// Dropping the writer without finishing it writes the queued states but
 /// no END, so the trace reads as unfinished, and can only log a failure
 /// (unless a call already returned it).
@@ -172,7 +167,7 @@ impl<M> TraceFileWriter<M> {
         Ok(())
     }
 
-    /// Writes every queued state and the [`tag::END`] record that marks
+    /// Writes every queued state and the [`crate::tag::END`] record that marks
     /// the trace as finished, closes the file, and returns the error
     /// that stopped the writer, if any. Later calls return the same.
     pub fn finish(&mut self) -> Result<()> {
@@ -183,7 +178,7 @@ impl<M> TraceFileWriter<M> {
         self.stop()
     }
 
-    /// Writes every queued state, without the [`tag::END`] record unless
+    /// Writes every queued state, without the [`crate::tag::END`] record unless
     /// [`finish`](Self::finish) sent it, closes the file, and returns the
     /// error that stopped the writer, if any.
     fn stop(&mut self) -> Result<()> {
@@ -316,23 +311,14 @@ impl<M> Drop for TraceFileWriter<M> {
 
 fn worker_loop<M: Serialize, W: Write>(
     receiver: mpsc::Receiver<Message<M>>,
-    mut trace_file: BufWriter<W>,
+    trace_file: BufWriter<W>,
 ) -> Result<()> {
     let mut metadata = Vec::new();
-    loop {
-        let message = match receiver.try_recv() {
-            Ok(message) => message,
-            Err(TryRecvError::Empty) => {
-                // Caught up with the test loop: put what's written in the
-                // file, so it survives the process being killed.
-                trace_file.flush().map_err(trace_write_error)?;
-                match receiver.recv() {
-                    Ok(message) => message,
-                    Err(_) => break,
-                }
-            }
-            Err(TryRecvError::Disconnected) => break,
-        };
+    let mut trace_file =
+        ChunkWriter::new(trace_file).map_err(trace_write_error)?;
+    while let Some(message) =
+        trace_file.recv(&receiver).map_err(trace_write_error)?
+    {
         match message {
             Message::State(state) => {
                 metadata.clear();
@@ -342,26 +328,17 @@ fn worker_loop<M: Serialize, W: Write>(
                     .map_err(|error| {
                         error.context("failed to encode trace state")
                     })?;
-                let state_tag = match state.payload {
-                    Some(_) => tag::STATE_WITH_PAYLOAD,
-                    None => tag::STATE,
-                };
-                write_record(&mut trace_file, state_tag, &[&metadata])
-                    .and_then(|()| match &state.payload {
-                        Some(payload) => write_record(
-                            &mut trace_file,
-                            tag::STATE_PAYLOAD,
-                            &[payload],
-                        ),
-                        None => Ok(()),
-                    })
+                trace_file
+                    .state(
+                        &metadata,
+                        state.payload.as_deref().map(Vec::as_slice),
+                        std::time::Instant::now(),
+                    )
                     .map_err(trace_write_error)?;
             }
             Message::Finish => {
                 // Every state is written: mark the trace as finished.
-                return write_record(&mut trace_file, tag::END, &[])
-                    .and_then(|()| trace_file.flush())
-                    .map_err(trace_write_error);
+                return trace_file.finish().map_err(trace_write_error);
             }
         }
     }
@@ -420,8 +397,7 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "never flushed");
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        // As if the process were killed.
-        std::mem::forget(writer);
+        drop(writer);
     }
 
     #[test]
