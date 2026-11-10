@@ -39,6 +39,9 @@ let
         "./browser/defaults/properties" = {
           types = "./dist/browser/defaults/properties.d.ts";
         };
+        "./browser/defaults/extractors" = {
+          types = "./dist/browser/defaults/extractors.d.ts";
+        };
         "./terminal" = {
           types = "./dist/terminal/index.d.ts";
         };
