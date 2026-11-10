@@ -596,11 +596,18 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
     #[hotpath::measure]
     fn pick_action(
         &mut self,
+        state: &Session::State,
+        snapshots: &[Snapshot],
         leaves: &Leaves<'_, Session::ActionTemplate>,
-    ) -> Result<Picked<Session::Action>> {
+    ) -> Result<Picked<Session::Action>>
+    where
+        Inner: RunStrategy<Session>,
+    {
         if leaves.as_slice().is_empty() {
             anyhow::bail!("no actions available");
         }
+        let reweighted = self.inner.reweight(state, snapshots, leaves);
+        let leaves = reweighted.as_ref().unwrap_or(leaves);
         Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
     }
 }
@@ -648,7 +655,7 @@ impl<
             return Ok(ControlFlow::Stop(ExitReason::Stopped));
         }
 
-        let picked = self.pick_action(leaves)?;
+        let picked = self.pick_action(state, snapshots, leaves)?;
 
         self.send_step(state, Some(picked.action.clone()), violations);
 
@@ -720,6 +727,9 @@ mod tests {
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write_u8(self.0);
+        }
+        fn contains(&self, other: &Self) -> bool {
+            self == other
         }
     }
 

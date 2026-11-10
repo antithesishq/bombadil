@@ -14,7 +14,7 @@ use bombadil::render::{Format, Formatted};
 use bombadil::specification::bundler::bundle;
 use bombadil::specification::convert::{ToInternal, ToSchema};
 use bombadil::specification::domain::Snapshot;
-use bombadil::specification::generators::StringGenerator;
+use bombadil::specification::generators::{StringGenerator, range_contains};
 use bombadil::specification::verifier::{Specification, Verifier};
 use bombadil::styled;
 use bombadil_schema::terminal::{
@@ -145,6 +145,37 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
             }
             TerminalAction::ScrollUp {} => "ScrollUp".hash(hasher),
             TerminalAction::ScrollDown {} => "ScrollDown".hash(hasher),
+        }
+    }
+
+    fn contains(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                TerminalAction::TypeText { text: a },
+                TerminalAction::TypeText { text: b },
+            ) => a.contains(b),
+            (
+                TerminalAction::Resize { size: a },
+                TerminalAction::Resize { size: b },
+            ) => {
+                range_contains(&a.columns, &b.columns)
+                    && range_contains(&a.rows, &b.rows)
+            }
+            (
+                TerminalAction::Click {
+                    row: ar,
+                    column: ac,
+                },
+                TerminalAction::Click {
+                    row: br,
+                    column: bc,
+                },
+            ) => range_contains(ar, br) && range_contains(ac, bc),
+            (TerminalAction::ScrollUp {}, TerminalAction::ScrollUp {}) => true,
+            (TerminalAction::ScrollDown {}, TerminalAction::ScrollDown {}) => {
+                true
+            }
+            _ => false,
         }
     }
 }
@@ -734,6 +765,81 @@ mod tests {
             action_key(&second),
             "{first:?} and {second:?}"
         );
+    }
+
+    /// A range within `outer`.
+    fn range_within(
+        tc: &TestCase,
+        outer: &RangeInclusive<u16>,
+    ) -> RangeInclusive<u16> {
+        let bounds =
+            || integers().min_value(*outer.start()).max_value(*outer.end());
+        let start = tc.draw(bounds());
+        let end = tc.draw(bounds().min_value(start));
+        start..=end
+    }
+
+    /// A template that generates some of the actions of `template`.
+    fn narrowed(
+        tc: &TestCase,
+        template: &TerminalActionTemplate,
+    ) -> TerminalActionTemplate {
+        match template {
+            TerminalAction::TypeText {
+                text: StringGenerator::Text { length },
+            } => TerminalAction::TypeText {
+                text: StringGenerator::Text {
+                    length: range_within(tc, length),
+                },
+            },
+            TerminalAction::Resize { size } => TerminalAction::Resize {
+                size: TerminalSize {
+                    columns: range_within(tc, &size.columns),
+                    rows: range_within(tc, &size.rows),
+                },
+            },
+            TerminalAction::Click { row, column } => TerminalAction::Click {
+                row: range_within(tc, row),
+                column: range_within(tc, column),
+            },
+            other => other.clone(),
+        }
+    }
+
+    #[hegel::test]
+    fn templates_contain_their_narrowings(tc: TestCase) {
+        let variant = tc.draw(integers().max_value(VARIANT_COUNT - 1));
+        let template = template(&tc, variant);
+        let narrowed = narrowed(&tc, &template);
+        assert!(
+            template.contains(&narrowed),
+            "{template:?} does not contain {narrowed:?}"
+        );
+    }
+
+    #[hegel::test]
+    fn templates_accept_the_actions_of_the_templates_they_contain(
+        tc: TestCase,
+    ) {
+        let first = tc.draw(integers().max_value(VARIANT_COUNT - 1));
+        let containing = template(&tc, first);
+        let contained = if tc.draw(hegel::generators::booleans()) {
+            narrowed(&tc, &containing)
+        } else {
+            let second = tc.draw(integers().max_value(VARIANT_COUNT - 1));
+            template(&tc, second)
+        };
+        let seed = tc.draw(integers::<u64>());
+        if containing.contains(&contained) {
+            let mut rng =
+                <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed);
+            let action = contained.generate(&mut rng);
+            assert!(
+                containing.accepts(&action),
+                "{containing:?} contains {contained:?} but rejected \
+                 {action:?}"
+            );
+        }
     }
 
     /// Keys are recorded in traces, so a change here invalidates them.

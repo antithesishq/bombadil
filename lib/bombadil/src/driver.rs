@@ -49,7 +49,9 @@ pub trait RunState {
     fn timestamp(&self) -> Time;
 
     /// Named 64-bit hashes of the state, as the driver defines them. Each is
-    /// equal for two states when the hashed part of the state is.
+    /// equal for two states when the hashed part of the state is. A weights
+    /// file can name them as components of its state key, next to the
+    /// `snapshot.<name>` hashes of the spec's extracts.
     fn hashes(&self) -> &BTreeMap<String, u64> {
         static NONE: BTreeMap<String, u64> = BTreeMap::new();
         &NONE
@@ -74,6 +76,11 @@ pub trait ActionTemplate<Action> {
     }
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H);
+
+    /// Whether this template generates every action that `other` does. It
+    /// may say no when it does, but not yes when it does not. Learned weights
+    /// of a finer template are served under a template that contains it.
+    fn contains(&self, other: &Self) -> bool;
 }
 
 pub trait OutputWriter<Session: InterfaceSession> {

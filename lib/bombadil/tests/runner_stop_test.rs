@@ -51,6 +51,9 @@ impl ActionTemplate<FakeAction> for FakeAction {
     fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         hasher.write_u8(0)
     }
+    fn contains(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 impl FromGeneratedAction for FakeAction {

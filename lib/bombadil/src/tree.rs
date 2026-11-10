@@ -217,6 +217,22 @@ pub struct Leaves<'a, T> {
 }
 
 impl<'a, T> Leaves<'a, T> {
+    /// Leaves with probabilities proportional to their weights, which are
+    /// not negative. `None` when no weight is positive.
+    pub fn from_weights(
+        weights: impl IntoIterator<Item = (&'a T, f64)>,
+    ) -> Option<Self> {
+        let mut leaves: Vec<(&'a T, f64)> = weights.into_iter().collect();
+        let total: f64 = leaves.iter().map(|(_, weight)| *weight).sum();
+        if total <= 0.0 {
+            return None;
+        }
+        for (_, weight) in &mut leaves {
+            *weight /= total;
+        }
+        Some(Leaves { leaves })
+    }
+
     pub fn as_slice(&self) -> &[(&'a T, f64)] {
         &self.leaves
     }
@@ -240,9 +256,9 @@ impl<'a, T> Leaves<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::Tree::*;
-    use super::{Tree, Weight};
+    use super::{Leaves, Tree, Weight};
     use hegel::TestCase;
-    use hegel::generators::{booleans, integers};
+    use hegel::generators::{booleans, integers, vecs};
     use rand::{SeedableRng, rngs::StdRng};
 
     hegel::pretty_print_as_debug!(Tree<usize>);
@@ -412,6 +428,34 @@ mod tests {
                 (frequency - probability).abs() < TOLERANCE,
                 "leaf {value} (probability {probability}) was picked \
                  {frequency} of the time",
+            );
+        }
+    }
+
+    #[hegel::test]
+    fn leaves_from_weights_are_proportional_to_the_weights(tc: TestCase) {
+        let weights: Vec<u32> = tc.draw(vecs(integers::<u32>()));
+        let values: Vec<usize> = (0..weights.len()).collect();
+        let total: f64 = weights.iter().map(|weight| *weight as f64).sum();
+
+        let leaves = Leaves::from_weights(
+            values
+                .iter()
+                .zip(weights.iter().map(|weight| *weight as f64)),
+        );
+        let Some(leaves) = leaves else {
+            assert_eq!(total, 0.0);
+            return;
+        };
+        let listed: Vec<usize> =
+            leaves.as_slice().iter().map(|(value, _)| **value).collect();
+        assert_eq!(listed, values);
+        for (value, probability) in leaves.as_slice() {
+            let expected = weights[**value] as f64 / total;
+            assert!(
+                (probability - expected).abs() < 1e-12,
+                "leaf {value} has probability {probability}, expected \
+                 {expected}"
             );
         }
     }
