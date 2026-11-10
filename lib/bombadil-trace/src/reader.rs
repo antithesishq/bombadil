@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufReader, Cursor, Read},
     path::Path,
 };
 
@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 
 use crate::{
-    ENVELOPE_LEN, RECORD_HEADER_LEN, TraceDriver,
+    ENVELOPE_LEN, PayloadLocation, RECORD_HEADER_LEN, TraceDriver,
     envelope::read_envelope,
     record::{RawRecord, RecordHeader, RecordReader},
     tag,
@@ -23,9 +23,7 @@ pub struct State<M> {
     /// The state's driver-defined bytes, if it has any and they weren't
     /// skipped (see [`StateReader::without_payloads`]).
     pub payload: Option<Vec<u8>>,
-    /// Byte offset of the payload in the trace file, for reading it again
-    /// later with [`read_payload_at`] without holding it in memory.
-    pub payload_offset: Option<u64>,
+    pub payload_location: Option<PayloadLocation>,
     /// Size of the payload in bytes, even if it was skipped.
     pub payload_length: Option<usize>,
 }
@@ -69,7 +67,7 @@ pub fn open_trace<M: DeserializeOwned>(
         .with_context(|| format!("failed to read {}", path.display()))
 }
 
-/// Reads the payload at `offset` (a [`State::payload_offset`]) of the
+/// Reads the payload at `offset` (a [`State::payload_location`]) of the
 /// trace file at `path`, as with
 /// [`open_trace`].
 ///
@@ -81,13 +79,17 @@ pub fn open_trace<M: DeserializeOwned>(
 /// state's payload. To read the payloads of the file that was read,
 /// whatever the path names since, keep it open and use
 /// [`read_payload_from`].
-pub fn read_payload_at(path: &Path, offset: u64) -> Result<Vec<u8>> {
+pub fn read_payload_at(
+    path: &Path,
+    location: PayloadLocation,
+) -> Result<Vec<u8>> {
     File::open(path)
         .map_err(anyhow::Error::from)
-        .and_then(|file| read_payload(&file, offset))
+        .and_then(|file| read_payload(&file, location))
         .with_context(|| {
             format!(
-                "failed to read the state payload at offset {offset} of {}",
+                "failed to read the state payload at offset {} of {}",
+                location.offset,
                 path.display()
             )
         })
@@ -107,9 +109,15 @@ pub fn read_payload_at(path: &Path, offset: u64) -> Result<Vec<u8>> {
 /// anywhere: don't mix concurrent calls with cursor-based reads of the
 /// same handle. On other platforms reads seek first, so don't call this
 /// concurrently on one handle at all.
-pub fn read_payload_from(file: &File, offset: u64) -> Result<Vec<u8>> {
-    read_payload(file, offset).with_context(|| {
-        format!("failed to read the state payload at offset {offset}")
+pub fn read_payload_from(
+    file: &File,
+    location: PayloadLocation,
+) -> Result<Vec<u8>> {
+    read_payload(file, location).with_context(|| {
+        format!(
+            "failed to read the state payload at offset {}",
+            location.offset
+        )
     })
 }
 
@@ -150,8 +158,38 @@ impl Read for PositionalReader<'_> {
     }
 }
 
-fn read_payload(file: &File, offset: u64) -> Result<Vec<u8>> {
+fn read_payload(file: &File, location: PayloadLocation) -> Result<Vec<u8>> {
     read_envelope(&mut PositionalReader { file, position: 0 })?;
+    let offset = location.offset;
+    if let Some(chunk) = location.chunk {
+        if chunk < ENVELOPE_LEN as u64 || chunk > file.metadata()?.len() {
+            bail!("not a chunk offset");
+        }
+        let mut reader = PositionalReader {
+            file,
+            position: chunk,
+        };
+        let (header, read) = RecordHeader::read(&mut reader)?;
+        if read != RECORD_HEADER_LEN {
+            bail!("truncated chunk header");
+        }
+        header.check()?;
+        if header.tag != tag::CHUNK {
+            bail!("no compressed chunk there");
+        }
+        let payload = header
+            .read_payload(&mut reader, true)?
+            .flatten()
+            .context("truncated compressed chunk")?;
+        let decoded = crate::chunk::decode(&payload)?;
+        let header_offset = offset
+            .checked_sub(RECORD_HEADER_LEN as u64)
+            .filter(|&offset| offset < decoded.len() as u64)
+            .context("not a chunk payload offset")?;
+        let mut reader = Cursor::new(decoded);
+        reader.set_position(header_offset);
+        return read_payload_record(&mut reader, offset);
+    }
     let header_offset = offset
         .checked_sub(RECORD_HEADER_LEN as u64)
         .filter(|&header| header >= ENVELOPE_LEN as u64)
@@ -164,7 +202,11 @@ fn read_payload(file: &File, offset: u64) -> Result<Vec<u8>> {
         file,
         position: header_offset,
     };
-    let (header, read) = RecordHeader::read(&mut file)?;
+    read_payload_record(&mut file, offset)
+}
+
+fn read_payload_record(reader: &mut impl Read, offset: u64) -> Result<Vec<u8>> {
+    let (header, read) = RecordHeader::read(reader)?;
     if read < RECORD_HEADER_LEN {
         bail!("no state payload there");
     }
@@ -180,7 +222,7 @@ fn read_payload(file: &File, offset: u64) -> Result<Vec<u8>> {
     if header.tag != tag::STATE_PAYLOAD {
         bail!("no state payload there (record tag {})", header.tag);
     }
-    match header.read_payload(&mut file, true)? {
+    match header.read_payload(reader, true)? {
         Some(Some(payload)) => Ok(payload),
         _ => bail!("truncated state payload"),
     }
@@ -228,9 +270,9 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
     fn state(&mut self, metadata: M, payload: Option<RawRecord>) -> State<M> {
         let index = self.states_read;
         self.states_read += 1;
-        let (payload_offset, payload_length, payload) = match payload {
+        let (payload_location, payload_length, payload) = match payload {
             Some(record) => (
-                Some(record.payload_offset),
+                Some(record.location),
                 Some(record.payload_length),
                 record.payload,
             ),
@@ -240,7 +282,7 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
             index,
             metadata,
             payload,
-            payload_offset,
+            payload_location,
             payload_length,
         }
     }
@@ -363,6 +405,26 @@ mod tests {
     use serde::Deserialize;
     use zerocopy::{FromBytes, IntoBytes};
 
+    fn read_payload_at(path: &Path, offset: u64) -> Result<Vec<u8>> {
+        super::read_payload_at(
+            path,
+            PayloadLocation {
+                offset,
+                chunk: None,
+            },
+        )
+    }
+
+    fn read_payload_from(file: &File, offset: u64) -> Result<Vec<u8>> {
+        super::read_payload_from(
+            file,
+            PayloadLocation {
+                offset,
+                chunk: None,
+            },
+        )
+    }
+
     #[derive(Debug, Deserialize, PartialEq)]
     struct Metadata {
         n: u32,
@@ -404,7 +466,7 @@ mod tests {
             .unwrap();
         assert_eq!(states[2].payload, None);
         assert_eq!(states[2].payload_length, Some(3));
-        let offset = states[2].payload_offset.unwrap();
+        let offset = states[2].payload_location.unwrap().offset;
         assert_eq!(read_payload_at(&path, offset).unwrap(), b"two");
 
         // Not a payload record: a state's metadata, the middle of a
@@ -476,8 +538,9 @@ mod tests {
             .nth(2)
             .unwrap()
             .unwrap()
-            .payload_offset
-            .unwrap();
+            .payload_location
+            .unwrap()
+            .offset;
         let file = File::open(&path).unwrap();
         // With its cursor moved, as a reader of it would.
         (&file).read_exact(&mut [0; 5]).unwrap();
