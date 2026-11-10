@@ -40,7 +40,6 @@ impl OutputWriter<BrowserSession> for FileOutputWriter {
 /// `screenshot` field and the screenshot itself as the state's payload.
 pub struct FileTraceWriter {
     trace: TraceFileWriter<BrowserTraceEntry>,
-    last_transition_hash: Option<u64>,
 }
 
 impl FileTraceWriter {
@@ -52,10 +51,7 @@ impl FileTraceWriter {
             TraceDriver::Browser,
             overwrite,
         )?;
-        Ok(FileTraceWriter {
-            trace,
-            last_transition_hash: None,
-        })
+        Ok(FileTraceWriter { trace })
     }
 }
 
@@ -76,8 +72,6 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
         let entry = TraceEntry {
             timestamp: state.timestamp,
             url: Cow::Borrowed(&state.url),
-            hash_previous: self.last_transition_hash,
-            hash_current: state.transition_hash,
             action: last_action.map(Cow::Borrowed),
             screenshot: state.screenshot.format.extension(),
             snapshots: Cow::Borrowed(snapshots),
@@ -87,7 +81,6 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
             action_taken: model.action_taken,
             branches: Cow::Borrowed(&state.coverage.branches),
         };
-        self.last_transition_hash = state.transition_hash;
         // The screenshot is shared with the state, not copied.
         self.trace
             .write_state(entry.to_schema(), Some(state.screenshot.data.clone()))

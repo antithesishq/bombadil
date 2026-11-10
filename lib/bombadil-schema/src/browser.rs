@@ -10,8 +10,6 @@ pub type BrowserTraceEntry = TraceEntry<BrowserAction, BrowserStateSummary>;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BrowserStateSummary {
     pub url: String,
-    pub hash_previous: Option<u64>,
-    pub hash_current: Option<u64>,
     /// In a `trace.bin`, the screenshot's format (file extension, e.g.
     /// `jpeg`), with the image as the state's payload.
     pub screenshot: String,
