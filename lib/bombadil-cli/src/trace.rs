@@ -13,7 +13,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use bombadil_trace::{State, StateReader, TraceDriver, read_payload_from};
 use serde::{
     Deserialize, Deserializer,
-    de::{IgnoredAny, MapAccess, Visitor},
+    de::{IgnoredAny, MapAccess, SeqAccess, Visitor},
 };
 use serde_json::value::RawValue;
 
@@ -45,6 +45,10 @@ pub struct TraceArgs {
     /// it holds the same screenshot, and refused otherwise
     #[arg(long, value_name = "DIRECTORY")]
     screenshots: Option<PathBuf>,
+    /// With --json, leave the snapshots the specification excludes from
+    /// the state key out of each state's metadata
+    #[arg(long)]
+    drop_excluded: bool,
 }
 
 /// States to show, by index.
@@ -170,6 +174,9 @@ fn show_into(
     if args.screenshots.is_some() && states.driver != TraceDriver::Browser {
         bail!("--screenshots only applies to browser traces");
     }
+    if args.drop_excluded && !args.json {
+        bail!("--drop-excluded only applies with --json");
+    }
     let mut extracted = args
         .screenshots
         .as_ref()
@@ -228,14 +235,20 @@ fn show_into(
         };
         if args.json {
             // The metadata as written, so its numbers aren't rounded.
-            let mut line = format!(
-                r#"{{"index":{},"metadata":{},"payload_bytes":{}"#,
-                state.index,
-                state.metadata.get(),
-                state
-                    .payload_length
-                    .map_or("null".to_string(), |length| length.to_string())
-            );
+            let mut line = format!(r#"{{"index":{},"metadata":"#, state.index);
+            if args.drop_excluded {
+                push_without_excluded_snapshots(
+                    &mut line,
+                    state.metadata.get(),
+                );
+            } else {
+                line.push_str(state.metadata.get());
+            }
+            line.push_str(r#","payload_bytes":"#);
+            match state.payload_length {
+                Some(length) => line.push_str(&length.to_string()),
+                None => line.push_str("null"),
+            }
             if show_screen {
                 // A string of the screen's lines, or null without one.
                 let screen = screen.as_ref().map(|lines| lines.join("\n"));
@@ -275,6 +288,67 @@ fn show_into(
         );
     }
     Ok(())
+}
+
+/// Appends `metadata` to `line`, without the entries of its `snapshots`
+/// array that are objects whose `excluded` is true. The rest is as
+/// written, and so is all of it unless it is an object with one
+/// `snapshots` array.
+fn push_without_excluded_snapshots(line: &mut String, metadata: &str) {
+    #[derive(Deserialize)]
+    struct Metadata<'a> {
+        #[serde(borrow)]
+        snapshots: &'a RawValue,
+    }
+    #[derive(Deserialize)]
+    struct Snapshot {
+        excluded: bool,
+    }
+    struct Kept<'a>(&'a mut String);
+    impl<'de> Visitor<'de> for Kept<'_> {
+        type Value = ();
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("an array")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(
+            self,
+            mut snapshots: A,
+        ) -> Result<(), A::Error> {
+            self.0.push('[');
+            let mut kept_any = false;
+            while let Some(snapshot) = snapshots.next_element::<&RawValue>()? {
+                let excluded = read_object::<Snapshot>(snapshot.get())
+                    .is_some_and(|snapshot| snapshot.excluded);
+                if excluded {
+                    continue;
+                }
+                if kept_any {
+                    self.0.push(',');
+                }
+                self.0.push_str(snapshot.get());
+                kept_any = true;
+            }
+            self.0.push(']');
+            Ok(())
+        }
+    }
+
+    let written = line.len();
+    let kept = read_object::<Metadata>(metadata).and_then(|found| {
+        // Borrowed from `metadata`, so this is where it is in it.
+        let snapshots = found.snapshots.get();
+        let start = snapshots.as_ptr() as usize - metadata.as_ptr() as usize;
+        line.push_str(&metadata[..start]);
+        serde_json::Deserializer::from_str(snapshots)
+            .deserialize_seq(Kept(line))
+            .ok()?;
+        line.push_str(&metadata[start + snapshots.len()..]);
+        Some(())
+    });
+    if kept.is_none() {
+        line.truncate(written);
+        line.push_str(metadata);
+    }
 }
 
 /// [`show_into`], returning what `--screenshots` wrote.
@@ -924,6 +998,7 @@ impl TraceArgs {
             screen: false,
             color: false,
             screenshots: None,
+            drop_excluded: false,
         }
     }
 }
@@ -933,6 +1008,10 @@ mod tests {
     use super::*;
     use bombadil_trace::{
         TRACE_FILE_NAME, TraceDriver, tag, write_envelope, write_record,
+    };
+    use hegel::{
+        TestCase,
+        generators::{booleans, integers, sampled_from, text, vecs},
     };
     use serde_json::Value;
 
@@ -1132,6 +1211,142 @@ mod tests {
         for line in json.lines() {
             serde_json::from_str::<Value>(line).unwrap();
         }
+    }
+
+    /// JSON a snapshot or another member can hold: numbers that round
+    /// when parsed, snapshots that aren't the state's, and the key
+    /// `Value` reads specially.
+    const VALUES: &[&str] = &[
+        "1.50",
+        "18446744073709551616",
+        "1e400",
+        "null",
+        r#""a, b""#,
+        r#"{"excluded":true}"#,
+        r#"[{"excluded":true}]"#,
+        r#"{"snapshots":[{"excluded":true}]}"#,
+        r#"{"$serde_json::private::RawValue":"[]"}"#,
+    ];
+
+    /// What a snapshot says of being excluded, and whether it is.
+    const EXCLUDED: &[(&str, bool)] = &[
+        ("", false),
+        (r#","excluded":false"#, false),
+        (r#","excluded":true"#, true),
+        (r#", "excluded" : true"#, true),
+        (r#","excluded":"true""#, false),
+        (r#","excluded":null"#, false),
+    ];
+
+    const KEYS: &[&str] = &[
+        "timestamp",
+        "violations",
+        "excluded",
+        "$serde_json::private::RawValue",
+    ];
+
+    #[hegel::composite]
+    fn members(tc: &TestCase) -> String {
+        tc.draw(vecs(sampled_from(KEYS.to_vec())))
+            .into_iter()
+            .map(|key| {
+                let value = tc.draw(sampled_from(VALUES.to_vec()));
+                format!(r#""{key}":{value},"#)
+            })
+            .collect()
+    }
+
+    #[hegel::test]
+    fn drops_only_the_excluded_snapshots(tc: TestCase) {
+        let space = || sampled_from(vec!["", " ", "\n\t"]);
+        let mut metadata = format!(
+            r#"{{{}"snapshots":{}["#,
+            tc.draw(members()),
+            tc.draw(space())
+        );
+        let mut expected = metadata.clone();
+        let mut kept = 0;
+        for index in 0..tc.draw(integers::<usize>().max_value(8)) {
+            let (snapshot, excluded) = if tc.draw(booleans()) {
+                let (says, excluded) = tc.draw(sampled_from(EXCLUDED.to_vec()));
+                let name = serde_json::to_string(&tc.draw(text())).unwrap();
+                let value = tc.draw(sampled_from(VALUES.to_vec()));
+                (
+                    format!(r#"{{"name":{name},"value":{value}{says}}}"#),
+                    excluded,
+                )
+            } else {
+                let value = tc.draw(sampled_from(VALUES.to_vec()));
+                (value.to_string(), value == r#"{"excluded":true}"#)
+            };
+            if index > 0 {
+                metadata.push(',');
+            }
+            metadata.push_str(tc.draw(space()));
+            metadata.push_str(&snapshot);
+            metadata.push_str(tc.draw(space()));
+            if !excluded {
+                if kept > 0 {
+                    expected.push(',');
+                }
+                expected.push_str(&snapshot);
+                kept += 1;
+            }
+        }
+        let rest = format!(r#"],{}"end":0}}"#, tc.draw(members()));
+        metadata.push_str(&rest);
+        expected.push_str(&rest);
+
+        let mut line = "line".to_string();
+        push_without_excluded_snapshots(&mut line, &metadata);
+        assert_eq!(line, format!("line{expected}"));
+    }
+
+    #[test]
+    fn drops_excluded_snapshots_from_json_only() {
+        let directory = tempfile::tempdir().unwrap();
+        write_states(
+            directory.path(),
+            &[
+                br#"{"a":1.50,"snapshots":[{"name":"x","excluded":true},{"name":"y"}],"b":1e400}"#,
+                // As written: without snapshots, or with ones that
+                // can't be told apart.
+                br#"{"action":null}"#,
+                br#"{"snapshots":{"excluded":true}}"#,
+                br#"{"snapshots":[{"excluded":true}],"snapshots":[]}"#,
+                br#"[{"snapshots":[{"excluded":true}]}]"#,
+            ],
+        );
+        let args = TraceArgs {
+            json: true,
+            drop_excluded: true,
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+        };
+        assert_eq!(
+            output(&args),
+            [
+                r#"{"index":0,"metadata":{"a":1.50,"snapshots":[{"name":"y"}],"b":1e400},"payload_bytes":null}"#,
+                r#"{"index":1,"metadata":{"action":null},"payload_bytes":null}"#,
+                r#"{"index":2,"metadata":{"snapshots":{"excluded":true}},"payload_bytes":null}"#,
+                r#"{"index":3,"metadata":{"snapshots":[{"excluded":true}],"snapshots":[]},"payload_bytes":null}"#,
+                r#"{"index":4,"metadata":[{"snapshots":[{"excluded":true}]}],"payload_bytes":null}"#,
+                "",
+            ]
+            .join("\n")
+        );
+        let error = show(
+            &TraceArgs {
+                json: false,
+                ..args
+            },
+            &mut Vec::new(),
+        )
+        .map(drop)
+        .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "--drop-excluded only applies with --json"
+        );
     }
 
     #[test]
