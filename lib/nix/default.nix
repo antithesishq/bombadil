@@ -25,22 +25,23 @@
   # the Cargo build script can skip its in-tree `git clone` step (which has
   # no network access in the Nix sandbox).
   ghosttySrc,
-  zig_0_16,
+  zig,
   git,
 }:
 let
   # Pre-fetched Zig package cache for ghostty's build.zig. Passed to zig via
   # `--system` (set up by libghostty-vt-sys's build.rs when
   # `GHOSTTY_ZIG_SYSTEM_DIR` is set), keeping the Zig build hermetic.
-  ghosttyZigDeps = callPackage "${ghosttySrc}/build.zig.zon.nix" {
+  ghosttyZigDeps = callPackage "${ghosttySrc}/deps/packages.nix" {
     name = "bombadil-ghostty-zig-deps";
+    zig_0_17 = zig;
   };
   ghosttyEnv = {
     GHOSTTY_SOURCE_DIR = "${ghosttySrc}";
     GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
   };
   ghosttyNativeBuildInputs = [
-    zig_0_16
+    zig
     pkg-config
     git
   ]

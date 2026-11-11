@@ -9,6 +9,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    zig = {
+      url = "github:mitchellh/zig-overlay/98819174f1bb7c9961c3ebbb00d19fc4e1c1960d";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     hegel = {
       url = "github:hegeldev/hegel-rust?dir=nix&ref=v0.45.2";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -27,6 +31,7 @@
       flake-utils,
       crane,
       rust-overlay,
+      zig,
       hegel,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -70,8 +75,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "3425025e585a3403340d4dc6d65132f42e05e605";
-          sha256 = "sha256-n/DSzaoCxwTXV6bRthscvMrL4+TBJF5tph6Z+vVsAKQ=";
+          rev = "0fa3d577a5614150ff8e2c152de5fb9d5c6d2dec";
+          sha256 = "sha256-XHatB+PU7Os1/inapleBdUThGCAGhRnqT0o0EWpNa3s=";
         };
         # Override postInstall to keep the native `libhegel_c.{so,dylib}`
         # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
@@ -88,6 +93,7 @@
         });
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc libhegelC;
+          zig = zig.packages.${system}."0.17.0";
         };
       in
       {
@@ -148,7 +154,7 @@
                   # Nix
                   nil
 
-                  # For bombadil-terminal. zig_0_16 / pkg-config come in via
+                  # For bombadil-terminal. Zig / pkg-config come in via
                   # `inputsFrom = [ self.packages.${system}.default ]`; adding
                   # them again here re-sources zig's setup-hook and trips its
                   # readonly `zigDefaultCpuFlag` guard.

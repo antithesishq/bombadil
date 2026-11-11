@@ -26,10 +26,11 @@ use bombadil_schema::terminal::{
 use bombadil_trace::{StateReader, TraceDriver, TraceFileWriter, open_trace};
 use libghostty_vt::{
     RenderState,
-    fmt::{Format, Formatter, FormatterOptions},
+    fmt::{Extras, Format, Formatter},
+    point::{Coordinate, Point},
     render::{CellIterator, RowIterator},
     selection::Selection,
-    terminal::{Point, PointCoordinate, ScrollViewport},
+    terminal::ScrollViewport,
 };
 
 use crate::{
@@ -176,7 +177,7 @@ pub fn render_screen(
     }
     let corner = |x, y| {
         terminal
-            .grid_ref(Point::Viewport(PointCoordinate { x, y }))
+            .grid_ref(Point::Viewport(Coordinate { x, y }))
             .map_err(render_error)
     };
     // Row by row: formatting the viewport at once leaves out blank rows
@@ -185,16 +186,27 @@ pub fn render_screen(
         .map(|y| {
             let row =
                 Selection::new(corner(0, y)?, corner(columns - 1, y)?, false);
-            let mut formatter = Formatter::new(
-                &terminal,
-                FormatterOptions::new()
-                    .with_format(Format::Vt)
-                    .with_trim(true)
-                    .with_selection(&row),
-            )
-            .map_err(render_error)?;
+            let mut formatter =
+                Formatter::new(&terminal).map_err(render_error)?;
+            formatter
+                .set_format(Format::Vt)?
+                .set_extras(Extras::NONE)?
+                .set_trim(true)?;
+            // SAFETY: Both endpoints came from this terminal's active
+            // screen above, and it cannot change while the formatter lives.
+            unsafe { formatter.set_selection(Some(&row)) }
+                .map_err(render_error)?;
             let line = formatter.format_alloc(None).map_err(render_error)?;
-            Ok(String::from_utf8_lossy(&line).into_owned())
+            let mut line = String::from_utf8_lossy(&line).into_owned();
+            // VT formatting emits cell hyperlinks as OSC 8, independently
+            // of the extra cursor hyperlink option. Keep only their text.
+            while let Some(start) = line.find("\x1b]8;") {
+                let Some(end) = line[start..].find("\x1b\\") else {
+                    break;
+                };
+                line.replace_range(start..start + end + 2, "");
+            }
+            Ok(line)
         })
         .collect()
 }
