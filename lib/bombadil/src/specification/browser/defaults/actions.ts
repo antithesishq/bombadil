@@ -34,7 +34,7 @@ const canGoForwardSameOrigin = extract((state) => {
 
 export const lastAction: Cell<Action | null> = extract(
   (state) => state.lastAction,
-);
+).setStateKeyBehavior("excluded");
 
 const body = extract((state) => {
   return state.document.body
@@ -211,7 +211,7 @@ const clickablePoints = extract((state) => {
   }
 
   return targets;
-});
+}).setStateKeyBehavior("default");
 
 export const clicks: ActionGenerator<ActionTemplate> = actions(() => {
   if (contentType.current !== "text/html") return [];

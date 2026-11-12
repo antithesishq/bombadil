@@ -13,6 +13,8 @@ pub struct Snapshot {
     pub name: Option<String>,
     pub value: json::Value,
     pub time: Time,
+    /// Kept out of the state key (`StateKeyBehavior` `excluded`).
+    pub excluded: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]

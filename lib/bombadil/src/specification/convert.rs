@@ -157,6 +157,7 @@ impl ToSchema<bombadil_schema::Snapshot> for Snapshot {
             name: self.name.clone(),
             value: self.value.clone(),
             time: self.time,
+            excluded: self.excluded,
         }
     }
 }

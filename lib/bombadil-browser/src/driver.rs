@@ -191,6 +191,7 @@ struct PartialSnapshot {
     index: usize,
     name: Option<String>,
     value: json::Value,
+    excluded: bool,
 }
 
 fn run_extractors(
@@ -234,6 +235,7 @@ fn run_extractors(
             name: partial.name,
             value: partial.value,
             time,
+            excluded: partial.excluded,
         })
         .collect();
 

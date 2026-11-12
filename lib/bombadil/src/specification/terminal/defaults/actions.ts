@@ -136,4 +136,4 @@ export function pasteText(text: string): ActionGenerator<ActionTemplate> {
 
 export const lastAction: Cell<Action | null> = extract<State, Action | null>(
   (state) => state.lastAction,
-).named("lastAction");
+).named("lastAction").setStateKeyBehavior("excluded");

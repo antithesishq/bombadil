@@ -12,7 +12,11 @@ import {
   type ActionGenerator,
 } from "@antithesishq/bombadil/actions";
 
-export { type Cell, type JSON } from "@antithesishq/bombadil/internal";
+export {
+  type Cell,
+  type JSON,
+  type StateKeyBehavior,
+} from "@antithesishq/bombadil/internal";
 export { ActionGenerator, type Tree } from "@antithesishq/bombadil/actions";
 
 /**
