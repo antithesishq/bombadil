@@ -79,6 +79,9 @@ impl ActionTemplate<FakeAction> for FakeAction {
     fn category_hash<H: Hasher>(&self, hasher: &mut H) {
         hasher.write_u8(self.0)
     }
+    fn contains(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 impl FromGeneratedAction for FakeAction {

@@ -78,6 +78,19 @@ pub trait RunStrategy<Session: InterfaceSession> {
     ) -> Tree<Session::ActionTemplate> {
         tree
     }
+
+    /// The probabilities to pick the actions of a state by, in place of the
+    /// spec's in `leaves`, e.g. learned ones. Called once per state by the
+    /// strategy that picks the action. Traces keep the spec's probabilities.
+    /// `None` keeps `leaves`.
+    fn reweight<'a>(
+        &'a mut self,
+        _state: &Session::State,
+        _snapshots: &[Snapshot],
+        _leaves: &Leaves<'a, Session::ActionTemplate>,
+    ) -> Option<Leaves<'a, Session::ActionTemplate>> {
+        None
+    }
 }
 
 pub trait RunState {

@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
-use bombadil::specification::generators::StringGenerator;
+use bombadil::specification::generators::{StringGenerator, range_contains};
 use bombadil_schema::browser::Fingerprint;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::browser_protocol::{dom, emulation, input, page};
@@ -683,6 +683,124 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
         }
     }
+
+    fn contains(&self, other: &Self) -> bool {
+        use BrowserAction::*;
+        match (self, other) {
+            (Back, Back)
+            | (Forward, Forward)
+            | (Reload, Reload)
+            | (Wait, Wait) => true,
+            (
+                Click {
+                    fingerprint: a,
+                    point: point_a,
+                },
+                Click {
+                    fingerprint: b,
+                    point: point_b,
+                },
+            )
+            | (
+                DoubleClick {
+                    fingerprint: a,
+                    point: point_a,
+                },
+                DoubleClick {
+                    fingerprint: b,
+                    point: point_b,
+                },
+            )
+            | (
+                Hover {
+                    fingerprint: a,
+                    point: point_a,
+                },
+                Hover {
+                    fingerprint: b,
+                    point: point_b,
+                },
+            ) => a == b && point_a.contains(point_b),
+            (TypeText { text: a }, TypeText { text: b }) => a.contains(b),
+            (PressKey { code: a }, PressKey { code: b }) => a == b,
+            (
+                ScrollUp {
+                    origin: origin_a,
+                    distance: distance_a,
+                },
+                ScrollUp {
+                    origin: origin_b,
+                    distance: distance_b,
+                },
+            )
+            | (
+                ScrollDown {
+                    origin: origin_a,
+                    distance: distance_a,
+                },
+                ScrollDown {
+                    origin: origin_b,
+                    distance: distance_b,
+                },
+            ) => {
+                origin_a.contains(origin_b)
+                    && range_contains(distance_a, distance_b)
+            }
+            (
+                SetFileInputFiles {
+                    selector: a,
+                    files: files_a,
+                },
+                SetFileInputFiles {
+                    selector: b,
+                    files: files_b,
+                },
+            ) => a == b && files_a == files_b,
+            (
+                MouseDrag {
+                    from: from_a,
+                    to: to_a,
+                    steps: steps_a,
+                    delay_millis: delay_a,
+                },
+                MouseDrag {
+                    from: from_b,
+                    to: to_b,
+                    steps: steps_b,
+                    delay_millis: delay_b,
+                },
+            ) => {
+                from_a.contains(from_b)
+                    && to_a.contains(to_b)
+                    && range_contains(steps_a, steps_b)
+                    && range_contains(delay_a, delay_b)
+            }
+            (
+                SetViewport {
+                    width: width_a,
+                    height: height_a,
+                },
+                SetViewport {
+                    width: width_b,
+                    height: height_b,
+                },
+            ) => {
+                range_contains(width_a, width_b)
+                    && range_contains(height_a, height_b)
+            }
+            (
+                Custom {
+                    name: a,
+                    arguments: arguments_a,
+                },
+                Custom {
+                    name: b,
+                    arguments: arguments_b,
+                },
+            ) => a == b && arguments_a == arguments_b,
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -822,6 +940,46 @@ mod tests {
                 template.accepts(&action),
                 "template {template:?} rejected {action:?} with seed {seed}"
             );
+        }
+    }
+
+    #[hegel::test]
+    fn templates_accept_the_actions_of_the_templates_they_contain(
+        tc: TestCase,
+    ) {
+        let seed = tc.draw(integers());
+        let containing = tc.draw(action_templates().print_as_debug());
+        let contained = if tc.draw(hegel::generators::booleans()) {
+            containing.clone()
+        } else {
+            tc.draw(action_templates().print_as_debug())
+        };
+        for (containing, contained) in containing.iter().zip(&contained) {
+            if containing.contains(contained) {
+                let action =
+                    contained.generate(&mut StdRng::seed_from_u64(seed));
+                assert!(
+                    containing.accepts(&action),
+                    "{containing:?} contains {contained:?} but rejected \
+                     {action:?}"
+                );
+            }
+        }
+    }
+
+    #[hegel::test]
+    fn templates_contain_themselves(tc: TestCase) {
+        for template in tc.draw(action_templates().print_as_debug()) {
+            assert!(template.contains(&template), "{template:?}");
+        }
+    }
+
+    #[hegel::test]
+    fn templates_parse_back_from_their_json(tc: TestCase) {
+        for template in tc.draw(action_templates().print_as_debug()) {
+            let json = json::to_value(&template).unwrap();
+            let parsed: BrowserActionTemplate = json::from_value(json).unwrap();
+            assert_eq!(parsed, template);
         }
     }
 
