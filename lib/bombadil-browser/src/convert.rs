@@ -53,6 +53,13 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                 point: position.to_schema(),
                 delay_millis: None,
             },
+            BrowserAction::Hover {
+                fingerprint,
+                point: position,
+            } => browser::BrowserAction::Hover {
+                fingerprint: fingerprint.clone(),
+                point: position.to_schema(),
+            },
             BrowserAction::TypeText { text } => {
                 browser::BrowserAction::TypeText {
                     text: text.clone(),
@@ -126,6 +133,12 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
                 fingerprint: fingerprint.clone(),
                 point: point.to_internal(),
             },
+            browser::BrowserAction::Hover { fingerprint, point } => {
+                BrowserAction::Hover {
+                    fingerprint: fingerprint.clone(),
+                    point: point.to_internal(),
+                }
+            }
             browser::BrowserAction::TypeText { text, .. } => {
                 BrowserAction::TypeText { text: text.clone() }
             }

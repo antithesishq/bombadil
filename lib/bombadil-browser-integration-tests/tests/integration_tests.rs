@@ -942,6 +942,48 @@ export const counterIncreases = eventually(() => counterValue.current > 0);
 }
 
 #[test]
+fn test_hover() {
+    BrowserIntegrationTest::new("hover")
+        .time_limit(Duration::from_secs(5))
+        .expect_error("menuOpensOnlyAfterPress")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract, getFingerprint } from "@antithesishq/bombadil/browser";
+
+const menuOpen = extract((state) => {
+  return !state.document.getElementById("menu").hidden;
+});
+
+const pressCount = extract((state) => {
+  const element = state.document.getElementById("presses");
+  return parseInt(element?.textContent ?? "0", 10);
+});
+
+const target = extract((state) => {
+  const element = state.document.getElementById("hover-target");
+  const rect = element.getBoundingClientRect();
+  return {
+    fingerprint: getFingerprint(element),
+    point: {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    },
+  };
+});
+
+export const hovers = actions(() => [{ Hover: target.current }]);
+
+// Violated only by a hover that opens the menu and presses nothing.
+export const menuOpensOnlyAfterPress = always(
+  () => !menuOpen.current || pressCount.current > 0,
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_extractor_guard() {
     BrowserIntegrationTest::new("extractor-guard")
         .expect_error("Cannot access cell.current from within an extractor")

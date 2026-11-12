@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use bombadil_browser_keys::key_name;
-use bombadil_schema::browser::{BrowserAction, BrowserTraceEntry};
+use bombadil_schema::browser::{BrowserAction, BrowserTraceEntry, Fingerprint};
 use bombadil_schema::{Point, Time};
 use yew::component;
 use yew::prelude::*;
@@ -63,54 +63,15 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                 BrowserAction::Forward => {
                     (html!(<span class="action-name">{"Forward"}</span>), None)
                 }
-                BrowserAction::Click { point, fingerprint } => (
-                    html!(
-                        <>
-                            <span class="action-name">{"Click"}</span>
-                            <span class="element-tag">
-                                {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
-                            </span>
-                        </>
-                    ),
-                    Some(vec![
-                        ("Position", format_point(point)),
-                        (
-                            "Content",
-                            format!(
-                                "{:?}",
-                                fingerprint
-                                    .text_content
-                                    .clone()
-                                    .unwrap_or("".into())
-                            ),
-                        ),
-                    ]),
-                ),
+                BrowserAction::Click { point, fingerprint } => {
+                    pointer_action("Click", fingerprint, point)
+                }
                 BrowserAction::DoubleClick {
                     point, fingerprint, ..
-                } => (
-                    html!(
-                        <>
-                            <span class="action-name">{"Double-click"}</span>
-                            <span class="element-tag">
-                                {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
-                            </span>
-                        </>
-                    ),
-                    Some(vec![
-                        ("Position", format_point(point)),
-                        (
-                            "Content",
-                            format!(
-                                "{:?}",
-                                fingerprint
-                                    .text_content
-                                    .clone()
-                                    .unwrap_or("".into())
-                            ),
-                        ),
-                    ]),
-                ),
+                } => pointer_action("Double-click", fingerprint, point),
+                BrowserAction::Hover { point, fingerprint } => {
+                    pointer_action("Hover", fingerprint, point)
+                }
                 BrowserAction::TypeText { text, .. } => (
                     html!(
                         <>
@@ -238,6 +199,33 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
             </button>
         </li>
     }
+}
+
+fn pointer_action(
+    label: &'static str,
+    fingerprint: &Fingerprint,
+    point: &Point,
+) -> (Html, Option<Vec<(&'static str, String)>>) {
+    (
+        html!(
+            <>
+                <span class="action-name">{label}</span>
+                <span class="element-tag">
+                    {"<"}<span class="element-name">{fingerprint.tag.clone()}</span>{" />"}
+                </span>
+            </>
+        ),
+        Some(vec![
+            ("Position", format_point(point)),
+            (
+                "Content",
+                format!(
+                    "{:?}",
+                    fingerprint.text_content.as_deref().unwrap_or_default()
+                ),
+            ),
+        ]),
+    )
 }
 
 fn format_point(point: &Point) -> String {

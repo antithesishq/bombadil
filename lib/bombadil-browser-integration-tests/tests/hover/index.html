@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hover Test</title>
+</head>
+<body>
+    <h1>Hover Test</h1>
+    <div id="presses">0</div>
+    <button id="hover-target">Hover Me</button>
+    <ul id="menu" hidden>
+        <li>Item</li>
+    </ul>
+    <script>
+        let pressCount = 0;
+        const pressesElement = document.getElementById('presses');
+        const button = document.getElementById('hover-target');
+        const menu = document.getElementById('menu');
+
+        button.addEventListener('mouseenter', () => {
+            menu.hidden = false;
+        });
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+            document.addEventListener(type, () => {
+                pressCount++;
+                pressesElement.textContent = pressCount;
+            });
+        }
+    </script>
+</body>
+</html>

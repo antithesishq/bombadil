@@ -394,6 +394,15 @@ export const doubleClickCanvas = actions(() => {
 });
 ```
 
+A `Hover` action moves the pointer onto the element without pressing a button,
+which opens menus and tooltips that react to the pointer:
+
+```typescript
+export const hoverCanvas = actions(() => {
+    return canvas.current ? [{ Hover: canvas.current }] : [];
+});
+```
+
 :::
 
 ::: terminal
