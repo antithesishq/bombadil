@@ -54,7 +54,6 @@ pub struct BrowserState {
     pub console_entries: Vec<ConsoleEntry>,
     pub navigation_history: NavigationHistory,
     pub exceptions: Vec<Exception>,
-    pub transition_hash: Option<u64>,
     pub coverage: Coverage,
     pub screenshot: Screenshot,
     pub resources: Resources,
@@ -281,7 +280,6 @@ struct RuntimeStateSnapshot {
     title: String,
     content_type: String,
     edges_new: Vec<(EdgeIndex, EdgeBucket)>,
-    transition_hash: Option<String>,
     branches: Vec<u32>,
 }
 
@@ -304,22 +302,19 @@ impl BrowserState {
             formatcp!(
                 "
                 (() => {{
-                    const snapshot = (edgesNew, transitionHash, branches) => ({{
+                    const snapshot = (edgesNew, branches) => ({{
                         url: window.location.href,
                         title: document.title,
                         content_type: document.contentType,
                         edges_new: edgesNew,
-                        transition_hash: transitionHash,
                         branches,
                     }});
                     const coverage = window.{NAMESPACE};
-                    if (!coverage) return snapshot([], null, []);
+                    if (!coverage) return snapshot([], []);
 
                     const branches = Array.from(coverage.{HITS});
                     coverage.{HITS}.clear();
                     coverage.{HITS_CACHE}.fill(-1);
-
-                    const SIMHASH_BITS = 64;
 
                     // Bucket current hits into [1,8], similar to AFL.
                     function bucket(hits) {{
@@ -333,17 +328,7 @@ impl BrowserState {
                         return Math.min(msb + 1, 8);
                     }}
 
-                    // Stateless version of Splitmix64.
-                    function hash64(x) {{
-                        const M = 0xffffffffffffffffn;
-                        let h = BigInt(x) + 0x9e3779b97f4a7c15n & M;
-                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n & M;
-                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn & M;
-                        return h ^ (h >> 31n);
-                    }}
-
                     const differences = [];
-                    const similarityWeights = new Int32Array(SIMHASH_BITS);
                     for (let edge = 0; edge < coverage.{EDGES_CURRENT}.length; edge++) {{
                         const current = bucket(coverage.{EDGES_CURRENT}[edge]);
                         coverage.{EDGES_CURRENT}[edge] = current;
@@ -351,33 +336,15 @@ impl BrowserState {
                         if (current !== coverage.{EDGES_PREVIOUS}[edge]) {{
                             differences.push([edge, current]);
                         }}
-                        if (current === 0) continue;
-
-                        const weight = Math.max(1, Math.min(3, Math.floor(Math.log2(current))));
-                        const hash = hash64(edge);
-                        for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
-                            const enabled = (hash >> BigInt(bit)) & 1n;
-                            similarityWeights[bit] += enabled === 1n ? weight : -weight;
-                        }}
                     }}
 
-                    // Reuse the previous buffer for the next capture. Clear it
-                    // here even when the transition hash will return null.
+                    // Reuse the previous buffer for the next capture.
                     const reusable = coverage.{EDGES_PREVIOUS};
                     coverage.{EDGES_PREVIOUS} = coverage.{EDGES_CURRENT};
                     reusable.fill(0);
                     coverage.{EDGES_CURRENT} = reusable;
 
-                    if (similarityWeights.every(weight => weight === 0)) {{
-                        return snapshot(differences, null, branches);
-                    }}
-
-                    let transitionHash = 0n;
-                    for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
-                        if (similarityWeights[bit] <= 0) continue;
-                        transitionHash |= 1n << BigInt(bit);
-                    }}
-                    return snapshot(differences, transitionHash.toString(), branches);
+                    return snapshot(differences, branches);
                 }})()
                 "
             ),
@@ -430,10 +397,6 @@ impl BrowserState {
             forward,
         };
 
-        let transition_hash = match runtime_state.transition_hash {
-            Some(string) => Some(string.parse::<u64>()?),
-            None => None,
-        };
         let resources =
             Resources::from_metrics(&performance_metrics_result.metrics);
 
@@ -458,7 +421,6 @@ impl BrowserState {
                     branches
                 },
             },
-            transition_hash,
             screenshot,
             resources,
             hashes: BTreeMap::new(),

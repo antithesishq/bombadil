@@ -724,7 +724,7 @@ mod tests {
     /// The metadata of a state whose screenshot has `format`.
     fn metadata(url: &str, format: &str) -> String {
         format!(
-            r#"{{"timestamp":0,"action":null,"state":{{"url":"{url}","hash_previous":null,"hash_current":null,"screenshot":"{format}","resources":{{"js_heap_used":0,"js_heap_total":0,"dom_nodes":0,"documents":0,"js_event_listeners":0,"layout_objects":0,"timestamp":0.0,"thread_time":0.0,"task_duration":0.0,"script_duration":0.0}}}},"snapshots":[],"violations":[]}}"#
+            r#"{{"timestamp":0,"action":null,"state":{{"url":"{url}","screenshot":"{format}","resources":{{"js_heap_used":0,"js_heap_total":0,"dom_nodes":0,"documents":0,"js_event_listeners":0,"layout_objects":0,"timestamp":0.0,"thread_time":0.0,"task_duration":0.0,"script_duration":0.0}}}},"snapshots":[],"violations":[]}}"#
         )
     }
 

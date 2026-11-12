@@ -91,7 +91,7 @@ mod tests {
     use super::*;
     use bombadil_trace::{TRACE_FILE_NAME, tag, write_envelope, write_record};
 
-    const STATE: &str = r#"{"timestamp":0,"action":"Back","state":{"url":"https://example.com/","hash_previous":null,"hash_current":null,"screenshot":"jpeg","resources":{"js_heap_used":0,"js_heap_total":0,"dom_nodes":0,"documents":0,"js_event_listeners":0,"layout_objects":0,"timestamp":0.0,"thread_time":0.0,"task_duration":0.0,"script_duration":0.0}},"snapshots":[],"violations":[]}"#;
+    const STATE: &str = r#"{"timestamp":0,"action":"Back","state":{"url":"https://example.com/","screenshot":"jpeg","resources":{"js_heap_used":0,"js_heap_total":0,"dom_nodes":0,"documents":0,"js_event_listeners":0,"layout_objects":0,"timestamp":0.0,"thread_time":0.0,"task_duration":0.0,"script_duration":0.0}},"snapshots":[],"violations":[]}"#;
 
     fn binary_trace(directory: &Path) {
         let mut file = Vec::new();
@@ -120,6 +120,21 @@ mod tests {
         assert_eq!(state.payload.as_deref(), Some(&b"image"[..]));
         assert!(states.next().is_none());
         assert!(states.finished());
+    }
+
+    /// Traces written before the coverage transition hashes were dropped
+    /// carry them in the state, under the same format version.
+    #[test]
+    fn reads_states_with_transition_hashes() {
+        let state = STATE.replace(
+            r#""screenshot""#,
+            r#""hash_previous":null,"hash_current":7,"screenshot""#,
+        );
+        assert_ne!(state, STATE);
+        assert_eq!(
+            serde_json::from_str::<BrowserTraceEntry>(&state).unwrap(),
+            serde_json::from_str::<BrowserTraceEntry>(STATE).unwrap()
+        );
     }
 
     /// The actions are read without the rest of the metadata, so a
