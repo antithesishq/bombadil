@@ -162,6 +162,7 @@ struct BrowserContext {
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
+    blocks: BlockRegistry,
 }
 
 pub struct Browser {
@@ -350,6 +351,7 @@ impl Browser {
             latest_frame,
             origin: origin.clone(),
             browser_options: browser_options.clone(),
+            blocks: blocks.clone(),
         };
 
         let instrumentation_errors = instrumentation::instrument_js_coverage(
@@ -980,7 +982,10 @@ fn process_event(
             });
 
             match result {
-                Ok(browser_state) => {
+                Ok(mut browser_state) => {
+                    browser_state.hashes = context
+                        .blocks
+                        .function_hashes(&browser_state.coverage.branches);
                     context
                         .sender
                         .send(BrowserEvent::StateChanged(browser_state))?;

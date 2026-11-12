@@ -16,6 +16,7 @@ use cdp_protocol::cdp::{
 use const_format::formatcp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
+use std::collections::BTreeMap;
 use std::time::SystemTime;
 use url::Url;
 
@@ -57,11 +58,18 @@ pub struct BrowserState {
     pub coverage: Coverage,
     pub screenshot: Screenshot,
     pub resources: Resources,
+    /// The [`crate::instrumentation::BlockRegistry::function_hashes`] of
+    /// `coverage.branches`.
+    pub hashes: BTreeMap<String, u64>,
 }
 
 impl RunState for BrowserState {
     fn timestamp(&self) -> bombadil_schema::Time {
         Time::from_system_time(self.timestamp)
+    }
+
+    fn hashes(&self) -> &BTreeMap<String, u64> {
+        &self.hashes
     }
 }
 
@@ -453,6 +461,7 @@ impl BrowserState {
             transition_hash,
             screenshot,
             resources,
+            hashes: BTreeMap::new(),
         })
     }
 
