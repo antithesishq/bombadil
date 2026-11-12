@@ -22,12 +22,11 @@ use bombadil_schema::Time;
 use crossbeam_channel as mpmc;
 
 use crate::{
-    driver::{
-        ActionTemplate, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
-    },
+    driver::{InterfaceDriver, InterfaceSession, RunId, TraceWriter},
+    model::{Picked, accepting_key},
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
     specification::domain::Snapshot,
-    tree::Tree,
+    tree::{Leaves, Tree},
 };
 
 mod trace_actions;
@@ -410,11 +409,11 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
     fn on_new_state(
         &mut self,
         state: &Session::State,
-        tree: Tree<Session::ActionTemplate>,
+        leaves: &Leaves<'_, Session::ActionTemplate>,
         last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
-    ) -> Result<ControlFlow<RunOutcome, Session::Action>> {
+    ) -> Result<ControlFlow<RunOutcome, Picked<Session::Action>>> {
         if properties
             .violations
             .iter()
@@ -423,10 +422,9 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
             return Ok(ControlFlow::Stop(RunOutcome::Reproduced));
         }
 
-        let available = tree.clone();
         if let ControlFlow::Stop(_) = self.inner.on_new_state(
             state,
-            tree,
+            leaves,
             last_action,
             snapshots,
             properties,
@@ -434,17 +432,19 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
             return Ok(ControlFlow::Stop(RunOutcome::NotReproduced));
         }
 
-        let available = available.values();
         while let Some(&index) = self.candidate.get(self.position) {
             self.position += 1;
             let action = &self.actions[index as usize];
-            if available.iter().any(|template| template.accepts(action)) {
+            if let Some(template) = accepting_key(leaves, action) {
                 if self.executed.len() + 1 >= self.bound.load(Ordering::SeqCst)
                 {
                     return Ok(ControlFlow::Stop(RunOutcome::Pruned));
                 }
                 self.executed.push(index);
-                return Ok(ControlFlow::Continue(action.clone()));
+                return Ok(ControlFlow::Continue(Picked {
+                    action: action.clone(),
+                    template,
+                }));
             }
             log::debug!("skipping unavailable action: {:?}", action);
         }

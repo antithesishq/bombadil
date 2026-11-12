@@ -6,13 +6,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bombadil::driver::{
-    ActionTemplate, DriverEvent, InterfaceDriver, InterfaceSession,
-    NoopTraceWriter, RunId,
+    DriverEvent, InterfaceDriver, InterfaceSession, NoopTraceWriter, RunId,
 };
+use bombadil::model::Picked;
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
-use bombadil::tree::Tree;
+use bombadil::tree::Leaves;
 use bombadil_schema::terminal::{TerminalCell, TerminalSize};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
@@ -423,11 +423,11 @@ impl RunStrategy<TerminalSession> for IntegrationTestStrategy {
     fn on_new_state(
         &mut self,
         state: &TerminalState,
-        tree: Tree<TerminalActionTemplate>,
+        leaves: &Leaves<'_, TerminalActionTemplate>,
         _last_action: Option<&TerminalAction>,
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> Result<ControlFlow<(), TerminalAction>> {
+    ) -> Result<ControlFlow<(), Picked<TerminalAction>>> {
         self.violations_count += properties.violations.len() as u64;
         if properties.all_definite {
             return Ok(ControlFlow::Stop(()));
@@ -435,9 +435,10 @@ impl RunStrategy<TerminalSession> for IntegrationTestStrategy {
         if state.exit_status.is_some() {
             return Ok(ControlFlow::Stop(()));
         }
-        Ok(ControlFlow::Continue(
-            tree.leaves().pick(&mut self.rng)?.generate(&mut self.rng),
-        ))
+        Ok(ControlFlow::Continue(Picked::generate(
+            leaves.pick(&mut self.rng)?,
+            &mut self.rng,
+        )))
     }
 
     fn deadline(&self) -> Option<bombadil_schema::Time> {

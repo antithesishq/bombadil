@@ -136,9 +136,13 @@ impl ActionTemplate<TerminalAction> for TerminalActionTemplate {
 
     fn category_hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         match self {
-            TerminalAction::TypeText { text } => text.hash(hasher),
-            TerminalAction::Resize { size } => size.hash(hasher),
-            TerminalAction::Click { row, column } => (row, column).hash(hasher),
+            TerminalAction::TypeText { text } => {
+                ("TypeText", text).hash(hasher)
+            }
+            TerminalAction::Resize { size } => ("Resize", size).hash(hasher),
+            TerminalAction::Click { row, column } => {
+                ("Click", row, column).hash(hasher)
+            }
             TerminalAction::ScrollUp {} => "ScrollUp".hash(hasher),
             TerminalAction::ScrollDown {} => "ScrollDown".hash(hasher),
         }
@@ -679,5 +683,88 @@ fn terminal_cursor_visual_style_from_libghostty(
             TerminalCursorVisualStyle::BlockHollow
         }
         _ => TerminalCursorVisualStyle::Unknown,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil::model::action_key;
+    use hegel::TestCase;
+    use hegel::generators::integers;
+
+    const VARIANT_COUNT: usize = 5;
+
+    fn range(tc: &TestCase) -> RangeInclusive<u16> {
+        let start = tc.draw(integers::<u16>());
+        let end = tc.draw(integers().min_value(start));
+        start..=end
+    }
+
+    fn template(tc: &TestCase, variant: usize) -> TerminalActionTemplate {
+        match variant {
+            0 => TerminalAction::TypeText {
+                text: StringGenerator::Text { length: range(tc) },
+            },
+            1 => TerminalAction::Resize {
+                size: TerminalSize {
+                    columns: range(tc),
+                    rows: range(tc),
+                },
+            },
+            2 => TerminalAction::Click {
+                row: range(tc),
+                column: range(tc),
+            },
+            3 => TerminalAction::ScrollUp {},
+            _ => TerminalAction::ScrollDown {},
+        }
+    }
+
+    #[hegel::test]
+    fn templates_of_different_variants_have_different_keys(tc: TestCase) {
+        let first = tc.draw(integers().max_value(VARIANT_COUNT - 1));
+        let offset =
+            tc.draw(integers().min_value(1).max_value(VARIANT_COUNT - 1));
+        let second = (first + offset) % VARIANT_COUNT;
+        let first = template(&tc, first);
+        let second = template(&tc, second);
+        assert_ne!(
+            action_key(&first),
+            action_key(&second),
+            "{first:?} and {second:?}"
+        );
+    }
+
+    /// Keys are recorded in traces, so a change here invalidates them.
+    #[test]
+    fn action_keys_are_pinned() {
+        let templates: [TerminalActionTemplate; VARIANT_COUNT] = [
+            TerminalAction::TypeText {
+                text: StringGenerator::Text { length: 1..=8 },
+            },
+            TerminalAction::Resize {
+                size: TerminalSize {
+                    columns: 40..=120,
+                    rows: 10..=50,
+                },
+            },
+            TerminalAction::Click {
+                row: 0..=23,
+                column: 0..=79,
+            },
+            TerminalAction::ScrollUp {},
+            TerminalAction::ScrollDown {},
+        ];
+        assert_eq!(
+            templates.map(|template| action_key(&template).to_string()),
+            [
+                "9432d62189972886",
+                "92827768b588b6a2",
+                "d660c22cb5624b1e",
+                "85945a0874e9846a",
+                "e809786b3eb1b325",
+            ]
+        );
     }
 }

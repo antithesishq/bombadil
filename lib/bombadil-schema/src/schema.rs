@@ -66,6 +66,72 @@ impl Time {
     }
 }
 
+/// Identifies an action template by a 64-bit hash, written as 16
+/// lowercase hex digits (JSON numbers cannot hold 64 bits).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ActionKey(pub u64);
+
+impl std::fmt::Display for ActionKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+impl std::str::FromStr for ActionKey {
+    type Err = &'static str;
+
+    fn from_str(digits: &str) -> Result<Self, Self::Err> {
+        if digits.len() != 16
+            || !digits
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+        {
+            return Err("an action key is 16 hex digits");
+        }
+        u64::from_str_radix(digits, 16)
+            .map(ActionKey)
+            .map_err(|_| "an action key is 16 hex digits")
+    }
+}
+
+impl Serialize for ActionKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for ActionKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Digits;
+
+        impl serde::de::Visitor<'_> for Digits {
+            type Value = ActionKey;
+
+            fn expecting(
+                &self,
+                f: &mut std::fmt::Formatter<'_>,
+            ) -> std::fmt::Result {
+                f.write_str("16 hex digits")
+            }
+
+            fn visit_str<E: serde::de::Error>(
+                self,
+                digits: &str,
+            ) -> Result<ActionKey, E> {
+                digits.parse().map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_str(Digits)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TraceEntry<A, S> {
     pub timestamp: Time,
@@ -154,4 +220,41 @@ pub enum Formula {
     Next(Box<Formula>),
     Always(Box<Formula>, Option<Duration>),
     Eventually(Box<Formula>, Option<Duration>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ActionKey;
+    use hegel::{TestCase, generators::integers};
+    use serde_json as json;
+
+    #[hegel::test]
+    fn action_key_round_trips_as_16_hex_digits(tc: TestCase) {
+        let key = ActionKey(tc.draw(integers::<u64>()));
+        let written = json::to_value(key).unwrap();
+        assert_eq!(written, json::json!(format!("{:016x}", key.0)));
+        assert_eq!(json::from_value::<ActionKey>(written).unwrap(), key);
+    }
+
+    #[hegel::test]
+    fn action_key_of_another_length_is_rejected(tc: TestCase) {
+        let digits = format!("{:032x}", tc.draw(integers::<u128>()));
+        let length = tc.draw(integers::<usize>().max_value(31));
+        let length = if length < 16 { length } else { length + 1 };
+        assert!(digits[..length].parse::<ActionKey>().is_err());
+    }
+
+    #[hegel::test]
+    fn action_key_with_another_character_is_rejected(tc: TestCase) {
+        let others: Vec<u8> = (0..128u8)
+            .filter(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            .collect();
+        let mut digits =
+            format!("{:016x}", tc.draw(integers::<u64>())).into_bytes();
+        let position = tc.draw(integers::<usize>().max_value(15));
+        digits[position] =
+            others[tc.draw(integers::<usize>().max_value(others.len() - 1))];
+        let digits = String::from_utf8(digits).unwrap();
+        assert!(digits.parse::<ActionKey>().is_err(), "{digits:?}");
+    }
 }

@@ -11,12 +11,13 @@ use serde_json::json;
 
 use crate::antithesis;
 use crate::driver::{DriverEvent, InterfaceSession, TraceWriter};
+use crate::model::Picked;
 use crate::specification::convert::{
     ToSchema, violation_with_pretty_functions,
 };
 use crate::specification::domain::Snapshot;
 use crate::specification::verifier::Verifier;
-use crate::tree::Tree;
+use crate::tree::{Leaves, Tree};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlFlow<T, A> {
@@ -47,14 +48,16 @@ pub struct PropertiesState<'a> {
 pub trait RunStrategy<Session: InterfaceSession> {
     type StopValue;
 
+    /// `leaves` are the actions available in `state`, as the trace records
+    /// them.
     fn on_new_state(
         &mut self,
         state: &Session::State,
-        tree: Tree<Session::ActionTemplate>,
+        leaves: &Leaves<'_, Session::ActionTemplate>,
         last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
-    ) -> Result<ControlFlow<Self::StopValue, Session::Action>>;
+    ) -> Result<ControlFlow<Self::StopValue, Picked<Session::Action>>>;
 
     fn deadline(&self) -> Option<Time>;
 
@@ -149,7 +152,7 @@ fn run_test<
     interrupted: Arc<AtomicBool>,
     strategy: &mut Strategy,
 ) -> Result<Strategy::StopValue> {
-    let mut last_action: Option<Session::Action> = None;
+    let mut action_previous: Option<Picked<Session::Action>> = None;
     let mut violations = Vec::new();
 
     let mut waiting_since = Instant::now();
@@ -164,8 +167,10 @@ fn run_test<
                     antithesis_fuzzer::mark_state_boundary();
                 }
 
-                let snapshots = driver
-                    .extract_snapshots(state.clone(), last_action.as_ref())?;
+                let last_action =
+                    action_previous.as_ref().map(|picked| &picked.action);
+                let snapshots =
+                    driver.extract_snapshots(state.clone(), last_action)?;
                 for value in snapshots.iter() {
                     log::debug!(
                         "snapshot {}: {}",
@@ -220,28 +225,31 @@ fn run_test<
                     all_definite: step_result.all_definite,
                 };
 
+                let actions = strategy.constrain(&state, step_result.actions);
+                let leaves = actions.leaves();
+
                 writer.write(
                     &state,
-                    last_action.as_ref(),
                     &snapshots,
                     properties.violations,
+                    &leaves,
+                    action_previous.as_ref(),
                 )?;
 
-                let actions = strategy.constrain(&state, step_result.actions);
                 let control = strategy.on_new_state(
                     &state,
-                    actions,
-                    last_action.as_ref(),
+                    &leaves,
+                    last_action,
                     &snapshots,
                     properties,
                 )?;
 
                 match control {
                     ControlFlow::Stop(value) => return Ok(value),
-                    ControlFlow::Continue(action) => {
-                        log::info!("picked action: {:?}", action);
-                        driver.apply(action.clone(), state.clone())?;
-                        last_action = Some(action);
+                    ControlFlow::Continue(picked) => {
+                        log::info!("picked action: {:?}", picked.action);
+                        driver.apply(picked.action.clone(), state.clone())?;
+                        action_previous = Some(picked);
                         waiting_since = Instant::now();
                     }
                 }
