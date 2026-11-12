@@ -1,0 +1,8 @@
+---
+source: lib/bombadil-browser/src/instrumentation/mod.rs
+expression: "[block_id(\"/app.js\", \"<top>\", 0), block_id(\"/app.js\", \"<top>\", 1),\nblock_id(\"/app.js\", \"Store.add\", 0),\nblock_id(\"/index.html#inline0\", \"<top>\",\n0),].map(|id| id.to_string()).join(\"\\n\")"
+---
+1867318743
+1920295287
+1224737941
+1840500283
