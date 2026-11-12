@@ -128,6 +128,29 @@ impl Hasher for StableHasher {
     }
 }
 
+/// The hash of a sequence of string features: FNV-1a over the features,
+/// each followed by a newline, then SplitMix64's finalizer. Equal exactly
+/// when the sequences are equal; `None` for no features.
+pub fn feature_hash<'a>(
+    features: impl IntoIterator<Item = &'a str>,
+) -> Option<u64> {
+    let mut hash = FNV_OFFSET;
+    let mut any = false;
+    for feature in features {
+        any = true;
+        hash = fnv1a64_from(hash, feature.bytes());
+        hash = fnv1a64_from(hash, *b"\n");
+    }
+    any.then(|| mix64(hash))
+}
+
+fn mix64(x: u64) -> u64 {
+    let mut h = x.wrapping_add(0x9e3779b97f4a7c15);
+    h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+    h ^ (h >> 31)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
