@@ -29,6 +29,23 @@ impl<T> Tree<T> {
         }
     }
 
+    /// Maps the leaves `f` accepts. A rejected leaf becomes an empty branch,
+    /// so the weights of the others are untouched.
+    pub fn filter_map<U>(self, f: &mut impl FnMut(T) -> Option<U>) -> Tree<U> {
+        match self {
+            Tree::Leaf { value } => match f(value) {
+                Some(value) => Tree::Leaf { value },
+                None => Tree::Branch { branches: vec![] },
+            },
+            Tree::Branch { branches } => Tree::Branch {
+                branches: branches
+                    .into_iter()
+                    .map(|(w, t)| (w, t.filter_map(f)))
+                    .collect(),
+            },
+        }
+    }
+
     pub fn filter(self, predicate: &impl Fn(&T) -> bool) -> Self {
         match self {
             Tree::Leaf { value } => {
@@ -397,6 +414,49 @@ mod tests {
                  {frequency} of the time",
             );
         }
+    }
+
+    #[hegel::test]
+    fn filter_map_keeps_the_accepted_leaves_in_place(tc: TestCase) {
+        let pickable = tc.draw(booleans());
+        let (tree, expected) = tc.draw(trees(pickable));
+        let accepted: Vec<bool> =
+            expected.iter().map(|_| tc.draw(booleans())).collect();
+
+        let mapped = tree.clone().filter_map(&mut |value| {
+            accepted[value].then(|| value.to_string())
+        });
+
+        // The same shape and weights as the input, leaf by leaf.
+        fn check(
+            input: &Tree<usize>,
+            output: &Tree<String>,
+            accepted: &[bool],
+        ) {
+            match (input, output) {
+                (Leaf { value }, Leaf { value: mapped }) => {
+                    assert!(accepted[*value], "leaf {value} was rejected");
+                    assert_eq!(*mapped, value.to_string());
+                }
+                (Leaf { value }, Branch { branches }) => {
+                    assert!(!accepted[*value], "leaf {value} was accepted");
+                    assert!(branches.is_empty());
+                }
+                (Branch { branches: inputs }, Branch { branches: outputs }) => {
+                    assert_eq!(inputs.len(), outputs.len());
+                    for ((weight, input), (mapped_weight, output)) in
+                        inputs.iter().zip(outputs)
+                    {
+                        assert_eq!(weight, mapped_weight);
+                        check(input, output, accepted);
+                    }
+                }
+                (Branch { .. }, Leaf { value }) => {
+                    panic!("a branch became the leaf {value}")
+                }
+            }
+        }
+        check(&tree, &mapped, &accepted);
     }
 
     #[test]
