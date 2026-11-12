@@ -9,6 +9,7 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
+use bombadil::model::TemplateRegistry;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
@@ -23,7 +24,9 @@ use bombadil_terminal::trace::{
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 
 use crate::duration;
-use crate::output_path::resolve_output_path;
+use crate::output_path::{
+    or_logged, resolve_output_path, write_action_templates,
+};
 use crate::shrink::{self, ShrinkOptions};
 
 mod defaults {
@@ -128,6 +131,11 @@ pub enum Command {
         /// instead of generating new ones.
         #[arg(long, value_name = "TRACE_FILE")]
         reproduce: Option<PathBuf>,
+        /// Write the table of action templates that trace `actions_available`
+        /// keys refer to (key, template as JSON) to this file, as JSON lines,
+        /// when the command ends. Without it no table is written.
+        #[arg(long, value_name = "FILE")]
+        action_templates: Option<PathBuf>,
         /// The command to run as the system under test. Everything after
         /// `--` is forwarded as program + arguments.
         #[clap(trailing_var_arg = true)]
@@ -198,6 +206,11 @@ pub enum Command {
         /// flag, Bombadil refuses to replace an existing numbered file.
         #[arg(long)]
         output_path_overwrite: bool,
+        /// Write the table of action templates that trace `actions_available`
+        /// keys refer to (key, template as JSON) to this file, as JSON lines,
+        /// when the command ends. Without it no table is written.
+        #[arg(long, value_name = "FILE")]
+        action_templates: Option<PathBuf>,
     },
 }
 
@@ -223,6 +236,7 @@ pub fn run(command: Command) {
             output_path,
             output_path_overwrite,
             reproduce,
+            action_templates,
             command,
         } => {
             let run_test = || -> Result<()> {
@@ -278,17 +292,25 @@ pub fn run(command: Command) {
                 let (mut session, verifier) =
                     driver.new_session(RunId::default())?;
 
+                let templates = action_templates
+                    .as_ref()
+                    .map(|_| TemplateRegistry::default());
                 let mut trace_writer = TerminalTraceWriter::initialize(
                     &output_path,
                     output_path_overwrite,
-                )?;
-                let exit_reason = runner::run(
+                )?
+                .with_templates(templates.clone());
+                let result = runner::run(
                     &mut session,
                     &mut strategy,
                     verifier,
                     &mut trace_writer,
                     interrupted,
-                )?;
+                );
+                let written = write_action_templates(
+                    action_templates.as_deref().zip(templates.as_ref()),
+                );
+                let exit_reason = or_logged(result, written)?;
 
                 println!();
                 match exit_reason {
@@ -371,6 +393,7 @@ pub fn run(command: Command) {
             command,
             output_path,
             output_path_overwrite,
+            action_templates,
         } => {
             let run_fuzz = || {
                 if antithesis::is_in_guest() {
@@ -388,9 +411,13 @@ pub fn run(command: Command) {
 
                 let output_path = resolve_output_path(&output_path)?;
 
+                let templates = action_templates
+                    .as_ref()
+                    .map(|_| TemplateRegistry::default());
                 let output_writer = TerminalOutputWriter {
                     root_path: output_path.clone(),
                     overwrite: output_path_overwrite,
+                    templates: templates.clone(),
                 };
 
                 let program_options = TerminalProgramOptions {
@@ -415,7 +442,7 @@ pub fn run(command: Command) {
                     })?;
                 }
 
-                fuzzer::fuzz(FuzzOptions {
+                let result = fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
                     strategy: || TerminalStrategy {
@@ -434,9 +461,11 @@ pub fn run(command: Command) {
                     swarm,
                     parallelism,
                     output_writer,
-                })?;
-
-                Ok(())
+                });
+                let written = write_action_templates(
+                    action_templates.as_deref().zip(templates.as_ref()),
+                );
+                or_logged(result, written)
             };
 
             if let Err(error) = run_fuzz() {

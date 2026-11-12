@@ -15,7 +15,7 @@ use anyhow::{Result, anyhow, bail};
 use bombadil::shrink::TraceActions;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
-    model::{Picked, StepModel},
+    model::{Picked, StepModel, TemplateRegistry},
     runner::PropertyViolation,
     specification::{convert::ToSchema, domain::Snapshot},
     tree::Leaves,
@@ -47,6 +47,7 @@ pub use bombadil_trace::TRACE_FILE_NAME;
 pub struct TerminalOutputWriter {
     pub root_path: std::path::PathBuf,
     pub overwrite: bool,
+    pub templates: Option<TemplateRegistry>,
 }
 
 impl OutputWriter<TerminalSession> for TerminalOutputWriter {
@@ -56,17 +57,33 @@ impl OutputWriter<TerminalSession> for TerminalOutputWriter {
         let run_path =
             bombadil_trace::numbered_trace_path(&self.root_path, run_id.0);
         TerminalTraceWriter::initialize(&run_path, self.overwrite)
+            .map(|writer| writer.with_templates(self.templates.clone()))
     }
 }
 
-pub struct TerminalTraceWriter(TraceFileWriter<TerminalTraceEntry>);
+pub struct TerminalTraceWriter {
+    trace: TraceFileWriter<TerminalTraceEntry>,
+    templates: Option<TemplateRegistry>,
+}
 
 impl TerminalTraceWriter {
     /// Creates the trace file at `run_path`, replacing an existing file
     /// only when `overwrite` is set. Parent directories must exist.
     pub fn initialize(run_path: &Path, overwrite: bool) -> Result<Self> {
-        TraceFileWriter::create(run_path, TraceDriver::Terminal, overwrite)
-            .map(TerminalTraceWriter)
+        let trace = TraceFileWriter::create(
+            run_path,
+            TraceDriver::Terminal,
+            overwrite,
+        )?;
+        Ok(TerminalTraceWriter {
+            trace,
+            templates: None,
+        })
+    }
+
+    /// Records the templates of the actions this trace offers in `templates`.
+    pub fn with_templates(self, templates: Option<TemplateRegistry>) -> Self {
+        TerminalTraceWriter { templates, ..self }
     }
 }
 
@@ -85,6 +102,9 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
             actions_available,
             action_previous.map(|picked| picked.template),
         );
+        if let Some(templates) = &self.templates {
+            templates.record(actions_available, &model)?;
+        }
         let entry = TerminalTraceEntry {
             timestamp: Time::from_system_time(state.timestamp),
             action: last_action.map(ToSchema::to_schema),
@@ -99,11 +119,12 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
             violations: violations.iter().map(|v| v.to_schema()).collect(),
         };
         // The snapshot is shared with the state, not copied.
-        self.0.write_state(entry, state.terminal_snapshot.clone())
+        self.trace
+            .write_state(entry, state.terminal_snapshot.clone())
     }
 
     fn finish(&mut self) -> Result<()> {
-        self.0.finish()
+        self.trace.finish()
     }
 }
 

@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::PathBuf};
 use anyhow::Result;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
-    model::{Picked, StepModel},
+    model::{Picked, StepModel, TemplateRegistry},
     specification::domain::Snapshot,
     tree::Leaves,
 };
@@ -23,6 +23,7 @@ use crate::{
 pub struct FileOutputWriter {
     pub root_path: PathBuf,
     pub overwrite: bool,
+    pub templates: Option<TemplateRegistry>,
 }
 
 impl OutputWriter<BrowserSession> for FileOutputWriter {
@@ -32,6 +33,7 @@ impl OutputWriter<BrowserSession> for FileOutputWriter {
         let run_path =
             bombadil_trace::numbered_trace_path(&self.root_path, run_id.0);
         FileTraceWriter::initialize(run_path, self.overwrite)
+            .map(|writer| writer.with_templates(self.templates.clone()))
     }
 }
 
@@ -41,6 +43,7 @@ impl OutputWriter<BrowserSession> for FileOutputWriter {
 pub struct FileTraceWriter {
     trace: TraceFileWriter<BrowserTraceEntry>,
     last_transition_hash: Option<u64>,
+    templates: Option<TemplateRegistry>,
 }
 
 impl FileTraceWriter {
@@ -55,7 +58,13 @@ impl FileTraceWriter {
         Ok(FileTraceWriter {
             trace,
             last_transition_hash: None,
+            templates: None,
         })
+    }
+
+    /// Records the templates of the actions this trace offers in `templates`.
+    pub fn with_templates(self, templates: Option<TemplateRegistry>) -> Self {
+        FileTraceWriter { templates, ..self }
     }
 }
 
@@ -88,6 +97,9 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
             branches: Cow::Borrowed(&state.coverage.branches),
         };
         self.last_transition_hash = state.transition_hash;
+        if let Some(templates) = &self.templates {
+            templates.record(actions_available, &model)?;
+        }
         // The screenshot is shared with the state, not copied.
         self.trace
             .write_state(entry.to_schema(), Some(state.screenshot.data.clone()))
