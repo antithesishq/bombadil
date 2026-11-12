@@ -128,6 +128,10 @@ enum InnerEvent {
     ExecutionContextCreated(String, FrameId),
     ExecutionContextDestroyed(String),
     TargetDestroyed(TargetId),
+    PageOpened {
+        target_id: TargetId,
+        opener_id: TargetId,
+    },
     ConsoleEntry(ConsoleEntry),
     ActionAccepted(BrowserAction, Generation),
     ActionApplied(Generation),
@@ -553,6 +557,7 @@ fn forward_inner_events(
         page::EventFrameStoppedLoading::method_id(),
         browser::EventDownloadWillBegin::method_id(),
         target::EventTargetDestroyed::method_id(),
+        target::EventTargetCreated::method_id(),
         runtime::EventConsoleApiCalled::method_id(),
     ]);
 
@@ -661,6 +666,18 @@ fn forward_inner_events(
                     },
                     target::EventTargetDestroyed: event => {
                         Some(InnerEvent::TargetDestroyed(event.target_id.clone()))
+                    },
+                    target::EventTargetCreated: event => {
+                        let target = &event.target_info;
+                        match &target.opener_id {
+                            Some(opener_id) if target.r#type == "page" => {
+                                Some(InnerEvent::PageOpened {
+                                    target_id: target.target_id.clone(),
+                                    opener_id: opener_id.clone(),
+                                })
+                            }
+                            _ => None,
+                        }
                     },
                     runtime::EventConsoleApiCalled: call => {
                         let level = match call.r#type {
@@ -1278,6 +1295,31 @@ fn process_event(
             } else {
                 state
             }
+        }
+        (
+            state,
+            InnerEvent::PageOpened {
+                target_id,
+                opener_id,
+            },
+        ) => {
+            // Only the first page is driven, and a page hidden behind a new
+            // tab stops requestAnimationFrame, so every quiescence wait would
+            // time out. Pages it did not open are left alone.
+            if opener_id == context.target_id {
+                log::warn!(
+                    "closing page target {target_id:?} opened by the page and \
+                     bringing the driven page back to front"
+                );
+                context
+                    .connection
+                    .post(target::CloseTargetParams::new(target_id), None)?;
+                context.connection.post(
+                    page::BringToFrontParams::default(),
+                    Some(&context.session_id),
+                )?;
+            }
+            state
         }
         (state, InnerEvent::Quiesced(generation)) => {
             if state.shared.generation != generation {
