@@ -355,7 +355,9 @@ impl Browser {
         let instrumentation_errors = instrumentation::instrument_js_coverage(
             connection.clone(),
             &session_id,
+            frame_id.clone(),
             browser_options.instrumentation.clone(),
+            browser_options.allow_urls.clone(),
             blocks.clone(),
             origin.clone(),
         )?;

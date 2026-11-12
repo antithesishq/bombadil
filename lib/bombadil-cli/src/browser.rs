@@ -251,6 +251,9 @@ pub struct TargetOptions {
 
     /// Exploration boundary as Chrome extension match patterns, e.g.
     /// `*://*.example.com/*`. Replaces the implicit origin match pattern.
+    /// A navigation of the page to a URL outside the boundary is blocked
+    /// before it is requested, including each hop of a redirect, and a
+    /// script from outside it runs without coverage instrumentation.
     /// For the pattern syntax, see
     /// [Match patterns](https://developer.chrome.com/docs/extensions/develop/concepts/match-patterns).
     #[arg(long = "allow-url", value_name = "MATCH_PATTERN", value_parser = MatchPattern::parse)]
@@ -351,7 +354,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             reproduce_args.extend(launch_options.reproduce_args());
 
             let browser_options =
-                browser_options_from_target(&shared.target, downloads.path());
+                browser_options_from_target(&shared.target, downloads.path())?;
             let debugger_options = launch_options.debugger_options()?;
             browser_test(
                 mode,
@@ -382,7 +385,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_target(&shared.target, downloads.path())
+                ..browser_options_from_target(&shared.target, downloads.path())?
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
@@ -409,7 +412,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             let browser_options = browser_options_from_target(
                 &run_shared_options.target,
                 downloads.path(),
-            );
+            )?;
             let debugger_options = launch_options.debugger_options()?;
             browser_fuzz(
                 output_path,
@@ -496,8 +499,8 @@ fn downloads_directory() -> Result<TempDir> {
 fn browser_options_from_target(
     target: &TargetOptions,
     downloads_path: &Path,
-) -> BrowserOptions {
-    BrowserOptions {
+) -> Result<BrowserOptions> {
+    Ok(BrowserOptions {
         create_target: true,
         emulation: Emulation {
             width: target.width,
@@ -505,6 +508,7 @@ fn browser_options_from_target(
             device_scale_factor: target.device_scale_factor,
         },
         instrumentation: target.instrument_javascript.clone(),
+        allow_urls: resolve_allow_urls(target)?,
         downloads_directory: downloads_path.to_path_buf(),
         grant_permissions: target
             .chrome_grant_permissions
@@ -515,7 +519,7 @@ fn browser_options_from_target(
         virtual_time_policy: target.chrome_virtual_time_policy.clone(),
         extra_headers: target.headers.iter().cloned().collect(),
         cookies: target.cookies.clone(),
-    }
+    })
 }
 
 /// Load a user-provided specification, or use the defaults provided by Bombadil.
@@ -681,7 +685,7 @@ fn browser_test(
         );
     }
 
-    let allow_urls = resolve_allow_urls(&shared_options.target)?;
+    let allow_urls = browser_options.allow_urls.clone();
     let origin = shared_options.target.origin.url;
 
     let run_options = RunOptions {
@@ -811,7 +815,7 @@ fn browser_fuzz(
         overwrite: shared_options.output_path_overwrite,
     };
 
-    let allow_urls = resolve_allow_urls(&shared_options.target)?;
+    let allow_urls = browser_options.allow_urls.clone();
     let driver = Arc::new(BrowserDriver {
         origin: shared_options.target.origin.url,
         browser_options,
@@ -981,9 +985,9 @@ fn browser_shrink(
     let options = shrink_options.resolve(browser_trace::load_trace_actions)?;
     let debugger_options = launch_options.debugger_options()?;
     let specification = load_specification(&target);
-    let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
-        browser_options_from_target(&target, downloads.path());
+        browser_options_from_target(&target, downloads.path())?;
+    let allow_urls = browser_options.allow_urls.clone();
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
