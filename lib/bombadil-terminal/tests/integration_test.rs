@@ -436,7 +436,7 @@ impl RunStrategy<TerminalSession> for IntegrationTestStrategy {
             return Ok(ControlFlow::Stop(()));
         }
         Ok(ControlFlow::Continue(
-            tree.pick(&mut self.rng)?.generate(&mut self.rng),
+            tree.leaves().pick(&mut self.rng)?.generate(&mut self.rng),
         ))
     }
 

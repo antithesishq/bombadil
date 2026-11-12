@@ -99,7 +99,7 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
             .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
         match &mut self.mode {
             TestMode::RandomWalk => {
-                let template = tree.pick(&mut self.rng)?.clone();
+                let template = tree.leaves().pick(&mut self.rng)?.clone();
                 let action = template.generate(&mut self.rng);
                 Ok(action)
             }

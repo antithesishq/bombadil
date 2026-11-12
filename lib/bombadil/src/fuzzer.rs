@@ -2,6 +2,7 @@ use anyhow::{Result, anyhow};
 use bombadil_schema::Time;
 use crossbeam_channel as mpmc;
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt::{Display, Write as _},
     hash::{DefaultHasher, Hasher},
@@ -436,7 +437,7 @@ impl<
                 test_deadline: test_start + self.time_limit,
                 worker_tx: self.worker_tx.clone(),
                 mode,
-                excluded: HashMap::new(),
+                excluded: RefCell::default(),
             };
             let mut trace_writer = {
                 let mut output_writer = self
@@ -469,7 +470,7 @@ impl<
             );
 
             if log::log_enabled!(log::Level::Debug) && self.swarm {
-                for (hash, templates) in strategy.excluded {
+                for (hash, templates) in strategy.excluded.into_inner() {
                     let mut buffer = String::new();
                     write!(
                         buffer,
@@ -519,34 +520,48 @@ struct FuzzStrategy<Rng, Session: InterfaceSession, Inner> {
     worker_tx: crossbeam_channel::Sender<WorkerMessage<Session>>,
     mode: FuzzMode,
 
-    // debugging
-    excluded: HashMap<u64, Vec<Session::ActionTemplate>>,
+    /// The templates swarm testing left out, for debug logging.
+    excluded: RefCell<HashMap<u64, Vec<Session::ActionTemplate>>>,
+}
+
+const SWARM_HASH_BIT_WIDTH: usize = 32;
+
+fn swarm_hash<A>(seed: u64, template: &impl ActionTemplate<A>) -> u64 {
+    let mut hasher = DefaultHasher::default();
+    hasher.write_u64(seed);
+    template.category_hash(&mut hasher);
+    hasher.finish()
+}
+
+fn swarm_includes<A>(
+    seed: u64,
+    action_probability: f64,
+    template: &impl ActionTemplate<A>,
+) -> bool {
+    let n = ((swarm_hash(seed, template) >> (64 - SWARM_HASH_BIT_WIDTH))
+        as f64)
+        / 2.0_f64.powf(SWARM_HASH_BIT_WIDTH as f64);
+    n < action_probability
+}
+
+/// Swarm testing leaves templates out of `tree`, unless that leaves none.
+fn swarm<A, T: ActionTemplate<A>>(
+    seed: u64,
+    action_probability: f64,
+    tree: Tree<T>,
+) -> Tree<T> {
+    let includes =
+        |template: &T| swarm_includes(seed, action_probability, template);
+    if tree.any(includes) {
+        tree.filter(&includes)
+    } else {
+        tree
+    }
 }
 
 impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
     FuzzStrategy<Rng, Session, Inner>
 {
-    const SWARM_HASH_BIT_WIDTH: usize = 32;
-
-    #[hotpath::measure]
-    fn swarm(
-        seed: u64,
-        action_probability: f64,
-        tree: &Tree<Session::ActionTemplate>,
-    ) -> Option<Tree<Session::ActionTemplate>> {
-        tree.clone()
-            .filter(&|template| {
-                let mut hasher = DefaultHasher::default();
-                hasher.write_u64(seed);
-                template.category_hash(&mut hasher);
-                let n = ((hasher.finish() >> (64 - Self::SWARM_HASH_BIT_WIDTH))
-                    as f64)
-                    / 2.0_f64.powf(Self::SWARM_HASH_BIT_WIDTH as f64);
-                n < action_probability
-            })
-            .prune()
-    }
-
     fn send_step(
         &self,
         state: &Session::State,
@@ -574,46 +589,13 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
     #[hotpath::measure]
     fn pick_action(
         &mut self,
-        _state: &Session::State,
-        tree: Tree<Session::ActionTemplate>,
+        tree: &Tree<Session::ActionTemplate>,
     ) -> Result<Session::Action> {
-        if log::log_enabled!(log::Level::Debug)
-            && let FuzzMode::Swarm {
-                seed,
-                action_probability,
-            } = self.mode
-        {
-            for template in tree.values() {
-                let mut hasher = DefaultHasher::default();
-                hasher.write_u64(seed);
-                template.category_hash(&mut hasher);
-                let hash = hasher.finish();
-                let n = ((hash >> Self::SWARM_HASH_BIT_WIDTH) as f64)
-                    / 2.0_f64.powf(Self::SWARM_HASH_BIT_WIDTH as f64);
-                let included = n < action_probability;
-                if !included {
-                    let entry = self.excluded.entry(hash).or_default();
-                    // Poor man's set, as we can't require Ord or Hash for actions.
-                    if !entry.contains(template) {
-                        entry.push(template.clone());
-                    }
-                }
-            }
+        let leaves = tree.leaves();
+        if leaves.as_slice().is_empty() {
+            anyhow::bail!("no actions available");
         }
-
-        let tree = match self.mode {
-            FuzzMode::Swarm {
-                seed,
-                action_probability,
-            } => Self::swarm(seed, action_probability, &tree).unwrap_or(tree),
-            FuzzMode::RandomWalk => tree,
-        }
-        .prune()
-        .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
-
-        let template = tree.pick(&mut self.rng)?.clone();
-        let action = template.generate(&mut self.rng);
-        Ok(action)
+        Ok(leaves.pick(&mut self.rng)?.generate(&mut self.rng))
     }
 }
 
@@ -645,10 +627,9 @@ impl<
         }
 
         let violations = properties.violations.to_vec();
-        let tree_constrained = self.inner.constrain(state, tree.clone());
         if let ControlFlow::Stop(_) = self.inner.on_new_state(
             state,
-            tree,
+            tree.clone(),
             last_action,
             snapshots,
             properties,
@@ -660,7 +641,7 @@ impl<
             return Ok(ControlFlow::Stop(ExitReason::Stopped));
         }
 
-        let action = self.pick_action(state, tree_constrained)?;
+        let action = self.pick_action(&tree)?;
 
         self.send_step(state, Some(action.clone()), violations);
 
@@ -688,6 +669,96 @@ impl<
         state: &Session::State,
         tree: Tree<Session::ActionTemplate>,
     ) -> Tree<Session::ActionTemplate> {
-        self.inner.constrain(state, tree)
+        let tree = self.inner.constrain(state, tree);
+        let FuzzMode::Swarm {
+            seed,
+            action_probability,
+        } = self.mode
+        else {
+            return tree;
+        };
+        if log::log_enabled!(log::Level::Debug) {
+            let mut excluded = self.excluded.borrow_mut();
+            for template in tree.values() {
+                if !swarm_includes(seed, action_probability, template) {
+                    let entry =
+                        excluded.entry(swarm_hash(seed, template)).or_default();
+                    // Poor man's set, as we can't require Ord or Hash for
+                    // actions.
+                    if !entry.contains(template) {
+                        entry.push(template.clone());
+                    }
+                }
+            }
+        }
+        swarm(seed, action_probability, tree)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hegel::generators::{booleans, floats, integers, vecs};
+    use hegel::{Generator, TestCase};
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Key(u8);
+
+    impl ActionTemplate<Key> for Key {
+        fn generate<R: TryRng + RngExt>(&self, _: &mut R) -> Key {
+            self.clone()
+        }
+        fn accepts(&self, original: &Key) -> bool {
+            self == original
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write_u8(self.0);
+        }
+    }
+
+    /// A branch of leaves and of branches of leaves.
+    #[hegel::composite]
+    fn trees(tc: &TestCase) -> Tree<Key> {
+        let leaves = |tc: &TestCase| -> Vec<(u16, Tree<Key>)> {
+            tc.draw_silent(vecs(integers::<u8>()).max_size(4))
+                .into_iter()
+                .map(|key| (1, Tree::Leaf { value: Key(key) }))
+                .collect()
+        };
+        let mut branches = leaves(tc);
+        if tc.draw_silent(booleans()) {
+            branches.push((
+                1,
+                Tree::Branch {
+                    branches: leaves(tc),
+                },
+            ));
+        }
+        Tree::Branch { branches }
+    }
+
+    #[hegel::test]
+    fn swarm_keeps_the_included_templates_or_all_when_none_is(tc: TestCase) {
+        let tree = tc.draw(trees().print_as_debug());
+        let seed = tc.draw(integers::<u64>());
+        let action_probability =
+            tc.draw(floats::<f64>().min_value(0.0).max_value(1.0));
+        let includes =
+            |key: &Key| swarm_includes(seed, action_probability, key);
+
+        let swarmed = swarm(seed, action_probability, tree.clone());
+        let included: Vec<Key> = tree
+            .values()
+            .into_iter()
+            .filter(|key| includes(key))
+            .cloned()
+            .collect();
+        if included.is_empty() {
+            assert_eq!(swarmed, tree);
+        } else {
+            let kept: Vec<Key> =
+                swarmed.values().into_iter().cloned().collect();
+            assert_eq!(kept, included);
+        }
     }
 }
