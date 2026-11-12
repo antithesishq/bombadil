@@ -14,5 +14,5 @@ async function test() {
 }
 
 ---- blocks ----
- 596484520  /test.js:3  test
- 962333803  /test.js:3  test
+ 596484520  /test.js:3:30  test
+ 962333803  /test.js:3:60  test

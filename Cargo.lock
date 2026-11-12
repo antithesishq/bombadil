@@ -519,6 +519,7 @@ dependencies = [
  "oxc",
  "oxc_str",
  "oxc_traverse",
+ "percent-encoding",
  "rand 0.10.2",
  "regex-syntax",
  "reqwest",

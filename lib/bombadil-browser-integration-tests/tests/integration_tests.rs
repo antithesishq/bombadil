@@ -41,7 +41,7 @@ use bombadil_browser::{
     convert::ToSchema,
     cookie::BrowserCookie,
     driver::{BrowserSession, DebuggerOptions},
-    instrumentation::BlockRegistry,
+    instrumentation::{self, BlockRegistry},
     match_pattern::MatchPattern,
     runner,
     strategy::{ExitReason, TestResult, TestStrategy},
@@ -97,6 +97,7 @@ struct BrowserIntegrationTest<'a> {
     allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
     file_origin: bool,
     blocks_hit_expected: bool,
+    block_table_expected: Vec<&'a str>,
     virtual_time_policy: Option<VirtualTimePolicy>,
 }
 
@@ -119,6 +120,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             allow_urls: None,
             file_origin: false,
             blocks_hit_expected: false,
+            block_table_expected: vec![],
             virtual_time_policy: Some(VirtualTimePolicy::Advance),
         }
     }
@@ -137,6 +139,12 @@ impl<'a> BrowserIntegrationTest<'a> {
     /// Fail unless some state after an action records a block as run.
     fn expect_blocks_hit(mut self) -> Self {
         self.blocks_hit_expected = true;
+        self
+    }
+
+    /// Fail unless each of these is part of a line of the block table.
+    fn expect_block_table(mut self, parts: Vec<&'a str>) -> Self {
+        self.block_table_expected = parts;
         self
     }
 
@@ -222,6 +230,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             allow_urls,
             file_origin,
             blocks_hit_expected,
+            block_table_expected,
             virtual_time_policy,
         } = self;
         setup();
@@ -495,7 +504,7 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
         log::info!("starting runner with infrastructure safety timeout");
         let (result_tx, result_rx) = crossbeam_channel::bounded(1);
-        let blocks = BlockRegistry::default();
+        let (blocks, new_blocks) = BlockRegistry::with_channel();
         {
             let trace_writer = trace_writer.clone();
             let blocks = blocks.clone();
@@ -591,6 +600,19 @@ impl<'a> BrowserIntegrationTest<'a> {
                 !blocks_hit_expected || !blocks_hit.is_empty(),
                 "no block hit after an action"
             );
+        }
+
+        if !block_table_expected.is_empty() {
+            blocks.close();
+            let mut table = Vec::new();
+            instrumentation::write_blocks(new_blocks, &mut table).unwrap();
+            let table = String::from_utf8(table).unwrap();
+            for part in block_table_expected {
+                assert!(
+                    table.lines().any(|line| line.contains(part)),
+                    "no block with {part} in:\n{table}"
+                );
+            }
         }
 
         log::info!("checking outcome");
@@ -700,6 +722,18 @@ fn test_file_origin_instruments_its_script_files() {
         .file_origin()
         .time_limit(Duration::from_secs(5))
         .expect_blocks_hit()
+        .run();
+}
+
+#[test]
+fn test_blocks_resolve_through_the_source_map_of_their_script() {
+    BrowserIntegrationTest::new("source-map")
+        .time_limit(Duration::from_secs(5))
+        .expect_blocks_hit()
+        .expect_block_table(vec![
+            r#""line":1,"column":43,"source":"source-map/node_modules/label/index.js","source_line":1,"vendor":true"#,
+            r#""line":2,"column":110,"source":"source-map/src/app.ts","source_line":1}"#,
+        ])
         .run();
 }
 
