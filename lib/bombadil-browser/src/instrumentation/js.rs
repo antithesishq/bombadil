@@ -54,6 +54,14 @@ pub const NAMESPACE: &str = "__bombadil__";
 pub const EDGES_PREVIOUS: &str = "edges_previous";
 pub const EDGES_CURRENT: &str = "edges_current";
 pub const EDGE_MAP_SIZE: usize = 64 * 1024;
+/// The ids of the blocks run since the last state capture.
+pub const HITS: &str = "hits";
+/// The id last added to the hits, per slot (the id modulo the size), or -1.
+/// A block that finds its own id there skips the set: a loop pays a typed
+/// array read per iteration instead of a hash insert. Whoever clears the
+/// hits has to fill this with -1 as well.
+pub const HITS_CACHE: &str = "hits_cache";
+pub const HITS_CACHE_SIZE: usize = 64 * 1024;
 
 const LOCATION_PREVIOUS: &str = "previous";
 
@@ -62,6 +70,8 @@ const PRELUDE: &str = formatcp!(
         {EDGES_PREVIOUS}: new Uint8Array({EDGE_MAP_SIZE}),
         {EDGES_CURRENT}: new Uint8Array({EDGE_MAP_SIZE}),
         {LOCATION_PREVIOUS}: 0,
+        {HITS}: new Set(),
+        {HITS_CACHE}: new Int32Array({HITS_CACHE_SIZE}).fill(-1),
     }};"
 );
 
@@ -403,16 +413,74 @@ impl Instrumenter {
             ),
         );
 
+        let hits_cache_slot = || {
+            ctx.ast.alloc_computed_member_expression(
+                SPAN,
+                antithesis_member(HITS_CACHE),
+                ctx.ast.expression_numeric_literal(
+                    SPAN,
+                    (id as usize % HITS_CACHE_SIZE) as f64,
+                    None,
+                    ast::NumberBase::Decimal,
+                ),
+                false,
+            )
+        };
+        let hit_add = ctx.ast.expression_call(
+            SPAN,
+            ctx.ast
+                .member_expression_static(
+                    SPAN,
+                    antithesis_member(HITS),
+                    ctx.ast.identifier_name(SPAN, "add"),
+                    false,
+                )
+                .into(),
+            None::<
+                oxc::allocator::Box<'_, ast::TSTypeParameterInstantiation<'_>>,
+            >,
+            ctx.ast.vec1(ast::Argument::from(
+                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+            )),
+            false,
+        );
+        let hit = ctx.ast.expression_logical(
+            SPAN,
+            ctx.ast.expression_binary(
+                SPAN,
+                Expression::ComputedMemberExpression(hits_cache_slot()),
+                ast::BinaryOperator::StrictEquality,
+                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+            ),
+            ast::LogicalOperator::Or,
+            ctx.ast.expression_sequence(
+                SPAN,
+                ctx.ast.vec_from_array([
+                    ctx.ast.expression_assignment(
+                        SPAN,
+                        AssignmentOperator::Assign,
+                        AssignmentTarget::ComputedMemberExpression(
+                            hits_cache_slot(),
+                        ),
+                        branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
+                    ),
+                    hit_add,
+                ]),
+            ),
+        );
+
         ctx.ast
-            .vec_from_array([edge_addition, location_previous_update])
+            .vec_from_array([edge_addition, location_previous_update, hit])
     }
 
-    /// Adds the following two statements to the start of block, or wraps a single statement
+    /// Adds the following three statements to the start of block, or wraps a single statement
     /// in a block with these two at the start:
     ///
     /// ```not_rust
     /// __bombadil__.edges_current[((<id> ^ __bombadil__.previous) >>> 0) % 65536] += 1;
     /// __bombadil__.previous = <id> >> 1;
+    /// __bombadil__.hits_cache[<id> % 65536] === <id>
+    ///     || (__bombadil__.hits_cache[<id> % 65536] = <id>, __bombadil__.hits.add(<id>));
     /// ```
     ///
     /// The <id> is the block's structural 31-bit ID.
@@ -1210,6 +1278,168 @@ mod tests {
             })
             .collect();
         assert_snapshot!(table);
+    }
+
+    /// Which blocks run when a program runs as a script, by position in
+    /// [`Rendered::blocks`]. Each read of `x` draws a value and records it
+    /// in `reads`; after `READS_MAX` every read is `""`, which ends any
+    /// loop. Functions and callbacks are never called, and no `case`
+    /// matches a string.
+    struct Execution<'t> {
+        tc: &'t TestCase,
+        reads: Vec<&'static str>,
+        blocks_count: usize,
+        blocks_run: BTreeSet<usize>,
+    }
+
+    impl Execution<'_> {
+        const READS_MAX: usize = 32;
+
+        fn read(&mut self) -> &'static str {
+            if self.reads.len() == Self::READS_MAX {
+                return "";
+            }
+            let read = self
+                .tc
+                .draw_silent(sampled_from(["", "a", "ab"].as_slice()));
+            self.reads.push(read);
+            read
+        }
+
+        fn block(&mut self, run: bool) {
+            if run {
+                self.blocks_run.insert(self.blocks_count);
+            }
+            self.blocks_count += 1;
+        }
+
+        fn statements(&mut self, statements: &[Statement], live: bool) {
+            for statement in statements {
+                self.statement(statement, live);
+            }
+        }
+
+        /// Walks `body` once per iteration, or once dead if there is none,
+        /// and says whether it ran.
+        fn iterate(
+            &mut self,
+            body: &[Statement],
+            mut next: impl FnMut(&mut Self) -> bool,
+        ) -> bool {
+            let blocks_count = self.blocks_count;
+            let mut run = false;
+            while next(self) {
+                self.blocks_count = blocks_count;
+                self.statements(body, true);
+                run = true;
+            }
+            if !run {
+                self.statements(body, false);
+            }
+            run
+        }
+
+        fn statement(&mut self, statement: &Statement, live: bool) {
+            match statement {
+                Statement::If(body) => {
+                    let taken = live && !self.read().is_empty();
+                    self.statements(body, taken);
+                    self.block(taken);
+                    self.block(live && !taken);
+                }
+                Statement::IfElse(consequent, alternate) => {
+                    let taken = live && !self.read().is_empty();
+                    self.statements(consequent, taken);
+                    self.statements(alternate, live && !taken);
+                    self.block(taken);
+                    self.block(live && !taken);
+                }
+                Statement::Ternary => {
+                    let taken = live && !self.read().is_empty();
+                    self.block(taken);
+                    self.block(live && !taken);
+                }
+                Statement::Loop(Loop::For, body) => {
+                    let run = self.iterate(body, |execution| {
+                        live && !execution.read().is_empty()
+                    });
+                    self.block(run);
+                }
+                Statement::Loop(Loop::ForIn | Loop::ForOf, body) => {
+                    let mut iterations =
+                        if live { self.read().len() } else { 0 };
+                    let run = self.iterate(body, |_| {
+                        let more = iterations > 0;
+                        iterations = iterations.saturating_sub(1);
+                        more
+                    });
+                    self.block(run);
+                }
+                Statement::While(body) => {
+                    self.iterate(body, |execution| {
+                        live && !execution.read().is_empty()
+                    });
+                }
+                Statement::Switch(cases) => {
+                    if live {
+                        self.read();
+                    }
+                    for case in cases {
+                        self.statements(case, false);
+                        self.block(false);
+                    }
+                }
+                Statement::Callback { body, .. }
+                | Statement::Function { body, .. } => {
+                    self.statements(body, false);
+                }
+            }
+        }
+    }
+
+    #[hegel::test]
+    fn hits_are_the_blocks_run(tc: TestCase) {
+        let program = tc.draw(programs(false).print_as_debug());
+        let (source, _) = program.render();
+        tc.note(&source);
+        let Instrumented { text: code, blocks } =
+            instrument(&source, SourceType::cjs());
+
+        let mut execution = Execution {
+            tc: &tc,
+            reads: Vec::new(),
+            blocks_count: 0,
+            blocks_run: BTreeSet::new(),
+        };
+        execution.statements(&program.0, true);
+        let reads = &execution.reads;
+        tc.note(&format!("reads: {reads:?}"));
+        let expected: BTreeSet<u32> = execution
+            .blocks_run
+            .iter()
+            .map(|&index| blocks[index].id)
+            .collect();
+
+        let mut context = Context::default();
+        let prelude = format!(
+            "var window = globalThis; var app = {{}}; var reads = {};
+            Object.defineProperty(globalThis, 'x', {{
+                get: () => reads.length > 0 ? reads.shift() : '',
+            }});",
+            serde_json::to_string(&reads).unwrap()
+        );
+        context.eval(Source::from_bytes(&prelude)).unwrap();
+        context.eval(Source::from_bytes(&code)).unwrap();
+        let hits = context
+            .eval(Source::from_bytes(formatcp!(
+                "JSON.stringify(Array.from({NAMESPACE}.{HITS}))"
+            )))
+            .unwrap()
+            .to_string(&mut context)
+            .unwrap()
+            .to_std_string_escaped();
+        let hits: Vec<u32> = serde_json::from_str(&hits).unwrap();
+        assert_eq!(hits.into_iter().collect::<BTreeSet<u32>>(), expected);
     }
 
     #[test]

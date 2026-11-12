@@ -5,11 +5,13 @@ expression: snapshot(source_text)
 window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set(),
+	hits_cache: new Int32Array(65536).fill(-1)
 };
 let x;
 function example(a, b, c) {
-	return a ? (__bombadil__.edges_current[((1447678055 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1447678055 >> 1, console.log(x), x = b) : (__bombadil__.edges_current[((1015584228 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1015584228 >> 1, console.log(x), x = c);
+	return a ? (__bombadil__.edges_current[((1447678055 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1447678055 >> 1, __bombadil__.hits_cache[53351] === 1447678055 || (__bombadil__.hits_cache[53351] = 1447678055, __bombadil__.hits.add(1447678055)), console.log(x), x = b) : (__bombadil__.edges_current[((1015584228 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1015584228 >> 1, __bombadil__.hits_cache[38372] === 1015584228 || (__bombadil__.hits_cache[38372] = 1015584228, __bombadil__.hits.add(1015584228)), console.log(x), x = c);
 }
 console.log(example(true, 1, 2), x);
 

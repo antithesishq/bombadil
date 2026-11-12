@@ -6,10 +6,12 @@ expression: output.snapshot()
 <script>window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
 	edges_current: new Uint8Array(65536),
-	previous: 0
+	previous: 0,
+	hits: new Set(),
+	hits_cache: new Int32Array(65536).fill(-1)
 };
 function example(a, b, c) {
-	return a ? (__bombadil__.edges_current[((620589614 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 620589614 >> 1, b) : (__bombadil__.edges_current[((247887533 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 247887533 >> 1, c);
+	return a ? (__bombadil__.edges_current[((620589614 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 620589614 >> 1, __bombadil__.hits_cache[29230] === 620589614 || (__bombadil__.hits_cache[29230] = 620589614, __bombadil__.hits.add(620589614)), b) : (__bombadil__.edges_current[((247887533 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 247887533 >> 1, __bombadil__.hits_cache[30381] === 247887533 || (__bombadil__.hits_cache[30381] = 247887533, __bombadil__.hits.add(247887533)), c);
 }
 console.log(example(true, 1, 2));
 </script>
