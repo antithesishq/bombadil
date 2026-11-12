@@ -142,6 +142,15 @@ interaction with semantic HTML elements.
 Bombadil drives a single page. The default `clicks` generator skips links with
 `target="_blank"`, and a tab or popup that the page opens anyway is closed
 right away, so the page sees its new window close.
+
+There is also a `mediaBand` extractor, which is not part of the defaults. It
+is the number of width thresholds in the page's own media queries that the
+viewport is past, so it changes at the breakpoints of the application under
+test:
+
+```typescript
+import { mediaBand } from "@antithesishq/bombadil/browser/defaults/extractors";
+```
 :::
 
 ::: terminal

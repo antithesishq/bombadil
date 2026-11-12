@@ -1663,6 +1663,40 @@ export const viewportApplied = eventually(() => size.current === "1024x768");
 }
 
 #[test]
+fn test_media_band() {
+    BrowserIntegrationTest::new("media-band")
+        .time_limit(Duration::from_secs(10))
+        .specification(
+            r##"
+import { always, eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { mediaBand } from "@antithesishq/bombadil/browser/defaults/extractors";
+
+// The widths from which the viewport is past a threshold of the fixture:
+// `max-width: 600px` from 601, `max-width: 899px` from 900, `75em` from 1200.
+const thresholds = [300, 400, 600, 601, 900, 1200, 1500, 1800, 2000];
+const widths = thresholds.flatMap((threshold) => [threshold - 1, threshold]);
+
+const widthInner = extract((state) => state.window.innerWidth);
+
+export const resize = actions(() => {
+  const next = widths[(widths.indexOf(widthInner.current) + 1) % widths.length];
+  return [{ SetViewport: { width: next, height: 600 } }];
+});
+
+export const bandCountsThresholdsPassed = always(
+  () =>
+    mediaBand.current ===
+    thresholds.filter((threshold) => widthInner.current >= threshold).length,
+);
+
+export const reachesWidest = eventually(() => mediaBand.current === 9);
+"##,
+        )
+        .run();
+}
+
+#[test]
 fn test_custom_element_slot() {
     BrowserIntegrationTest::new("custom-element-slot")
         .time_limit(Duration::from_secs(5))
