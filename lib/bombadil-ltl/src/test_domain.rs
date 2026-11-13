@@ -131,7 +131,8 @@ pub fn has_nested_unbounded_always<Snapshot: State>(
             Formula::Pure { .. } | Formula::Thunk { .. } => {}
             Formula::And(left, right)
             | Formula::Or(left, right)
-            | Formula::Implies(left, right) => {
+            | Formula::Implies(left, right)
+            | Formula::Until(left, right) => {
                 stack.push((left, in_always));
                 stack.push((right, in_always));
             }
@@ -161,7 +162,8 @@ pub fn formula_depth<Snapshot: State>(
             Formula::Pure { .. } | Formula::Thunk { .. } => {}
             Formula::And(left, right)
             | Formula::Or(left, right)
-            | Formula::Implies(left, right) => {
+            | Formula::Implies(left, right)
+            | Formula::Until(left, right) => {
                 stack.push((left, depth + 1));
                 stack.push((right, depth + 1));
             }
@@ -184,7 +186,12 @@ pub fn violation_depth<Snapshot: State>(
     while let Some((violation, depth)) = stack.pop() {
         depth_max = depth_max.max(depth);
         match violation {
-            Violation::False { .. } | Violation::Eventually { .. } => {}
+            Violation::False { .. }
+            | Violation::Eventually { .. }
+            | Violation::Until {
+                reason: UntilViolation::TestEnded,
+                ..
+            } => {}
             Violation::Always { violation, .. } => {
                 stack.push((violation, depth + 1))
             }
@@ -193,6 +200,13 @@ pub fn violation_depth<Snapshot: State>(
                 stack.push((right, depth + 1));
             }
             Violation::Implies { right, .. } => {
+                stack.push((right, depth + 1));
+            }
+            Violation::Until {
+                reason: UntilViolation::BeforeRight { left, right },
+                ..
+            } => {
+                stack.push((left, depth + 1));
                 stack.push((right, depth + 1));
             }
         }

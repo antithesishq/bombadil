@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::specification::domain::{BombadilDomain, Snapshot};
 use crate::specification::js::RuntimeFunction;
 use bombadil_ltl::formula::Formula;
-use bombadil_ltl::violation::{EventuallyViolation, Violation};
+use bombadil_ltl::violation::{EventuallyViolation, UntilViolation, Violation};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PrettyFunction(pub String);
@@ -76,6 +76,10 @@ impl ToSchema<bombadil_schema::Formula>
                     *bound,
                 )
             }
+            Formula::Until(left, right) => bombadil_schema::Formula::Until(
+                Box::new(left.to_schema()),
+                Box::new(right.to_schema()),
+            ),
         }
     }
 }
@@ -100,6 +104,27 @@ impl ToSchema<bombadil_schema::Violation>
                     reason: reason.to_schema(),
                 }
             }
+            Violation::Until {
+                left,
+                right,
+                start,
+                reason,
+            } => bombadil_schema::Violation::Until {
+                left: Box::new(left.to_schema()),
+                right: Box::new(right.to_schema()),
+                start: *start,
+                reason: match reason {
+                    UntilViolation::BeforeRight { left, right } => {
+                        bombadil_schema::UntilViolation::BeforeRight {
+                            left: Box::new(left.to_schema()),
+                            right: Box::new(right.to_schema()),
+                        }
+                    }
+                    UntilViolation::TestEnded => {
+                        bombadil_schema::UntilViolation::TestEnded
+                    }
+                },
+            },
             Violation::Always {
                 violation,
                 subformula,
