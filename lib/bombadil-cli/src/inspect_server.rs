@@ -104,8 +104,7 @@ impl Body {
 /// A state's screenshot in a binary trace.
 #[derive(Clone, Debug)]
 struct ScreenshotLocation {
-    /// Offset of the screenshot in the trace file.
-    offset: u64,
+    location: bombadil_trace::PayloadLocation,
     /// Its format, as recorded in the trace, and one bombadil writes.
     format: String,
     media_type: &'static str,
@@ -535,10 +534,10 @@ fn scan_states(
             }
         };
         let format = parsed.state.screenshot.clone();
-        let location = trace_state.payload_offset.and_then(|offset| {
+        let location = trace_state.payload_location.and_then(|location| {
             browser_trace::screenshot_media_type(&format).map(|media_type| {
                 ScreenshotLocation {
-                    offset,
+                    location,
                     format: format.clone(),
                     media_type,
                 }
@@ -651,7 +650,7 @@ async fn binary_screenshot(
     if !(scan.valid_from..=scan.generation).contains(&generation) {
         return Ok(None);
     }
-    let Some(location) = scanned.locate(filename).cloned() else {
+    let Some(screenshot) = scanned.locate(filename).cloned() else {
         return Ok(None);
     };
     // From the file scanned, through its handle, so from the trace the
@@ -660,11 +659,11 @@ async fn binary_screenshot(
     let path = file.to_path_buf();
     let data = tokio::task::spawn_blocking(move || -> Result<_> {
         let opened = scan.file.as_ref().context("the trace isn't open")?;
-        read_payload_from(opened, location.offset)
+        read_payload_from(opened, screenshot.location)
             .with_context(|| format!("failed to read {}", path.display()))
     })
     .await??;
-    Ok(Some((location.media_type, data)))
+    Ok(Some((screenshot.media_type, data)))
 }
 
 /// A binary trace's screenshot.
@@ -805,6 +804,43 @@ mod tests {
         binary_screenshot(state, file, generation, filename)
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn serves_screenshots_from_compressed_chunks() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &path,
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        for index in 0u32..70 {
+            let entry = RawValue::from_string(metadata(
+                &format!("https://a/{index}"),
+                "jpeg",
+            ))
+            .unwrap();
+            writer
+                .write_state(
+                    entry,
+                    Some(Arc::new(index.to_le_bytes().repeat(31))),
+                )
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let state = binary_state(&path);
+        block_on(async {
+            let urls = screenshot_urls(&state).await;
+            assert_eq!(urls.len(), 70);
+            for index in [69u32, 0, 33, 31, 32] {
+                assert_eq!(
+                    screenshot_at(&state, &urls[index as usize]).await,
+                    Some(("image/jpeg", index.to_le_bytes().repeat(31)))
+                );
+            }
+        });
     }
 
     #[test]
@@ -977,19 +1013,12 @@ mod tests {
         let path = directory.path().join(TRACE_FILE_NAME);
         let mut file = trace(&[
             (metadata("https://a/", "jpeg"), Some(b"a")),
-            (metadata("https://b/", "jpeg"), Some(b"b")),
+            (metadata("https://b/", "jpeg"), Some(b"bad")),
             (metadata("https://c/", "jpeg"), Some(b"c")),
         ]);
-        std::fs::write(&path, &file).unwrap();
         // Corrupt the second state's payload.
-        let offset = browser_trace::open_binary(&path)
-            .unwrap()
-            .nth(1)
-            .unwrap()
-            .unwrap()
-            .payload_offset
-            .unwrap();
-        file[offset as usize] = b'x';
+        let offset = file.windows(3).position(|bytes| bytes == b"bad").unwrap();
+        file[offset] = b'x';
         std::fs::write(&path, file).unwrap();
         let state = binary_state(&path);
         block_on(async {

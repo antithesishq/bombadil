@@ -98,6 +98,7 @@
 //! panic or an early return, writes every queued state and leaves the
 //! trace unfinished.
 
+mod chunk;
 mod envelope;
 mod reader;
 mod record;
@@ -109,7 +110,7 @@ pub use envelope::{TraceDriver, trace_driver, write_envelope};
 pub use reader::{
     State, StateReader, open_trace, read_payload_at, read_payload_from,
 };
-pub use record::write_record;
+pub use record::{PayloadLocation, write_record};
 pub use writer::TraceFileWriter;
 
 /// Conventional trace filename, useful for fixtures. Readers accept any name.
@@ -167,6 +168,7 @@ pub mod tag {
     // 4 is reserved for payload references.
     /// Marks the trace as finished. Empty, and last in the file.
     pub const END: u16 = 5;
+    pub const CHUNK: u16 = 6;
     /// Set on tags that readers which don't know them may skip.
     pub const OPTIONAL: u16 = 0x8000;
 }

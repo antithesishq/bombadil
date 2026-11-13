@@ -7,7 +7,7 @@ use anyhow::Result;
 use hegel::{
     Generator, TestCase,
     generators::{
-        binary, booleans, integers, one_of, optional, sampled_from, text, vecs,
+        binary, integers, one_of, optional, sampled_from, text, vecs,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -84,6 +84,19 @@ fn written(tc: &TestCase) -> Written {
     }
 }
 
+#[hegel::composite]
+fn trace_states(tc: &TestCase) -> Vec<Written> {
+    let count = tc.draw(one_of([
+        integers::<usize>().max_value(65).boxed(),
+        sampled_from(&[0usize, 1, 31, 32, 33, 63, 64, 65]).boxed(),
+    ]));
+    tc.draw(
+        vecs(written().print_as_debug())
+            .min_size(count)
+            .max_size(count),
+    )
+}
+
 /// Writes `states` with a [`TraceFileWriter`] for `driver`, finished, to
 /// `trace.bin` in `directory`.
 fn write_trace(directory: &Path, driver: TraceDriver, states: &[Written]) {
@@ -106,37 +119,53 @@ fn write_trace(directory: &Path, driver: TraceDriver, states: &[Written]) {
     assert!(error.to_string().contains("already finished"), "{error}");
 }
 
-/// Where each state's records end in the file, and where its payload
-/// starts if it has one, by the documented layout. The END record
-/// follows the last state.
-fn layout(states: &[Written]) -> Vec<(u64, Option<u64>)> {
-    let mut position = ENVELOPE_LEN as u64;
-    states
-        .iter()
-        .map(|state| {
-            let json = serde_json::to_vec(&state.metadata).unwrap();
-            position += (RECORD_HEADER_LEN + json.len()) as u64;
-            let payload_offset = state.payload.as_ref().map(|payload| {
-                let offset = position + RECORD_HEADER_LEN as u64;
-                position = offset + payload.0.len() as u64;
-                offset
-            });
-            (position, payload_offset)
-        })
-        .collect()
+fn layout(file: &[u8]) -> Vec<u64> {
+    let mut position = ENVELOPE_LEN;
+    let mut result = Vec::new();
+    while position < file.len() - RECORD_HEADER_LEN {
+        assert_eq!(
+            u16::from_le_bytes(
+                file[position..position + 2].try_into().unwrap()
+            ),
+            crate::tag::CHUNK
+        );
+        let length = u32::from_le_bytes(
+            file[position + 4..position + 8].try_into().unwrap(),
+        ) as usize;
+        let end = position + RECORD_HEADER_LEN + length;
+        let body = &file[position + RECORD_HEADER_LEN..end];
+        let decoded_length =
+            u32::from_le_bytes(body[..4].try_into().unwrap()) as usize;
+        let decoded =
+            zstd::bulk::decompress(&body[4..], decoded_length).unwrap();
+        let mut offset = 0;
+        while offset < decoded.len() {
+            let tag = u16::from_le_bytes(
+                decoded[offset..offset + 2].try_into().unwrap(),
+            );
+            let length = u32::from_le_bytes(
+                decoded[offset + 4..offset + 8].try_into().unwrap(),
+            ) as usize;
+            offset += RECORD_HEADER_LEN + length;
+            match tag {
+                crate::tag::STATE | crate::tag::STATE_WITH_PAYLOAD => {
+                    result.push(end as u64)
+                }
+                crate::tag::STATE_PAYLOAD => (),
+                _ => panic!("unexpected chunk record tag {tag}"),
+            }
+        }
+        position = end;
+    }
+    result
 }
 
-/// Checks that `read` are the first states of `written`, at the offsets
-/// of `layout`, with their payloads unless `without_payloads`.
 fn check_states(
     read: &[State<Metadata>],
     written: &[Written],
-    layout: &[(u64, Option<u64>)],
     without_payloads: bool,
 ) {
-    for (index, ((read, written), (_, offset))) in
-        read.iter().zip(written).zip(layout).enumerate()
-    {
+    for (index, (read, written)) in read.iter().zip(written).enumerate() {
         assert_eq!(read.index, index);
         assert_eq!(read.metadata, written.metadata, "state {index}");
         if without_payloads {
@@ -153,7 +182,11 @@ fn check_states(
             written.payload.as_ref().map(|payload| payload.0.len()),
             "state {index}"
         );
-        assert_eq!(read.payload_offset, *offset, "state {index}");
+        assert_eq!(
+            read.payload_location.is_some(),
+            written.payload.is_some(),
+            "state {index}"
+        );
     }
 }
 
@@ -161,7 +194,7 @@ fn check_states(
 /// their payloads, and each payload reads back at its offset.
 #[hegel::test]
 fn reads_back_what_was_written(tc: TestCase) {
-    let states = tc.draw(vecs(written().print_as_debug()).max_size(12));
+    let states = tc.draw(trace_states().print_as_debug());
     let driver = tc.draw(
         sampled_from(&[TraceDriver::Terminal, TraceDriver::Browser])
             .print_as_debug(),
@@ -169,11 +202,8 @@ fn reads_back_what_was_written(tc: TestCase) {
     let directory = tempfile::tempdir().unwrap();
     write_trace(directory.path(), driver, &states);
     let path = directory.path().join(TRACE_FILE_NAME);
-    let layout = layout(&states);
-    let end = layout.last().map_or(ENVELOPE_LEN as u64, |&(end, _)| end);
-    let file_length = std::fs::metadata(&path).unwrap().len();
-    assert_eq!(file_length, end + RECORD_HEADER_LEN as u64);
 
+    let file = File::open(&path).unwrap();
     for without_payloads in [false, true] {
         let mut reader = open_trace::<Metadata>(&path).unwrap();
         if without_payloads {
@@ -183,20 +213,19 @@ fn reads_back_what_was_written(tc: TestCase) {
         let read = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
         assert!(reader.finished());
         assert_eq!(read.len(), states.len());
-        check_states(&read, &states, &layout, without_payloads);
-    }
-
-    let file = File::open(&path).unwrap();
-    for (state, (_, offset)) in states.iter().zip(&layout) {
-        if let (Some(payload), Some(offset)) = (&state.payload, offset) {
-            assert_eq!(
-                &Payload(read_payload_at(&path, *offset).unwrap()),
-                payload
-            );
-            assert_eq!(
-                &Payload(read_payload_from(&file, *offset).unwrap()),
-                payload
-            );
+        check_states(&read, &states, without_payloads);
+        for (state, written) in read.iter().zip(&states) {
+            if let Some(payload) = &written.payload {
+                let location = state.payload_location.unwrap();
+                assert_eq!(
+                    &Payload(read_payload_at(&path, location).unwrap()),
+                    payload
+                );
+                assert_eq!(
+                    &Payload(read_payload_from(&file, location).unwrap()),
+                    payload
+                );
+            }
         }
     }
 }
@@ -207,43 +236,23 @@ fn reads_back_what_was_written(tc: TestCase) {
 /// payload chunk boundaries and the bytes around them.
 #[hegel::test]
 fn reads_the_complete_states_of_a_cut_trace(tc: TestCase) {
-    let states = tc.draw(vecs(written().print_as_debug()).max_size(12));
+    let states = tc.draw(trace_states().print_as_debug());
     let directory = tempfile::tempdir().unwrap();
     write_trace(directory.path(), TraceDriver::Terminal, &states);
     let file = std::fs::read(directory.path().join(TRACE_FILE_NAME)).unwrap();
-    let layout = layout(&states);
-    // Where a record starts or ends: the end of the envelope, each state
-    // record's body start and end, each payload record's header and body
-    // start, and the end of the file. And where the reader starts a
-    // payload's later chunks, kept apart as there are few of them.
+    let layout = layout(&file);
     let mut boundaries = vec![ENVELOPE_LEN];
-    let mut chunk_boundaries = Vec::new();
     let mut start = ENVELOPE_LEN;
-    for &(end, payload) in &layout {
-        let end = end as usize;
-        boundaries.push(start + RECORD_HEADER_LEN);
-        if let Some(offset) = payload {
-            let offset = offset as usize;
-            boundaries.extend([offset - RECORD_HEADER_LEN, offset]);
-            chunk_boundaries.extend(
-                (offset + PAYLOAD_READ_CHUNK..end).step_by(PAYLOAD_READ_CHUNK),
-            );
-        }
-        boundaries.push(end);
+    while start < file.len() {
+        let length =
+            u32::from_le_bytes(file[start + 4..start + 8].try_into().unwrap())
+                as usize;
+        let end = start + RECORD_HEADER_LEN + length;
+        boundaries.extend([start, start + RECORD_HEADER_LEN, end]);
         start = end;
     }
     boundaries.push(file.len());
-    let boundary = || {
-        if !chunk_boundaries.is_empty() && tc.draw(booleans()) {
-            tc.draw(sampled_from(&chunk_boundaries))
-        } else {
-            tc.draw(sampled_from(&boundaries))
-        }
-    };
-    // Anywhere, often deep inside a large payload; exactly at a boundary;
-    // or within a header's length of one, so cuts at a state boundary,
-    // before a payload's record, inside a header, at the start of a body,
-    // at a chunk boundary or just before END are common.
+    let boundary = || tc.draw(sampled_from(&boundaries));
     let cut = match tc.draw(integers::<u8>().max_value(2)) {
         0 => tc.draw(
             integers::<usize>()
@@ -264,10 +273,7 @@ fn reads_the_complete_states_of_a_cut_trace(tc: TestCase) {
             )
         }
     };
-    let complete = layout
-        .iter()
-        .take_while(|&&(end, _)| end <= cut as u64)
-        .count();
+    let complete = layout.iter().take_while(|&&end| end <= cut as u64).count();
 
     for without_payloads in [false, true] {
         let mut reader = StateReader::<_, Metadata>::new(&file[..cut]).unwrap();
@@ -277,6 +283,6 @@ fn reads_the_complete_states_of_a_cut_trace(tc: TestCase) {
         let read = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
         assert_eq!(reader.finished(), cut == file.len());
         assert_eq!(read.len(), complete);
-        check_states(&read, &states, &layout, without_payloads);
+        check_states(&read, &states, without_payloads);
     }
 }
