@@ -15,6 +15,11 @@ export type JSON =
   | { toJSON(): JSON };
 
 export class ExtractorCell<T extends JSON, S> implements Cell<T> {
+  /** @internal Used by the bundler's naming helper `__bombadilNamed` to determinate
+   * that it's a nameable cell. The bundler doesn't have access to the prototype to do
+   * an `instanceof` check.
+   **/
+  public readonly __bombadilExtractor = true;
   public name: string | null = null;
   public readonly index: number;
   private snapshot: T | undefined;
@@ -45,6 +50,16 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   named(name: string) {
     this.name = name;
     return this;
+  }
+
+  /**
+   * Creates a new extractor cell by mapping `f` over this cell's value.
+   */
+  map<U extends JSON>(f: (value: T) => U): ExtractorCell<U, S> {
+    // It reads this cell's snapshot rather than extracting again, because extractors
+    // run in the order they were created, meaning the original cell has already run
+    // when the mapped cell runs.
+    return new ExtractorCell<U, S>(this.runtime, () => f(this.snapshot as T));
   }
 
   /**

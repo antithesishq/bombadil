@@ -30,13 +30,16 @@ expression: bundle
   }
 
   globalThis.__bombadilRequire = require;
+  globalThis.__bombadilNamed = function(name, value) {
+    return value && value.__bombadilExtractor === true && value.name === null ? value.named(name) : value;
+  };
 
   modules["./cjs-test.ts"] = function(module, exports, require) {
     module.exports.__esModule=true;const spell = __bombadilRequire("./node_modules/cjs-lib/index.js");
     const { default: MyClass } = __bombadilRequire("./node_modules/commonjs-pattern/index.js");
-    const result = spell.spell("hello");
+    const result = __bombadilNamed("result", spell.spell("hello"));
     const greeter = new MyClass("World");
-    const greeting = greeter.greet();
+    const greeting = __bombadilNamed("greeting", greeter.greet());
     module.exports.result = result;
     module.exports.greeter = greeter;
     module.exports.greeting = greeting;
