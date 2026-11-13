@@ -1,6 +1,6 @@
 use ::url::Url;
 use antithesis_sdk::random::AntithesisRng;
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil_browser::{
     browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
@@ -12,6 +12,8 @@ use bombadil_browser::{
 };
 use clap::Args;
 use std::{
+    fs::File,
+    io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     str::FromStr,
@@ -19,6 +21,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    thread::{self, JoinHandle},
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
@@ -34,7 +37,8 @@ use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
 use bombadil_browser::{
-    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
+    browser::actions::BrowserAction,
+    instrumentation::{self, BlockRegistry, InstrumentationConfig},
 };
 
 use crate::shrink::{self, ShrinkOptions};
@@ -163,6 +167,13 @@ pub struct RunSharedOptions {
     /// Bombadil refuses to replace an existing file.
     #[arg(long)]
     pub output_path_overwrite: bool,
+
+    /// Write the table of instrumented coverage blocks that trace `branches`
+    /// ids refer to (id, script, function, line) to this file, as JSON
+    /// lines, as scripts are instrumented. The file must not exist, and its
+    /// parent must. Without it no table is written.
+    #[arg(long = "coverage-symbols", value_name = "FILE")]
+    pub coverage_symbols_path: Option<PathBuf>,
 
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
@@ -592,6 +603,58 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
     }
 }
 
+/// The `--coverage-symbols` file, created before the run so that a path that
+/// cannot be written fails the command at its start. A thread appends each
+/// block as it is registered, so a killed run leaves its table.
+struct CoverageSymbols {
+    writer: JoinHandle<io::Result<()>>,
+    path: PathBuf,
+}
+
+impl CoverageSymbols {
+    fn create(
+        path: Option<&Path>,
+        output_path: &Path,
+    ) -> Result<(BlockRegistry, Option<Self>)> {
+        let Some(path) = path else {
+            return Ok((BlockRegistry::default(), None));
+        };
+        if stdx::fs::same_file(path, output_path)
+            || stdx::fs::same_location(path, output_path)
+        {
+            bail!(
+                "--coverage-symbols and --output-path name the same file: {}",
+                path.display()
+            );
+        }
+        let file = File::create_new(path).with_context(|| {
+            format!("creating coverage symbols file {}", path.display())
+        })?;
+        let (blocks, new_blocks) = BlockRegistry::with_channel();
+        let writer = thread::Builder::new()
+            .name("coverage-symbols".into())
+            .spawn(move || instrumentation::write_blocks(new_blocks, file))?;
+        Ok((
+            blocks,
+            Some(CoverageSymbols {
+                writer,
+                path: path.to_path_buf(),
+            }),
+        ))
+    }
+
+    /// Waits for the table to be written.
+    fn finish(self, blocks: &BlockRegistry) -> Result<()> {
+        blocks.close();
+        self.writer
+            .join()
+            .expect("coverage symbols writer panicked")
+            .with_context(|| {
+                format!("writing coverage symbols to {}", self.path.display())
+            })
+    }
+}
+
 fn browser_test(
     mode: TestMode,
     reproduce_args: Vec<String>,
@@ -601,6 +664,10 @@ fn browser_test(
     debugger_options: DebuggerOptions,
     downloads: TempDir,
 ) -> Result<()> {
+    let (blocks, coverage_symbols) = CoverageSymbols::create(
+        shared_options.coverage_symbols_path.as_deref(),
+        &output_path,
+    )?;
     let specification = load_specification(&shared_options.target);
 
     let is_reproduce = shared_options.reproduce.is_some();
@@ -625,15 +692,17 @@ fn browser_test(
         allow_urls,
         origin,
         exit_on_violation: shared_options.exit_on_violation,
+        blocks: blocks.clone(),
     };
 
-    let test_result = run_with_writer(
-        run_options,
-        FileTraceWriter::initialize(
-            output_path.clone(),
-            shared_options.output_path_overwrite,
-        )?,
+    let trace_writer = FileTraceWriter::initialize(
+        output_path.clone(),
+        shared_options.output_path_overwrite,
     )?;
+    let result = run_with_writer(run_options, trace_writer);
+    let written =
+        coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let test_result = output_path::or_logged(result, written)?;
 
     let heading = {
         let TestResult {
@@ -718,6 +787,10 @@ fn browser_fuzz(
         );
     };
 
+    let (blocks, coverage_symbols) = CoverageSymbols::create(
+        shared_options.coverage_symbols_path.as_deref(),
+        &output_path,
+    )?;
     let specification = load_specification(&shared_options.target);
 
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -742,10 +815,10 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
-        blocks: Default::default(),
+        blocks: blocks.clone(),
     });
 
-    fuzzer::fuzz(fuzzer::FuzzOptions {
+    let result = fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
         strategy: move || TestStrategy {
@@ -764,7 +837,10 @@ fn browser_fuzz(
         swarm: fuzz_options.swarm,
         parallelism: fuzz_options.parallelism,
         output_writer,
-    })?;
+    });
+    let written =
+        coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    output_path::or_logged(result, written)?;
 
     // TODO: return result from `fuzz` that can be used to print something like the following:
 
@@ -843,6 +919,7 @@ struct RunOptions {
     exit_on_violation: bool,
     deadline: Option<SystemTime>,
     allow_urls: Vec<MatchPattern>,
+    blocks: BlockRegistry,
 }
 
 fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
@@ -856,6 +933,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         exit_on_violation,
         deadline,
         allow_urls,
+        blocks,
     }: RunOptions,
     trace_writer: Writer,
 ) -> Result<TestResult> {
@@ -884,6 +962,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         specification,
         browser_options,
         debugger_options,
+        blocks,
         trace_writer,
         interrupted,
         &mut strategy,
@@ -945,4 +1024,71 @@ fn browser_shrink(
         ))
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLOCK_ROW: &str =
+        "{\"id\":7,\"script\":\"/app.js\",\"function\":\"<top>\",\"line\":1}\n";
+
+    fn block() -> instrumentation::Block {
+        instrumentation::Block {
+            id: 7,
+            script: "/app.js".into(),
+            function: "<top>".into(),
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn coverage_symbols_never_replace_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocks.jsonl");
+        let trace_path = directory.path().join("trace.bin");
+        let create =
+            |path: &Path| CoverageSymbols::create(Some(path), &trace_path);
+
+        assert!(create(&path).unwrap().1.is_some());
+        assert!(create(&path).is_err());
+        assert!(
+            create(&directory.path().join("missing/blocks.jsonl")).is_err()
+        );
+
+        let is_trace = |path: &Path| {
+            let error = create(path).err().unwrap().to_string();
+            assert!(error.contains("name the same file"), "{error}");
+        };
+        let alias = directory.path().join(".").join("trace.bin");
+        is_trace(&trace_path);
+        is_trace(&alias);
+        assert!(!trace_path.exists());
+        std::fs::write(&trace_path, "trace").unwrap();
+        let link = directory.path().join("link.bin");
+        std::fs::hard_link(&trace_path, &link).unwrap();
+        is_trace(&alias);
+        is_trace(&link);
+        assert_eq!(std::fs::read_to_string(&trace_path).unwrap(), "trace");
+    }
+
+    #[test]
+    fn coverage_symbols_are_written_as_blocks_are_registered() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocks.jsonl");
+        let (blocks, symbols) =
+            CoverageSymbols::create(Some(&path), Path::new("trace.bin"))
+                .unwrap();
+        blocks.register([block()]);
+
+        // The block is on disk before the run ends, in case it is killed.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::fs::metadata(&path).unwrap().len() == 0 {
+            assert!(std::time::Instant::now() < deadline, "nothing written");
+            thread::yield_now();
+        }
+
+        symbols.unwrap().finish(&blocks).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BLOCK_ROW);
+    }
 }

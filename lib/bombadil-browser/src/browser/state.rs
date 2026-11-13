@@ -1,4 +1,6 @@
-use crate::instrumentation::js::{EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE};
+use crate::instrumentation::js::{
+    EDGES_CURRENT, EDGES_PREVIOUS, HITS, HITS_CACHE, NAMESPACE,
+};
 use anyhow::{Context, Result};
 use bombadil::driver::RunState;
 use bombadil_schema::Time;
@@ -69,6 +71,8 @@ pub type EdgeBucket = u8;
 #[derive(Clone, Debug)]
 pub struct Coverage {
     pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
+    /// IDs of the blocks run since the previous capture (sorted).
+    pub branches: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -270,6 +274,7 @@ struct RuntimeStateSnapshot {
     content_type: String,
     edges_new: Vec<(EdgeIndex, EdgeBucket)>,
     transition_hash: Option<String>,
+    branches: Vec<u32>,
 }
 
 impl BrowserState {
@@ -291,15 +296,20 @@ impl BrowserState {
             formatcp!(
                 "
                 (() => {{
-                    const snapshot = (edgesNew, transitionHash) => ({{
+                    const snapshot = (edgesNew, transitionHash, branches) => ({{
                         url: window.location.href,
                         title: document.title,
                         content_type: document.contentType,
                         edges_new: edgesNew,
                         transition_hash: transitionHash,
+                        branches,
                     }});
                     const coverage = window.{NAMESPACE};
-                    if (!coverage) return snapshot([], null);
+                    if (!coverage) return snapshot([], null, []);
+
+                    const branches = Array.from(coverage.{HITS});
+                    coverage.{HITS}.clear();
+                    coverage.{HITS_CACHE}.fill(-1);
 
                     const SIMHASH_BITS = 64;
 
@@ -351,7 +361,7 @@ impl BrowserState {
                     coverage.{EDGES_CURRENT} = reusable;
 
                     if (similarityWeights.every(weight => weight === 0)) {{
-                        return snapshot(differences, null);
+                        return snapshot(differences, null, branches);
                     }}
 
                     let transitionHash = 0n;
@@ -359,7 +369,7 @@ impl BrowserState {
                         if (similarityWeights[bit] <= 0) continue;
                         transitionHash |= 1n << BigInt(bit);
                     }}
-                    return snapshot(differences, transitionHash.toString());
+                    return snapshot(differences, transitionHash.toString(), branches);
                 }})()
                 "
             ),
@@ -434,6 +444,11 @@ impl BrowserState {
             exceptions,
             coverage: Coverage {
                 edges_new: runtime_state.edges_new,
+                branches: {
+                    let mut branches = runtime_state.branches;
+                    branches.sort_unstable();
+                    branches
+                },
             },
             transition_hash,
             screenshot,

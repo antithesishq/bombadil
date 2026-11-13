@@ -3,15 +3,17 @@ source: lib/bombadil-browser/src/instrumentation/js.rs
 expression: snapshot(source_text)
 ---
 window.__bombadil__ = window.__bombadil__ || {
-	edges_previous: new Uint8Array(65536),
-	edges_current: new Uint8Array(65536),
-	previous: 0
+	edges_previous: new window.Uint8Array(65536),
+	edges_current: new window.Uint8Array(65536),
+	previous: 0,
+	hits: new window.Set(),
+	hits_cache: new window.Int32Array(65536).fill(-1)
 };
 let x = 1;
 let y = 2;
 let z = 3;
 function example(a, b, c) {
-	return a ? (__bombadil__.edges_current[((1447678055 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1447678055 >> 1, x = y, b) : (__bombadil__.edges_current[((1015584228 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1015584228 >> 1, y = z, c);
+	return a ? (__bombadil__.edges_current[((1447678055 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1447678055 >> 1, __bombadil__.hits_cache[53351] === 1447678055 || (__bombadil__.hits_cache[53351] = 1447678055, __bombadil__.hits.add(1447678055)), x = y, b) : (__bombadil__.edges_current[((1015584228 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 1015584228 >> 1, __bombadil__.hits_cache[38372] === 1015584228 || (__bombadil__.hits_cache[38372] = 1015584228, __bombadil__.hits.add(1015584228)), y = z, c);
 }
 console.log(example(true, 1, 2), x, y, z);
 

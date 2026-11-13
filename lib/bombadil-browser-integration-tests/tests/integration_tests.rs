@@ -14,7 +14,7 @@ use bombadil_schema::{Time, markup};
 use futures_util::stream::{self, Stream};
 use rand::SeedableRng;
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     convert::Infallible,
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
@@ -41,6 +41,7 @@ use bombadil_browser::{
     convert::ToSchema,
     cookie::BrowserCookie,
     driver::{BrowserSession, DebuggerOptions},
+    instrumentation::BlockRegistry,
     match_pattern::MatchPattern,
     runner,
     strategy::{ExitReason, TestResult, TestStrategy},
@@ -95,6 +96,7 @@ struct BrowserIntegrationTest<'a> {
     cookies: Vec<BrowserCookie>,
     allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
     file_origin: bool,
+    blocks_hit_expected: bool,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -115,6 +117,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             cookies: vec![],
             allow_urls: None,
             file_origin: false,
+            blocks_hit_expected: false,
         }
     }
 
@@ -126,6 +129,12 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn expect_error(mut self, substring: &'static str) -> Self {
         self.expect = Expect::Error { substring };
+        self
+    }
+
+    /// Fail unless some state after an action records a block as run.
+    fn expect_blocks_hit(mut self) -> Self {
+        self.blocks_hit_expected = true;
         self
     }
 
@@ -202,6 +211,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             cookies,
             allow_urls,
             file_origin,
+            blocks_hit_expected,
         } = self;
         setup();
         let _guard = acquire();
@@ -404,13 +414,14 @@ impl<'a> BrowserIntegrationTest<'a> {
         struct ViolationsCollectingTraceWriter {
             violations: CollectedViolations,
             state_times: Arc<Mutex<Vec<SystemTime>>>,
+            blocks_hit: Arc<Mutex<BTreeSet<u32>>>,
         }
 
         impl TraceWriter<BrowserSession> for ViolationsCollectingTraceWriter {
             fn write(
                 &mut self,
-                _state: &bombadil_browser::browser::state::BrowserState,
-                _last_action: Option<&BrowserAction>,
+                state: &bombadil_browser::browser::state::BrowserState,
+                last_action: Option<&BrowserAction>,
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
             ) -> anyhow::Result<()> {
@@ -422,6 +433,12 @@ impl<'a> BrowserIntegrationTest<'a> {
                     .lock()
                     .expect("failed to acquire lock for collected violations")
                     .extend_from_slice(violations);
+                if last_action.is_some() {
+                    self.blocks_hit
+                        .lock()
+                        .expect("failed to acquire lock for blocks hit")
+                        .extend(&state.coverage.branches);
+                }
                 Ok(())
             }
         }
@@ -463,8 +480,10 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
         log::info!("starting runner with infrastructure safety timeout");
         let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+        let blocks = BlockRegistry::default();
         {
             let trace_writer = trace_writer.clone();
+            let blocks = blocks.clone();
             thread::spawn(move || {
                 let run_result = runner::launch(
                     RunId::default(),
@@ -472,6 +491,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     specification,
                     browser_options,
                     debugger_options,
+                    blocks,
                     trace_writer,
                     Arc::new(AtomicBool::new(false)),
                     &mut strategy,
@@ -541,6 +561,23 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         };
 
+        {
+            let blocks_hit = trace_writer.blocks_hit.lock().unwrap();
+            let unregistered: Vec<u32> = blocks_hit
+                .iter()
+                .copied()
+                .filter(|id| !blocks.contains(*id))
+                .collect();
+            assert!(
+                unregistered.is_empty(),
+                "blocks hit but not registered: {unregistered:?}"
+            );
+            assert!(
+                !blocks_hit_expected || !blocks_hit.is_empty(),
+                "no block hit after an action"
+            );
+        }
+
         log::info!("checking outcome");
         match (outcome, expect) {
             (Outcome::Error(error), Expect::Error { substring }) => {
@@ -566,6 +603,7 @@ impl<'a> BrowserIntegrationTest<'a> {
 fn test_console_error() {
     BrowserIntegrationTest::new("console-error")
         .expect_error("oh no you pressed too much")
+        .expect_blocks_hit()
         .run();
 }
 

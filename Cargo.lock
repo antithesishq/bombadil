@@ -588,6 +588,7 @@ dependencies = [
  "rand 0.10.2",
  "serde",
  "serde_json",
+ "stdx",
  "tempfile",
  "tokio",
  "url",
@@ -4716,6 +4717,7 @@ name = "stdx"
 version = "0.7.10"
 dependencies = [
  "hegeltest",
+ "tempfile",
 ]
 
 [[package]]
