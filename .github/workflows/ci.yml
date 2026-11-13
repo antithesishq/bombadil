@@ -63,7 +63,7 @@ jobs:
 
   build-aarch64-linux:
     name: Build (aarch64-linux)
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
@@ -97,20 +97,28 @@ jobs:
           path: result/bin/bombadil
 
   build-docker:
-    name: Build Docker image
-    runs-on: ubuntu-latest
+    name: Build Docker image (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: ubuntu-26.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-nix
         with:
-          scope: docker
+          scope: docker-${{ matrix.system }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - run: nix build .#docker -o bombadil-docker-image.tar.gz
+      - run: nix build .#docker -o bombadil-docker-image-${{ matrix.system }}.tar.gz
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bombadil-docker-image
-          path: bombadil-docker-image.tar.gz
+          name: bombadil-docker-image-${{ matrix.system }}
+          path: bombadil-docker-image-${{ matrix.system }}.tar.gz
 
   check-fmt:
     name: Check (fmt)
@@ -142,6 +150,8 @@ jobs:
         include:
           - os: ubuntu-latest
             system: x86_64-linux
+          - os: ubuntu-26.04-arm
+            system: aarch64-linux
           - os: macos-15-xlarge
             system: aarch64-darwin
     runs-on: ${{ matrix.os }}
@@ -162,6 +172,8 @@ jobs:
         include:
           - os: ubuntu-latest
             system: x86_64-linux
+          - os: ubuntu-26.04-arm
+            system: aarch64-linux
           - os: macos-15-xlarge
             system: aarch64-darwin
     runs-on: ${{ matrix.os }}
@@ -220,23 +232,35 @@ jobs:
           path: result/
 
   inspect-test:
-    name: Inspect UI test (${{ matrix.mode }})
-    needs: build-x86_64-linux
+    name: Inspect UI test (${{ matrix.mode }}, ${{ matrix.system }})
+    needs: [build-x86_64-linux, build-aarch64-linux]
     strategy:
       fail-fast: false
       matrix:
         mode: [managed, external-create-target, external-attach]
-    runs-on: ubuntu-latest
+        system: [x86_64-linux, aarch64-linux]
+        include:
+          - system: x86_64-linux
+            os: ubuntu-latest
+          - system: aarch64-linux
+            os: ubuntu-26.04-arm
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: browser-actions/setup-chrome@v1
-        id: setup-chrome
+      - uses: ./.github/actions/setup-nix
         with:
-          chrome-version: stable
-      - run: echo "CHROME=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
+          scope: inspect-test-${{ matrix.mode }}-${{ matrix.system }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      # Chromium from the flake's pinned nixpkgs (same as the docker image and
+      # browser tests). Google's Chrome for Testing isn't reliably available
+      # for linux/arm64.
+      - name: Install Chromium
+        run: |
+          nix build --inputs-from . nixpkgs#chromium -o chromium
+          echo "CHROME=$PWD/chromium/bin/chromium" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
-          name: bombadil-x86_64-linux
+          name: bombadil-${{ matrix.system }}
       - name: Generate report
         run: |
           chmod +x bombadil
@@ -296,18 +320,20 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: inspect-test-output-${{ matrix.mode }}
+          name: inspect-test-output-${{ matrix.mode }}-${{ matrix.system }}
           path: inspect-test-output/
 
   smoke-test:
     name: Smoke test (${{ matrix.os }})
-    needs: [build-x86_64-linux, build-aarch64-darwin]
+    needs: [build-x86_64-linux, build-aarch64-linux, build-aarch64-darwin]
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
+          - os: ubuntu-26.04-arm
+            artifact: bombadil-aarch64-linux
           - os: macos-15
             artifact: bombadil-aarch64-darwin
     runs-on: ${{ matrix.os }}
@@ -349,20 +375,37 @@ jobs:
           path: terminal-test-output
 
   smoke-test-docker:
-    name: Smoke test (docker)
+    name: Smoke test (docker, ${{ matrix.system }})
     needs: build-docker
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+            platform: linux/amd64
+          - os: ubuntu-26.04-arm
+            system: aarch64-linux
+            platform: linux/arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: bombadil-docker-image
+          name: bombadil-docker-image-${{ matrix.system }}
       - name: Load Docker image
         run: |
-          LOAD_OUTPUT=$(docker load -i bombadil-docker-image.tar.gz)
+          LOAD_OUTPUT=$(docker load -i bombadil-docker-image-${{ matrix.system }}.tar.gz)
           echo "$LOAD_OUTPUT"
           IMAGE_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+      - name: Check image platform
+        run: |
+          platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE_TAG")
+          if [ "$platform" != "${{ matrix.platform }}" ]; then
+            echo "::error::Image platform is $platform, expected ${{ matrix.platform }}"
+            exit 1
+          fi
       - name: Run browser test in container
         run: |
           mkdir -p docker-smoke-output
@@ -393,18 +436,21 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: docker-smoke-output
+          name: docker-smoke-output-${{ matrix.system }}
           path: docker-smoke-output/
 
   test-npm-package:
     name: Test npm package (${{ matrix.os }})
-    needs: [build-x86_64-linux, build-aarch64-darwin, build-npm-package]
+    needs: [build-x86_64-linux, build-aarch64-linux, build-aarch64-darwin, build-npm-package]
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             artifact: bombadil-x86_64-linux
             binary: bombadil-linux-x64
+          - os: ubuntu-26.04-arm
+            artifact: bombadil-aarch64-linux
+            binary: bombadil-linux-arm64
           - os: macos-15
             artifact: bombadil-aarch64-darwin
             binary: bombadil-darwin-arm64
@@ -471,8 +517,8 @@ jobs:
             artifacts/bombadil-aarch64-linux/bombadil-aarch64-linux
             artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
             artifacts/bombadil-npm-package/bombadil-npm-package.tar.gz
-            artifacts/bombadil-docker-image/bombadil-docker-image.tar.gz
-            artifacts/bombadil-aarch64-darwin/bombadil-aarch64-darwin
+            artifacts/bombadil-docker-image-x86_64-linux/bombadil-docker-image-x86_64-linux.tar.gz
+            artifacts/bombadil-docker-image-aarch64-linux/bombadil-docker-image-aarch64-linux.tar.gz
             artifacts/bombadil-manual/bombadil-manual.tar.gz
 
   publish-npm:
@@ -527,16 +573,30 @@ jobs:
           password: ${{ steps.docker_oidc.outputs.token }}
       - uses: actions/download-artifact@v4
         with:
-          name: bombadil-docker-image
-          path: bombadil-docker-image
-      - name: Load Docker image and extract tag
+          pattern: bombadil-docker-image-*
+          merge-multiple: true
+      - name: Push per-architecture images
         run: |
-          LOAD_OUTPUT=$(docker load -i bombadil-docker-image/bombadil-docker-image.tar.gz)
-          echo "$LOAD_OUTPUT"
-          IMAGE_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
+          # Both tarballs load under the same tag, so retag each one with an
+          # architecture suffix before loading the next.
+          for pair in x86_64-linux:amd64 aarch64-linux:arm64; do
+            system="${pair%%:*}"
+            arch="${pair##*:}"
+            LOAD_OUTPUT=$(docker load -i "bombadil-docker-image-$system.tar.gz")
+            echo "$LOAD_OUTPUT"
+            IMAGE_TAG=$(echo "$LOAD_OUTPUT" | sed -n 's/^Loaded image: //p')
+            docker tag "$IMAGE_TAG" "$IMAGE_TAG-$arch"
+            docker push "$IMAGE_TAG-$arch"
+          done
           echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
-      - name: Push image
-        run: docker push "$IMAGE_TAG"
+      - uses: docker/setup-buildx-action@v3
+      - name: Push multi-arch manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE_TAG" \
+            "$IMAGE_TAG-amd64" \
+            "$IMAGE_TAG-arm64"
+          docker buildx imagetools inspect "$IMAGE_TAG"
 
   publish-manual:
     if: startsWith(github.ref, 'refs/tags/v')
