@@ -10,15 +10,18 @@ use oxc::span::SourceType;
 use serde_json as json;
 use std::collections::HashMap;
 use std::thread;
+use url::Url;
 
 use crate::instrumentation;
+use crate::instrumentation::BlockRegistry;
 use crate::instrumentation::InstrumentationConfig;
-use crate::instrumentation::source_id::SourceId;
 
 pub fn instrument_js_coverage(
     connection: cdp::Connection,
     session_id: &SessionId,
     config: InstrumentationConfig,
+    blocks: BlockRegistry,
+    origin: Url,
 ) -> Result<mpmc::Receiver<anyhow::Error>> {
     connection
         .send(
@@ -94,7 +97,12 @@ pub fn instrument_js_coverage(
                 body_response.body.clone()
             };
 
-            let source_id = source_id(headers, &body);
+            let source_id = blocks.source_id(
+                &Url::parse(&event.request.url)
+                    .context("request URL does not parse")?,
+                &origin,
+            );
+            let etag = content_etag(headers, &body);
 
             let is_html_document = event.resource_type
                 == network::ResourceType::Document
@@ -119,19 +127,25 @@ pub fn instrument_js_coverage(
                     );
                     body.clone()
                 } else {
-                    instrumentation::js::instrument_source_code(
-                        source_id,
-                        &body,
-                        // As we can't know if the script is an ES module or a regular script,
-                        // we use this source type to let the parser decide.
-                        SourceType::unambiguous(),
-                    )?
+                    let instrumented =
+                        instrumentation::js::instrument_source_code(
+                            source_id,
+                            &body,
+                            // As we can't know if the script is an ES module or a regular script,
+                            // we use this source type to let the parser decide.
+                            SourceType::unambiguous(),
+                        )?;
+                    blocks.register(instrumented.blocks);
+                    instrumented.text
                 }
             } else if is_html_document {
                 if config.instrument_inline {
-                    instrumentation::html::instrument_inline_scripts(
-                        source_id, &body,
-                    )?
+                    let instrumented =
+                        instrumentation::html::instrument_inline_scripts(
+                            source_id, &body,
+                        )?;
+                    blocks.register(instrumented.blocks);
+                    instrumented.text
                 } else {
                     log::debug!("skipping inline scripts (disabled)");
                     body.clone()
@@ -173,7 +187,7 @@ pub fn instrument_js_coverage(
                 .response_code(200)
                 .response_header(fetch::HeaderEntry {
                     name: "etag".to_string(),
-                    value: format!("{}", source_id.0),
+                    value: etag,
                 });
 
             if let Some(headers) = &event.response_headers {
@@ -263,11 +277,9 @@ pub fn instrument_js_coverage(
     Ok(error_rx)
 }
 
-/// Calculate source ID from etag or body.
-fn source_id(headers: HashMap<String, String>, body: &str) -> SourceId {
-    if let Some(etag) = headers.get("etag") {
-        SourceId::hash(etag)
-    } else {
-        SourceId::hash(body)
-    }
+/// A hash of the original ETag, or of the body when there is none, so the
+/// browser revalidates when content changes.
+fn content_etag(headers: HashMap<String, String>, body: &str) -> String {
+    let content = headers.get("etag").map_or(body, String::as_str);
+    format!("{}", stdx::hash::fnv1a64(content.bytes()))
 }

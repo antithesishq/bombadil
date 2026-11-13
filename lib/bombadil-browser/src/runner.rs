@@ -35,6 +35,7 @@ pub fn launch<
         browser_options,
         debugger_options,
         specification_bundle,
+        blocks: Default::default(),
     };
 
     let (mut session, verifier) = driver.new_session(run_id)?;

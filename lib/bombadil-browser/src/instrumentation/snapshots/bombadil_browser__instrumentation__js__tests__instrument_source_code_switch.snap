@@ -1,6 +1,6 @@
 ---
 source: lib/bombadil-browser/src/instrumentation/js.rs
-expression: code
+expression: snapshot(source_text)
 ---
 window.__bombadil__ = window.__bombadil__ || {
 	edges_previous: new Uint8Array(65536),
@@ -12,27 +12,35 @@ function foo() {
 	while (true) {
 		switch (bar) {
 			case 1:
-				__bombadil__.edges_current[((0x76be999e3e25b400 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0x76be999e3e25b400 >> 1;
+				__bombadil__.edges_current[((1188814430 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 1188814430 >> 1;
 				return bar;
 			case 2:
-				__bombadil__.edges_current[((0x7359aa1156ce8800 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0x7359aa1156ce8800 >> 1;
+				__bombadil__.edges_current[((1056359107 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 1056359107 >> 1;
 				break;
 			case "foo":
-				__bombadil__.edges_current[((0xeaf7d87e9d1ee800 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0xeaf7d87e9d1ee800 >> 1;
+				__bombadil__.edges_current[((1920218846 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 1920218846 >> 1;
 			case "bar":
-				__bombadil__.edges_current[((0x7f8ce92d548e8c0 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0x7f8ce92d548e8c0 >> 1;
+				__bombadil__.edges_current[((1823246910 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 1823246910 >> 1;
 			case "baz":
-				__bombadil__.edges_current[((0x6881f435bc0ca800 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0x6881f435bc0ca800 >> 1;
+				__bombadil__.edges_current[((2088218821 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 2088218821 >> 1;
 				continue;
 			default:
-				__bombadil__.edges_current[((0xb71d6a24ef50e800 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-				__bombadil__.previous = 0xb71d6a24ef50e800 >> 1;
+				__bombadil__.edges_current[((1445672775 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+				__bombadil__.previous = 1445672775 >> 1;
 				return no;
 		}
 	}
 }
+
+---- blocks ----
+1188814430  /test.js:6  foo
+1056359107  /test.js:8  foo
+1920218846  /test.js:10  foo
+1823246910  /test.js:11  foo
+2088218821  /test.js:12  foo
+1445672775  /test.js:14  foo
