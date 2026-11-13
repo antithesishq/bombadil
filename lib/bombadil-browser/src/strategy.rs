@@ -3,11 +3,15 @@ use crate::driver::BrowserSession;
 use crate::match_pattern::MatchPattern;
 use crate::url::parse_browser_url;
 use anyhow::{Result, bail};
-use bombadil::driver::{ActionTemplate, RunState};
+use bombadil::driver::RunState;
+use bombadil::model::{Picked, accepting_key};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
-use bombadil::{specification::domain::Snapshot, tree::Tree};
+use bombadil::{
+    specification::domain::Snapshot,
+    tree::{Leaves, Tree},
+};
 use bombadil_schema::browser::Fingerprint;
 use rand::{RngExt, TryRng};
 use std::{collections::VecDeque, time::SystemTime};
@@ -92,27 +96,25 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
 
     fn pick_action(
         &mut self,
-        tree: Tree<BrowserActionTemplate>,
-    ) -> Result<BrowserAction> {
-        let tree = tree
-            .prune()
-            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
+        leaves: &Leaves<'_, BrowserActionTemplate>,
+    ) -> Result<Picked<BrowserAction>> {
+        if leaves.as_slice().is_empty() {
+            bail!("no actions available");
+        }
         match &mut self.mode {
             TestMode::RandomWalk => {
-                let template = tree.leaves().pick(&mut self.rng)?.clone();
-                let action = template.generate(&mut self.rng);
-                Ok(action)
+                Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
             TestMode::Reproduce(actions_original) => {
                 if let Some(action_original) = actions_original.pop_front() {
-                    let available_actions = tree.values();
-                    let action_reconciled =
-                        available_actions.iter().any(|action_template| {
-                            action_template.accepts(&action_original)
-                        });
-
-                    if action_reconciled {
-                        Ok(action_original)
+                    let available_actions = leaves.as_slice();
+                    if let Some(template) =
+                        accepting_key(leaves, &action_original)
+                    {
+                        Ok(Picked {
+                            action: action_original,
+                            template,
+                        })
                     } else {
                         println!(
                             "\n{}\n\n{}\n\n{}\n\n{}\n",
@@ -123,10 +125,12 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
                             styled::maybe_red(styled::maybe_bold(
                                 "in the set of available actions:".into()
                             )),
-                            tree.values()
+                            available_actions
                                 .iter()
-                                .copied()
-                                .map(|action| format!("{}", Formatted(action)))
+                                .map(|(action, _)| format!(
+                                    "{}",
+                                    Formatted(*action)
+                                ))
                                 .collect::<Vec<String>>()
                                 .join("\n")
                         );
@@ -148,11 +152,12 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     fn on_new_state(
         &mut self,
         state: &BrowserState,
-        tree: Tree<BrowserActionTemplate>,
+        leaves: &Leaves<'_, BrowserActionTemplate>,
         _last_action: Option<&BrowserAction>,
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> anyhow::Result<ControlFlow<Self::StopValue, BrowserAction>> {
+    ) -> anyhow::Result<ControlFlow<Self::StopValue, Picked<BrowserAction>>>
+    {
         let test_start = *self.test_start.get_or_insert(
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
@@ -209,7 +214,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             }));
         }
 
-        let action = self.pick_action(tree)?;
+        let picked = self.pick_action(leaves)?;
         let elapsed = std::time::Duration::from_micros(
             state
                 .timestamp()
@@ -217,10 +222,10 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
                 .saturating_sub(test_start.as_micros()),
         );
         if !self.quiet {
-            println!("{} {}", Formatted(&elapsed), Formatted(&action));
+            println!("{} {}", Formatted(&elapsed), Formatted(&picked.action));
         }
 
-        Ok(ControlFlow::Continue(action))
+        Ok(ControlFlow::Continue(picked))
     }
 
     fn deadline(&self) -> Option<bombadil_schema::Time> {

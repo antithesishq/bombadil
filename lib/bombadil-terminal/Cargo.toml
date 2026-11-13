@@ -24,4 +24,5 @@ small-string = { path = "../small-string" }
 [dev-dependencies]
 env_logger.workspace = true
 hegeltest.workspace = true
+stdx-derive = { path = "../stdx-derive" }
 tempfile.workspace = true

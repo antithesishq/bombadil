@@ -35,7 +35,7 @@ use bombadil::{
     styled,
 };
 use bombadil_browser::{
-    browser::actions::BrowserAction,
+    browser::actions::{BrowserAction, BrowserActionTemplate},
     browser_options::{BrowserOptions, Emulation},
     chromium::{self, LaunchOptions},
     convert::ToSchema,
@@ -421,9 +421,15 @@ impl<'a> BrowserIntegrationTest<'a> {
             fn write(
                 &mut self,
                 state: &bombadil_browser::browser::state::BrowserState,
-                last_action: Option<&BrowserAction>,
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
+                _actions_available: &bombadil::tree::Leaves<
+                    '_,
+                    BrowserActionTemplate,
+                >,
+                action_previous: Option<
+                    &bombadil::model::Picked<BrowserAction>,
+                >,
             ) -> anyhow::Result<()> {
                 self.state_times
                     .lock()
@@ -433,7 +439,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     .lock()
                     .expect("failed to acquire lock for collected violations")
                     .extend_from_slice(violations);
-                if last_action.is_some() {
+                if action_previous.is_some() {
                     self.blocks_hit
                         .lock()
                         .expect("failed to acquire lock for blocks hit")
