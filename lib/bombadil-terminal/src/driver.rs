@@ -30,7 +30,7 @@ use libghostty_vt::{
         CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
         RowIterator, Snapshot as GhosttyRenderSnapshot,
     },
-    screen::CellWide,
+    screen::{CellContentTag, CellWide, cell},
     terminal::ScrollViewport,
 };
 use serde::{Deserialize, Serialize};
@@ -557,9 +557,23 @@ pub(crate) fn viewport_grid<'alloc>(
         Vec::with_capacity(usize::from(size.columns) * usize::from(size.rows));
     while let Some(row) = row_iter.next() {
         let mut cell_iter = cell_iterator.update(row)?;
-        while let Some(cell) = cell_iter.next() {
-            let style = style_from_ghostty(&cell.style()?);
-            cells.push(match cell.raw_cell()?.wide()? {
+        for (column, raw) in row.cells_raw()?.enumerate() {
+            let (wide, tag, codepoint, styled) = raw.get_multi((
+                cell::Wide,
+                cell::ContentTag,
+                cell::Codepoint,
+                cell::HasStyling,
+            ))?;
+            let cluster = tag == CellContentTag::CodepointGrapheme;
+            if styled || cluster {
+                cell_iter.select(column as u16)?;
+            }
+            let style = if styled {
+                style_from_ghostty(&cell_iter.style()?)
+            } else {
+                TerminalStyle::default()
+            };
+            cells.push(match wide {
                 // Trailing column of a wide character.
                 CellWide::SpacerTail => TerminalCell::Continuation { style },
                 // Right-margin placeholder left behind when a wide
@@ -567,12 +581,22 @@ pub(crate) fn viewport_grid<'alloc>(
                 // nothing renders here.
                 CellWide::SpacerHead => TerminalCell::Empty { style },
                 kind => {
-                    let length = cell.graphemes_len()? as usize;
-                    if length == 0 {
+                    if codepoint == 0 {
                         TerminalCell::Empty { style }
                     } else {
-                        let mut contents = SmallString::null_with_size(length);
-                        cell.graphemes_buf(&mut contents[0..length])?;
+                        let contents = if cluster {
+                            let length = cell_iter.graphemes_len()? as usize;
+                            let mut contents =
+                                SmallString::null_with_size(length);
+                            cell_iter.graphemes_buf(&mut contents[..])?;
+                            contents
+                        } else {
+                            SmallString::from(
+                                &[char::from_u32(codepoint).ok_or_else(
+                                    || anyhow!("invalid terminal codepoint"),
+                                )?][..],
+                            )
+                        };
                         TerminalCell::Occupied {
                             contents,
                             wide: kind == CellWide::Wide,
@@ -590,15 +614,16 @@ fn cursor_from_libghostty(
     terminal: &Terminal<'_, '_>,
     snapshot: &GhosttyRenderSnapshot<'_, '_>,
 ) -> Result<TerminalCursor> {
+    let cursor = snapshot.cursor()?;
     Ok(TerminalCursor {
         position: TerminalCursorPosition {
             column: terminal.cursor_x()?,
             row: terminal.cursor_y()?,
         },
-        visible: snapshot.cursor_visible()?,
-        blinking: snapshot.cursor_blinking()?,
+        visible: cursor.visible,
+        blinking: cursor.blinking,
         visual_style: terminal_cursor_visual_style_from_libghostty(
-            snapshot.cursor_visual_style()?,
+            cursor.visual_style,
         ),
         color: snapshot
             .cursor_color()?
