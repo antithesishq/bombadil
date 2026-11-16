@@ -59,8 +59,11 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                     delay_millis: None,
                 }
             }
-            BrowserAction::PressKey { code } => {
-                browser::BrowserAction::PressKey { code: *code }
+            BrowserAction::PressKey { code, modifiers } => {
+                browser::BrowserAction::PressKey {
+                    code: *code,
+                    modifiers: *modifiers,
+                }
             }
             BrowserAction::ScrollUp { origin, distance } => {
                 browser::BrowserAction::ScrollUp {
@@ -129,8 +132,11 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
             browser::BrowserAction::TypeText { text, .. } => {
                 BrowserAction::TypeText { text: text.clone() }
             }
-            browser::BrowserAction::PressKey { code } => {
-                BrowserAction::PressKey { code: *code }
+            browser::BrowserAction::PressKey { code, modifiers } => {
+                BrowserAction::PressKey {
+                    code: *code,
+                    modifiers: *modifiers,
+                }
             }
             browser::BrowserAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
@@ -185,5 +191,33 @@ impl ToInternal<Point> for bombadil_schema::Point {
             x: self.x,
             y: self.y,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil_schema::browser::KeyModifiers;
+
+    #[test]
+    fn press_key_modifiers_survive_schema_conversion() {
+        let modifiers = KeyModifiers {
+            ctrl: true,
+            shift: true,
+            ..KeyModifiers::default()
+        };
+        let action = BrowserAction::PressKey {
+            code: 77,
+            modifiers,
+        };
+        let schema = action.to_schema();
+        assert_eq!(
+            schema,
+            browser::BrowserAction::PressKey {
+                code: 77,
+                modifiers
+            }
+        );
+        assert_eq!(schema.to_internal(), action);
     }
 }

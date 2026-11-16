@@ -271,6 +271,8 @@ pub enum BrowserAction {
     },
     PressKey {
         code: u8,
+        #[serde(flatten)]
+        modifiers: KeyModifiers,
     },
     ScrollUp {
         origin: Point,
@@ -300,6 +302,43 @@ pub enum BrowserAction {
         name: String,
         arguments: Vec<json::Value>,
     },
+}
+
+/// Modifier keys held while pressing a key.
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash,
+)]
+pub struct KeyModifiers {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub alt: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ctrl: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub meta: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shift: bool,
+}
+
+impl KeyModifiers {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl std::fmt::Display for KeyModifiers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (held, name) in [
+            (self.ctrl, "Ctrl+"),
+            (self.alt, "Alt+"),
+            (self.shift, "Shift+"),
+            (self.meta, "Meta+"),
+        ] {
+            if held {
+                f.write_str(name)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -423,6 +462,70 @@ mod tests {
         let left = tc.draw(fingerprints().print_as_debug());
         let right = tc.draw(fingerprints().print_as_debug());
         assert_eq!(left.matches(&right), right.matches(&left));
+    }
+
+    #[test]
+    fn press_key_json_omits_unset_modifiers() {
+        use super::{BrowserAction, KeyModifiers};
+
+        let plain: BrowserAction =
+            json::from_str(r#"{"PressKey":{"code":13}}"#).unwrap();
+        assert_eq!(
+            plain,
+            BrowserAction::PressKey {
+                code: 13,
+                modifiers: KeyModifiers::default(),
+            }
+        );
+        assert_eq!(
+            json::to_string(&plain).unwrap(),
+            r#"{"PressKey":{"code":13}}"#
+        );
+
+        let shifted = BrowserAction::PressKey {
+            code: 77,
+            modifiers: KeyModifiers {
+                shift: true,
+                meta: true,
+                ..KeyModifiers::default()
+            },
+        };
+        let encoded = json::to_string(&shifted).unwrap();
+        assert_eq!(
+            encoded,
+            r#"{"PressKey":{"code":77,"meta":true,"shift":true}}"#
+        );
+        assert_eq!(json::from_str::<BrowserAction>(&encoded).unwrap(), shifted);
+    }
+
+    #[test]
+    fn key_modifiers_display_as_a_shortcut_prefix() {
+        use super::KeyModifiers;
+
+        assert_eq!(KeyModifiers::default().to_string(), "");
+        let all = KeyModifiers {
+            alt: true,
+            ctrl: true,
+            meta: true,
+            shift: true,
+        };
+        assert_eq!(all.to_string(), "Ctrl+Alt+Shift+Meta+");
+        let ctrl = KeyModifiers {
+            ctrl: true,
+            ..KeyModifiers::default()
+        };
+        assert_eq!(ctrl.to_string(), "Ctrl+");
+        let shift = KeyModifiers {
+            shift: true,
+            ..KeyModifiers::default()
+        };
+        assert_eq!(shift.to_string(), "Shift+");
+        let alt_meta = KeyModifiers {
+            alt: true,
+            meta: true,
+            ..KeyModifiers::default()
+        };
+        assert_eq!(alt_meta.to_string(), "Alt+Meta+");
     }
 
     fn state_summary_json() -> json::Value {

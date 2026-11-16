@@ -79,13 +79,12 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                     styled::maybe_blue(format!("{}", Formatted(text))),
                 )
             }
-            BrowserAction::PressKey { code } => {
-                let key = key_name(*code).unwrap_or("Unknown");
+            BrowserAction::PressKey { code, modifiers } => {
+                let key = key_name(*code, modifiers.shift).unwrap_or("Unknown");
                 write!(
                     f,
-                    "{} {} (code: {})",
+                    "{} {modifiers}{key} (code: {})",
                     styled::maybe_bold("Pressing".to_string()),
-                    key,
                     styled::maybe_blue(format!("{code}"))
                 )
             }
@@ -161,5 +160,24 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil_schema::browser::KeyModifiers;
+
+    #[test]
+    fn press_key_renders_modifiers_and_shifted_key() {
+        let action: BrowserAction = BrowserAction::PressKey {
+            code: 77,
+            modifiers: KeyModifiers {
+                shift: true,
+                ..KeyModifiers::default()
+            },
+        };
+        let rendered = Formatted(&action).to_string();
+        assert!(rendered.contains(" Shift+M (code: "), "{rendered:?}");
     }
 }

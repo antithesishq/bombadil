@@ -754,6 +754,46 @@ export const editorEventuallyEmpty = eventually(
 }
 
 #[test]
+fn test_key_modifiers() {
+    BrowserIntegrationTest::new("key-modifiers")
+        .time_limit(Duration::from_secs(5))
+        .specification(
+            r#"
+import { always, eventually } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+export const shortcuts = actions(() => [
+  { PressKey: { code: 77, shift: true } },
+  { PressKey: { code: 75, meta: true } },
+  { PressKey: { code: 74, ctrl: true } },
+  { PressKey: { code: 76, alt: true } },
+]);
+
+const keys = extract(
+  (state) => state.document.getElementById("keys")?.textContent ?? ""
+);
+const text = extract(
+  (state) => state.document.getElementById("editor")?.value ?? ""
+);
+
+export const modifiedKeysReachThePage = eventually(
+  () =>
+    keys.current.includes("Shift+M|KeyM") &&
+    keys.current.includes("Meta+k|KeyK") &&
+    keys.current.includes("Ctrl+j|KeyJ") &&
+    keys.current.includes("Alt+l|KeyL") &&
+    text.current.includes("M")
+).within(4, "seconds");
+
+export const shortcutsTypeNoText = always(
+  () => !/[kjl]/.test(text.current) && !/press:[kjl]/.test(keys.current)
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_counter_state_machine() {
     BrowserIntegrationTest::new("counter-state-machine")
         .time_limit(Duration::from_secs(3))

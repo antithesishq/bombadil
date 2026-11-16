@@ -3,7 +3,10 @@ use std::ops::RangeInclusive;
 
 use anyhow::ensure;
 use bombadil::specification::js::{JsRange, JsStringGenerator};
-use bombadil_schema::{Rect, browser::Fingerprint};
+use bombadil_schema::{
+    Rect,
+    browser::{Fingerprint, KeyModifiers},
+};
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
@@ -37,6 +40,8 @@ pub enum JsAction {
     #[serde(rename_all = "camelCase")]
     PressKey {
         code: f64,
+        #[serde(flatten)]
+        modifiers: KeyModifiers,
     },
     #[serde(rename_all = "camelCase")]
     ScrollUp {
@@ -118,7 +123,7 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                     text: text.try_into()?,
                 }
             }
-            JsAction::PressKey { code } => {
+            JsAction::PressKey { code, modifiers } => {
                 if !code.is_finite()
                     || !(0.0..=255.0).contains(&code)
                     || code.fract() != 0.0
@@ -128,7 +133,10 @@ impl TryInto<BrowserActionTemplate> for JsAction {
                         code
                     );
                 }
-                BrowserAction::PressKey { code: code as u8 }
+                BrowserAction::PressKey {
+                    code: code as u8,
+                    modifiers,
+                }
             }
             JsAction::ScrollUp { origin, distance } => {
                 BrowserAction::ScrollUp {
@@ -329,11 +337,27 @@ mod tests {
         let json = r#"{"PressKey": {"code": 13.0}}"#;
         let action: JsAction = serde_json::from_str(json).unwrap();
         match action {
-            JsAction::PressKey { code } => {
+            JsAction::PressKey { code, modifiers } => {
                 assert_eq!(code, 13.0);
+                assert!(modifiers.is_empty());
             }
             _ => panic!("expected PressKey"),
         }
+
+        let json = r#"{"PressKey": {"code": 77, "shift": true, "meta": true}}"#;
+        let action: JsAction = serde_json::from_str(json).unwrap();
+        let template: BrowserActionTemplate = action.try_into().unwrap();
+        assert_eq!(
+            template,
+            BrowserAction::PressKey {
+                code: 77,
+                modifiers: KeyModifiers {
+                    meta: true,
+                    shift: true,
+                    ..KeyModifiers::default()
+                },
+            }
+        );
     }
 
     fn mouse_drag_with_delay(delay_millis: JsRange) -> JsAction {
@@ -374,7 +398,10 @@ mod tests {
 
     #[test]
     fn test_to_browser_action_validates_code_range() {
-        let js_action = JsAction::PressKey { code: 256.0 };
+        let js_action = JsAction::PressKey {
+            code: 256.0,
+            modifiers: KeyModifiers::default(),
+        };
         let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(
@@ -384,7 +411,10 @@ mod tests {
                 .contains("between 0 and 255")
         );
 
-        let js_action = JsAction::PressKey { code: 13.5 };
+        let js_action = JsAction::PressKey {
+            code: 13.5,
+            modifiers: KeyModifiers::default(),
+        };
         let result: Result<BrowserActionTemplate> = js_action.try_into();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("integer"));
