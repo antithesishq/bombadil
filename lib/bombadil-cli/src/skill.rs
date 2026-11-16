@@ -144,8 +144,10 @@ macro_rules! skill {
     };
 }
 
-const SKILLS: &[Skill] =
-    &[skill!("finding-bugs", "finding-bugs-with-bombadil")];
+const SKILLS: &[Skill] = &[
+    skill!("finding-bugs", "finding-bugs-with-bombadil"),
+    skill!("investigating-failures", "investigating-bombadil-failures"),
+];
 
 /// Every pointer skill carries this metadata key. Its presence marks a file
 /// that Bombadil may update or remove.

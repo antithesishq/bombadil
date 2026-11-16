@@ -14,3 +14,5 @@ Use the project's installed executable. For an npm development dependency,
 run `./node_modules/.bin/bombadil skill show finding-bugs` from the project root.
 If the guide command is unavailable, use `bombadil --version`, `bombadil --help`,
 and subcommand help. Do not assume newer options exist in older versions.
+
+To investigate a failure, run `bombadil skill show investigating-failures`.
