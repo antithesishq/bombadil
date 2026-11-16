@@ -48,6 +48,16 @@ export class ExtractorCell<T extends JSON, S> implements Cell<T> {
   }
 
   /**
+   * Creates a new extractor cell by mapping `f` over this cell's value.
+   */
+  map<U extends JSON>(f: (value: T) => U): ExtractorCell<U, S> {
+    // It reads this cell's snapshot rather than extracting again, because extractors
+    // run in the order they were created, meaning the original cell has already run
+    // when the mapped cell runs.
+    return new ExtractorCell<U, S>(this.runtime, () => f(this.snapshot as T));
+  }
+
+  /**
    * Runs the extractor and updates its cached value.
    */
   run(state: S): T {
@@ -81,6 +91,19 @@ export class Runtime<S> {
     const index = this.extractors.length;
     this.extractors.push(cell);
     return index;
+  }
+
+  /**
+   * Names `value` if it is one of this runtime's cells and has no name yet.
+   * The bundle calls this with every top-level `const` bound to a call, so
+   * it finds the cell by identity and reads nothing from any other value.
+   */
+  nameExtractor<T>(name: string, value: T): T {
+    const cell = this.extractors.find((cell) => cell === value);
+    if (cell !== undefined && cell.name === null) {
+      cell.named(name);
+    }
+    return value;
   }
 
   startTracking(): void {
