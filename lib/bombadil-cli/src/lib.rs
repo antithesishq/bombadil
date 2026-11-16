@@ -2,6 +2,7 @@ mod browser;
 mod browser_trace;
 mod duration;
 mod inspect_server;
+mod manual;
 mod output_path;
 mod shrink;
 #[cfg(feature = "terminal")]
@@ -40,10 +41,7 @@ pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Command::Browser { command } => browser::run(command),
         #[cfg(feature = "terminal")]
-        Command::Terminal { command } => {
-            terminal::run(command);
-            Ok(())
-        }
+        Command::Terminal { command } => terminal::run(command),
         Command::Trace(args) => trace::run(args),
     }
 }

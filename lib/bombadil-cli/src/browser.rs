@@ -96,6 +96,8 @@ Examples:
 
 #[derive(clap::Subcommand)]
 pub enum BrowserCommand {
+    /// Read the latest published browser manual (requires network access)
+    Manual,
     /// Run a test with a browser managed by Bombadil
     #[command(after_help = TEST_EXAMPLES)]
     Test {
@@ -329,6 +331,7 @@ impl FromStr for Origin {
 
 pub fn run(command: BrowserCommand) -> Result<()> {
     match command {
+        BrowserCommand::Manual => crate::manual::show("browser"),
         BrowserCommand::Test {
             shared,
             launch_options,

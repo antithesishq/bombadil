@@ -85,6 +85,8 @@ pub struct ProgramArgs {
 
 #[derive(clap::Subcommand)]
 pub enum Command {
+    /// Read the latest published terminal manual (requires network access)
+    Manual,
     /// (EXPERIMENTAL) Test the given program against a TypeScript specification
     #[command(after_help = TEST_EXAMPLES)]
     Test {
@@ -201,8 +203,9 @@ pub enum Command {
     },
 }
 
-pub fn run(command: Command) {
+pub fn run(command: Command) -> Result<()> {
     match command {
+        Command::Manual => return crate::manual::show("terminal"),
         Command::Shrink {
             shrink_options,
             program,
@@ -454,6 +457,7 @@ pub fn run(command: Command) {
             }
         }
     }
+    Ok(())
 }
 
 fn load_reproduce_actions(
