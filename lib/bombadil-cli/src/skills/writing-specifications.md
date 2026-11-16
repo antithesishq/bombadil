@@ -139,7 +139,9 @@ defects from specification and setup errors.
    the properties the contract implies, the inputs and action sequences most
    likely to break each, and the actions needed to reach them. Write what it
    returns as properties and actions, or state why you dropped each one.
-2. **Exercise.** Run a bounded campaign as described above and report what it
+2. **Checklist.** Run `bombadil skill show reviewing-specifications` and check
+   every exported property and generator against it.
+3. **Exercise.** Run a bounded campaign as described above and report what it
    found, which properties it reached, and which it did not.
 
 ## Sources and translation notes

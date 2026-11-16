@@ -148,6 +148,10 @@ const SKILLS: &[Skill] = &[
     skill!("finding-bugs", "finding-bugs-with-bombadil"),
     skill!("investigating-failures", "investigating-bombadil-failures"),
     skill!("writing-specifications", "writing-bombadil-specifications"),
+    skill!(
+        "reviewing-specifications",
+        "reviewing-bombadil-specifications"
+    ),
 ];
 
 /// Every pointer skill carries this metadata key. Its presence marks a file
