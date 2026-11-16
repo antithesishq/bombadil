@@ -4,6 +4,7 @@ mod duration;
 mod inspect_server;
 mod output_path;
 mod shrink;
+mod skill;
 #[cfg(feature = "terminal")]
 mod terminal;
 mod trace;
@@ -34,6 +35,11 @@ enum Command {
     },
     /// Show the states of a binary trace file (any filename)
     Trace(trace::TraceArgs),
+    /// Set up agents to use Bombadil, or print its agent guide
+    Skill {
+        #[command(subcommand)]
+        command: skill::Command,
+    },
 }
 
 pub fn run(cli: Cli) -> Result<()> {
@@ -45,5 +51,6 @@ pub fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Trace(args) => trace::run(args),
+        Command::Skill { command } => skill::run(command),
     }
 }
