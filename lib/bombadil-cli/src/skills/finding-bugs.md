@@ -37,7 +37,8 @@ local fuzzing mode is not available there.
 Browser specifications are positional arguments after the URL. Terminal
 specifications use `--specification`. Put terminal driver options before `--`,
 then the program and its arguments. Without a custom specification, Bombadil
-uses the driver's defaults.
+uses the driver's defaults. For domain-specific checks, run
+`bombadil skill show writing-specifications`.
 
 Browser exploration stays on the starting URL's scheme, host, and port by default.
 For `file://`, it stays on the exact file. `--allow-url` patterns replace this
