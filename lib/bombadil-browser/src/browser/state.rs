@@ -1,6 +1,4 @@
-use crate::instrumentation::js::{
-    EDGES_CURRENT, EDGES_PREVIOUS, HITS, HITS_CACHE, NAMESPACE,
-};
+use crate::instrumentation::js::{HITS, HITS_CACHE, NAMESPACE};
 use anyhow::{Context, Result};
 use bombadil::driver::RunState;
 use bombadil_schema::Time;
@@ -73,12 +71,8 @@ impl RunState for BrowserState {
     }
 }
 
-pub type EdgeIndex = u32;
-pub type EdgeBucket = u8;
-
 #[derive(Clone, Debug)]
 pub struct Coverage {
-    pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
     /// IDs of the blocks run since the previous capture (sorted).
     pub branches: Vec<u32>,
 }
@@ -289,7 +283,6 @@ struct RuntimeStateSnapshot {
     url: String,
     title: String,
     content_type: String,
-    edges_new: Vec<(EdgeIndex, EdgeBucket)>,
     branches: Vec<u32>,
 }
 
@@ -312,59 +305,31 @@ impl BrowserState {
             formatcp!(
                 "
                 (() => {{
-                    const snapshot = (edgesNew, branches) => ({{
+                    const snapshot = (branches) => ({{
                         url: window.location.href,
                         title: document.title,
                         content_type: document.contentType,
-                        edges_new: edgesNew,
                         branches,
                     }});
                     const coverage = window.{NAMESPACE};
-                    if (!coverage) return snapshot([], []);
+                    if (!coverage) return snapshot([]);
 
                     const branches = Array.from(coverage.{HITS});
                     coverage.{HITS}.clear();
                     coverage.{HITS_CACHE}.fill(-1);
 
-                    // Bucket current hits into [1,8], similar to AFL.
-                    function bucket(hits) {{
-                        if (hits <= 3) return hits;
-                        let msb = 0;
-                        let n = hits;
-                        while (n > 0) {{
-                            n = n >> 1;
-                            msb++;
-                        }}
-                        return Math.min(msb + 1, 8);
-                    }}
-
-                    const differences = [];
-                    for (let edge = 0; edge < coverage.{EDGES_CURRENT}.length; edge++) {{
-                        const current = bucket(coverage.{EDGES_CURRENT}[edge]);
-                        coverage.{EDGES_CURRENT}[edge] = current;
-
-                        if (current !== coverage.{EDGES_PREVIOUS}[edge]) {{
-                            differences.push([edge, current]);
-                        }}
-                    }}
-
-                    // Reuse the previous buffer for the next capture.
-                    const reusable = coverage.{EDGES_PREVIOUS};
-                    coverage.{EDGES_PREVIOUS} = coverage.{EDGES_CURRENT};
-                    reusable.fill(0);
-                    coverage.{EDGES_CURRENT} = reusable;
-
-                    return snapshot(differences, branches);
+                    return snapshot(branches);
                 }})()
                 "
             ),
-        ).context("requesting capture runtime state")?;
+        )
+        .context("requesting capture runtime state")?;
         let navigation_history = connection
             .request(page::GetNavigationHistoryParams {}, Some(session_id))
             .context("requesting capture navigation history")?;
 
         // Navigation history is independent of runtime evaluation. Metrics must
-        // follow the coverage and transition-hash work in the runtime snapshot.
+        // follow the coverage work in the runtime snapshot.
         let runtime_state: RuntimeStateSnapshot = parse_expression_response(
             runtime_state
                 .wait()
@@ -424,7 +389,6 @@ impl BrowserState {
             navigation_history,
             exceptions,
             coverage: Coverage {
-                edges_new: runtime_state.edges_new,
                 branches: {
                     let mut branches = runtime_state.branches;
                     branches.sort_unstable();

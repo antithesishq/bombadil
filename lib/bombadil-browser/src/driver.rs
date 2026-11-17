@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
@@ -17,13 +16,16 @@ use url::Url;
 
 use crate::browser::actions::BrowserAction;
 use crate::browser::actions::BrowserActionTemplate;
-use crate::browser::state::{BrowserState, Coverage};
+use crate::browser::state::BrowserState;
 use crate::browser::{Browser, BrowserEvent, NAVIGATION_TIMEOUT};
 use crate::browser_options::BrowserOptions;
 use crate::chromium;
 use crate::chromium::Chromium;
-use crate::instrumentation::js::EDGE_MAP_SIZE;
 use crate::instrumentation::{BlockRegistry, InstrumentationConfig};
+
+/// Slots of the coverage module registered with Antithesis. A block reports
+/// as the slot of its ID modulo this.
+const COVERAGE_MAP_SIZE: usize = 64 * 1024;
 
 pub enum DebuggerOptions {
     External {
@@ -56,11 +58,15 @@ impl InterfaceDriver for BrowserDriver {
         } else {
             // TODO: write coverage file with real data
             let coverage_map_offset = antithesis_fuzzer::init_coverage_module(
-                EDGE_MAP_SIZE,
+                COVERAGE_MAP_SIZE,
                 "bombadil.tsv",
             );
+            assert!(
+                coverage_map_offset <= usize::MAX - COVERAGE_MAP_SIZE,
+                "offset + slot overflows usize"
+            );
             Some(BrowserSessionCoverage {
-                edges: vec![0u8; EDGE_MAP_SIZE],
+                reported: vec![false; COVERAGE_MAP_SIZE],
                 coverage_map_offset,
             })
         };
@@ -96,8 +102,8 @@ impl InterfaceDriver for BrowserDriver {
 }
 
 pub struct BrowserSessionCoverage {
-    // Heap-allocated so the 64 KB edge map doesn't blow the stack.
-    edges: Vec<u8>,
+    /// Per slot, whether it has been reported to Antithesis.
+    reported: Vec<bool>,
     coverage_map_offset: usize,
 }
 
@@ -129,25 +135,15 @@ impl InterfaceSession for BrowserSession {
         match self.browser.next_event(timeout) {
             Ok(BrowserEvent::StateChanged(state)) => {
                 if let Some(coverage) = &mut self.coverage {
-                    for (index, bucket) in &state.coverage.edges_new {
-                        let index = *index as usize;
-                        // Report coverage changes to Antithesis.
-                        if coverage.edges[index] == 0 {
-                            assert!(
-                                coverage.coverage_map_offset
-                                    < (usize::MAX - EDGE_MAP_SIZE),
-                                "offset + index overflows usize"
-                            );
+                    for block in &state.coverage.branches {
+                        let slot = *block as usize % COVERAGE_MAP_SIZE;
+                        if !coverage.reported[slot] {
+                            coverage.reported[slot] = true;
                             antithesis_fuzzer::notify_coverage(
-                                coverage.coverage_map_offset + index,
+                                coverage.coverage_map_offset + slot,
                             );
                         }
-                        // Update main edge coverage map.
-                        coverage.edges[index] =
-                            max(coverage.edges[index], *bucket);
                     }
-                    log_coverage_stats_increment(&state.coverage);
-                    log_coverage_stats_total(&coverage.edges);
                 }
                 // Then forward the event.
                 Some(DriverEvent::StateChanged(Arc::new(state)))
@@ -257,45 +253,4 @@ fn await_bundle_defined(state: &BrowserState) -> Result<bool> {
         }
     }
     Ok(false)
-}
-
-fn log_coverage_stats_increment(coverage: &Coverage) {
-    if log::log_enabled!(log::Level::Debug) {
-        let (added, removed) = coverage.edges_new.iter().fold(
-            (0usize, 0usize),
-            |(added, removed), (_, bucket)| {
-                if *bucket > 0 {
-                    (added + 1, removed)
-                } else {
-                    (added, removed + 1)
-                }
-            },
-        );
-        log::debug!("edge delta: +{}/-{}", added, removed);
-    }
-}
-
-fn log_coverage_stats_total(edges: &[u8]) {
-    if log::log_enabled!(log::Level::Debug) {
-        let mut buckets = [0u64; 8];
-        let mut hits_total: u64 = 0;
-        for bucket in edges {
-            if *bucket > 0 {
-                buckets[*bucket as usize - 1] += 1;
-                hits_total += 1;
-            }
-        }
-        log::debug!("total hits: {}", hits_total);
-        log::debug!(
-            "total edges (max bucket): {:04} {:04} {:04} {:04} {:04} {:04} {:04} {:04}",
-            buckets[0],
-            buckets[1],
-            buckets[2],
-            buckets[3],
-            buckets[4],
-            buckets[5],
-            buckets[6],
-            buckets[7],
-        );
-    }
 }

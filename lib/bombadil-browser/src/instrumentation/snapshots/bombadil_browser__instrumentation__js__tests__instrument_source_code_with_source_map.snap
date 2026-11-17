@@ -3,26 +3,19 @@ source: lib/bombadil-browser/src/instrumentation/js.rs
 expression: "instrument_bundle(\"/bundle.js\", bundle, &source_map).snapshot()"
 ---
 window.__bombadil__ = window.__bombadil__ || {
-	edges_previous: new window.Uint8Array(65536),
-	edges_current: new window.Uint8Array(65536),
-	previous: 0,
 	hits: new window.Set(),
 	hits_cache: new window.Int32Array(65536).fill(-1)
 };
 (() => {
-	var x = self.x ? (__bombadil__.edges_current[((2144052631 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 2144052631 >> 1, __bombadil__.hits_cache[42391] === 2144052631 || (__bombadil__.hits_cache[42391] = 2144052631, __bombadil__.hits.add(2144052631)), 1) : (__bombadil__.edges_current[((369625333 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 369625333 >> 1, __bombadil__.hits_cache[2293] === 369625333 || (__bombadil__.hits_cache[2293] = 369625333, __bombadil__.hits.add(369625333)), 0);
+	var x = self.x ? (__bombadil__.hits_cache[42391] === 2144052631 || (__bombadil__.hits_cache[42391] = 2144052631, __bombadil__.hits.add(2144052631)), 1) : (__bombadil__.hits_cache[2293] === 369625333 || (__bombadil__.hits_cache[2293] = 369625333, __bombadil__.hits.add(369625333)), 0);
 	function t(n) {
-		return n > 1 ? (__bombadil__.edges_current[((807008327 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 807008327 >> 1, __bombadil__.hits_cache[63559] === 807008327 || (__bombadil__.hits_cache[63559] = 807008327, __bombadil__.hits.add(807008327)), "clicks") : (__bombadil__.edges_current[((447268292 ^ __bombadil__.previous) >>> 0) % 65536] += 1, __bombadil__.previous = 447268292 >> 1, __bombadil__.hits_cache[50628] === 447268292 || (__bombadil__.hits_cache[50628] = 447268292, __bombadil__.hits.add(447268292)), "click");
+		return n > 1 ? (__bombadil__.hits_cache[63559] === 807008327 || (__bombadil__.hits_cache[63559] = 807008327, __bombadil__.hits.add(807008327)), "clicks") : (__bombadil__.hits_cache[50628] === 447268292 || (__bombadil__.hits_cache[50628] = 447268292, __bombadil__.hits.add(447268292)), "click");
 	}
 	var e = { o: function(n) {
 		if (n) {
-			__bombadil__.edges_current[((289890571 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-			__bombadil__.previous = 289890571 >> 1;
 			__bombadil__.hits_cache[24843] === 289890571 || (__bombadil__.hits_cache[24843] = 289890571, __bombadil__.hits.add(289890571));
 			t(n);
 		} else {
-			__bombadil__.edges_current[((721510024 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-			__bombadil__.previous = 721510024 >> 1;
 			__bombadil__.hits_cache[24200] === 721510024 || (__bombadil__.hits_cache[24200] = 721510024, __bombadil__.hits.add(721510024));
 		}
 	} };
