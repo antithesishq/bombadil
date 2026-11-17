@@ -30,6 +30,7 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
+    model::Recorded,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -593,10 +594,10 @@ fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
     match &shared_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let actions: Vec<BrowserAction> =
+            let actions: Vec<Recorded<BrowserAction>> =
                 browser_trace::load_actions(path)?
-                    .iter()
-                    .map(ToInternal::to_internal)
+                    .into_iter()
+                    .map(|recorded| recorded.map(|action| action.to_internal()))
                     .collect();
             Ok(TestMode::Reproduce(actions.into()))
         }

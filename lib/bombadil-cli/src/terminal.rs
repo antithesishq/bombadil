@@ -9,6 +9,7 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
+use bombadil::model::Recorded;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
@@ -458,12 +459,11 @@ pub fn run(command: Command) {
 
 fn load_reproduce_actions(
     path: &std::path::Path,
-) -> Result<VecDeque<TerminalAction>> {
+) -> Result<VecDeque<Recorded<TerminalAction>>> {
     Ok(load_trace_actions(path)?
+        .map_actions(|action| action.to_internal())
         .actions
-        .into_iter()
-        .map(|action| action.to_internal())
-        .collect())
+        .into())
 }
 
 fn terminal_shrink(

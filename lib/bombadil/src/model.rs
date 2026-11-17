@@ -8,7 +8,7 @@ use std::hash::Hasher;
 use bombadil_schema::ActionKey;
 use rand::{RngExt, TryRng};
 
-use crate::driver::{ActionMatch, ActionTemplate};
+use crate::driver::ActionTemplate;
 use crate::tree::Leaves;
 use stdx::hash::StableHasher;
 
@@ -61,23 +61,54 @@ impl<A> Picked<A> {
     }
 }
 
-/// Selects the best-matching action template of the given available ones,
-/// and returns its key if found.
-pub fn matching_key<A, T: ActionTemplate<A>>(
-    actions_available: &Leaves<'_, T>,
-    action: &A,
-) -> Option<ActionKey> {
-    let mut loose = None;
-    for (template, _) in actions_available.as_slice() {
-        match template.matches(action) {
-            ActionMatch::Exact => return Some(action_key(*template)),
-            ActionMatch::Loose => {
-                loose.get_or_insert(*template);
-            }
-            ActionMatch::No => {}
+/// An action read back from a trace, for replay.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Recorded<A> {
+    pub action: A,
+    /// The trace's `action_taken`: the key of the template the action
+    /// was credited to. `None` for traces that don't record it.
+    pub template: Option<ActionKey>,
+}
+
+impl<A> Recorded<A> {
+    pub fn map<B>(self, f: impl FnOnce(A) -> B) -> Recorded<B> {
+        Recorded {
+            action: f(self.action),
+            template: self.template,
         }
     }
-    loose.map(action_key)
+}
+
+/// Key of the template to credit for a replayed action, or `None` if no
+/// available template accepts it.
+///
+/// The recorded key wins if a template with that key accepts the action.
+/// Otherwise the first accepting template is credited, which is a guess
+/// when several accept: the action alone can't tell them apart. That
+/// happens when the trace has no key, or no accepting template has it: a
+/// shrunk sequence, a changed spec, or a click on an element whose
+/// fingerprint changed (the key hashes the whole fingerprint, accepting
+/// matches it loosely).
+pub fn accepting_key<A, T: ActionTemplate<A>>(
+    actions_available: &Leaves<'_, T>,
+    recorded: &Recorded<A>,
+) -> Option<ActionKey> {
+    let templates = || {
+        actions_available
+            .as_slice()
+            .iter()
+            .map(|(template, _)| *template)
+    };
+    if let Some(key) = recorded.template
+        && templates().any(|template| {
+            action_key(template) == key && template.accepts(&recorded.action)
+        })
+    {
+        return Some(key);
+    }
+    templates()
+        .find(|template| template.accepts(&recorded.action))
+        .map(action_key)
 }
 
 /// The template's `category_hash` under [`StableHasher`].
@@ -103,30 +134,8 @@ mod tests {
         fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Key {
             self.clone()
         }
-        fn matches(&self, original: &Key) -> ActionMatch {
-            ActionMatch::exact_if(self == original)
-        }
-        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
-            hasher.write(self.0.as_bytes());
-        }
-    }
-
-    /// Matches any action of its group, and only its own exactly.
-    #[derive(Clone, Debug, PartialEq)]
-    struct Loose(&'static str, u8);
-
-    impl ActionTemplate<Loose> for Loose {
-        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Loose {
-            self.clone()
-        }
-        fn matches(&self, original: &Loose) -> ActionMatch {
-            if self == original {
-                ActionMatch::Exact
-            } else if self.1 == original.1 {
-                ActionMatch::Loose
-            } else {
-                ActionMatch::No
-            }
+        fn accepts(&self, original: &Key) -> bool {
+            self == original
         }
         fn category_hash<H: Hasher>(&self, hasher: &mut H) {
             hasher.write(self.0.as_bytes());
@@ -160,15 +169,43 @@ mod tests {
         tree
     }
 
-    /// A tree of distinct templates in few groups, so that several match
-    /// the same action, and its templates in depth-first order.
-    fn loose_tree(tc: &TestCase) -> (Tree<Loose>, Vec<Loose>) {
+    const GROUP_MAX: u8 = 2;
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct Group(u8);
+
+    /// Templates of a group generate and accept the same action. The key
+    /// is the name alone.
+    #[derive(Clone, Debug, PartialEq)]
+    struct Overlapping {
+        name: &'static str,
+        group: u8,
+    }
+
+    impl ActionTemplate<Group> for Overlapping {
+        fn generate<R: rand::TryRng + rand::RngExt>(&self, _: &mut R) -> Group {
+            Group(self.group)
+        }
+        fn accepts(&self, original: &Group) -> bool {
+            self.group == original.0
+        }
+        fn category_hash<H: Hasher>(&self, hasher: &mut H) {
+            hasher.write(self.name.as_bytes());
+        }
+    }
+
+    /// A tree of templates in a few groups, so several accept the same
+    /// action. Also returns them in depth-first order.
+    fn overlapping_tree(
+        tc: &TestCase,
+    ) -> (Tree<Overlapping>, Vec<Overlapping>) {
         let mut templates = vec![];
         let tree = trees(tc, 2, &mut 0)
             .try_map(&mut |Key(name)| {
-                let group = tc.draw_silent(integers::<u8>().max_value(2));
-                templates.push(Loose(name, group));
-                Ok::<_, Infallible>(Loose(name, group))
+                let group = tc.draw_silent(integers().max_value(GROUP_MAX));
+                let template = Overlapping { name, group };
+                templates.push(template.clone());
+                Ok::<_, Infallible>(template)
             })
             .unwrap();
         tc.note(&format!("tree: {tree:?}"));
@@ -219,39 +256,71 @@ mod tests {
 
         let picked = Picked::generate(template, &mut rand::rng());
         assert_eq!(picked.template, action_key(template));
-        assert_eq!(
-            matching_key(&leaves, &picked.action),
-            Some(picked.template)
-        );
-        assert_eq!(matching_key(&leaves, &Key("other")), None);
+        for recorded_key in [Some(picked.template), None] {
+            let recorded = Recorded {
+                action: picked.action.clone(),
+                template: recorded_key,
+            };
+            assert_eq!(
+                accepting_key(&leaves, &recorded),
+                Some(picked.template)
+            );
+            let unavailable = Recorded {
+                action: Key("other"),
+                template: recorded_key,
+            };
+            assert_eq!(accepting_key(&leaves, &unavailable), None);
+        }
     }
 
     #[hegel::test]
-    fn matching_key_is_the_exact_match_among_the_matching(tc: TestCase) {
-        let (tree, templates) = loose_tree(&tc);
+    fn replayed_action_is_credited_to_the_accepting_template_with_its_key(
+        tc: TestCase,
+    ) {
+        let (tree, templates) = overlapping_tree(&tc);
         tc.assume(!templates.is_empty());
         let template = &templates
             [tc.draw(integers::<usize>().max_value(templates.len() - 1))];
-        let action = template.generate(&mut rand::rng());
+        let recorded = Recorded {
+            action: template.generate(&mut rand::rng()),
+            template: Some(action_key(template)),
+        };
 
         assert_eq!(
-            matching_key(&tree.leaves(), &action),
+            accepting_key(&tree.leaves(), &recorded),
             Some(action_key(template))
         );
     }
 
     #[hegel::test]
-    fn matching_key_is_the_first_loose_match_without_an_exact_one(
+    fn replayed_action_is_credited_to_the_first_accepting_template_otherwise(
         tc: TestCase,
     ) {
-        let (tree, templates) = loose_tree(&tc);
-        let action = Loose("other", tc.draw(integers::<u8>().max_value(2)));
+        let (tree, templates) = overlapping_tree(&tc);
+        let action = Group(tc.draw(integers().max_value(GROUP_MAX)));
+        // No key, an unknown key, or the key of a template that rejects
+        // the action.
+        let rejecting: Vec<&Overlapping> = templates
+            .iter()
+            .filter(|template| !template.accepts(&action))
+            .collect();
+        let choice =
+            tc.draw(integers::<usize>().max_value(rejecting.len() + 1));
+        let recorded_key = match choice.checked_sub(2) {
+            Some(index) => Some(action_key(rejecting[index])),
+            None if choice == 1 => Some(action_key(&Key("other"))),
+            None => None,
+        };
+        let recorded = Recorded {
+            action: action.clone(),
+            template: recorded_key,
+        };
 
         let expected = templates
             .iter()
-            .find(|template| template.1 == action.1)
+            .find(|template| template.accepts(&action))
             .map(action_key);
-        assert_eq!(matching_key(&tree.leaves(), &action), expected);
+        assert_eq!(accepting_key(&tree.leaves(), &recorded), expected);
     }
 
     #[test]

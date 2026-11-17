@@ -15,7 +15,7 @@ use anyhow::{Result, anyhow, bail};
 use bombadil::shrink::TraceActions;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
-    model::{Picked, StepModel},
+    model::{Picked, Recorded, StepModel},
     runner::PropertyViolation,
     specification::{convert::ToSchema, domain::Snapshot},
     tree::Leaves,
@@ -128,7 +128,10 @@ pub fn load_trace_actions(
         states += 1;
         let entry = state?.metadata;
         if let Some(action) = entry.action {
-            trace.actions.push(action);
+            trace.actions.push(Recorded {
+                action,
+                template: entry.state.action_taken,
+            });
         }
         for violation in entry.violations {
             trace
@@ -216,7 +219,9 @@ mod tests {
     use std::{sync::Arc, time::SystemTime};
 
     use crate::driver::TerminalAction;
+    use crate::{TerminalStrategy, TerminalTestMode};
     use bombadil::model::action_key;
+    use bombadil::specification::convert::ToInternal;
     use bombadil::specification::generators::StringGenerator;
     use bombadil::tree::Tree;
     use bombadil_schema::terminal::{
@@ -224,6 +229,7 @@ mod tests {
         TerminalCursorVisualStyle, TerminalGrid, TerminalSize,
     };
     use bombadil_trace::{tag, write_envelope, write_record};
+    use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
 
@@ -333,6 +339,56 @@ mod tests {
         assert_eq!(restored.cursor_x().unwrap(), 5);
         restored.vt_write(b"1mX");
         assert_eq!(restored.cursor_x().unwrap(), 6);
+    }
+
+    /// Written, loaded and reproduced: the action keeps its template,
+    /// though an earlier one accepts it too.
+    #[test]
+    fn test_reproduced_action_keeps_its_recorded_template() {
+        let text = |length| -> TerminalActionTemplate {
+            TerminalAction::TypeText {
+                text: StringGenerator::Text { length },
+            }
+        };
+        let (wide, narrow) = (text(1..=8), text(2..=4));
+        let picked = Picked {
+            action: TerminalAction::TypeText {
+                text: "hi".to_string(),
+            },
+            template: action_key(&narrow),
+        };
+        let tree = Tree::Branch {
+            branches: vec![
+                (1, Tree::Leaf { value: wide }),
+                (1, Tree::Leaf { value: narrow }),
+            ],
+        };
+        let leaves = tree.leaves();
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let mut writer = TerminalTraceWriter::initialize(&path, false).unwrap();
+        writer.write(&state(None), &[], &[], &leaves, None).unwrap();
+        writer
+            .write(&state(None), &[], &[], &leaves, Some(&picked))
+            .unwrap();
+        writer.finish().unwrap();
+
+        let actions = load_trace_actions(&path)
+            .unwrap()
+            .map_actions(|action| action.to_internal())
+            .actions;
+        let mut strategy = TerminalStrategy {
+            rng: StdRng::seed_from_u64(0),
+            mode: TerminalTestMode::Reproduce(actions.into()),
+            test_start: None,
+            violations_count: 0,
+            exit_on_violation: false,
+            deadline: None,
+            states_seen: 0,
+            quiet: true,
+        };
+        assert_eq!(strategy.pick_action(&leaves).unwrap(), picked);
     }
 
     /// A sibling browser trace is neither a conflict nor cleanup material.
