@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::SystemTime;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use base64::Engine;
-use cdp::Binary;
+use cdp::{Binary, PendingResponse};
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::browser_protocol::{headless_experimental, page};
 use crossbeam_channel as mpmc;
@@ -59,14 +59,22 @@ const FRAME_LOOP_INTERVAL: Duration = Duration::from_millis(16);
 /// where frames would interfere, see [`FrameControl::paused`].
 ///
 /// Chrome rejects a `beginFrame` while another is in flight ("Another
-/// frame is pending"), so all frames for a target go through one lock.
+/// frame is pending"), so all frames for a target go through one lock. A
+/// frame whose response timed out is still in flight in Chrome, so the lock
+/// holds it until it finishes, and the next frame waits for it.
 #[derive(Clone)]
 pub struct FrameControl {
     connection: cdp::Connection,
     session_id: SessionId,
-    lock: Arc<Mutex<()>>,
+    in_flight: Arc<Mutex<Option<PendingBeginFrame>>>,
     pauses: Arc<AtomicUsize>,
 }
+
+type PendingBeginFrame =
+    PendingResponse<headless_experimental::BeginFrameParams>;
+
+/// How long to wait for a frame, as for any other CDP command.
+const FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl std::fmt::Debug for FrameControl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,20 +89,49 @@ impl FrameControl {
         FrameControl {
             connection,
             session_id,
-            lock: Arc::new(Mutex::new(())),
+            in_flight: Arc::new(Mutex::new(None)),
             pauses: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, Option<PendingBeginFrame>>> {
+        self.in_flight
+            .lock()
+            .map_err(|_| anyhow!("begin frame lock poisoned"))
     }
 
     fn begin_frame(
         &self,
         params: headless_experimental::BeginFrameParams,
     ) -> Result<headless_experimental::BeginFrameReturns> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| anyhow!("begin frame lock poisoned"))?;
-        self.connection.send(params, Some(&self.session_id))
+        self.begin_frame_locked(&mut *self.lock()?, params)
+    }
+
+    /// Send a frame while holding the lock, first waiting for any frame still
+    /// in flight, as Chrome would reject this one.
+    fn begin_frame_locked(
+        &self,
+        in_flight: &mut Option<PendingBeginFrame>,
+        params: headless_experimental::BeginFrameParams,
+    ) -> Result<headless_experimental::BeginFrameReturns> {
+        if let Some(previous) = in_flight {
+            // An error response or a closed connection also ends the frame.
+            if let Ok(None) =
+                previous.wait_deadline(Instant::now() + FRAME_TIMEOUT)
+            {
+                bail!("previous begin frame still pending");
+            }
+            *in_flight = None;
+        }
+        let pending =
+            self.connection.request(params, Some(&self.session_id))?;
+        match pending.wait_deadline(Instant::now() + FRAME_TIMEOUT)? {
+            Some(result) => Ok(result),
+            None => {
+                *in_flight = Some(pending);
+                bail!("timed out waiting for begin frame");
+            }
+        }
     }
 
     /// Start the background loop, running until `terminated` is set.
@@ -102,11 +139,12 @@ impl FrameControl {
         let this = self.clone();
         thread::spawn(move || {
             while !terminated.load(Ordering::SeqCst) {
-                if let Err(error) = this.request_frame() {
-                    if !terminated.load(Ordering::SeqCst) {
-                        log::warn!("background frame loop stopped: {error:#}");
-                    }
-                    break;
+                // Keep going after an error, as a frame can time out while
+                // the page is busy and still complete later.
+                if let Err(error) = this.request_frame()
+                    && !terminated.load(Ordering::SeqCst)
+                {
+                    log::debug!("background frame failed: {error:#}");
                 }
                 thread::sleep(FRAME_LOOP_INTERVAL);
             }
@@ -114,18 +152,15 @@ impl FrameControl {
     }
 
     fn request_frame(&self) -> Result<()> {
-        let _guard = self
-            .lock
-            .lock()
-            .map_err(|_| anyhow!("begin frame lock poisoned"))?;
+        let mut in_flight = self.lock()?;
         // Checked while holding the lock, so that once `paused` has taken
         // the lock no new background loop frame can start until it's resumed.
         if self.pauses.load(Ordering::SeqCst) > 0 {
             return Ok(());
         }
-        self.connection.send(
+        self.begin_frame_locked(
+            &mut in_flight,
             headless_experimental::BeginFrameParams::default(),
-            Some(&self.session_id),
         )?;
         Ok(())
     }
@@ -144,7 +179,7 @@ impl FrameControl {
         self.pauses.fetch_add(1, Ordering::SeqCst);
         let _resume = Resume(&self.pauses);
         // Wait for any in-flight loop frame to finish.
-        drop(self.lock.lock());
+        drop(self.in_flight.lock());
         f()
     }
 

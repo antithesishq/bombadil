@@ -1708,3 +1708,33 @@ export const slow = always(() => {
         )
         .run();
 }
+
+#[test]
+fn test_recovers_from_blocked_main_thread() {
+    // The page blocks its main thread for longer than a CDP command's
+    // timeout. The run must keep taking actions once it recovers, which
+    // violates the property.
+    BrowserIntegrationTest::new("blocked-main-thread")
+        .time_limit(Duration::from_secs(30))
+        .expect_error("stillBlocked")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract, getFingerprint } from "@antithesishq/bombadil/browser";
+
+const fingerprint = extract((state) =>
+  getFingerprint(state.document.getElementById("target")),
+);
+const clicks = extract((state) =>
+  Number(state.document.getElementById("clicks")?.textContent ?? "0"),
+);
+
+export const click = actions(() => [
+  { Click: { fingerprint: fingerprint.current, point: { x: 400, y: 300 } } },
+]);
+
+export const stillBlocked = always(() => clicks.current < 3);
+"#,
+        )
+        .run();
+}

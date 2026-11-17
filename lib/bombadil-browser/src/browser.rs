@@ -1528,11 +1528,18 @@ fn capture_browser_state(
         }
         None if let Some(frame_control) = &context.frame_control => {
             log::info!("no frame available, forcing begin frame capture");
-            let Some(data) =
-                frame_control.paused(|| frame_control.capture())?
-            else {
-                log::debug!("begin frame produced no screenshot");
-                return retry_with_timer(state.shared, context);
+            // A frame can fail while the page is busy, so retry rather than
+            // ending the test.
+            let data = match frame_control.paused(|| frame_control.capture()) {
+                Ok(Some(data)) => data,
+                Ok(None) => {
+                    log::debug!("begin frame produced no screenshot");
+                    return retry_with_timer(state.shared, context);
+                }
+                Err(error) => {
+                    log::warn!("begin frame capture failed: {error:#}");
+                    return retry_with_timer(state.shared, context);
+                }
             };
             let data = base64::prelude::BASE64_STANDARD.decode(&data).map_err(
                 |e| anyhow!("begin frame base64 decode failed: {e}"),

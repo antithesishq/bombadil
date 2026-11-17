@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Blocked Main Thread Test</title>
+</head>
+<body>
+    <button id="target" style="position: absolute; left: 350px; top: 280px; width: 100px; height: 40px">Click</button>
+    <div id="clicks">0</div>
+    <script>
+        // Block the main thread for longer than a CDP command's timeout on
+        // the first mouse move, then count only the clicks after it.
+        let blocked = false;
+        let recovered = false;
+        document.addEventListener('mousemove', () => {
+            if (blocked) return;
+            blocked = true;
+            const request = new XMLHttpRequest();
+            request.open('GET', `http://127.0.0.1:${Number(location.port) + 1}/delay/7000`, false);
+            try { request.send(); } catch (error) {}
+            recovered = true;
+        });
+        const clicks = document.getElementById('clicks');
+        document.getElementById('target').addEventListener('click', () => {
+            if (recovered) clicks.textContent = String(Number(clicks.textContent) + 1);
+        });
+    </script>
+</body>
+</html>

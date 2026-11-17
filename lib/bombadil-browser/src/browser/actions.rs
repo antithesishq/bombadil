@@ -277,7 +277,6 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            // TODO: experiment, insert all text at once.
             BrowserAction::TypeText { text } => {
                 connection.send(
                     input::InsertTextParams::new(text.as_str()),
