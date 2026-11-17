@@ -1,5 +1,5 @@
 use std::{
-    io::{self, Read, Write},
+    io::{self, Cursor, Read, Write},
     mem::offset_of,
 };
 
@@ -171,13 +171,18 @@ impl RecordHeader {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PayloadLocation {
+    pub(crate) offset: u64,
+    pub(crate) chunk: Option<u64>,
+}
+
 /// A record read back from a trace.
 #[derive(Debug)]
 pub(crate) struct RawRecord {
     /// Position of the record in the trace, from 0.
     pub index: usize,
-    /// Byte offset of the payload in the trace file.
-    pub payload_offset: u64,
+    pub location: PayloadLocation,
     pub payload_length: usize,
     pub tag: u16,
     /// The payload, unless it was skipped.
@@ -194,6 +199,7 @@ pub(crate) struct RecordReader<R> {
     records_read: usize,
     offset: u64,
     failed: bool,
+    chunk: Option<(u64, Cursor<Vec<u8>>)>,
 }
 
 impl<R: Read> RecordReader<R> {
@@ -204,6 +210,7 @@ impl<R: Read> RecordReader<R> {
             records_read: 0,
             offset: crate::ENVELOPE_LEN as u64,
             failed: false,
+            chunk: None,
         }
     }
 
@@ -227,29 +234,65 @@ impl<R: Read> RecordReader<R> {
     }
 
     fn read_record(&mut self, keep_payload: bool) -> Result<Option<RawRecord>> {
-        let (header, read) = RecordHeader::read(&mut self.reader)?;
-        if read == 0 {
-            return Ok(None);
+        loop {
+            if self.chunk.as_ref().is_some_and(|(_, chunk)| {
+                chunk.position() == chunk.get_ref().len() as u64
+            }) {
+                self.chunk = None;
+            }
+            let (offset, chunk_offset, mut reader): (_, _, &mut dyn Read) =
+                match &mut self.chunk {
+                    Some((offset, chunk)) => {
+                        (chunk.position(), Some(*offset), chunk)
+                    }
+                    None => (self.offset, None, &mut self.reader),
+                };
+            let (header, read) = RecordHeader::read(&mut reader)?;
+            if read < RECORD_HEADER_LEN {
+                if chunk_offset.is_some() {
+                    bail!("compressed chunk ends inside a record header");
+                }
+                return Ok(if read == 0 { None } else { self.truncated() });
+            }
+            header.check()?;
+            if chunk_offset.is_some()
+                && matches!(header.tag, tag::CHUNK | tag::END)
+            {
+                bail!("invalid record inside compressed chunk");
+            }
+            let keep = keep_payload
+                || matches!(
+                    header.tag,
+                    tag::STATE | tag::STATE_WITH_PAYLOAD | tag::CHUNK
+                );
+            let Some(payload) = header.read_payload(&mut reader, keep)? else {
+                if chunk_offset.is_some() {
+                    bail!("compressed chunk ends inside a record");
+                }
+                return Ok(self.truncated());
+            };
+            if chunk_offset.is_none() {
+                self.offset += (RECORD_HEADER_LEN + header.length()) as u64;
+            }
+            if header.tag == tag::CHUNK {
+                let decoded =
+                    crate::chunk::decode(payload.as_deref().unwrap())?;
+                self.chunk = Some((offset, Cursor::new(decoded)));
+                continue;
+            }
+            let record = RawRecord {
+                index: self.records_read,
+                location: PayloadLocation {
+                    offset: offset + RECORD_HEADER_LEN as u64,
+                    chunk: chunk_offset,
+                },
+                payload_length: header.length(),
+                tag: header.tag,
+                payload,
+            };
+            self.records_read += 1;
+            return Ok(Some(record));
         }
-        if read < RECORD_HEADER_LEN {
-            return Ok(self.truncated());
-        }
-        header.check()?;
-        let keep = keep_payload
-            || matches!(header.tag, tag::STATE | tag::STATE_WITH_PAYLOAD);
-        let Some(payload) = header.read_payload(&mut self.reader, keep)? else {
-            return Ok(self.truncated());
-        };
-        let record = RawRecord {
-            index: self.records_read,
-            payload_offset: self.offset + RECORD_HEADER_LEN as u64,
-            payload_length: header.length(),
-            tag: header.tag,
-            payload,
-        };
-        self.records_read += 1;
-        self.offset += (RECORD_HEADER_LEN + header.length()) as u64;
-        Ok(Some(record))
     }
 
     /// Fails unless the input ends here, after the last record read.

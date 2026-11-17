@@ -506,7 +506,7 @@ fn extract_screenshot(
     state: &State<Box<RawValue>>,
     extracted: &mut Extracted,
 ) -> Result<Screenshot> {
-    let Some(offset) = state.payload_offset else {
+    let Some(location) = state.payload_location else {
         return Ok(Screenshot::Missing);
     };
     let format = read_browser_state(state.metadata.get()).screenshot;
@@ -518,7 +518,7 @@ fn extract_screenshot(
         }
         format => ("bin".to_string(), Some(format)),
     };
-    let screenshot = read_payload_from(trace, offset)
+    let screenshot = read_payload_from(trace, location)
         .with_context(|| format!("failed to read {}", trace_path.display()))?;
     std::fs::create_dir_all(directory)
         .with_context(|| format!("failed to create {}", directory.display()))?;
