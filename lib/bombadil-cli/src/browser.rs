@@ -43,7 +43,9 @@ use bombadil_browser::{
 };
 
 use crate::shrink::{self, ShrinkOptions};
-use crate::{browser_trace, duration, inspect_server, output_path};
+use crate::{
+    browser_trace, duration, fuzz_report, inspect_server, output_path,
+};
 
 const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
@@ -103,6 +105,8 @@ pub enum BrowserCommand {
         #[clap(flatten)]
         shared: RunSharedOptions,
         #[clap(flatten)]
+        test_options: TestOptions,
+        #[clap(flatten)]
         launch_options: ManagedBrowserOptions,
     },
     /// Run a test with an externally managed browser or Electron app (e.g. `chromium
@@ -111,6 +115,8 @@ pub enum BrowserCommand {
     TestExternal {
         #[clap(flatten)]
         shared: RunSharedOptions,
+        #[clap(flatten)]
+        test_options: TestOptions,
         /// Address to the remote debugger's server, e.g. http://localhost:9222
         #[arg(long)]
         remote_debugger: Url,
@@ -179,7 +185,10 @@ pub struct RunSharedOptions {
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
+}
 
+#[derive(Args)]
+pub struct TestOptions {
     /// Maximum time to run the test. Accepts a number with a unit suffix:
     /// s (seconds), m (minutes), h (hours), or d (days).
     #[arg(long, value_parser = duration::parse_duration)]
@@ -332,10 +341,10 @@ pub fn run(command: BrowserCommand) -> Result<()> {
     match command {
         BrowserCommand::Test {
             shared,
+            test_options,
             launch_options,
         } => {
             let downloads = downloads_directory()?;
-            let mode = resolve_test_mode(&shared)?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             log::info!(
                 "storing chromium/chrome user data in {}",
@@ -353,10 +362,10 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 browser_options_from_target(&shared.target, downloads.path());
             let debugger_options = launch_options.debugger_options()?;
             browser_test(
-                mode,
                 reproduce_args,
                 output_path,
                 shared,
+                test_options,
                 browser_options,
                 debugger_options,
                 downloads,
@@ -364,11 +373,11 @@ pub fn run(command: BrowserCommand) -> Result<()> {
         }
         BrowserCommand::TestExternal {
             shared,
+            test_options,
             remote_debugger,
             create_target,
         } => {
             let downloads = downloads_directory()?;
-            let mode = resolve_test_mode(&shared)?;
             let output_path =
                 output_path::resolve_output_path(&shared.output_path)?;
 
@@ -386,10 +395,10 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
             browser_test(
-                mode,
                 reproduce_args,
                 output_path,
                 shared,
+                test_options,
                 browser_options,
                 debugger_options,
                 downloads,
@@ -416,6 +425,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 browser_options,
                 debugger_options,
                 fuzz_options,
+                downloads,
             )
         }
         BrowserCommand::Shrink {
@@ -590,8 +600,8 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
-fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
-    match &shared_options.reproduce {
+fn resolve_test_mode(test_options: &TestOptions) -> Result<TestMode> {
+    match &test_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
             let actions: Vec<Recorded<BrowserAction>> =
@@ -657,23 +667,24 @@ impl CoverageSymbols {
 }
 
 fn browser_test(
-    mode: TestMode,
     reproduce_args: Vec<String>,
     output_path: PathBuf,
     shared_options: RunSharedOptions,
+    test_options: TestOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
     downloads: TempDir,
 ) -> Result<()> {
+    let mode = resolve_test_mode(&test_options)?;
     let (blocks, coverage_symbols) = CoverageSymbols::create(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
     )?;
     let specification = load_specification(&shared_options.target);
 
-    let is_reproduce = shared_options.reproduce.is_some();
+    let is_reproduce = test_options.reproduce.is_some();
 
-    if let Some(duration) = shared_options.time_limit {
+    if let Some(duration) = test_options.time_limit {
         log::info!(
             "test time limit set to {}",
             duration::format_duration(duration)
@@ -689,7 +700,7 @@ fn browser_test(
         browser_options,
         debugger_options,
         mode,
-        deadline: shared_options.time_limit.map(|d| SystemTime::now() + d),
+        deadline: test_options.time_limit.map(|d| SystemTime::now() + d),
         allow_urls,
         origin,
         exit_on_violation: shared_options.exit_on_violation,
@@ -781,6 +792,7 @@ fn browser_fuzz(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
     fuzz_options: FuzzOptions,
+    downloads: TempDir,
 ) -> Result<()> {
     if antithesis::is_in_guest() {
         bail!(
@@ -837,77 +849,20 @@ fn browser_fuzz(
         time_limit_run: fuzz_options.time_limit_run,
         swarm: fuzz_options.swarm,
         parallelism: fuzz_options.parallelism,
+        exit_on_violation: shared_options.exit_on_violation,
         output_writer,
     });
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
-    output_path::or_logged(result, written)?;
+    let result = output_path::or_logged(result, written)?;
 
-    // TODO: return result from `fuzz` that can be used to print something like the following:
-
-    /*
-    let heading = {
-        let TestResult {
-            exit_reason,
-            violations_count,
-        } = test_result;
-
-        let findings = match violations_count {
-            0 => "".into(),
-            1 => ", finding 1 violation".into(),
-            n => format!(", finding {n} violations"),
-        };
-
-        let heading = styled::maybe_bold(match exit_reason {
-            ExitReason::ExitOnViolation => {
-                format!("Test finished{findings}!",)
-            }
-            ExitReason::TimeLimit => {
-                format!("Test finished after time limit{findings}!")
-            }
-            ExitReason::Interrupted => {
-                format!("Test was interrupted by SIGINT{findings}!",)
-            }
-            ExitReason::Reproduced => {
-                format!("Reproduction finished{findings}!",)
-            }
-            ExitReason::AllDefinite => {
-                format!("Test finished with all properties definite{findings}!")
-            }
-        });
-
-        if violations_count > 0 {
-            styled::maybe_red(heading)
-        } else {
-            heading
-        }
-    };
-
-    let output_display = output_path.display();
-    let inspect_command = styled::maybe_italic(format!(
-        "bombadil browser inspect {output_display}"
-    ));
-    println!(
-        "\n{heading}\n\nInspect the test results using:\
-         \n\n  {inspect_command}\n",
+    print!(
+        "{}",
+        fuzz_report::render(&result, &output_path, "bombadil browser inspect")
     );
-    if !is_reproduce {
-        let reproduce_command = styled::maybe_italic(format!(
-            "bombadil {} --reproduce {output_display}",
-            reproduce_args.join(" "),
-        ));
-        println!(
-            "Reproduce this test using:\
-             \n\n  {reproduce_command}\n",
-        );
-    }
 
-    if test_result.violations_count > 0 {
-        std::process::exit(2);
-    }
-        */
-
-    Ok(())
+    downloads.close()?;
+    fuzz_report::exit(&result)
 }
 
 struct RunOptions {
