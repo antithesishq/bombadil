@@ -402,10 +402,8 @@ impl ActionGenerator {
         let value_tree: Tree<json::Value> = json::from_value(actions_json)
             .map_err(|error| {
                 SpecificationError::OtherError(format!(
-                    "failed to parse action tree from `{}`, {}: {}",
-                    self.name,
-                    error,
-                    value.display(),
+                    "action generator `{}` returned an invalid action tree: {}",
+                    self.name, error,
                 ))
             })?;
         value_tree.try_map(&mut |action_value| {
@@ -1246,6 +1244,31 @@ mod tests {
                     },
                 )],
             })
+        );
+    }
+
+    #[test]
+    fn test_action_generator_fractional_weight() {
+        let mut verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+
+            const nested = { branches: [[0.5, { value: 2 }]] };
+            const tree = { branches: [[1, { value: 1 }], [2, nested]] };
+
+            export const fractional = actions(() => tree);
+            "#,
+        );
+
+        let result: Result<StepResult<json::Value>> =
+            verifier.step(&[], time_from_millis(0));
+        assert_eq!(
+            result.err().map(|error| error.to_string()).as_deref(),
+            Some(
+                "action generator `fractional` returned an invalid action \
+                 tree: invalid weight 0.5, expected an integer between 0 and \
+                 65535 inclusive"
+            ),
         );
     }
 
