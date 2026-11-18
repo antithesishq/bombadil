@@ -1,9 +1,9 @@
 use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
@@ -15,13 +15,69 @@ use cdp_protocol::cdp::js_protocol::runtime::{
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
+use crate::browser::screenshots::FrameControl;
 use crate::geometry::Point;
 use crate::js_action::JsAction;
 use bombadil_browser_keys::{key_name, key_text};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ActionOptions {
     pub device_scale_factor: f64,
+    pub frame_control: Option<FrameControl>,
+}
+
+/// Scroll with a single wheel event.
+fn mouse_wheel(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    origin: Point,
+    delta_y: f64,
+) -> Result<()> {
+    mouse_event(
+        connection,
+        session_id,
+        options,
+        input::DispatchMouseEventParams::builder()
+            .r#type(input::DispatchMouseEventType::MouseWheel)
+            .x(origin.x)
+            .y(origin.y)
+            .delta_x(0.0)
+            .delta_y(delta_y)
+            .build()
+            .map_err(|err| anyhow!(err))?,
+    )
+}
+
+/// Dispatch a mouse event. When we do explicit frame control we request new frames
+/// until the event request is finished, or its deadline passes.
+fn mouse_event(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    params: input::DispatchMouseEventParams,
+) -> Result<()> {
+    match &options.frame_control {
+        Some(frame_control) => {
+            let pending = connection.request(params, Some(session_id))?;
+            while Instant::now() < pending.deadline() {
+                frame_control.frame()?;
+                if pending
+                    .wait_deadline(Instant::now() + Duration::from_millis(1))
+                    .context("mouse event response failed")?
+                    .is_some()
+                {
+                    return Ok(());
+                }
+            }
+            // Reports a timeout, unless the response arrived in time.
+            pending.wait()?;
+        }
+        None => {
+            connection.send(params, Some(session_id))?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -143,27 +199,13 @@ impl BrowserAction {
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(*distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, -distance,
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(-distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, *distance,
                 )?;
             }
             BrowserAction::Click { point, .. } => {
@@ -172,13 +214,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.send(
+                mouse_event(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -205,13 +249,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                connection.send(
+                mouse_event(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -230,12 +276,10 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::TypeText { text } => {
-                for char in text.chars() {
-                    connection.post(
-                        input::InsertTextParams::new(char),
-                        Some(session_id),
-                    )?;
-                }
+                connection.send(
+                    input::InsertTextParams::new(text.as_str()),
+                    Some(session_id),
+                )?;
             }
             BrowserAction::PressKey { code } => {
                 let Some(name) = key_name(*code) else {
@@ -335,13 +379,15 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    connection.send(
+                    mouse_event(
+                        connection,
+                        session_id,
+                        &options,
                         dispatch(
                             input::DispatchMouseEventType::MouseMoved,
                             point,
                             1,
                         )?,
-                        Some(session_id),
                     )?;
                 }
                 connection.send(

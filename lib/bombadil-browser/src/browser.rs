@@ -24,7 +24,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
-use crate::browser::screenshots::ScreencastFrame;
+use crate::browser::screenshots::{FrameControl, ScreencastFrame};
 use crate::browser::state::Generation;
 use crate::browser::state::{
     BrowserState, ConsoleEntry, Exception, Screenshot,
@@ -159,6 +159,7 @@ struct BrowserContext {
     frame_id: FrameId,
     session_id: SessionId,
     latest_frame: Arc<Mutex<Option<Arc<ScreencastFrame>>>>,
+    frame_control: Option<FrameControl>,
     #[allow(unused, reason = "this is going into the scripts soon")]
     origin: Url,
     browser_options: BrowserOptions,
@@ -197,25 +198,33 @@ impl Browser {
         let (browser_events_tx, browser_events_rx) =
             mpmc::bounded::<BrowserEvent>(1);
 
-        let (target_id, session_id) = if browser_options.create_target {
-            let target_id = connection
-                .send(target::CreateTargetParams::default(), None)?
-                .target_id;
-
-            let session_id = connection
-                .send(
-                    target::AttachToTargetParams {
-                        target_id: target_id.clone(),
-                        flatten: Some(true),
-                    },
-                    None,
-                )?
-                .session_id;
-
-            (target_id, session_id)
+        let (target_id, session_id, frame_control) = if browser_options
+            .create_target
+        {
+            let with_frame_control = if chromium.begin_frame_control {
+                create_target_with_frame_control(&connection)?
+            } else {
+                None
+            };
+            match with_frame_control {
+                Some((target_id, session_id, frame_control)) => {
+                    (target_id, session_id, Some(frame_control))
+                }
+                None => {
+                    let (target_id, session_id) = create_target(&connection)?;
+                    (target_id, session_id, None)
+                }
+            }
         } else {
-            find_page(&connection)?
+            let (target_id, session_id) = find_page(&connection)?;
+            (target_id, session_id, None)
         };
+        log::info!("frame control: {}", frame_control.is_some());
+
+        let terminated = Arc::new(AtomicBool::new(false));
+        if let Some(frame_control) = &frame_control {
+            frame_control.start_background_loop(terminated.clone());
+        }
 
         let frame_id = connection
             .send(page::GetFrameTreeParams::default(), Some(&session_id))?
@@ -225,12 +234,15 @@ impl Browser {
 
         let latest_frame = Arc::new(Mutex::new(None));
 
-        screenshots::screencast_start(
-            &connection,
-            &session_id,
-            browser_options.emulation.width,
-            browser_options.emulation.height,
-        )?;
+        if frame_control.is_none() {
+            screenshots::screencast_start(
+                &connection,
+                &session_id,
+                browser_options.emulation.width,
+                browser_options.emulation.height,
+                latest_frame.clone(),
+            )?;
+        }
 
         forward_inner_events(&connection, frame_id.clone(), events_tx.clone())?;
         // Observe new tabs and their opener IDs without attaching to them.
@@ -348,6 +360,7 @@ impl Browser {
             frame_id: frame_id.clone(),
             session_id: session_id.clone(),
             latest_frame,
+            frame_control,
             origin: origin.clone(),
             browser_options: browser_options.clone(),
         };
@@ -386,7 +399,6 @@ impl Browser {
             },
             shared: state_shared,
         };
-        let terminated = Arc::new(AtomicBool::new(false));
         run_state_machine(
             context,
             events_rx,
@@ -808,14 +820,29 @@ fn apply_action(
 ) {
     thread::spawn(move || {
         log::debug!("applying: {:?}", browser_action);
+        let begin_frame_control = action_options.frame_control.clone();
+        let apply = || {
+            browser_action.apply(
+                &connection,
+                &session_id,
+                execution_context_id,
+                action_options,
+            )
+        };
         let result =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                browser_action.apply(
-                    &connection,
-                    &session_id,
-                    execution_context_id,
-                    action_options,
-                )
+                // Pump frames overlapping discrete input events can get
+                // stuck, so built-in input pauses the pump and drives its own
+                // frames where needed. Custom JS may await
+                // requestAnimationFrame, so it keeps the pump running.
+                let pause_pump =
+                    !matches!(browser_action, BrowserAction::Custom { .. });
+                match &begin_frame_control {
+                    Some(begin_frame_control) if pause_pump => {
+                        begin_frame_control.paused(apply)
+                    }
+                    _ => apply(),
+                }
             }));
         match result {
             Ok(Ok(_)) => {
@@ -1096,6 +1123,7 @@ fn process_event(
                     .browser_options
                     .emulation
                     .device_scale_factor,
+                frame_control: context.frame_control.clone(),
             };
             // We can't block on running the action, in case it
             // synchronously throws an uncaught exception blocking the
@@ -1365,23 +1393,28 @@ fn start_quiescence_timer(
 ) -> Result<()> {
     let events_tx = context.events_tx.clone();
     let latest_frame = context.latest_frame.clone();
+    let frame_control = context.frame_control.is_some();
     quiescence::next_state(
         context.connection.clone(),
         context.session_id.clone(),
+        context.frame_control.clone(),
         move |result| {
             match result {
                 Ok(quiescence::QuiescedState { elapsed, frame }) => {
-                    if let Some(frame) = frame {
+                    if frame.is_none() {
                         log::debug!(
-                            "using screencast frame from quiesced state"
+                            "failed to select new frame for '{reason}' and generation {generation}"
                         );
+                    }
+                    // With frame control, the quiesced state's capture is the
+                    // only source of frames. Replace the frame even when the
+                    // capture failed, so that a frame from an earlier state
+                    // isn't reused. The screencast listener keeps the frame
+                    // current otherwise.
+                    if frame_control {
                         *latest_frame.lock().expect(
                             "failed to acquire lock from latest_frame",
-                        ) = Some(frame.clone());
-                    } else {
-                        log::debug!(
-                            "failed to select new screencast frame for '{reason}' and generation {generation}"
-                        );
+                        ) = frame;
                     }
                     log::debug!(
                         "quiescence timer ({reason}) fired for generation {generation} after {elapsed:?}"
@@ -1454,6 +1487,40 @@ fn capture_browser_state(
                 data: data.into(),
             });
         }
+        None if let Some(frame_control) = &context.frame_control => {
+            log::info!("no frame available, forcing begin frame capture");
+            // A frame can fail while the page is busy, so retry a few times
+            // rather than ending the test.
+            let capture = match frame_control.paused(|| frame_control.capture())
+            {
+                Ok(Some(data)) => Ok(data),
+                Ok(None) => Err(anyhow!("begin frame produced no screenshot")),
+                Err(error) => Err(error),
+            };
+            let data = match capture {
+                Ok(data) => data,
+                Err(error)
+                    if state.shared.capture_failures < CAPTURE_FAILURES_MAX =>
+                {
+                    log::warn!("begin frame capture failed: {error:#}");
+                    state.shared.capture_failures += 1;
+                    return retry_with_timer(state.shared, context);
+                }
+                Err(error) => {
+                    return Err(error.context(format!(
+                        "begin frame capture failed {} times in a row",
+                        state.shared.capture_failures + 1
+                    )));
+                }
+            };
+            let data = base64::prelude::BASE64_STANDARD.decode(&data).map_err(
+                |e| anyhow!("begin frame base64 decode failed: {e}"),
+            )?;
+            state.shared.screenshot = Some(Screenshot {
+                format: screenshots::SCREENSHOT_FORMAT,
+                data: data.into(),
+            });
+        }
         None => {
             log::info!("no screencast frame available, forcing screen capture");
             state.shared.screenshot = Some(screenshots::screenshot_capture(
@@ -1497,6 +1564,77 @@ fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
         }
         (r#type, _, _) => {
             json::Value::String(format!("<object of type {:?}>", r#type))
+        }
+    }
+}
+
+fn create_target(
+    connection: &cdp::Connection,
+) -> Result<(TargetId, SessionId)> {
+    let target_id = connection
+        .send(target::CreateTargetParams::default(), None)?
+        .target_id;
+    attach_to_target(connection, target_id)
+}
+
+fn attach_to_target(
+    connection: &cdp::Connection,
+    target_id: TargetId,
+) -> Result<(TargetId, SessionId)> {
+    let session_id = connection
+        .send(
+            target::AttachToTargetParams {
+                target_id: target_id.clone(),
+                flatten: Some(true),
+            },
+            None,
+        )?
+        .session_id;
+    Ok((target_id, session_id))
+}
+
+/// Create a target with begin frame control, or return `None` if the browser
+/// doesn't support it (e.g. chrome-headless-shell on macOS).
+///
+/// Some browsers accept the flag but then never produce frames, so a single
+/// frame is probed. A target that fails the probe is closed: it would
+/// otherwise only render when frames are requested, which nothing does once
+/// we fall back to screencast.
+fn create_target_with_frame_control(
+    connection: &cdp::Connection,
+) -> Result<Option<(TargetId, SessionId, FrameControl)>> {
+    let target_id = match connection.send(
+        target::CreateTargetParams {
+            enable_begin_frame_control: Some(true),
+            ..Default::default()
+        },
+        None,
+    ) {
+        Ok(result) => result.target_id,
+        Err(error) => {
+            log::debug!(
+                "creating target with begin frame control failed: {error:#}"
+            );
+            return Ok(None);
+        }
+    };
+    let (target_id, session_id) = attach_to_target(connection, target_id)?;
+    let frame_control =
+        FrameControl::new(connection.clone(), session_id.clone());
+    match frame_control.frame() {
+        Ok(_) => Ok(Some((target_id, session_id, frame_control))),
+        Err(error) => {
+            log::warn!(
+                "begin frame control unavailable, falling back to screencast: {error:#}"
+            );
+            if let Err(error) =
+                connection.send(target::CloseTargetParams::new(target_id), None)
+            {
+                log::warn!(
+                    "failed to close target without frame control: {error:#}"
+                );
+            }
+            Ok(None)
         }
     }
 }

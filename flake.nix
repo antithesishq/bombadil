@@ -128,6 +128,9 @@
 
         checks = {
           inherit (bombadil) clippy fmt npm-package tests-unit tests-browser;
+        }
+        // pkgs.lib.optionalAttrs (bombadil ? tests-browser-headless-shell) {
+          inherit (bombadil) tests-browser-headless-shell;
         };
 
         devShells = {
@@ -181,11 +184,8 @@
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
                   pkgs.chromium
+                  (pkgs.callPackage lib/nix/chrome-headless-shell.nix { })
                 ];
-            }
-            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-              # override how chromiumoxide finds the chromium executable
-              CHROME = pkgs.lib.getExe pkgs.chromium;
             }
           );
 
