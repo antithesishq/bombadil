@@ -2,15 +2,70 @@ use std::collections::VecDeque;
 
 use anyhow::{Result, anyhow};
 use rand::{RngExt, TryRng};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error};
 
 pub type Weight = u16;
 
 #[derive(PartialEq, Eq, Clone, Debug, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(
+    untagged,
+    try_from = "Node<T>",
+    bound(deserialize = "T: Deserialize<'de>")
+)]
 pub enum Tree<T> {
     Leaf { value: T },
     Branch { branches: Vec<(Weight, Tree<T>)> },
+}
+
+// Trees are read through this rather than as an untagged enum, for
+// better validation and error messages.
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "T: Deserialize<'de>"))]
+struct Node<T> {
+    value: Option<T>,
+    branches: Option<Vec<(WeightChecked, Tree<T>)>>,
+}
+
+impl<T> TryFrom<Node<T>> for Tree<T> {
+    type Error = &'static str;
+
+    fn try_from(node: Node<T>) -> Result<Self, Self::Error> {
+        match node {
+            Node {
+                value: Some(value), ..
+            } => Ok(Tree::Leaf { value }),
+            Node {
+                branches: Some(branches),
+                ..
+            } => Ok(Tree::Branch {
+                branches: branches
+                    .into_iter()
+                    .map(|(WeightChecked(weight), tree)| (weight, tree))
+                    .collect(),
+            }),
+            _ => Err("expected a tree with either `value` or `branches`"),
+        }
+    }
+}
+
+struct WeightChecked(Weight);
+
+impl<'de> Deserialize<'de> for WeightChecked {
+    fn deserialize<D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        let number = f64::deserialize(deserializer)?;
+        if number.fract() == 0.0 && (0.0..=Weight::MAX as f64).contains(&number)
+        {
+            Ok(Self(number as Weight))
+        } else {
+            Err(D::Error::custom(format_args!(
+                "invalid weight {number}, expected an integer between 0 and \
+                 {} inclusive",
+                Weight::MAX
+            )))
+        }
+    }
 }
 
 impl<T> Tree<T> {
@@ -224,9 +279,10 @@ impl<'a, T> Leaves<'a, T> {
 mod tests {
     use super::Tree::*;
     use super::{Tree, Weight};
-    use hegel::TestCase;
-    use hegel::generators::{booleans, integers};
+    use hegel::generators::{booleans, integers, one_of};
+    use hegel::{Generator, TestCase};
     use rand::{SeedableRng, rngs::StdRng};
+    use serde_json as json;
 
     hegel::pretty_print_as_debug!(Tree<usize>);
 
@@ -317,6 +373,76 @@ mod tests {
         let mut expected = vec![];
         let tree = subtree(tc, 3, pickable, 1.0, &mut expected);
         (tree, expected)
+    }
+
+    #[hegel::test]
+    fn json_round_trips(tc: TestCase) {
+        let pickable = tc.draw(booleans());
+        let (tree, _) = tc.draw(trees(pickable));
+
+        let value = json::to_value(&tree).unwrap();
+        assert_eq!(json::from_value::<Tree<usize>>(value).unwrap(), tree);
+    }
+
+    /// A number that is not a weight: negative, too large, or fractional.
+    #[hegel::composite]
+    fn weights_invalid(tc: &TestCase) -> json::Value {
+        tc.draw(
+            one_of([
+                integers::<i64>()
+                    .max_value(-1)
+                    .map(json::Value::from)
+                    .boxed(),
+                integers::<u64>()
+                    .min_value(Weight::MAX as u64 + 1)
+                    .map(json::Value::from)
+                    .boxed(),
+                integers::<Weight>()
+                    .map(|whole| json::Value::from(whole as f64 + 0.5))
+                    .boxed(),
+            ])
+            .print_as_debug(),
+        )
+    }
+
+    #[hegel::test]
+    fn json_with_invalid_weight_is_rejected(tc: TestCase) {
+        let (subtree, _) = tc.draw(trees(true));
+        // Wrapped so that there is always at least one weight.
+        let tree = Branch {
+            branches: vec![(tc.draw(weights(0)), subtree)],
+        };
+        let weight_invalid = tc.draw(weights_invalid().print_as_debug());
+
+        // Walk down to some weight and replace it.
+        let mut value = json::to_value(&tree).unwrap();
+        let mut node = &mut value;
+        loop {
+            let entries = node["branches"].as_array_mut().unwrap();
+            let index =
+                tc.draw(integers::<usize>().max_value(entries.len() - 1));
+            let entry = &mut entries[index];
+            let descend = entry[1]["branches"]
+                .as_array()
+                .is_some_and(|entries| !entries.is_empty())
+                && tc.draw(booleans());
+            if !descend {
+                entry[0] = weight_invalid.clone();
+                break;
+            }
+            node = &mut entry[1];
+        }
+
+        let error = json::from_value::<Tree<usize>>(value)
+            .expect_err("an invalid weight should be rejected");
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "invalid weight {}, expected an integer between 0 and 65535 \
+                 inclusive",
+                weight_invalid.as_f64().unwrap()
+            )
+        );
     }
 
     #[hegel::test]
