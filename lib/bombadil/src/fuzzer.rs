@@ -57,13 +57,17 @@ enum WorkerMessage<Session: InterfaceSession> {
         /// None for the last state of a run, which has no next action.
         action_selected: Option<Session::Action>,
     },
+    Failed {
+        run_id: RunId,
+        error: String,
+    },
 }
 
 #[derive(Debug)]
 struct Worker<D: InterfaceDriver> {
     worker_id: WorkerId,
     run_id: Option<RunId>,
-    handle: thread::JoinHandle<()>,
+    handle: thread::JoinHandle<Option<String>>,
     actions: RingBuffer<
         (
             Duration,
@@ -107,6 +111,35 @@ pub struct FuzzOptions<
     pub time_limit_run: Duration,
     pub swarm: bool,
     pub parallelism: NonZeroUsize,
+    pub exit_on_violation: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FuzzExitReason {
+    TimeLimit,
+    Interrupted,
+    ExitOnViolation,
+    WorkersPanicked,
+}
+
+#[derive(Debug)]
+pub struct FuzzResult {
+    pub exit_reason: FuzzExitReason,
+    pub runs_count: u64,
+    pub property_violation_run_ids: BTreeMap<String, BTreeSet<RunId>>,
+    pub runs_failed_count: u64,
+    pub run_failed_first: Option<(RunId, String)>,
+    pub worker_panics: Vec<String>,
+}
+
+impl FuzzResult {
+    pub fn violation_run_ids(&self) -> BTreeSet<RunId> {
+        self.property_violation_run_ids
+            .values()
+            .flatten()
+            .copied()
+            .collect()
+    }
 }
 
 pub fn fuzz<
@@ -125,9 +158,10 @@ pub fn fuzz<
         time_limit_run,
         swarm,
         parallelism,
+        exit_on_violation,
         output_writer,
     }: FuzzOptions<D, Writer, Rng, MakeStrategy>,
-) -> Result<()>
+) -> Result<FuzzResult>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
 {
@@ -168,7 +202,7 @@ where
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     fuzz_worker_thread.run()
                 }));
-            if let Err(payload) = outcome {
+            outcome.err().map(|payload| {
                 let message = payload
                     .downcast_ref::<&'static str>()
                     .map(|s| (*s).to_string())
@@ -177,7 +211,8 @@ where
                         "<non-string panic payload>".to_string()
                     });
                 log::error!("worker {worker_id} panicked: {message}");
-            }
+                message
+            })
         });
         workers.push(Worker {
             worker_id,
@@ -196,12 +231,20 @@ where
         property_violation_run_ids: BTreeMap::new(),
     }));
 
-    let render_loop_handle =
-        render_loop_spawn(interrupted.clone(), fuzz_state.clone());
+    let finished = Arc::new(AtomicBool::new(false));
+    let render_loop_handle = render_loop_spawn(
+        interrupted.clone(),
+        finished.clone(),
+        fuzz_state.clone(),
+    );
 
-    while let Ok(message) = worker_rx.recv()
-        && !interrupted.load(Ordering::SeqCst)
-    {
+    let mut runs_count = 0;
+    let mut exit_reason = None;
+    let mut runs_failed_count = 0;
+    let mut run_failed_first = None;
+    // Runs until every worker has stopped, so that no message is lost when
+    // the campaign is interrupted.
+    while let Ok(message) = worker_rx.recv() {
         match message {
             WorkerMessage::Start {
                 worker_id: WorkerId(worker_index),
@@ -210,6 +253,7 @@ where
                 let mut state =
                     fuzz_state.write().expect("failed to acquire state lock");
                 state.workers[worker_index].reset(run_id);
+                runs_count += 1;
             }
             WorkerMessage::Step {
                 worker_id: WorkerId(worker_index),
@@ -228,6 +272,13 @@ where
                 }
                 state.workers[worker_index].violations_count +=
                     violations.len() as u64;
+                if exit_on_violation
+                    && !violations.is_empty()
+                    && exit_reason.is_none()
+                    && !interrupted.swap(true, Ordering::SeqCst)
+                {
+                    exit_reason = Some(FuzzExitReason::ExitOnViolation);
+                }
                 for violation in violations {
                     log::info!(
                         "{}/{}, violation of {}: {:?}",
@@ -243,43 +294,67 @@ where
                         .insert(run_id);
                 }
             }
+            WorkerMessage::Failed { run_id, error } => {
+                runs_failed_count += 1;
+                run_failed_first.get_or_insert((run_id, error));
+            }
         };
     }
 
-    interrupted.store(true, Ordering::SeqCst);
-    println!("Shutting down...");
-
+    let was_interrupted = interrupted.swap(true, Ordering::SeqCst);
+    finished.store(true, Ordering::SeqCst);
     render_loop_handle
         .join()
         .map_err(|_| anyhow!("render loop thread panicked"))??;
 
-    {
-        let state = Arc::try_unwrap(fuzz_state)
-            .unwrap_or_else(|_| panic!("fuzz state still has outstanding refs"))
-            .into_inner()
-            .expect("failed to get inner fuzz state");
-        for worker in state.workers {
-            worker
-                .handle
-                .join()
-                .map_err(|_| anyhow!("fuzz run thread panicked"))?;
-        }
+    let state = Arc::try_unwrap(fuzz_state)
+        .unwrap_or_else(|_| panic!("fuzz state still has outstanding refs"))
+        .into_inner()
+        .expect("failed to get inner fuzz state");
+    let mut worker_panics = Vec::new();
+    for worker in state.workers {
+        let panic = worker
+            .handle
+            .join()
+            .map_err(|_| anyhow!("fuzz run thread panicked"))?;
+        worker_panics.extend(panic);
     }
 
-    Ok(())
+    let exit_reason = exit_reason.unwrap_or(if was_interrupted {
+        FuzzExitReason::Interrupted
+    } else if worker_panics.len() == parallelism.get() {
+        FuzzExitReason::WorkersPanicked
+    } else {
+        FuzzExitReason::TimeLimit
+    });
+
+    Ok(FuzzResult {
+        exit_reason,
+        runs_count,
+        property_violation_run_ids: state.property_violation_run_ids,
+        runs_failed_count,
+        run_failed_first,
+        worker_panics,
+    })
 }
 
 fn render_loop_spawn<D: InterfaceDriver + 'static>(
     interrupted: Arc<AtomicBool>,
+    finished: Arc<AtomicBool>,
     state: Arc<RwLock<FuzzState<D>>>,
 ) -> thread::JoinHandle<Result<()>>
 where
     <<D as InterfaceDriver>::Session as InterfaceSession>::Action: Send + Sync,
 {
     thread::spawn(move || {
-        while !interrupted.load(Ordering::SeqCst) {
+        loop {
             thread::sleep(Duration::from_millis(100));
-            let Ok(state) = state.try_read() else {
+            let last = finished.load(Ordering::SeqCst);
+            let state = if last {
+                state.read().expect("failed to acquire state lock")
+            } else if let Ok(state) = state.try_read() {
+                state
+            } else {
                 log::warn!("failed to acquire state lock, skipping render");
                 continue;
             };
@@ -364,10 +439,16 @@ where
                 }
             }
 
+            if !last && interrupted.load(Ordering::SeqCst) {
+                writeln!(buffer, "\nShutting down...")?;
+            }
+
             print!("{}", buffer);
             std::io::stdout().flush()?;
+            if last {
+                return Ok(());
+            }
         }
-        Ok(())
     })
 }
 
@@ -440,15 +521,15 @@ impl<
                 mode,
                 excluded: RefCell::default(),
             };
-            let mut trace_writer = {
-                let mut output_writer = self
-                    .output_writer
-                    .lock()
-                    .expect("failed to acquire lock for output writer");
-                output_writer
-                    .trace_writer(run_id)
-                    .expect("initializing trace writer failed")
-            };
+            // Panicking with the lock held would poison it for the other
+            // workers.
+            let trace_writer = self
+                .output_writer
+                .lock()
+                .expect("failed to acquire lock for output writer")
+                .trace_writer(run_id);
+            let mut trace_writer =
+                trace_writer.expect("initializing trace writer failed");
 
             if let Err(error) = self.worker_tx.send(WorkerMessage::Start {
                 worker_id: self.worker_id,
@@ -469,6 +550,14 @@ impl<
                 "worker {} finished runner::run (iteration={iteration}, run_id={run_id}, result={result:?})",
                 self.worker_id,
             );
+            if let Err(error) = result
+                && let Err(error) = self.worker_tx.send(WorkerMessage::Failed {
+                    run_id,
+                    error: format!("{error:#}"),
+                })
+            {
+                log::error!("failed to send worker message: {:#}", error);
+            }
 
             if log::log_enabled!(log::Level::Debug) && self.swarm {
                 for (hash, templates) in strategy.excluded.into_inner() {
@@ -617,17 +706,22 @@ impl<
         properties: PropertiesState<'_>,
     ) -> anyhow::Result<ControlFlow<Self::StopValue, Picked<Session::Action>>>
     {
+        // The last state of a run can still violate properties, whichever
+        // way the run stops.
+        let violations = properties.violations.to_vec();
+
         if properties.all_definite {
             log::info!("all properties are definite, stopping");
+            self.send_step(state, None, violations);
             return Ok(ControlFlow::Stop(ExitReason::AllDefinite));
         }
 
         if state.timestamp() >= self.test_deadline {
             log::info!("time limit reached, stopping");
+            self.send_step(state, None, violations);
             return Ok(ControlFlow::Stop(ExitReason::TimeLimit));
         }
 
-        let violations = properties.violations.to_vec();
         if let ControlFlow::Stop(_) = self.inner.on_new_state(
             state,
             leaves,
@@ -636,8 +730,6 @@ impl<
             properties,
         )? {
             log::info!("wrapped strategy stopped, stopping");
-            // The last state can still violate properties, e.g. when the
-            // program printed a panic and exited.
             self.send_step(state, None, violations);
             return Ok(ControlFlow::Stop(ExitReason::Stopped));
         }

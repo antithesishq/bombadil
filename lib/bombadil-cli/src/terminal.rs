@@ -24,6 +24,7 @@ use bombadil_terminal::trace::{
 use bombadil_terminal::{TerminalStrategy, TerminalTestMode};
 
 use crate::duration;
+use crate::fuzz_report;
 use crate::output_path::resolve_output_path;
 use crate::shrink::{self, ShrinkOptions};
 
@@ -360,7 +361,7 @@ pub fn run(command: Command) {
         }
         Command::Fuzz {
             specification_file,
-            exit_on_violation: _,
+            exit_on_violation,
             time_limit_run,
             time_limit_fuzz,
             swarm,
@@ -416,7 +417,7 @@ pub fn run(command: Command) {
                     })?;
                 }
 
-                fuzzer::fuzz(FuzzOptions {
+                let result = fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
                     strategy: || TerminalStrategy {
@@ -434,10 +435,19 @@ pub fn run(command: Command) {
                     time_limit_run,
                     swarm,
                     parallelism,
+                    exit_on_violation,
                     output_writer,
                 })?;
 
-                Ok(())
+                print!(
+                    "{}",
+                    fuzz_report::render(
+                        &result,
+                        &output_path,
+                        "bombadil trace"
+                    )
+                );
+                fuzz_report::exit(&result)
             };
 
             if let Err(error) = run_fuzz() {
