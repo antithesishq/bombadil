@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
@@ -50,7 +50,7 @@ fn mouse_wheel(
 }
 
 /// Dispatch a mouse event. When we do explicit frame control we request new frames
-/// until the event request is finished.
+/// until the event request is finished, or its deadline passes.
 fn mouse_event(
     connection: &cdp::Connection,
     session_id: &SessionId,
@@ -60,20 +60,18 @@ fn mouse_event(
     match &options.frame_control {
         Some(frame_control) => {
             let pending = connection.request(params, Some(session_id))?;
-            loop {
+            while Instant::now() < pending.deadline() {
                 frame_control.frame()?;
-                match pending
+                if pending
                     .wait_deadline(Instant::now() + Duration::from_millis(1))
+                    .context("mouse event response failed")?
+                    .is_some()
                 {
-                    Ok(Some(_)) => {
-                        break;
-                    }
-                    Ok(None) => continue, // timeout
-                    Err(error) => {
-                        bail!("mouse move response failed: {error}")
-                    }
+                    return Ok(());
                 }
             }
+            // Reports a timeout, unless the response arrived in time.
+            pending.wait()?;
         }
         None => {
             connection.send(params, Some(session_id))?;

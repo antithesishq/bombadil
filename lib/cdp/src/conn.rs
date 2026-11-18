@@ -116,6 +116,11 @@ impl<T: Command> PendingResponse<T> {
         }
     }
 
+    /// The response deadline, set at submission.
+    pub fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
     /// Wait until `deadline` for the response, returning `None` if it has not
     /// arrived yet. The handle stays usable, and a received response is always
     /// returned, so polling never loses one.
