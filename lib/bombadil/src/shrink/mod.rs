@@ -23,7 +23,7 @@ use crossbeam_channel as mpmc;
 
 use crate::{
     driver::{InterfaceDriver, InterfaceSession, RunId, TraceWriter},
-    model::{Picked, accepting_key},
+    model::{Picked, Recorded, accepting_key},
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
     specification::domain::Snapshot,
     tree::{Leaves, Tree},
@@ -343,7 +343,7 @@ struct WorkerShared<Driver: InterfaceDriver, MakeStrategy, MakeWriter> {
     driver: Arc<Driver>,
     strategy: MakeStrategy,
     trace_writer: MakeWriter,
-    actions: Arc<[<Driver::Session as InterfaceSession>::Action]>,
+    actions: Arc<[Recorded<<Driver::Session as InterfaceSession>::Action>]>,
     property_name: String,
     bound: Arc<AtomicUsize>,
     interrupted: Arc<AtomicBool>,
@@ -394,7 +394,7 @@ where
 struct ShrinkStrategy<'a, Session: InterfaceSession, Inner> {
     inner: Inner,
     property_name: &'a str,
-    actions: &'a [Session::Action],
+    actions: &'a [Recorded<Session::Action>],
     candidate: &'a [u32],
     position: usize,
     executed: Vec<u32>,
@@ -434,19 +434,19 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
 
         while let Some(&index) = self.candidate.get(self.position) {
             self.position += 1;
-            let action = &self.actions[index as usize];
-            if let Some(template) = accepting_key(leaves, action) {
+            let recorded = &self.actions[index as usize];
+            if let Some(template) = accepting_key(leaves, recorded) {
                 if self.executed.len() + 1 >= self.bound.load(Ordering::SeqCst)
                 {
                     return Ok(ControlFlow::Stop(RunOutcome::Pruned));
                 }
                 self.executed.push(index);
                 return Ok(ControlFlow::Continue(Picked {
-                    action: action.clone(),
+                    action: recorded.action.clone(),
                     template,
                 }));
             }
-            log::debug!("skipping unavailable action: {:?}", action);
+            log::debug!("skipping unavailable action: {:?}", recorded.action);
         }
         Ok(ControlFlow::Stop(RunOutcome::NotReproduced))
     }

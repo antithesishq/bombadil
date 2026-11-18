@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, accepting_key};
+use bombadil::model::{Picked, Recorded, accepting_key};
 use bombadil::render::Formatted;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::convert::ToSchema;
@@ -30,7 +30,7 @@ pub mod trace;
 
 pub enum TerminalTestMode {
     RandomWalk,
-    Reproduce(VecDeque<TerminalAction>),
+    Reproduce(VecDeque<Recorded<TerminalAction>>),
 }
 
 pub struct TerminalStrategy<Rng: TryRng> {
@@ -63,7 +63,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
                 })?;
                 if let Some(template) = accepting_key(leaves, &original) {
                     Ok(Picked {
-                        action: original,
+                        action: original.action,
                         template,
                     })
                 } else {
@@ -74,7 +74,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
                         .collect();
                     bail!(
                         "reproduce: action {:?} not produced by the spec at this state:\n\n{:?}",
-                        original,
+                        original.action,
                         available
                     );
                 }

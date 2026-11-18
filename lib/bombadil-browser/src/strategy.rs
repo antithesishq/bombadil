@@ -4,7 +4,7 @@ use crate::match_pattern::MatchPattern;
 use crate::url::parse_browser_url;
 use anyhow::{Result, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, accepting_key};
+use bombadil::model::{Picked, Recorded, accepting_key};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
@@ -26,7 +26,7 @@ use bombadil_schema::markup;
 
 pub enum TestMode {
     RandomWalk,
-    Reproduce(VecDeque<BrowserAction>),
+    Reproduce(VecDeque<Recorded<BrowserAction>>),
 }
 
 pub struct TestStrategy<Rng> {
@@ -106,13 +106,11 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
                 Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
             TestMode::Reproduce(actions_original) => {
-                if let Some(action_original) = actions_original.pop_front() {
+                if let Some(original) = actions_original.pop_front() {
                     let available_actions = leaves.as_slice();
-                    if let Some(template) =
-                        accepting_key(leaves, &action_original)
-                    {
+                    if let Some(template) = accepting_key(leaves, &original) {
                         Ok(Picked {
-                            action: action_original,
+                            action: original.action,
                             template,
                         })
                     } else {
@@ -121,7 +119,7 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
                             styled::maybe_red(styled::maybe_bold(
                                 "no match for original:".into()
                             )),
-                            Formatted(&action_original),
+                            Formatted(&original.action),
                             styled::maybe_red(styled::maybe_bold(
                                 "in the set of available actions:".into()
                             )),
@@ -259,5 +257,52 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             exit_reason: ExitReason::Interrupted,
             violations_count: self.violations_count,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil::model::action_key;
+    use bombadil::specification::generators::StringGenerator;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    /// The recorded key wins over an earlier template that also accepts
+    /// the action.
+    #[test]
+    fn reproduced_action_keeps_its_recorded_template() {
+        let text: BrowserActionTemplate = BrowserAction::TypeText {
+            text: StringGenerator::Text { length: 1..=100 },
+        };
+        let email: BrowserActionTemplate = BrowserAction::TypeText {
+            text: StringGenerator::Email,
+        };
+        let picked = Picked {
+            action: BrowserAction::TypeText {
+                text: "tom@example.com".to_string(),
+            },
+            template: action_key(&email),
+        };
+        let tree = Tree::Branch {
+            branches: vec![
+                (1, Tree::Leaf { value: text }),
+                (1, Tree::Leaf { value: email }),
+            ],
+        };
+        let recorded = Recorded {
+            action: picked.action.clone(),
+            template: Some(picked.template),
+        };
+        let mut strategy = TestStrategy {
+            rng: StdRng::seed_from_u64(0),
+            mode: TestMode::Reproduce([recorded].into()),
+            exit_on_violation: false,
+            test_start: None,
+            deadline: None,
+            allow_urls: vec![],
+            violations_count: 0,
+            quiet: true,
+        };
+        assert_eq!(strategy.pick_action(&tree.leaves()).unwrap(), picked);
     }
 }

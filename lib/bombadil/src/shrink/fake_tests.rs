@@ -28,7 +28,7 @@ use crate::{
         ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
         InterfaceSession, RunId, RunState, TraceWriter,
     },
-    model::Picked,
+    model::{Picked, Recorded, action_key},
     render::Format,
     runner::{ControlFlow, PropertiesState, PropertyViolation, RunStrategy},
     specification::{bundler::bundle, domain::Snapshot, verifier::Verifier},
@@ -64,24 +64,50 @@ impl Format for FakeAction {
     }
 }
 
-impl ActionTemplate<FakeAction> for FakeAction {
+/// Every action has two templates with different keys. Both accept it, so
+/// only the recorded key tells them apart.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+struct FakeTemplate {
+    action: FakeAction,
+    twin: bool,
+}
+
+impl FakeTemplate {
+    /// The template these tests record for `action`: the first twin for
+    /// the lower half of the alphabet, the second for the rest.
+    fn recorded_for(action: FakeAction) -> Self {
+        FakeTemplate {
+            action,
+            twin: action.0 >= ALPHABET_SIZE / 2,
+        }
+    }
+}
+
+impl Format for FakeTemplate {
+    fn format(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "template of action {}", self.action.0)
+    }
+}
+
+impl ActionTemplate<FakeAction> for FakeTemplate {
     fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
         _rng: &mut Rng,
     ) -> FakeAction {
-        *self
+        self.action
     }
 
     fn accepts(&self, original: &FakeAction) -> bool {
-        self == original
+        self.action == *original
     }
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H) {
-        hasher.write_u8(self.0)
+        hasher.write_u8(self.action.0);
+        hasher.write_u8(u8::from(self.twin));
     }
 }
 
-impl FromGeneratedAction for FakeAction {
+impl FromGeneratedAction for FakeTemplate {
     fn from_generated(value: json::Value) -> Result<Self> {
         Ok(json::from_value(value)?)
     }
@@ -166,7 +192,7 @@ struct FakeSession {
 
 impl InterfaceSession for FakeSession {
     type Action = FakeAction;
-    type ActionTemplate = FakeAction;
+    type ActionTemplate = FakeTemplate;
     type State = FakeState;
 
     const STALL_TIMEOUT: Duration = Duration::from_secs(1);
@@ -229,7 +255,7 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn on_new_state(
         &mut self,
         state: &FakeState,
-        leaves: &Leaves<'_, FakeAction>,
+        leaves: &Leaves<'_, FakeTemplate>,
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _properties: PropertiesState,
@@ -238,10 +264,9 @@ impl RunStrategy<FakeSession> for FakeStrategy {
             return Ok(ControlFlow::Stop(()));
         }
         match leaves.as_slice().first() {
-            Some(&(action, _)) => Ok(ControlFlow::Continue(Picked::generate(
-                action,
-                &mut rand::rng(),
-            ))),
+            Some(&(template, _)) => Ok(ControlFlow::Continue(
+                Picked::generate(template, &mut rand::rng()),
+            )),
             None => Ok(ControlFlow::Stop(())),
         }
     }
@@ -265,9 +290,9 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn constrain(
         &self,
         state: &FakeState,
-        tree: Tree<FakeAction>,
-    ) -> Tree<FakeAction> {
-        tree.filter(&|action| state.available(action.0))
+        tree: Tree<FakeTemplate>,
+    ) -> Tree<FakeTemplate> {
+        tree.filter(&|template| state.available(template.action.0))
     }
 }
 
@@ -289,7 +314,7 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
         _state: &FakeState,
         _snapshots: &[Snapshot],
         violations: &[PropertyViolation],
-        _actions_available: &Leaves<'_, FakeAction>,
+        _actions_available: &Leaves<'_, FakeTemplate>,
         action_previous: Option<&Picked<FakeAction>>,
     ) -> Result<()> {
         let last_action = action_previous.map(|picked| &picked.action);
@@ -297,8 +322,12 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
             .iter()
             .map(|violation| json::json!({ "name": violation.name }))
             .collect();
-        let metadata =
-            json::json!({ "action": last_action, "violations": names });
+        let action_taken = action_previous.map(|picked| picked.template);
+        let metadata = json::json!({
+            "action": last_action,
+            "state": { "action_taken": action_taken },
+            "violations": names,
+        });
         self.0.write_state(metadata, None)
     }
 
@@ -307,14 +336,29 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
     }
 }
 
+/// `action` as loaded from a trace, credited to
+/// [`FakeTemplate::recorded_for`].
+fn recorded(action: FakeAction) -> Recorded<FakeAction> {
+    Recorded {
+        action,
+        template: Some(action_key(&FakeTemplate::recorded_for(action))),
+    }
+}
+
 fn bundle_code() -> &'static str {
     static BUNDLE_CODE: OnceLock<String> = OnceLock::new();
     BUNDLE_CODE.get_or_init(|| {
-        let alphabet: Vec<u8> = (0..ALPHABET_SIZE).collect();
+        let templates: Vec<String> = (0..ALPHABET_SIZE)
+            .flat_map(|action| {
+                [false, true]
+                    .map(|twin| format!("{{ action: {action}, twin: {twin} }}"))
+            })
+            .collect();
+        let templates = templates.join(", ");
         let specification = format!(
             r#"
             import {{ actions, always, extract }} from "@antithesishq/bombadil";
-            export const _actions = actions(() => {alphabet:?});
+            export const _actions = actions(() => [{templates}]);
             const bug = extract((state) => state);
             export const {PROPERTY_NAME} = always(() => !bug.current);
             "#
@@ -359,7 +403,7 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
         actions: executed
             .iter()
             .chain(&tail)
-            .map(|&action| FakeAction(action))
+            .map(|&action| recorded(FakeAction(action)))
             .collect(),
         violations_earliest: BTreeMap::from([(
             PROPERTY_NAME.to_string(),
@@ -439,9 +483,16 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
     let shrunk =
         load_trace_actions::<FakeAction>(&output.path().join("result.custom"))
             .unwrap();
-    let shrunk_actions: Vec<u8> =
-        shrunk.actions.iter().map(|action| action.0).collect();
+    let shrunk_actions: Vec<u8> = shrunk
+        .actions
+        .iter()
+        .map(|recorded| recorded.action.0)
+        .collect();
     assert_eq!(shrunk_actions.len(), result.trace_length_shrunk);
+    // Same credit as in the original trace, though both twins accept.
+    for replayed in &shrunk.actions {
+        assert_eq!(replayed, &recorded(replayed.action));
+    }
     assert_eq!(
         shrunk.violations_earliest.get(PROPERTY_NAME),
         Some(&shrunk_actions.len()),
@@ -492,7 +543,10 @@ fn shrink_actions_with_writer(
     let triggers = BTreeSet::from([1]);
     let executed = replay(original, &triggers).expect("bug is triggered");
     let trace = TraceActions {
-        actions: executed.iter().map(|&action| FakeAction(action)).collect(),
+        actions: executed
+            .iter()
+            .map(|&action| recorded(FakeAction(action)))
+            .collect(),
         violations_earliest: BTreeMap::from([(
             PROPERTY_NAME.to_string(),
             executed.len(),
