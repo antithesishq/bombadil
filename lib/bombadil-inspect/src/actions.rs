@@ -126,7 +126,7 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                             <span class="action-name">{"Press"}</span>
                             <span>{format!(
                                 "{modifiers}{}",
-                                key_name(*code, modifiers.shift)
+                                key_name(*code, false)
                                     .unwrap_or("Unknown")
                             )}</span>
                         </>

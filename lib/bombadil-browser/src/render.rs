@@ -80,7 +80,7 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                 )
             }
             BrowserAction::PressKey { code, modifiers } => {
-                let key = key_name(*code, modifiers.shift).unwrap_or("Unknown");
+                let key = key_name(*code, false).unwrap_or("Unknown");
                 write!(
                     f,
                     "{} {modifiers}{key} (code: {})",
@@ -168,16 +168,32 @@ mod tests {
     use super::*;
     use bombadil_schema::browser::KeyModifiers;
 
+    fn render_press_key(code: u8, modifiers: KeyModifiers) -> String {
+        let action: BrowserAction = BrowserAction::PressKey { code, modifiers };
+        Formatted(&action).to_string()
+    }
+
     #[test]
-    fn press_key_renders_modifiers_and_shifted_key() {
-        let action: BrowserAction = BrowserAction::PressKey {
-            code: 77,
-            modifiers: KeyModifiers {
-                shift: true,
-                ..KeyModifiers::default()
-            },
+    fn press_key_renders_modifiers_with_unshifted_key() {
+        let shift = KeyModifiers {
+            shift: true,
+            ..KeyModifiers::default()
         };
-        let rendered = Formatted(&action).to_string();
-        assert!(rendered.contains(" Shift+M (code: "), "{rendered:?}");
+        let rendered = render_press_key(49, shift);
+        assert!(rendered.contains(" Shift+1 (code: "), "{rendered:?}");
+
+        let ctrl_shift = KeyModifiers {
+            ctrl: true,
+            shift: true,
+            ..KeyModifiers::default()
+        };
+        let rendered = render_press_key(77, ctrl_shift);
+        assert!(rendered.contains(" Ctrl+Shift+m (code: "), "{rendered:?}");
+    }
+
+    #[test]
+    fn press_key_renders_plain_key_without_modifiers() {
+        let rendered = render_press_key(13, KeyModifiers::default());
+        assert!(rendered.contains(" Enter (code: "), "{rendered:?}");
     }
 }
