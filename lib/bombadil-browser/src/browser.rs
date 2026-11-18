@@ -240,6 +240,7 @@ impl Browser {
                 &session_id,
                 browser_options.emulation.width,
                 browser_options.emulation.height,
+                latest_frame.clone(),
             )?;
         }
 
@@ -1392,6 +1393,7 @@ fn start_quiescence_timer(
 ) -> Result<()> {
     let events_tx = context.events_tx.clone();
     let latest_frame = context.latest_frame.clone();
+    let frame_control = context.frame_control.is_some();
     quiescence::next_state(
         context.connection.clone(),
         context.session_id.clone(),
@@ -1399,17 +1401,20 @@ fn start_quiescence_timer(
         move |result| {
             match result {
                 Ok(quiescence::QuiescedState { elapsed, frame }) => {
-                    if let Some(frame) = frame {
+                    if frame.is_none() {
                         log::debug!(
-                            "using screencast frame from quiesced state"
+                            "failed to select new frame for '{reason}' and generation {generation}"
                         );
+                    }
+                    // With frame control, the quiesced state's capture is the
+                    // only source of frames. Replace the frame even when the
+                    // capture failed, so that a frame from an earlier state
+                    // isn't reused. The screencast listener keeps the frame
+                    // current otherwise.
+                    if frame_control {
                         *latest_frame.lock().expect(
                             "failed to acquire lock from latest_frame",
-                        ) = Some(frame.clone());
-                    } else {
-                        log::debug!(
-                            "failed to select new screencast frame for '{reason}' and generation {generation}"
-                        );
+                        ) = frame;
                     }
                     log::debug!(
                         "quiescence timer ({reason}) fired for generation {generation} after {elapsed:?}"

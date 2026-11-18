@@ -214,6 +214,7 @@ pub fn screencast_start(
     session_id: &SessionId,
     width: u16,
     height: u16,
+    latest_frame: Arc<Mutex<Option<Arc<ScreencastFrame>>>>,
 ) -> Result<()> {
     let frames = connection.events.subscribe::<page::EventScreencastFrame>();
 
@@ -240,6 +241,24 @@ pub fn screencast_start(
                         "screencast: frame received (session_id={}), acking",
                         event.session_id
                     );
+                    // Chrome only sends a frame when something on screen
+                    // changed, so the newest frame is still accurate until
+                    // the next one arrives.
+                    let timestamp = event
+                        .metadata
+                        .timestamp
+                        .map(|timestamp| {
+                            UNIX_EPOCH
+                                + Duration::from_secs_f64(*timestamp.inner())
+                        })
+                        .unwrap_or_else(SystemTime::now);
+                    *latest_frame
+                        .lock()
+                        .map_err(|_| anyhow!("latest frame lock poisoned"))? =
+                        Some(Arc::new(ScreencastFrame {
+                            timestamp,
+                            data: event.data,
+                        }));
                     connection.post(
                         page::ScreencastFrameAckParams::new(event.session_id),
                         Some(&session_id),
