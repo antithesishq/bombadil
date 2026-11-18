@@ -299,6 +299,90 @@ jobs:
           name: inspect-test-output-${{ matrix.mode }}
           path: inspect-test-output/
 
+  fuzz-test:
+    name: Fuzz test (${{ matrix.os }})
+    needs: [build-x86_64-linux, build-aarch64-darwin]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bombadil-x86_64-linux
+          - os: macos-15
+            artifact: bombadil-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+        if: runner.os == 'Linux'
+        with:
+          chrome-version: stable
+      - if: runner.os == 'Linux'
+        run: echo "CHROME=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+      - name: Fuzz a page without violations
+        run: |
+          chmod +x bombadil
+          mkdir fuzz-test-output
+          ./bombadil browser fuzz --headless --no-sandbox \
+            --parallelism 2 \
+            --time-limit-fuzz 20s \
+            --time-limit-run 5s \
+            --output-path fuzz-test-output/clean.bin \
+            lib/bombadil-browser-integration-tests/tests/links/a.html
+          test -s fuzz-test-output/clean-0.bin
+      - name: Fuzz a page with a violation
+        run: |
+          code=0
+          ./bombadil browser fuzz --headless --no-sandbox \
+            --parallelism 2 \
+            --exit-on-violation \
+            --time-limit-fuzz 1m \
+            --time-limit-run 10s \
+            --output-path fuzz-test-output/violation.bin \
+            lib/bombadil-browser-integration-tests/tests/console-error/index.html \
+            > fuzz.out || code=$?
+          cat fuzz.out
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit code 2, got $code" >&2
+            exit 1
+          fi
+          trace=$(grep -o 'fuzz-test-output/violation-[0-9]*\.bin' fuzz.out | tail -n 1)
+          ./bombadil trace "$trace" | grep violated
+      - name: Fuzz terminal programs with and without a violation
+        run: |
+          ./bombadil terminal fuzz \
+            --time-limit-fuzz 10s \
+            --time-limit-run 2s \
+            --output-path fuzz-test-output/terminal-clean.bin \
+            -- cat
+          test -s fuzz-test-output/terminal-clean-0.bin
+          code=0
+          ./bombadil terminal fuzz \
+            --exit-on-violation \
+            --time-limit-fuzz 1m \
+            --time-limit-run 2s \
+            --output-path fuzz-test-output/terminal-violation.bin \
+            -- sh -c 'exit 3' \
+            > fuzz.out || code=$?
+          cat fuzz.out
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit code 2, got $code" >&2
+            exit 1
+          fi
+          trace=$(grep -o 'fuzz-test-output/terminal-violation-[0-9]*\.bin' fuzz.out | tail -n 1)
+          ./bombadil trace "$trace" | grep violated
+      - name: Upload fuzz test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-test-output-${{ matrix.os }}
+          path: fuzz-test-output/
+
   smoke-test:
     name: Smoke test (${{ matrix.os }})
     needs: [build-x86_64-linux, build-aarch64-darwin]
@@ -583,6 +667,7 @@ jobs:
       - build-npm-package
       - build-manual
       - inspect-test
+      - fuzz-test
       - smoke-test
       - smoke-test-docker
       - test-npm-package
