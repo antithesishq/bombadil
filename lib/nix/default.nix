@@ -257,3 +257,27 @@ in
 // lib.optionalAttrs stdenv.isLinux {
   bin-dynamic = buildBinary { linkStatically = false; };
 }
+# chrome-headless-shell.nix only packages the linux64 build.
+// lib.optionalAttrs (stdenv.hostPlatform.system == "x86_64-linux") {
+  # Begin frame control only works in chrome-headless-shell, so its code
+  # paths need their own run of the browser tests.
+  tests-browser-headless-shell = craneLib.cargoTest (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      # Tests marked `requires_full_browser` still run with chromium.
+      nativeCheckInputs = [
+        chromium
+        (callPackage ./chrome-headless-shell.nix { })
+      ];
+      # Keep this name short. Chromium puts a Unix socket under the build
+      # directory, which is named after the derivation on CI, and aborts
+      # when its path is longer than 107 bytes.
+      pname = "bombadil-tests-headless";
+      cargoExtraArgs = "-p bombadil-browser-integration-tests";
+      preCheck = testPreCheck + ''
+        export BOMBADIL_TEST_CHROME_VARIANT=headless-shell
+      '';
+    }
+  );
+}

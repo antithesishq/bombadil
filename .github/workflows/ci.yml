@@ -174,6 +174,18 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: nix build -L .#checks.${{ matrix.system }}.tests-browser
 
+  check-tests-browser-headless-shell:
+    name: Check (tests, browser, headless-shell, x86_64-linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nix
+        with:
+          scope: check-tests-browser-headless-shell-x86_64-linux
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: nix build -L .#checks.x86_64-linux.tests-browser-headless-shell
+
   build-npm-package:
     runs-on: ubuntu-latest
     steps:
