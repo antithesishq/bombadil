@@ -200,65 +200,21 @@ impl Browser {
 
         let (target_id, session_id, frame_control) = if browser_options
             .create_target
-            && chromium.begin_frame_control
         {
-            // Ask for frame control and fall back if unsupported (e.g. regular
-            // chromium/chrome or chrome-headless-shell on macOS).
-            let target_id = match connection.send(
-                target::CreateTargetParams {
-                    enable_begin_frame_control: Some(true),
-                    ..Default::default()
-                },
-                None,
-            ) {
-                Ok(result) => result.target_id,
-                Err(error) => {
-                    log::debug!(
-                        "creating target with begin frame control failed: {error:#}"
-                    );
-                    connection
-                        .send(target::CreateTargetParams::default(), None)?
-                        .target_id
-                }
+            let with_frame_control = if chromium.begin_frame_control {
+                create_target_with_frame_control(&connection)?
+            } else {
+                None
             };
-
-            let session_id = connection
-                .send(
-                    target::AttachToTargetParams {
-                        target_id: target_id.clone(),
-                        flatten: Some(true),
-                    },
-                    None,
-                )?
-                .session_id;
-
-            // Other browsers ignore the flag, so probe with a single frame
-            // to see whether we actually got begin frame control.
-            let begin_frame_control =
-                FrameControl::new(connection.clone(), session_id.clone());
-            let begin_frame_control = match begin_frame_control.frame() {
-                Ok(_) => Some(begin_frame_control),
-                Err(error) => {
-                    log::debug!("begin frame control unavailable: {error:#}");
-                    None
+            match with_frame_control {
+                Some((target_id, session_id, frame_control)) => {
+                    (target_id, session_id, Some(frame_control))
                 }
-            };
-
-            (target_id, session_id, begin_frame_control)
-        } else if browser_options.create_target {
-            let target_id = connection
-                .send(target::CreateTargetParams::default(), None)?
-                .target_id;
-            let session_id = connection
-                .send(
-                    target::AttachToTargetParams {
-                        target_id: target_id.clone(),
-                        flatten: Some(true),
-                    },
-                    None,
-                )?
-                .session_id;
-            (target_id, session_id, None)
+                None => {
+                    let (target_id, session_id) = create_target(&connection)?;
+                    (target_id, session_id, None)
+                }
+            }
         } else {
             let (target_id, session_id) = find_page(&connection)?;
             (target_id, session_id, None)
@@ -1528,17 +1484,28 @@ fn capture_browser_state(
         }
         None if let Some(frame_control) = &context.frame_control => {
             log::info!("no frame available, forcing begin frame capture");
-            // A frame can fail while the page is busy, so retry rather than
-            // ending the test.
-            let data = match frame_control.paused(|| frame_control.capture()) {
-                Ok(Some(data)) => data,
-                Ok(None) => {
-                    log::debug!("begin frame produced no screenshot");
+            // A frame can fail while the page is busy, so retry a few times
+            // rather than ending the test.
+            let capture = match frame_control.paused(|| frame_control.capture())
+            {
+                Ok(Some(data)) => Ok(data),
+                Ok(None) => Err(anyhow!("begin frame produced no screenshot")),
+                Err(error) => Err(error),
+            };
+            let data = match capture {
+                Ok(data) => data,
+                Err(error)
+                    if state.shared.capture_failures < CAPTURE_FAILURES_MAX =>
+                {
+                    log::warn!("begin frame capture failed: {error:#}");
+                    state.shared.capture_failures += 1;
                     return retry_with_timer(state.shared, context);
                 }
                 Err(error) => {
-                    log::warn!("begin frame capture failed: {error:#}");
-                    return retry_with_timer(state.shared, context);
+                    return Err(error.context(format!(
+                        "begin frame capture failed {} times in a row",
+                        state.shared.capture_failures + 1
+                    )));
                 }
             };
             let data = base64::prelude::BASE64_STANDARD.decode(&data).map_err(
@@ -1592,6 +1559,77 @@ fn remote_object_to_json(object: &runtime::RemoteObject) -> json::Value {
         }
         (r#type, _, _) => {
             json::Value::String(format!("<object of type {:?}>", r#type))
+        }
+    }
+}
+
+fn create_target(
+    connection: &cdp::Connection,
+) -> Result<(TargetId, SessionId)> {
+    let target_id = connection
+        .send(target::CreateTargetParams::default(), None)?
+        .target_id;
+    attach_to_target(connection, target_id)
+}
+
+fn attach_to_target(
+    connection: &cdp::Connection,
+    target_id: TargetId,
+) -> Result<(TargetId, SessionId)> {
+    let session_id = connection
+        .send(
+            target::AttachToTargetParams {
+                target_id: target_id.clone(),
+                flatten: Some(true),
+            },
+            None,
+        )?
+        .session_id;
+    Ok((target_id, session_id))
+}
+
+/// Create a target with begin frame control, or return `None` if the browser
+/// doesn't support it (e.g. chrome-headless-shell on macOS).
+///
+/// Some browsers accept the flag but then never produce frames, so a single
+/// frame is probed. A target that fails the probe is closed: it would
+/// otherwise only render when frames are requested, which nothing does once
+/// we fall back to screencast.
+fn create_target_with_frame_control(
+    connection: &cdp::Connection,
+) -> Result<Option<(TargetId, SessionId, FrameControl)>> {
+    let target_id = match connection.send(
+        target::CreateTargetParams {
+            enable_begin_frame_control: Some(true),
+            ..Default::default()
+        },
+        None,
+    ) {
+        Ok(result) => result.target_id,
+        Err(error) => {
+            log::debug!(
+                "creating target with begin frame control failed: {error:#}"
+            );
+            return Ok(None);
+        }
+    };
+    let (target_id, session_id) = attach_to_target(connection, target_id)?;
+    let frame_control =
+        FrameControl::new(connection.clone(), session_id.clone());
+    match frame_control.frame() {
+        Ok(_) => Ok(Some((target_id, session_id, frame_control))),
+        Err(error) => {
+            log::warn!(
+                "begin frame control unavailable, falling back to screencast: {error:#}"
+            );
+            if let Err(error) =
+                connection.send(target::CloseTargetParams::new(target_id), None)
+            {
+                log::warn!(
+                    "failed to close target without frame control: {error:#}"
+                );
+            }
+            Ok(None)
         }
     }
 }
