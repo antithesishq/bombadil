@@ -8,8 +8,8 @@ use bombadil_schema::browser::BrowserTraceEntry;
 use std::{fs::File, io::BufReader};
 
 use anyhow::{Result, bail};
-use bombadil::shrink::TraceActions;
-use bombadil_schema::browser::BrowserAction;
+use bombadil::{model::Recorded, shrink::TraceActions};
+use bombadil_schema::{ActionKey, browser::BrowserAction};
 use bombadil_trace::{TraceDriver, open_trace};
 use serde::Deserialize;
 
@@ -37,7 +37,7 @@ pub fn open_binary(file: &Path) -> Result<BrowserStates> {
 }
 
 /// The recorded actions of the browser trace at `path`, for replaying.
-pub fn load_actions(path: &Path) -> Result<Vec<BrowserAction>> {
+pub fn load_actions(path: &Path) -> Result<Vec<Recorded<BrowserAction>>> {
     Ok(load_trace_actions(path)?.actions)
 }
 
@@ -53,7 +53,14 @@ pub fn load_trace_actions(path: &Path) -> Result<TraceActions<BrowserAction>> {
         #[serde(default)]
         action: Option<BrowserAction>,
         #[serde(default)]
+        state: State,
+        #[serde(default)]
         violations: Vec<Violation>,
+    }
+    #[derive(Deserialize, Default)]
+    struct State {
+        #[serde(default)]
+        action_taken: Option<ActionKey>,
     }
     #[derive(Deserialize)]
     struct Violation {
@@ -69,7 +76,10 @@ pub fn load_trace_actions(path: &Path) -> Result<TraceActions<BrowserAction>> {
         let entry = state?.metadata;
         states += 1;
         if let Some(action) = entry.action {
-            actions.push(action);
+            actions.push(Recorded {
+                action,
+                template: entry.state.action_taken,
+            });
         }
         for violation in entry.violations {
             violations_earliest
@@ -197,6 +207,34 @@ mod tests {
         assert_eq!(
             trace.violations_earliest,
             BTreeMap::from([("p".to_string(), 2), ("q".to_string(), 3)])
+        );
+    }
+
+    /// Actions carry their `action_taken` key, or `None` where the trace
+    /// has none.
+    #[test]
+    fn reads_the_recorded_template_keys() {
+        let directory = tempfile::tempdir().unwrap();
+        let with_key = STATE.replace(
+            r#""screenshot""#,
+            r#""action_taken":"00000000000000a1","screenshot""#,
+        );
+        assert_ne!(with_key, STATE);
+        let mut file = Vec::new();
+        write_envelope(&mut file, TraceDriver::Browser).unwrap();
+        for metadata in [&with_key, STATE] {
+            write_record(&mut file, tag::STATE, &[metadata.as_bytes()])
+                .unwrap();
+        }
+        write_record(&mut file, tag::END, &[]).unwrap();
+        std::fs::write(directory.path().join(TRACE_FILE_NAME), file).unwrap();
+        let recorded = |template| Recorded {
+            action: BrowserAction::Back,
+            template,
+        };
+        assert_eq!(
+            load_actions(&directory.path().join(TRACE_FILE_NAME)).unwrap(),
+            vec![recorded(Some(ActionKey(0xa1))), recorded(None)]
         );
     }
 
