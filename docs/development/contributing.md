@@ -97,6 +97,12 @@ Build and tag the image:
 nix build ".#docker" && docker load < result
 ```
 
+The image is built for the host architecture, so this needs a Linux builder
+(`x86_64-linux` or `aarch64-linux`). On an Apple Silicon Mac, configure an
+`aarch64-linux` builder (for example `nix-darwin`'s `linux-builder`) and build
+`.#packages.aarch64-linux.docker`. Releases publish both architectures under a
+single multi-arch tag.
+
 This will print something like:
 
 ```
