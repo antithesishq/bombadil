@@ -241,6 +241,19 @@ Two things to note about this example:
 This is a custom property using the *temporal* operator called `always`.
 There are other temporal operators, described in [Formulas](#formulas) below.
 
+#### Transforming cells
+
+A cell can be turned into a new cell with `map`, which applies a function to
+the value of the original cell in every state:
+
+```typescript
+const titleLength = title.map((title) => title.length);
+
+export const hasShortTitle = always(() =>
+    titleLength.current < 80
+);
+```
+
 ### Formulas
 
 Formulas and temporal operators may sound scary, but fear not --- they are

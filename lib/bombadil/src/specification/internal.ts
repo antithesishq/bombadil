@@ -3,6 +3,10 @@ export type TimeUnit = "milliseconds" | "seconds";
 export interface Cell<T> {
   get current(): T;
   update(snapshot: T): void;
+  /**
+   * Creates a new cell by mapping `f` over the value of this cell.
+   */
+  map<U extends JSON>(f: (value: T) => U): Cell<U>;
 }
 
 export type JSON =
