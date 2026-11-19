@@ -3,6 +3,8 @@ name: finding-bugs-with-bombadil
 description: Use when asked to run Bombadil, fuzz a web or terminal UI, or search for unexpected failures. Finds bugs through bounded Bombadil fuzzing campaigns.
 metadata:
   bombadil-stub: "1"
+  author: Antithesis
+  tags: "fuzzing, ui-testing, bombadil"
 ---
 
 # Finding bugs with Bombadil
