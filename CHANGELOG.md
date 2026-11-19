@@ -1,5 +1,45 @@
 # The Bombadil Changelog
 
+## 0.8.0
+
+Breaking changes:
+
+* The new binary trace format used for all drivers breaks forward and backwards
+  compatibility between 0.8.x and prior versions, with regard to traces. JSONL
+  output can be produced with the new `bombadil trace` command, using the
+  `--json` option, for processing with tools like `jq`.
+* The `--output-path` option now names a file (or a template for fuzzer run
+  output files) and not a directory. The parent directory has to exist.
+
+Major updates:
+
+* Support chrome-headless-shell for up to 4x higher throughput (#360, #467)
+* Store traces in compressed binary format (#393, #391, #399, #441, #445)
+* Render campaign summary with inspect hint and use proper exit codes (#461)
+* Add `bombadil trace` command to show binary traces (#395)
+
+Minor updates:
+
+* Terminal driver performance improvements (#409, #411)
+* Reject invalid action tree weights with a clear error (#465)
+* Close tabs opened by the page, avoiding hangs (#420)
+* Record browser block hits in traces, add --coverage-symbols (#416)
+* Stable source and block ids for browser code coverage (#415)
+* Expose abstract snapshots for future targeted fuzzing support (#418, #421)
+
+Bug fixes:
+
+* Fix stale screenshot issues in regular Chrome/Chromium screenshot capture
+  (#360)
+
+Internal:
+
+* Smoke test fuzz commands in CI (#462)
+* Upgrade Ghostty dependencies (#392, #408)
+* Match action with producing template (#422)
+* Flatten action tree once per step, recording offered templates and the one
+  taken (#414, #417)
+
 ## 0.7.10
 
 Major updates:
