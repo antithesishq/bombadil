@@ -91,7 +91,7 @@ the transition caused by the selected action. A transition shows state before
 and state after. Along with screenshots, you see violations and all captured
 snapshot values per state.
 
-To look at a trace in the terminal instead, `bombadil trace` lists its states
+To look at a trace in the terminal instead, [bombadil trace] lists its states
 with their actions, URLs and violations. With `--screenshots`, it also writes
 each state's screenshot to a directory, named by the state's index:
 
@@ -109,7 +109,7 @@ they are.
 ::: terminal
 
 When you've run a test and found one or more violations, you likely want to
-understand what happened. The `bombadil trace` command shows a trace in the
+understand what happened. The [bombadil trace] command shows a trace in the
 terminal, one state at a time:
 
 ```bash
@@ -122,5 +122,38 @@ screen as the properties saw it. Pick states with `--state` (`--state 40..50`
 shows states 40 to 49), keep the screen's colors with `--color`, or print one
 JSON object per state with `--json` (with `--screen`, including the screen) to
 process the trace with tools like `jq`.
+
+:::
+
+::: browser
+
+## Running with chrome-headless-shell
+
+::: {.callout .callout-warning}
+This is experimental.
+:::
+
+By default, Bombadil runs a regular Chrome or Chromium. For higher throughput
+(up to 4x), consider using
+[chrome-headless-shell](https://developer.chrome.com/docs/automation-and-testing/headless-chrome-shell)
+instead:
+
+```bash
+bombadil browser test --chrome-variant headless-shell https://example.com
+```
+
+Bombadil does not download chrome-headless-shell for you. Put the
+`chrome-headless-shell` executable on your `PATH`, or point the `CHROME`
+environment variable at it.
+
+You can get an executable using the following command:
+
+```bash
+npx @puppeteer/browsers install chrome-headless-shell@stable
+```
+
+As with other options, use the same `--chrome-variant` and executable when
+[reproducing][Reproducing violations] or [shrinking][Shrinking violations] a
+violation.
 
 :::

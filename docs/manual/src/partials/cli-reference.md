@@ -11,3 +11,6 @@ The general exit code semantics of the CLI is:
 | 0 | Test or fuzzing campaign completed normally (including time limit) |
 | 1 | Other error |
 | 2 | Property violation(s) detected |
+
+Property violations take precedence, so failed fuzz runs only cause the fuzzing
+campaign to exit with `1` if there are no violations found.
