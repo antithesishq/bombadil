@@ -2,7 +2,8 @@
 
 Prefer `fuzz` to find bugs. Bombadil explores unexpected action sequences,
 timings, and inputs while checking general correctness properties.
-Use `test` for a single quick setup check or to reproduce a recorded failure.
+Use `test` for a single quick setup check, or with `--reproduce` to replay a
+recorded failure; `bombadil skill show investigating-failures` has the commands.
 `bombadil skill show` without a topic prints this guide.
 
 ## Prerequisites
@@ -94,7 +95,7 @@ Paths refer to the Bombadil repository at that revision:
 - `docs/manual/src/01-introduction.md`: Why Bombadil; How it works.
 - `docs/manual/src/02-getting-started.md`: TypeScript support; Your first test.
 - `docs/manual/src/03-specification-language.md`: Structure; Default properties and action generators.
-- `docs/manual/src/04-workflows.md`: Inspecting test results.
+- `docs/manual/src/04-workflows.md`: Reproducing violations; Inspecting test results.
 
 The manual has no detailed campaign walkthrough. Fuzzing commands, time budgets,
 swarm, parallelism, the Antithesis restriction, and fuzz output naming are
