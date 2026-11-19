@@ -143,22 +143,3 @@ defects from specification and setup errors.
    every exported property and generator against it.
 3. **Exercise.** Run a bounded campaign as described above and report what it
    found, which properties it reached, and which it did not.
-
-## Sources and translation notes
-
-Source revision: `69a61bc473f7ee01ceda024216ebc6921b7ea753`.
-Paths refer to the Bombadil repository at that revision:
-
-- `docs/manual/src/02-getting-started.md`: TypeScript support.
-- `docs/manual/src/03-specification-language.md`: Structure; Importing modules and files; Default properties and action generators; Properties; Extractors; Formulas; Action generators; Transforming action generators; Custom actions; Examples.
-
-The `.within` syntax is checked against `lib/bombadil/src/specification/index.ts`.
-Driver imports are checked against `lib/bombadil/src/specification/browser/index.ts`
-and `lib/bombadil/src/specification/terminal/index.ts`.
-The `defaultActions` export is checked against
-`lib/bombadil/src/specification/browser/defaults.ts`.
-Nonvacuous checks, observational extraction, and the validation sequence are
-agent workflow rules. Example properties are illustrations, not universal UI requirements.
-The evidence rule, both directions, value pinning, and the adversarial review
-are adapted from the MIT-licensed hegel skill
-(https://github.com/hegeldev/hegel-skill).

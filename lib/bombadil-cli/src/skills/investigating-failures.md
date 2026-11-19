@@ -85,19 +85,3 @@ For each finding, report the violated property, evidence, reproduction result,
 trace location, and validation performed.
 Distinguish setup errors, stalls, and replay divergence from property violations.
 A passing bounded run does not prove correctness.
-
-## Sources and translation notes
-
-Source revision: `69a61bc473f7ee01ceda024216ebc6921b7ea753`.
-Paths refer to the Bombadil repository at that revision:
-
-- `docs/manual/src/04-workflows.md`: Reproducing violations; Shrinking violations; Inspecting test results.
-- `docs/manual/src/02-getting-started.md`: Your first test.
-
-`--no-open`, `bombadil trace --screenshots`, and the browser reproduction argument
-conflicts are CLI-source supplements from `lib/bombadil-cli/src/browser.rs` and
-`lib/bombadil-cli/src/trace.rs`.
-Secret handling, fresh outputs, cautious diagnosis, and post-fix fuzzing are
-agent workflow rules. Do not infer successful reproduction from output existence.
-The ledger and fresh-run reporting are adapted from the MIT-licensed hegel
-skill's triage technique (https://github.com/hegeldev/hegel-skill).

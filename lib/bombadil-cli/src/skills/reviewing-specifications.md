@@ -46,15 +46,3 @@ below are ways that happens.
 13. **One export, several contracts**: unrelated conditions joined with `.and`
     in one property. Bombadil reports violations by export name; split them
     so a violation names the broken contract.
-
-## Sources and translation notes
-
-Source revision: `69a61bc473f7ee01ceda024216ebc6921b7ea753`.
-Paths refer to the Bombadil repository at that revision:
-
-- `docs/manual/src/03-specification-language.md`: Structure; Default properties and action generators; Properties; Extractors; Formulas; Transforming action generators; Examples.
-
-Item 7 is checked against `lib/bombadil/src/specification/browser/defaults.ts`,
-which exports `defaultActions`. The checklist structure is adapted from the
-MIT-licensed `hegel-review` skill (https://github.com/hegeldev/hegel-skill).
-The items are agent review rules, not quotations from the manual.

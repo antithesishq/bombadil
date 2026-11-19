@@ -86,23 +86,3 @@ A bounded campaign without violations does not prove correctness.
 - An option from this guide is rejected: the guide and the executable differ in
   version. Run the guide command with the same executable you test with, and
   check subcommand help.
-
-## Sources and translation notes
-
-Source revision: `69a61bc473f7ee01ceda024216ebc6921b7ea753`.
-Paths refer to the Bombadil repository at that revision:
-
-- `docs/manual/src/01-introduction.md`: Why Bombadil; How it works.
-- `docs/manual/src/02-getting-started.md`: TypeScript support; Your first test.
-- `docs/manual/src/03-specification-language.md`: Structure; Default properties and action generators.
-- `docs/manual/src/04-workflows.md`: Reproducing violations; Inspecting test results.
-
-The manual has no detailed campaign walkthrough. Fuzzing commands, time budgets,
-swarm, parallelism, the Antithesis restriction, and fuzz output naming are
-CLI-source supplements, checked against `lib/bombadil-cli/src/browser.rs`,
-`lib/bombadil-cli/src/terminal.rs`, and `lib/bombadil-browser/src/trace/writer.rs`.
-The browser boundary comes from `TargetOptions` in `browser.rs`.
-Exit statuses and the troubleshooting entries are checked against `browser.rs`,
-`terminal.rs`, and `writer.rs`.
-Preferring fuzzing is the requested agent workflow, not a quotation from the manual.
-Authorization, secret handling, and cautious reporting are agent safety rules.
