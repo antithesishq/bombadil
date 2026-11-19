@@ -625,7 +625,7 @@ impl<T> Weights<T> {
         Ok(Arc::new(weights))
     }
 
-    fn parse(text: &str) -> Result<Self>
+    pub fn parse(text: &str) -> Result<Self>
     where
         T: DeserializeOwned,
     {

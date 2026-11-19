@@ -40,8 +40,9 @@ All built documentation will be placed in `target/`:
   - `02-getting-started.md` - Getting started guide
   - `03-specification-language.md` - Specification language docs
   - `04-workflows.md` - Workflows: reproducing, shrinking, inspecting
+  - `05-quest.md` - Guiding tests with Quest (browser only)
   - `partials/` - Hand-written parts of the reference chapter, combined with
-    generated CLI and TypeScript reference into `target/generated/<driver>/05-reference.md`
+    generated CLI and TypeScript reference into `target/generated/<driver>/06-reference.md`
   - `metadata.yaml` - EPUB metadata
   - `index.css` - Entry point for the HTML styles
 - `target/` - Build output (gitignored)
