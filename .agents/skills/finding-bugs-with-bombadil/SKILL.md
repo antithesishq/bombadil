@@ -1,6 +1,6 @@
 ---
 name: finding-bugs-with-bombadil
-description: Finds bugs in web and terminal UIs through bounded Bombadil fuzzing campaigns. Use when asked to run Bombadil, fuzz a UI, or search for unexpected failures.
+description: Use when asked to run Bombadil, fuzz a web or terminal UI, or search for unexpected failures. Finds bugs through bounded Bombadil fuzzing campaigns.
 metadata:
   bombadil-stub: "1"
 ---
