@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Outside the allowed URLs</title>
+  </head>
+  <body>
+    <button>Click me</button>
+    <div id="own"></div>
+    <div id="other"></div>
+    <div id="frame"></div>
+    <script>
+      // The second test server, one port up, is outside the allowed URLs.
+      const other = `http://localhost:${parseInt(location.port) + 1}/outside-allow-url`;
+      for (const [id, src] of [
+        ["own", "./probe.js"],
+        ["other", `${other}/probe.js`],
+      ]) {
+        const script = document.createElement("script");
+        script.src = src;
+        script.dataset.output = id;
+        document.body.appendChild(script);
+      }
+      window.addEventListener("message", (event) => {
+        document.getElementById("frame").textContent = event.data;
+      });
+      const frame = document.createElement("iframe");
+      frame.src = `${other}/frame.html`;
+      document.body.appendChild(frame);
+    </script>
+  </body>
+</html>
