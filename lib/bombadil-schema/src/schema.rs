@@ -182,6 +182,12 @@ pub enum Violation {
         subformula: Box<Formula>,
         reason: EventuallyViolation,
     },
+    Until {
+        left: Box<Formula>,
+        right: Box<Formula>,
+        start: Time,
+        reason: UntilViolation,
+    },
     Always {
         violation: Box<Violation>,
         subformula: Box<Formula>,
@@ -211,6 +217,15 @@ pub enum EventuallyViolation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum UntilViolation {
+    BeforeRight {
+        left: Box<Violation>,
+        right: Box<Violation>,
+    },
+    TestEnded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Formula {
     Pure { value: bool, pretty: String },
     Thunk { function: String, negated: bool },
@@ -220,6 +235,7 @@ pub enum Formula {
     Next(Box<Formula>),
     Always(Box<Formula>, Option<Duration>),
     Eventually(Box<Formula>, Option<Duration>),
+    Until(Box<Formula>, Box<Formula>),
 }
 
 #[cfg(test)]

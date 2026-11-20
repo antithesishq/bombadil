@@ -1,4 +1,4 @@
-use crate::eval::{Leaning, Residual};
+use crate::eval::{Leaning, Residual, UntilPending, Value, reduce_until};
 use crate::formula::{Domain, Formula, State};
 use crate::violation::Violation;
 
@@ -55,6 +55,41 @@ pub fn stop_default<D: Domain>(
                 .filter_map(|residual| stop_default(residual, time))
                 .collect::<Vec<_>>();
             stop_or_eventually_default(&pending)
+        }
+        Until {
+            left,
+            right,
+            start,
+            pending,
+            ..
+        } => {
+            let operand = |residual| match stop_default(residual, time) {
+                Some(StopDefault::True(state)) => Residual::True(state),
+                Some(StopDefault::False(violation)) => {
+                    Residual::False(violation)
+                }
+                None => residual.clone(),
+            };
+            let pending = pending
+                .iter()
+                .map(|pending| UntilPending {
+                    left: operand(&pending.left),
+                    right: operand(&pending.right),
+                })
+                .collect();
+            match reduce_until(
+                left.clone(),
+                right.clone(),
+                *start,
+                pending,
+                false,
+            ) {
+                Value::True(state) => Some(StopDefault::True(state)),
+                Value::False(violation, _) => {
+                    Some(StopDefault::False(violation))
+                }
+                Value::Residual(_) => None,
+            }
         }
     }
 }
