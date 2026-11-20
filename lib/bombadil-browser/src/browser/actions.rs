@@ -94,6 +94,10 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         fingerprint: Fingerprint,
         point: Point<F64>,
     },
+    Hover {
+        fingerprint: Fingerprint,
+        point: Point<F64>,
+    },
     TypeText {
         text: Text,
     },
@@ -214,16 +218,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                mouse_event(
-                    connection,
-                    session_id,
-                    &options,
-                    input::DispatchMouseEventParams::new(
-                        input::DispatchMouseEventType::MouseMoved,
-                        point.x,
-                        point.y,
-                    ),
-                )?;
+                move_pointer(connection, session_id, &options, point)?;
                 connection.send(
                     builder
                         .clone()
@@ -249,16 +244,7 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                mouse_event(
-                    connection,
-                    session_id,
-                    &options,
-                    input::DispatchMouseEventParams::new(
-                        input::DispatchMouseEventType::MouseMoved,
-                        point.x,
-                        point.y,
-                    ),
-                )?;
+                move_pointer(connection, session_id, &options, point)?;
                 connection.send(
                     builder
                         .clone()
@@ -274,6 +260,9 @@ impl BrowserAction {
                         .map_err(|err| anyhow!(err))?,
                     Some(session_id),
                 )?;
+            }
+            BrowserAction::Hover { point, .. } => {
+                move_pointer(connection, session_id, &options, point)?;
             }
             BrowserAction::TypeText { text } => {
                 connection.send(
@@ -438,6 +427,24 @@ impl BrowserAction {
     }
 }
 
+fn move_pointer(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    point: &Point<f64>,
+) -> Result<()> {
+    mouse_event(
+        connection,
+        session_id,
+        options,
+        input::DispatchMouseEventParams::new(
+            input::DispatchMouseEventType::MouseMoved,
+            point.x,
+            point.y,
+        ),
+    )
+}
+
 impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
     fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
@@ -454,6 +461,12 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
             BrowserAction::DoubleClick { fingerprint, point } => {
                 BrowserAction::DoubleClick {
+                    fingerprint: fingerprint.clone(),
+                    point: point.generate(rng),
+                }
+            }
+            BrowserAction::Hover { fingerprint, point } => {
+                BrowserAction::Hover {
                     fingerprint: fingerprint.clone(),
                     point: point.generate(rng),
                 }
@@ -533,6 +546,16 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     ..
                 },
                 BrowserAction::DoubleClick {
+                    fingerprint: original_fingerprint,
+                    ..
+                },
+            )
+            | (
+                BrowserAction::Hover {
+                    fingerprint: candidate_fingerprint,
+                    ..
+                },
+                BrowserAction::Hover {
                     fingerprint: original_fingerprint,
                     ..
                 },
@@ -638,6 +661,9 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::DoubleClick { fingerprint, .. } => {
                 ("DoubleClick", fingerprint).hash(hasher);
             }
+            BrowserAction::Hover { fingerprint, .. } => {
+                ("Hover", fingerprint).hash(hasher);
+            }
             BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
             }
@@ -737,6 +763,10 @@ mod tests {
                 point: point(tc),
             },
             DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point(tc),
+            },
+            Hover {
                 fingerprint,
                 point: point(tc),
             },
@@ -807,6 +837,25 @@ mod tests {
                 template.accepts(&action),
                 "template {template:?} rejected {action:?} with seed {seed}"
             );
+        }
+    }
+
+    #[hegel::test]
+    fn templates_reject_actions_of_other_variants(tc: TestCase) {
+        let seed = tc.draw(integers());
+        let templates = tc.draw(action_templates().print_as_debug());
+        for template in &templates {
+            let action = template.generate(&mut StdRng::seed_from_u64(seed));
+            for other in &templates {
+                if std::mem::discriminant(other)
+                    != std::mem::discriminant(template)
+                {
+                    assert!(
+                        !other.accepts(&action),
+                        "template {other:?}, action {action:?}, seed {seed}"
+                    );
+                }
+            }
         }
     }
 
@@ -882,8 +931,8 @@ mod tests {
     }
 
     /// [`action_templates`] plus templates that overlap them, shuffled:
-    /// click twins with a matching fingerprint, wider viewports, and
-    /// text generators that accept each other's output.
+    /// click and hover twins with a matching fingerprint, wider viewports,
+    /// and text generators that accept each other's output.
     #[hegel::composite]
     fn action_templates_with_overlaps(
         tc: &TestCase,
@@ -908,6 +957,10 @@ mod tests {
                     point: point.clone(),
                 }],
                 DoubleClick { fingerprint, point } => vec![DoubleClick {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }],
+                Hover { fingerprint, point } => vec![Hover {
                     fingerprint: twin(fingerprint),
                     point: point.clone(),
                 }],
@@ -1005,6 +1058,10 @@ mod tests {
                 point: point.clone(),
             },
             DoubleClick {
+                fingerprint: fingerprint.clone(),
+                point: point.clone(),
+            },
+            Hover {
                 fingerprint,
                 point: point.clone(),
             },
@@ -1057,6 +1114,7 @@ mod tests {
         Forward db87399e7f8d9fdf
         Click 72474e52f53e216f
         DoubleClick d1d66493adc47ad6
+        Hover e7f01d4949383311
         TypeText 9432d62189972886
         TypeText 70ea82526866c7ea
         PressKey c93bc450d62fd98b

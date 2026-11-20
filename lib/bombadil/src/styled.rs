@@ -315,6 +315,44 @@ pub fn supports_color() -> bool {
     supports_color::on(supports_color::Stream::Stdout).is_some()
 }
 
+enum Paint {
+    Blue,
+    Bold,
+}
+
+struct Painted<T> {
+    value: T,
+    paint: Option<Paint>,
+}
+
+impl<T: std::fmt::Display> std::fmt::Display for Painted<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.paint {
+            None => self.value.fmt(f),
+            Some(Paint::Blue) => self.value.blue().fmt(f),
+            Some(Paint::Bold) => self.value.bold().fmt(f),
+        }
+    }
+}
+
+/// Like `maybe_blue`, but styles while writing instead of building a
+/// `String`.
+pub fn blue(value: impl std::fmt::Display) -> impl std::fmt::Display {
+    Painted {
+        value,
+        paint: supports_color().then_some(Paint::Blue),
+    }
+}
+
+/// Like `maybe_bold`, but styles while writing instead of building a
+/// `String`.
+pub fn bold(value: impl std::fmt::Display) -> impl std::fmt::Display {
+    Painted {
+        value,
+        paint: supports_color().then_some(Paint::Bold),
+    }
+}
+
 pub fn maybe_blue(s: String) -> String {
     if supports_color() {
         s.blue().to_string()

@@ -124,7 +124,8 @@ impl ContainTransform {
 fn action_point(action: &BrowserAction) -> Option<&Point> {
     match action {
         BrowserAction::Click { point, .. }
-        | BrowserAction::DoubleClick { point, .. } => Some(point),
+        | BrowserAction::DoubleClick { point, .. }
+        | BrowserAction::Hover { point, .. } => Some(point),
         BrowserAction::ScrollUp { origin, .. }
         | BrowserAction::ScrollDown { origin, .. } => Some(origin),
         _ => None,
