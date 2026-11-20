@@ -86,6 +86,7 @@ let
         || (lib.hasSuffix ".css" path)
         || (lib.hasSuffix ".txt" path)
         || (lib.hasSuffix ".dat" path)
+        || (lib.hasSuffix ".map" path)
         || (craneLib.filterCargoSources path type)
       );
   };

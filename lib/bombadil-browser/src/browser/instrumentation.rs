@@ -2,6 +2,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use cdp_protocol::cdp::browser_protocol::fetch;
+use cdp_protocol::cdp::browser_protocol::io;
 use cdp_protocol::cdp::browser_protocol::network;
 use cdp_protocol::cdp::browser_protocol::page;
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
@@ -16,6 +17,10 @@ use url::Url;
 use crate::instrumentation;
 use crate::instrumentation::BlockRegistry;
 use crate::instrumentation::InstrumentationConfig;
+use crate::instrumentation::source_id::SourceId;
+use crate::instrumentation::source_map::{
+    self, Location, SourceMap, source_mapping_url,
+};
 use crate::match_pattern::MatchPattern;
 
 pub fn instrument_js_coverage(
@@ -66,6 +71,24 @@ pub fn instrument_js_coverage(
 
     let events = connection.events.subscribe::<fetch::EventRequestPaused>();
 
+    // A script waits for its source map on a thread of its own, so that
+    // the other paused requests do not wait with it.
+    let (source_map_jobs, source_map_jobs_rx) =
+        mpmc::unbounded::<SourceMapJob>();
+    let mut source_map_resolver = SourceMapResolver {
+        connection: connection.clone(),
+        session_id: session_id.clone(),
+        frame_id: frame_id_main.clone(),
+        allow_urls: allow_urls.clone(),
+        blocks: blocks.clone(),
+        source_maps: SourceMaps::new(SOURCE_MAPS_BYTES_MAX),
+    };
+    thread::spawn(move || {
+        for job in source_map_jobs_rx {
+            source_map_resolver.finish(job);
+        }
+    });
+
     let session_id = session_id.clone();
     let cleanup_connection = connection.clone();
     let cleanup_session_id = session_id.clone();
@@ -73,23 +96,11 @@ pub fn instrument_js_coverage(
     let worker = thread::spawn(move || -> Result<()> {
         let continue_request =
             |event: &fetch::EventRequestPaused| -> Result<()> {
-                connection
-                    .send(
-                        fetch::ContinueRequestParams::builder()
-                            .request_id(event.request_id.clone())
-                            .build()
-                            .map_err(|error| {
-                                anyhow!(
-                                    "failed building ContinueRequestParams: {}",
-                                    error
-                                )
-                            })?,
-                        Some(&session_id),
-                    )
-                    .map(|_| ())
-                    .context("failed continuing request")
+                continue_request(&connection, &session_id, event)
             };
-        let intercept = |event: &fetch::EventRequestPaused| -> Result<()> {
+        let intercept = |event: &fetch::EventRequestPaused| -> Result<
+            Option<ScriptAwaitingMap>,
+        > {
             let url = Url::parse(&event.request.url)
                 .context("request URL does not parse")?;
             let is_document =
@@ -105,7 +116,7 @@ pub fn instrument_js_coverage(
                 && event.response_error_reason.is_none()
             {
                 if interception != Interception::Block {
-                    return continue_request(event);
+                    return continue_request(event).map(|()| None);
                 }
                 log::info!("blocked navigation to disallowed URL: {url}");
                 // The page shows the browser's error page and the test
@@ -122,21 +133,21 @@ pub fn instrument_js_coverage(
                         "failed blocking navigation to {url}: {error:#}"
                     );
                 }
-                return Ok(());
+                return Ok(None);
             }
 
             if interception != Interception::Instrument {
                 log::debug!(
                     "passing through request to a disallowed URL: {url}"
                 );
-                return continue_request(event);
+                return continue_request(event).map(|()| None);
             }
 
             // Any non-200 upstream response is forwarded as-is.
             if let Some(status) = event.response_status_code
                 && status != 200
             {
-                return continue_request(event);
+                return continue_request(event).map(|()| None);
             }
 
             let headers: HashMap<String, String> =
@@ -189,14 +200,20 @@ pub fn instrument_js_coverage(
                     );
                     body.clone()
                 } else {
-                    let instrumented =
-                        instrumentation::js::instrument_source_code(
+                    // The map decides the block IDs, so the script is
+                    // instrumented once its map is there.
+                    if source_mapping_url(&body).is_some()
+                        || source_map_header(event).is_some()
+                    {
+                        return Ok(Some(ScriptAwaitingMap {
+                            url,
                             source_id,
-                            &body,
-                            // As we can't know if the script is an ES module or a regular script,
-                            // we use this source type to let the parser decide.
-                            SourceType::unambiguous(),
-                        )?;
+                            text: body,
+                            etag,
+                        }));
+                    }
+                    let instrumented =
+                        instrument_script(source_id, &body, None)?;
                     blocks.register(instrumented.blocks);
                     instrumented.text
                 }
@@ -223,85 +240,38 @@ pub fn instrument_js_coverage(
                 );
             };
 
-            // Exclude headers that are invalidated by instrumentation
-            // or connection-specific (hop-by-hop headers per HTTP
-            // specification)
-            let excluded_headers = [
-                "content-length",
-                "content-encoding",
-                "transfer-encoding",
-                "content-md5",
-                "digest",
-                "content-range",
-                "connection",
-                "keep-alive",
-                "proxy-authenticate",
-                "proxy-authorization",
-                "te",
-                "trailer",
-                "upgrade",
-                "etag",
-            ];
-
-            let mut builder = fetch::FulfillRequestParams::builder()
-                .request_id(event.request_id.clone())
-                .body(BASE64_STANDARD.encode(body_instrumented))
-                .response_code(200)
-                .response_header(fetch::HeaderEntry {
-                    name: "etag".to_string(),
-                    value: etag,
-                });
-
-            if let Some(headers) = &event.response_headers {
-                for header in headers {
-                    let name_lower = header.name.to_lowercase();
-                    if !excluded_headers.contains(&name_lower.as_str()) {
-                        builder = builder.response_header(fetch::HeaderEntry {
-                            name: header.name.clone(),
-                            value: header.value.clone(),
-                        });
-                    }
-                }
-            }
-
-            connection
-                .send(
-                    builder.build().map_err(|error| {
-                        anyhow!(
-                            "failed building FulfillRequestParams: {}",
-                            error
-                        )
-                    })?,
-                    Some(&session_id),
-                )
-                .context("failed fulfilling request")?;
-            log::debug!(
-                "intercepted and instrumented request: {}",
-                event.request.url
-            );
-            Ok(())
+            fulfill_request(
+                &connection,
+                &session_id,
+                event,
+                body_instrumented,
+                etag,
+            )?;
+            Ok(None)
         };
 
         while let Some(event) = events.next()? {
-            if let Err(error) = intercept(&event) {
-                let error_debug = format!("{error:?}");
-                if error_debug.contains("Invalid InterceptionId") {
-                    log::debug!(
-                        "interception invalidated (likely due to navigation): {}",
-                        event.request.url
-                    );
-                    continue;
+            match intercept(&event) {
+                Ok(None) => {}
+                Ok(Some(script)) => {
+                    let job = SourceMapJob { event, script };
+                    if let Err(mpmc::SendError(job)) = source_map_jobs.send(job)
+                    {
+                        finish_script(
+                            &connection,
+                            &session_id,
+                            &blocks,
+                            job,
+                            None,
+                        );
+                    }
                 }
-
-                log::warn!(
-                    "failed handling request to {}, continuing it as is: {error:#}",
-                    event.request.url
-                );
-                if let Err(error) = continue_request(&event) {
-                    log::warn!(
-                        "failed continuing request after handling it failed: {error:#}"
-                    );
-                }
+                Err(error) => continue_after_failure(
+                    &connection,
+                    &session_id,
+                    &event,
+                    error,
+                ),
             }
         }
 
@@ -331,6 +301,422 @@ pub fn instrument_js_coverage(
     });
 
     Ok(error_rx)
+}
+
+fn continue_request(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    event: &fetch::EventRequestPaused,
+) -> Result<()> {
+    connection
+        .send(
+            fetch::ContinueRequestParams::builder()
+                .request_id(event.request_id.clone())
+                .build()
+                .map_err(|error| {
+                    anyhow!("failed building ContinueRequestParams: {}", error)
+                })?,
+            Some(session_id),
+        )
+        .map(|_| ())
+        .context("failed continuing request")
+}
+
+fn continue_after_failure(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    event: &fetch::EventRequestPaused,
+    error: anyhow::Error,
+) {
+    let error_debug = format!("{error:?}");
+    if error_debug.contains("Invalid InterceptionId") {
+        log::debug!(
+            "interception invalidated (likely due to navigation): {}",
+            event.request.url
+        );
+        return;
+    }
+
+    log::warn!(
+        "failed handling request to {}, continuing it as is: {error:#}",
+        event.request.url
+    );
+    if let Err(error) = continue_request(connection, session_id, event) {
+        log::warn!(
+            "failed continuing request after handling it failed: {error:#}"
+        );
+    }
+}
+
+fn fulfill_request(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    event: &fetch::EventRequestPaused,
+    body_instrumented: String,
+    etag: String,
+) -> Result<()> {
+    // Exclude headers that are invalidated by instrumentation
+    // or connection-specific (hop-by-hop headers per HTTP
+    // specification)
+    let excluded_headers = [
+        "content-length",
+        "content-encoding",
+        "transfer-encoding",
+        "content-md5",
+        "digest",
+        "content-range",
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "upgrade",
+        "etag",
+    ];
+
+    let mut builder = fetch::FulfillRequestParams::builder()
+        .request_id(event.request_id.clone())
+        .body(BASE64_STANDARD.encode(body_instrumented))
+        .response_code(200)
+        .response_header(fetch::HeaderEntry {
+            name: "etag".to_string(),
+            value: etag,
+        });
+
+    if let Some(headers) = &event.response_headers {
+        for header in headers {
+            let name_lower = header.name.to_lowercase();
+            if !excluded_headers.contains(&name_lower.as_str()) {
+                builder = builder.response_header(fetch::HeaderEntry {
+                    name: header.name.clone(),
+                    value: header.value.clone(),
+                });
+            }
+        }
+    }
+
+    connection
+        .send(
+            builder.build().map_err(|error| {
+                anyhow!("failed building FulfillRequestParams: {}", error)
+            })?,
+            Some(session_id),
+        )
+        .context("failed fulfilling request")?;
+    log::debug!(
+        "intercepted and instrumented request: {}",
+        event.request.url
+    );
+    Ok(())
+}
+
+/// The `SourceMap` response header of a script, which names its map when
+/// the script has no `sourceMappingURL` comment.
+fn source_map_header(event: &fetch::EventRequestPaused) -> Option<&str> {
+    let headers = event.response_headers.as_ref()?;
+    let header = headers.iter().find(|header| {
+        header.name.eq_ignore_ascii_case("sourcemap")
+            || header.name.eq_ignore_ascii_case("x-sourcemap")
+    })?;
+    Some(&header.value)
+}
+
+fn instrument_script(
+    source_id: SourceId,
+    text: &str,
+    source_map: Option<&SourceMap>,
+) -> Result<instrumentation::Instrumented> {
+    Ok(instrumentation::js::instrument_source_code(
+        source_id,
+        text,
+        // As we can't know if the script is an ES module or a regular script,
+        // we use this source type to let the parser decide.
+        SourceType::unambiguous(),
+        source_map,
+    )?)
+}
+
+/// A script that refers to a source map and is not instrumented yet.
+struct ScriptAwaitingMap {
+    url: Url,
+    source_id: SourceId,
+    text: String,
+    etag: String,
+}
+
+struct SourceMapJob {
+    event: fetch::EventRequestPaused,
+    script: ScriptAwaitingMap,
+}
+
+/// Instruments the script, registers its blocks and lets it through to the
+/// page.
+fn finish_script(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    blocks: &BlockRegistry,
+    SourceMapJob { event, script }: SourceMapJob,
+    source_map: Option<&SourceMap>,
+) {
+    let fulfilled =
+        instrument_script(script.source_id, &script.text, source_map).and_then(
+            |instrumented| {
+                blocks.register(instrumented.blocks);
+                fulfill_request(
+                    connection,
+                    session_id,
+                    &event,
+                    instrumented.text,
+                    script.etag,
+                )
+            },
+        );
+    if let Err(error) = fulfilled {
+        continue_after_failure(connection, session_id, &event, error);
+    }
+}
+
+struct SourceMapResolver {
+    connection: cdp::Connection,
+    session_id: SessionId,
+    frame_id: page::FrameId,
+    allow_urls: Vec<MatchPattern>,
+    blocks: BlockRegistry,
+    /// `None` for a script whose map cannot be used.
+    source_maps: SourceMaps<Option<SourceMap>>,
+}
+
+enum SourceMapError {
+    /// The map did not load, and may load another time.
+    Load(anyhow::Error),
+    Unusable(anyhow::Error),
+}
+
+/// A dev server may serve a module under a new URL at every reload, each
+/// with a small map of its own, and the map of one large bundle takes tens
+/// of megabytes.
+const SOURCE_MAPS_BYTES_MAX: usize = 64 << 20;
+
+/// The maps of the scripts finished last, as many as fit in `bytes_max`, so
+/// that a script that loads again unchanged gets the same block IDs without
+/// its map being loaded again.
+struct SourceMaps<M> {
+    bytes_max: usize,
+    bytes: usize,
+    maps: HashMap<SourceId, CachedMap<M>>,
+    puts_count: u64,
+}
+
+struct CachedMap<M> {
+    etag: String,
+    source_map: M,
+    bytes: usize,
+    /// `puts_count` when it was put.
+    put: u64,
+}
+
+impl<M> SourceMaps<M> {
+    fn new(bytes_max: usize) -> Self {
+        SourceMaps {
+            bytes_max,
+            bytes: 0,
+            maps: HashMap::new(),
+            puts_count: 0,
+        }
+    }
+
+    fn remove(&mut self, source_id: &SourceId) -> Option<CachedMap<M>> {
+        let cached = self.maps.remove(source_id)?;
+        self.bytes -= cached.bytes;
+        Some(cached)
+    }
+
+    /// Takes out the script's ETag and map, if the map is that of the
+    /// script with this ETag. A map of other content is dropped.
+    fn take(
+        &mut self,
+        source_id: &SourceId,
+        etag: &str,
+    ) -> Option<(String, M)> {
+        let cached = self.remove(source_id)?;
+        (cached.etag == etag).then_some((cached.etag, cached.source_map))
+    }
+
+    /// Puts in the script's map, which takes `bytes`, and drops the maps
+    /// put longest ago until the rest fit.
+    fn put(
+        &mut self,
+        source_id: SourceId,
+        etag: String,
+        source_map: M,
+        bytes: usize,
+    ) {
+        self.remove(&source_id);
+        self.puts_count += 1;
+        let cached = CachedMap {
+            etag,
+            source_map,
+            bytes,
+            put: self.puts_count,
+        };
+        self.maps.insert(source_id, cached);
+        self.bytes += bytes;
+        while self.bytes > self.bytes_max {
+            let oldest = self
+                .maps
+                .iter()
+                .min_by_key(|(_, cached)| cached.put)
+                .map(|(source_id, _)| source_id.clone())
+                .expect("bytes without maps");
+            self.remove(&oldest);
+        }
+    }
+}
+
+impl SourceMapResolver {
+    /// Finishes the script with its map, if that can be had.
+    fn finish(&mut self, job: SourceMapJob) {
+        let source_id = job.script.source_id.clone();
+        let cached = self.source_maps.take(&source_id, &job.script.etag);
+        // The ETag to keep the map under, or `None` for a map that failed
+        // to load: the script's next load tries again.
+        let (etag, source_map) = match cached {
+            Some((etag, source_map)) => (Some(etag), source_map),
+            None => match self.source_map(&job) {
+                Ok(source_map) => {
+                    (Some(job.script.etag.clone()), Some(source_map))
+                }
+                Err(SourceMapError::Unusable(error)) => {
+                    log::debug!(
+                        "no usable source map for {}: {error:#}",
+                        job.script.url
+                    );
+                    (Some(job.script.etag.clone()), None)
+                }
+                Err(SourceMapError::Load(error)) => {
+                    log::debug!(
+                        "no source map for {} this time: {error:#}",
+                        job.script.url
+                    );
+                    (None, None)
+                }
+            },
+        };
+        finish_script(
+            &self.connection,
+            &self.session_id,
+            &self.blocks,
+            job,
+            source_map.as_ref(),
+        );
+        if let Some(etag) = etag {
+            let bytes = source_id.0.len()
+                + etag.len()
+                + source_map.as_ref().map_or(0, SourceMap::size_bytes);
+            self.source_maps.put(source_id, etag, source_map, bytes);
+        }
+    }
+
+    fn source_map(
+        &self,
+        job: &SourceMapJob,
+    ) -> Result<SourceMap, SourceMapError> {
+        let script_url = &job.script.url;
+        let location = source_mapping_url(&job.script.text)
+            .or_else(|| source_map_header(&job.event))
+            .context("the script names no map")
+            .and_then(|map_url| source_map::locate(script_url, map_url))
+            .map_err(SourceMapError::Unusable)?;
+        let (json, map_url) = match location {
+            Location::Inline(json) => (json, None),
+            Location::Remote(url) => {
+                if Interception::of(&self.allow_urls, &url, false)
+                    != Interception::Instrument
+                {
+                    return Err(SourceMapError::Unusable(anyhow!(
+                        "the map is at a disallowed URL: {url}"
+                    )));
+                }
+                (self.load(&url)?, Some(url))
+            }
+        };
+        SourceMap::parse(&json, Some(map_url.as_ref().unwrap_or(script_url)))
+            .map_err(SourceMapError::Unusable)
+    }
+
+    /// Loads `url` as the page would, with its cookies and through the
+    /// browser's proxy. A map the server says it does not have (404 or
+    /// 410) is unusable; any other failure may not happen again.
+    fn load(&self, url: &Url) -> Result<String, SourceMapError> {
+        let resource = self
+            .connection
+            .send(
+                network::LoadNetworkResourceParams {
+                    frame_id: Some(self.frame_id.clone()),
+                    url: url.to_string(),
+                    options: network::LoadNetworkResourceOptions::new(
+                        false, true,
+                    ),
+                },
+                Some(&self.session_id),
+            )
+            .context("failed loading the map")
+            .map_err(SourceMapError::Load)?
+            .resource;
+        let stream = match resource.stream {
+            Some(stream) if resource.success => stream,
+            _ => {
+                let error = anyhow!(
+                    "failed loading the map: {} (HTTP status {:?})",
+                    resource.net_error_name.as_deref().unwrap_or("no error"),
+                    resource.http_status_code,
+                );
+                let is_absent = resource
+                    .http_status_code
+                    .is_some_and(|status| status == 404.0 || status == 410.0);
+                return Err(match is_absent {
+                    true => SourceMapError::Unusable(error),
+                    false => SourceMapError::Load(error),
+                });
+            }
+        };
+        let json = self
+            .read(url, stream)
+            .context("failed reading the map")
+            .map_err(SourceMapError::Load)?;
+        String::from_utf8(json)
+            .context("the map is not UTF-8")
+            .map_err(SourceMapError::Unusable)
+    }
+
+    fn read(&self, url: &Url, stream: io::StreamHandle) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        let read = (|| -> Result<()> {
+            loop {
+                let chunk = self.connection.send(
+                    io::ReadParams::new(stream.clone()),
+                    Some(&self.session_id),
+                )?;
+                if chunk.base64_encoded == Some(true) {
+                    BASE64_STANDARD.decode_vec(&chunk.data, &mut bytes)?;
+                } else {
+                    bytes.extend_from_slice(chunk.data.as_bytes());
+                }
+                if chunk.eof {
+                    return Ok(());
+                }
+            }
+        })();
+        if let Err(error) = self
+            .connection
+            .post(io::CloseParams::new(stream), Some(&self.session_id))
+        {
+            log::debug!("failed closing the stream of {url}: {error:#}");
+        }
+        read?;
+        Ok(bytes)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -376,7 +762,9 @@ mod tests {
     use super::*;
     use hegel::{
         Generator, TestCase,
-        generators::{booleans, integers, optional, sampled_from, text, vecs},
+        generators::{
+            booleans, integers, optional, sampled_from, text, tuples3, vecs,
+        },
     };
 
     const HOSTS_UNDER_TEST: &[&str] = &["app.test", "api.app.test"];
@@ -428,6 +816,46 @@ mod tests {
             patterns.push(MatchPattern::from_origin(&origin).unwrap());
         }
         patterns
+    }
+
+    #[hegel::test]
+    fn test_source_maps_are_those_of_the_scripts_finished_last(tc: TestCase) {
+        let bytes_max = tc.draw(integers::<usize>().max_value(8));
+        let scripts = tc.draw(vecs(tuples3(
+            sampled_from(
+                ["/a.js", "/b.js", "/c.js", "/d.js", "/e.js"].as_slice(),
+            ),
+            sampled_from(["1", "2"].as_slice()),
+            integers::<usize>().max_value(4),
+        )));
+        let mut source_maps = SourceMaps::new(bytes_max);
+        // Script, ETag, map and its bytes, the script finished last at the
+        // end. A map is the number of the load that made it.
+        let mut expected: Vec<(&str, &str, usize, usize)> = Vec::new();
+        for (load, (script, etag, bytes)) in scripts.into_iter().enumerate() {
+            let source_id = SourceId(script.into());
+            let cached = expected
+                .iter()
+                .position(|(cached, _, _, _)| *cached == script)
+                .map(|index| expected.remove(index))
+                .filter(|(_, cached, _, _)| *cached == etag)
+                .map(|(_, etag, map, _)| (etag.to_string(), map));
+            let taken = source_maps.take(&source_id, etag);
+            assert_eq!(taken, cached);
+
+            let map = taken.map_or(load, |(_, map)| map);
+            source_maps.put(source_id, etag.to_string(), map, bytes);
+            expected.push((script, etag, map, bytes));
+            let bytes_of = |maps: &[(&str, &str, usize, usize)]| -> usize {
+                maps.iter().map(|(_, _, _, bytes)| bytes).sum()
+            };
+            let fitting = (0..=expected.len())
+                .find(|&dropped| bytes_of(&expected[dropped..]) <= bytes_max)
+                .unwrap();
+            expected.drain(..fitting);
+            assert_eq!(source_maps.maps.len(), expected.len());
+            assert_eq!(source_maps.bytes, bytes_of(&expected));
+        }
     }
 
     #[hegel::test]

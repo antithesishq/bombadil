@@ -46,9 +46,9 @@ function foo() {
 }
 
 ---- blocks ----
-1188814430  /test.js:6  foo
-1056359107  /test.js:8  foo
-1920218846  /test.js:10  foo
-1823246910  /test.js:11  foo
-2088218821  /test.js:12  foo
-1445672775  /test.js:14  foo
+1188814430  /test.js:6:24  foo
+1056359107  /test.js:8:24  foo
+1920218846  /test.js:10:24  foo
+1823246910  /test.js:11:24  foo
+2088218821  /test.js:12:24  foo
+1445672775  /test.js:14:24  foo
