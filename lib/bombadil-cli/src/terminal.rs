@@ -9,14 +9,15 @@ use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
-use bombadil::model::Recorded;
+use bombadil::model::{Recorded, WeightedStrategy, Weights};
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{ProcessExitStatus, TerminalSize};
 use bombadil_terminal::driver::{
-    TerminalAction, TerminalDriver, TerminalProgramOptions,
+    TerminalAction, TerminalActionTemplate, TerminalDriver,
+    TerminalProgramOptions,
 };
 use bombadil_terminal::trace::{
     TerminalOutputWriter, TerminalTraceWriter, load_trace_actions,
@@ -175,6 +176,10 @@ pub enum Command {
         /// Number of test runs to execute in parallel.
         #[arg(long, default_value = "1")]
         parallelism: NonZeroUsize,
+        /// Learned action weights (JSON) to pick actions by in the states
+        /// they cover. Other states use spec weights.
+        #[arg(long, value_name = "WEIGHTS_FILE")]
+        weights: Option<PathBuf>,
 
         /// Terminal columns at startup
         #[arg(long, default_value_t = defaults::COLUMNS)]
@@ -378,6 +383,7 @@ pub fn run(command: Command) {
             time_limit_fuzz,
             swarm,
             parallelism,
+            weights,
             columns,
             rows,
             scrollback_lines_max,
@@ -398,6 +404,11 @@ pub fn run(command: Command) {
                     [program, args @ ..] => (program.as_str(), args),
                     _ => bail!("expected `<program> [args...]` after `--`"),
                 };
+
+                let weights = weights
+                    .as_deref()
+                    .map(Weights::<TerminalActionTemplate>::load)
+                    .transpose()?;
 
                 let specification = load_specification(specification_file);
 
@@ -435,15 +446,20 @@ pub fn run(command: Command) {
                 let result = fuzzer::fuzz(FuzzOptions {
                     rng: AntithesisRng,
                     driver,
-                    strategy: || TerminalStrategy {
-                        rng: AntithesisRng,
-                        mode: TerminalTestMode::RandomWalk,
-                        test_start: None,
-                        violations_count: 0,
-                        exit_on_violation: false,
-                        deadline: None,
-                        states_seen: 0,
-                        quiet: true,
+                    strategy: move || {
+                        WeightedStrategy::new(
+                            TerminalStrategy {
+                                rng: AntithesisRng,
+                                mode: TerminalTestMode::RandomWalk,
+                                test_start: None,
+                                violations_count: 0,
+                                exit_on_violation: false,
+                                deadline: None,
+                                states_seen: 0,
+                                quiet: true,
+                            },
+                            weights.clone(),
+                        )
                     },
                     interrupted,
                     time_limit_fuzz,

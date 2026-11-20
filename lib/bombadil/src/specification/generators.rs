@@ -76,6 +76,50 @@ pub enum CharSetEntry {
     Literal(String),
 }
 
+pub fn range_contains<T: PartialOrd>(
+    outer: &RangeInclusive<T>,
+    inner: &RangeInclusive<T>,
+) -> bool {
+    outer.start() <= inner.start() && inner.end() <= outer.end()
+}
+
+impl StringGenerator {
+    /// Whether this generator generates every string that `other` does. It
+    /// may say no when it does (e.g. a range that two entries cover between
+    /// them), but not yes when it does not.
+    pub fn contains(&self, other: &StringGenerator) -> bool {
+        match (self, other) {
+            (
+                StringGenerator::Text { length: outer },
+                StringGenerator::Text { length: inner },
+            ) => range_contains(outer, inner),
+            (
+                StringGenerator::CharSet { entries: outer },
+                StringGenerator::CharSet { entries: inner },
+            ) => inner
+                .iter()
+                .all(|inner| outer.iter().any(|outer| outer.contains(inner))),
+            _ => self == other,
+        }
+    }
+}
+
+impl CharSetEntry {
+    fn contains(&self, other: &CharSetEntry) -> bool {
+        match (self, other) {
+            (CharSetEntry::Range(outer), CharSetEntry::Range(inner)) => {
+                range_contains(outer, inner)
+            }
+            (_, CharSetEntry::Literal(literal)) => self.accepts(literal),
+            (CharSetEntry::Literal(literal), CharSetEntry::Range(range)) => {
+                range.start() == range.end()
+                    && char::from_u32(*range.start())
+                        .is_some_and(|char| literal.chars().eq([char]))
+            }
+        }
+    }
+}
+
 impl CharSetEntry {
     fn accepts(&self, value: &str) -> bool {
         match self {
@@ -168,7 +212,9 @@ mod tests {
     use super::*;
     use hegel::{
         Generator, TestCase,
-        generators::{integers, just, one_of, text, vecs},
+        generators::{
+            booleans, integers, just, one_of, sampled_from, text, vecs,
+        },
     };
     use rand::{SeedableRng, rngs::StdRng};
 
@@ -183,11 +229,80 @@ mod tests {
         );
     }
 
+    fn range_within<T: hegel::generators::Integer>(
+        tc: &TestCase,
+        outer: &RangeInclusive<T>,
+    ) -> RangeInclusive<T> {
+        let bounds =
+            || integers().min_value(*outer.start()).max_value(*outer.end());
+        let start = tc.draw_silent(bounds());
+        let end = tc.draw_silent(bounds().min_value(start));
+        start..=end
+    }
+
+    /// A generator of some of the strings that `generator` generates.
+    fn narrowed(tc: &TestCase, generator: &StringGenerator) -> StringGenerator {
+        match generator {
+            StringGenerator::Text { length } => StringGenerator::Text {
+                length: range_within(tc, length),
+            },
+            StringGenerator::CharSet { entries } => {
+                let count =
+                    tc.draw_silent(integers().min_value(1).max_value(4));
+                let entries = (0..count)
+                    .map(|_| {
+                        match tc.draw_silent(sampled_from(entries.clone())) {
+                            CharSetEntry::Range(range) => {
+                                CharSetEntry::Range(range_within(tc, &range))
+                            }
+                            literal => literal,
+                        }
+                    })
+                    .collect();
+                StringGenerator::CharSet { entries }
+            }
+            other => other.clone(),
+        }
+    }
+
+    #[hegel::test]
+    fn string_generator_contains_its_narrowings(tc: TestCase) {
+        let generator = tc.draw(string_generators().print_as_debug());
+        let narrowed = narrowed(&tc, &generator);
+        assert!(
+            generator.contains(&narrowed),
+            "{generator:?} does not contain {narrowed:?}"
+        );
+    }
+
+    #[hegel::test]
+    fn string_generator_accepts_what_a_contained_one_generates(tc: TestCase) {
+        let containing = tc.draw(string_generators().print_as_debug());
+        let contained = if tc.draw(booleans()) {
+            narrowed(&tc, &containing)
+        } else {
+            tc.draw(string_generators().print_as_debug())
+        };
+        let mut rng = StdRng::seed_from_u64(tc.draw(integers()));
+        if containing.contains(&contained) {
+            let value = contained.generate(&mut rng);
+            assert!(
+                containing.accepts(&value),
+                "{containing:?} contains {contained:?} but rejected \
+                 {value:?}"
+            );
+        }
+    }
+
     #[hegel::composite]
     fn string_generators(tc: &TestCase) -> StringGenerator {
         tc.draw(
             one_of([
                 just(StringGenerator::Email).boxed(),
+                just(StringGenerator::Text {
+                    length: range_within(tc, &(0..=64)),
+                })
+                .boxed(),
                 vecs(charset_entries())
                     .min_size(1)
                     .map(|entries| StringGenerator::CharSet { entries })
