@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Service Worker Test</title>
+</head>
+<body>
+    <h1>Service Worker Test</h1>
+    <button id="increment">Increment</button>
+    <div id="count">not loaded</div>
+
+    <script>
+        // The first load registers the worker and reloads once it is
+        // activated. Only the second load, which the worker would control,
+        // runs script.js.
+        if (sessionStorage.getItem("reloaded")) {
+            const script = document.createElement("script");
+            script.src = "./script.js";
+            document.body.appendChild(script);
+        } else {
+            navigator.serviceWorker
+                .register("./sw.js")
+                .then(() => navigator.serviceWorker.ready)
+                .then(({ active }) => {
+                    const reload = () => {
+                        sessionStorage.setItem("reloaded", "true");
+                        location.reload();
+                    };
+                    if (active.state === "activated") {
+                        reload();
+                    } else {
+                        active.addEventListener("statechange", reload);
+                    }
+                });
+        }
+    </script>
+</body>
+</html>
