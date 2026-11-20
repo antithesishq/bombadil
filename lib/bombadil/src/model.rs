@@ -16,7 +16,7 @@ use serde::Serialize;
 
 use crate::driver::ActionTemplate;
 use crate::tree::Leaves;
-use stdx::hash::StableHasher;
+use stdx::hash::{FNV_OFFSET, StableHasher, fnv1a64_from};
 
 /// What a trace records about each step for training.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -226,6 +226,49 @@ pub fn action_key<A>(template: &impl ActionTemplate<A>) -> ActionKey {
     let mut hasher = StableHasher::default();
     template.category_hash(&mut hasher);
     ActionKey(hasher.finish())
+}
+
+/// The hash of a sequence of string features: FNV-1a over the features,
+/// each followed by a newline, then SplitMix64's finalizer. Equal exactly
+/// when the sequences are equal; `None` for no features.
+pub fn feature_hash<'a>(
+    features: impl IntoIterator<Item = &'a str>,
+) -> Option<u64> {
+    let mut features = features.into_iter();
+    let mut hasher = FeatureHasher::new(features.next()?.as_bytes());
+    for feature in features {
+        hasher.feature(feature.as_bytes());
+    }
+    Some(hasher.finish())
+}
+
+/// [`feature_hash`] one feature at a time. It starts with a feature, as no
+/// features have no hash.
+#[derive(Clone, Copy, Debug)]
+pub struct FeatureHasher(u64);
+
+impl FeatureHasher {
+    pub fn new(feature: &[u8]) -> Self {
+        let mut hasher = FeatureHasher(FNV_OFFSET);
+        hasher.feature(feature);
+        hasher
+    }
+
+    pub fn feature(&mut self, feature: &[u8]) {
+        self.0 = fnv1a64_from(self.0, feature.iter().copied());
+        self.0 = fnv1a64_from(self.0, *b"\n");
+    }
+
+    pub fn finish(self) -> u64 {
+        mix64(self.0)
+    }
+}
+
+fn mix64(x: u64) -> u64 {
+    let mut h = x.wrapping_add(0x9e3779b97f4a7c15);
+    h = (h ^ (h >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94d049bb133111eb);
+    h ^ (h >> 31)
 }
 
 #[cfg(test)]
