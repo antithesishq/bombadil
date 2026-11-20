@@ -442,6 +442,7 @@ expression: bundle
   modules["@antithesishq/bombadil/internal"] = function(module, exports, require) {
     module.exports.__esModule=true;class ExtractorCell {
     	name = null;
+    	stateKeyBehavior = "included";
     	index;
     	snapshot;
     	constructor(runtime, extract) {
@@ -463,6 +464,10 @@ expression: bundle
     	}
     	named(name) {
     		this.name = name;
+    		return this;
+    	}
+    	setStateKeyBehavior(behavior) {
+    		this.stateKeyBehavior = behavior;
     		return this;
     	}
     	/**
@@ -534,7 +539,8 @@ expression: bundle
     				return {
     					index,
     					name: extractor.name,
-    					value: extractor.run(state)
+    					value: extractor.run(state),
+    					excluded: extractor.stateKeyBehavior === "excluded"
     				};
     			} finally {
     				this.extractingDepth--;

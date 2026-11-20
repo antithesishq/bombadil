@@ -237,6 +237,7 @@ impl InterfaceSession for FakeSession {
             name: None,
             value: json::json!(state.bug(&self.triggers)),
             time: state.timestamp(),
+            excluded: false,
         }])
     }
 

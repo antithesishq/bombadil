@@ -424,6 +424,21 @@ mod tests {
         )
     }
 
+    fn snapshot(
+        index: u64,
+        name: &str,
+        value: serde_json::Value,
+        time: Time,
+    ) -> Snapshot {
+        Snapshot {
+            index,
+            name: Some(name.into()),
+            value,
+            time,
+            excluded: false,
+        }
+    }
+
     fn render_violation(violation: &PropertyViolation) -> String {
         let markup = bombadil_schema::markup::render_violation(violation);
         markup_to_styled(&markup, test_start())
@@ -441,12 +456,12 @@ mod tests {
                 violation: Box::new(Violation::False {
                     time: time_at(305),
                     condition: "count.current <= 5".into(),
-                    snapshots: vec![Snapshot {
-                        index: 0,
-                        name: Some("count".into()),
-                        value: serde_json::json!(6),
-                        time: time_at(305),
-                    }],
+                    snapshots: vec![snapshot(
+                        0,
+                        "count",
+                        serde_json::json!(6),
+                        time_at(305),
+                    )],
                 }),
             },
         };
@@ -475,12 +490,12 @@ mod tests {
                         subformula: Box::new(thunk("y == 20")),
                         reason: EventuallyViolation::TestEnded,
                     }),
-                    antecedent_snapshots: vec![Snapshot {
-                        index: 0,
-                        name: Some("x".into()),
-                        value: serde_json::json!(11),
-                        time: time_at(120),
-                    }],
+                    antecedent_snapshots: vec![snapshot(
+                        0,
+                        "x",
+                        serde_json::json!(11),
+                        time_at(120),
+                    )],
                 }),
             },
         };
@@ -509,12 +524,12 @@ mod tests {
                         subformula: Box::new(thunk("errorMessage === null")),
                         reason: EventuallyViolation::TimedOut(time_at(65)),
                     }),
-                    antecedent_snapshots: vec![Snapshot {
-                        index: 0,
-                        name: Some("errorMessage".into()),
-                        value: serde_json::json!("Error: Failed to load"),
-                        time: time_at(60),
-                    }],
+                    antecedent_snapshots: vec![snapshot(
+                        0,
+                        "errorMessage",
+                        serde_json::json!("Error: Failed to load"),
+                        time_at(60),
+                    )],
                 }),
             },
         };
@@ -548,12 +563,12 @@ mod tests {
                         left: Box::new(Violation::False {
                             time: time_at(31),
                             condition: "counterValue.current === 5".into(),
-                            snapshots: vec![Snapshot {
-                                index: 0,
-                                name: Some("counterValue".into()),
-                                value: serde_json::json!(10),
-                                time: time_at(31),
-                            }],
+                            snapshots: vec![snapshot(
+                                0,
+                                "counterValue",
+                                serde_json::json!(10),
+                                time_at(31),
+                            )],
                         }),
                         right: Box::new(Violation::False {
                             time: time_at(31),
@@ -596,12 +611,12 @@ mod tests {
                         time: time_at(125),
                         condition: "notificationCount.current === initial"
                             .into(),
-                        snapshots: vec![Snapshot {
-                            index: 0,
-                            name: Some("notificationCount".into()),
-                            value: serde_json::json!(3),
-                            time: time_at(125),
-                        }],
+                        snapshots: vec![snapshot(
+                            0,
+                            "notificationCount",
+                            serde_json::json!(3),
+                            time_at(125),
+                        )],
                     }),
                 }),
             },
@@ -622,10 +637,10 @@ mod tests {
                 violation: Box::new(Violation::False {
                     time: time_at(60),
                     condition: "user.isValid()".into(),
-                    snapshots: vec![Snapshot {
-                        index: 0,
-                        name: Some("user".into()),
-                        value: serde_json::json!({
+                    snapshots: vec![snapshot(
+                        0,
+                        "user",
+                        serde_json::json!({
                             "name": "Alice",
                             "age": 30,
                             "tags": ["premium", "verified"],
@@ -634,8 +649,8 @@ mod tests {
                                 "zip": "94102"
                             }
                         }),
-                        time: time_at(60),
-                    }],
+                        time_at(60),
+                    )],
                 }),
             },
         };
@@ -674,12 +689,12 @@ mod tests {
                         violation: Box::new(Violation::False {
                             time: time_at(15),
                             condition: "state === 'disabled'".into(),
-                            snapshots: vec![Snapshot {
-                                index: 0,
-                                name: Some("state".into()),
-                                value: serde_json::json!("pending"),
-                                time: time_at(15),
-                            }],
+                            snapshots: vec![snapshot(
+                                0,
+                                "state",
+                                serde_json::json!("pending"),
+                                time_at(15),
+                            )],
                         }),
                     }),
                 }),
@@ -702,24 +717,14 @@ mod tests {
                     time: time_at(10),
                     condition: "condition".into(),
                     snapshots: vec![
-                        Snapshot {
-                            index: 0,
-                            name: Some("foo".into()),
-                            value: serde_json::json!(1),
-                            time: time_at(10),
-                        },
-                        Snapshot {
-                            index: 1,
-                            name: Some("bar".into()),
-                            value: serde_json::json!(2),
-                            time: time_at(10),
-                        },
-                        Snapshot {
-                            index: 2,
-                            name: Some("baz".into()),
-                            value: serde_json::json!("test"),
-                            time: time_at(10),
-                        },
+                        snapshot(0, "foo", serde_json::json!(1), time_at(10)),
+                        snapshot(1, "bar", serde_json::json!(2), time_at(10)),
+                        snapshot(
+                            2,
+                            "baz",
+                            serde_json::json!("test"),
+                            time_at(10),
+                        ),
                     ],
                 }),
             },
@@ -736,32 +741,28 @@ mod tests {
                     time: time_at(20),
                     condition: "condition".into(),
                     snapshots: vec![
-                        Snapshot {
-                            index: 0,
-                            name: Some("selectedFilter".into()),
-                            value: serde_json::json!("Active"),
-                            time: time_at(20),
-                        },
-                        Snapshot {
-                            index: 1,
-                            name: Some("newTodoInput".into()),
-                            value: serde_json::json!({
+                        snapshot(
+                            0,
+                            "selectedFilter",
+                            serde_json::json!("Active"),
+                            time_at(20),
+                        ),
+                        snapshot(
+                            1,
+                            "newTodoInput",
+                            serde_json::json!({
                                 "active": false,
                                 "pendingText": "b",
                                 "rect": {}
                             }),
-                            time: time_at(20),
-                        },
-                        Snapshot {
-                            index: 2,
-                            name: Some("availableFilters".into()),
-                            value: serde_json::json!([
-                                "All",
-                                "Active",
-                                "Completed"
-                            ]),
-                            time: time_at(20),
-                        },
+                            time_at(20),
+                        ),
+                        snapshot(
+                            2,
+                            "availableFilters",
+                            serde_json::json!(["All", "Active", "Completed"]),
+                            time_at(20),
+                        ),
                     ],
                 }),
             },
