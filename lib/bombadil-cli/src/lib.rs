@@ -5,6 +5,7 @@ mod duration;
 mod fuzz_report;
 mod inspect_server;
 mod output_path;
+mod quest;
 mod shrink;
 #[cfg(feature = "terminal")]
 mod terminal;

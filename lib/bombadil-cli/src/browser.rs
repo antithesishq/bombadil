@@ -45,6 +45,7 @@ use bombadil_browser::{
 };
 
 use crate::action_templates::{ActionTemplates, ActionTemplatesOptions};
+use crate::quest::{self, QuestOptions};
 use crate::shrink::{self, ShrinkOptions};
 use crate::{
     browser_trace, duration, fuzz_report, inspect_server, output_path,
@@ -206,6 +207,9 @@ pub struct RunSharedOptions {
     )]
     pub coverage_components: Option<Vec<String>>,
 
+    #[clap(flatten)]
+    pub quest: QuestOptions,
+
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
@@ -220,7 +224,7 @@ pub struct TestOptions {
 
     /// Reproduce a previous test run from a trace file, instead of random exploration.
     /// Mutually exclusive with `--time-limit` and `--exit-on-violation`.
-    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation"])]
+    #[arg(long, value_name = "TRACE_FILE", conflicts_with_all = ["time_limit", "exit_on_violation", "quest_upload"])]
     pub reproduce: Option<PathBuf>,
 }
 
@@ -376,6 +380,18 @@ pub struct FuzzOptions {
     /// cover. Other states use spec weights.
     #[arg(long, value_name = "WEIGHTS_FILE")]
     pub weights: Option<PathBuf>,
+    /// Steer the runs towards a goal, by weights the Quest service learned
+    /// from the runs uploaded to `--quest-app` so far.
+    /// The goal is passed to Quest as written, and Quest says which goals
+    /// it takes: `explore`, `frontier`, `'bug(noUncaughtExceptions)'`,
+    /// `'state(cart.items > 0)'`, `'increase(score)'`.
+    #[arg(
+        long = "goal",
+        value_name = "GOAL",
+        requires = "quest_app",
+        conflicts_with = "weights"
+    )]
+    pub goals: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -748,13 +764,20 @@ impl CoverageSymbols {
 fn browser_test(
     reproduce_args: Vec<String>,
     output_path: PathBuf,
-    shared_options: RunSharedOptions,
+    mut shared_options: RunSharedOptions,
     test_options: TestOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
     downloads: TempDir,
 ) -> Result<()> {
     let mode = resolve_test_mode(&test_options)?;
+    let quest = quest::Session::start(
+        &shared_options.quest,
+        &[],
+        &mut shared_options.coverage_components,
+        &mut shared_options.coverage_symbols_path,
+        &mut shared_options.action_templates.action_templates_path,
+    )?;
     let (blocks, coverage_symbols) = CoverageSymbols::create(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
@@ -793,10 +816,12 @@ fn browser_test(
         output_path.clone(),
         shared_options.output_path_overwrite,
     )?;
+    let interrupted = interrupt_flag()?;
     let result = run_with_writer(
         run_options,
         trace_writer,
         action_templates.as_ref().map(ActionTemplates::registry),
+        interrupted.clone(),
     );
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
@@ -862,6 +887,9 @@ fn browser_test(
              \n\n  {reproduce_command}\n",
         );
     }
+    if let Some(quest) = quest {
+        quest.finish([output_path], &interrupted);
+    }
 
     downloads.close()?;
     if test_result.violations_count > 0 {
@@ -876,7 +904,7 @@ fn browser_test(
 
 fn browser_fuzz(
     output_path: PathBuf,
-    shared_options: RunSharedOptions,
+    mut shared_options: RunSharedOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
     fuzz_options: FuzzOptions,
@@ -888,6 +916,13 @@ fn browser_fuzz(
         );
     };
 
+    let quest = quest::Session::start(
+        &shared_options.quest,
+        &fuzz_options.goals,
+        &mut shared_options.coverage_components,
+        &mut shared_options.coverage_symbols_path,
+        &mut shared_options.action_templates.action_templates_path,
+    )?;
     let (blocks, coverage_symbols) = CoverageSymbols::create(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
@@ -897,19 +932,19 @@ fn browser_fuzz(
         ActionTemplates::create(&shared_options.action_templates)?;
     let specification = load_specification(&shared_options.target);
 
-    let weights = fuzz_options
-        .weights
-        .as_deref()
-        .map(Weights::<BrowserActionTemplate>::load)
-        .transpose()?;
+    let weights = match quest.as_ref().and_then(quest::Session::weights) {
+        Some(weights) => Some(Arc::new(
+            Weights::<BrowserActionTemplate>::parse(weights)
+                .context("parsing the weights Quest served")?,
+        )),
+        None => fuzz_options
+            .weights
+            .as_deref()
+            .map(Weights::<BrowserActionTemplate>::load)
+            .transpose()?,
+    };
 
-    let interrupted = Arc::new(AtomicBool::new(false));
-    {
-        let interrupted = interrupted.clone();
-        ctrlc::set_handler(move || {
-            interrupted.store(true, Ordering::SeqCst);
-        })?;
-    }
+    let interrupted = interrupt_flag()?;
 
     let specification_bundle =
         Arc::from(bundle(".", &specification.module_specifier)?);
@@ -946,7 +981,7 @@ fn browser_fuzz(
                 weights.clone(),
             )
         },
-        interrupted,
+        interrupted: interrupted.clone(),
         time_limit_fuzz: fuzz_options.time_limit_fuzz,
         time_limit_run: fuzz_options.time_limit_run,
         swarm: fuzz_options.swarm,
@@ -967,9 +1002,25 @@ fn browser_fuzz(
         "{}",
         fuzz_report::render(&result, &output_path, "bombadil browser inspect")
     );
+    if let Some(quest) = quest {
+        // Run ids count up from zero. A run that failed to start has no
+        // trace.
+        let traces = (0..result.runs_count)
+            .map(|run| bombadil_trace::numbered_trace_path(&output_path, run))
+            .filter(|trace| trace.exists());
+        quest.finish(traces, &interrupted);
+    }
 
     downloads.close()?;
     fuzz_report::exit(&result)
+}
+
+/// A flag that SIGINT sets.
+fn interrupt_flag() -> Result<Arc<AtomicBool>> {
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let flag = interrupted.clone();
+    ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))?;
+    Ok(interrupted)
 }
 
 struct RunOptions {
@@ -1000,15 +1051,8 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
     }: RunOptions,
     trace_writer: Writer,
     templates: Option<&TemplateRegistry>,
+    interrupted: Arc<AtomicBool>,
 ) -> Result<TestResult> {
-    let interrupted = Arc::new(AtomicBool::new(false));
-    {
-        let interrupted = interrupted.clone();
-        ctrlc::set_handler(move || {
-            interrupted.store(true, Ordering::SeqCst);
-        })?;
-    }
-
     let mut strategy = TestStrategy {
         rng: AntithesisRng,
         mode,

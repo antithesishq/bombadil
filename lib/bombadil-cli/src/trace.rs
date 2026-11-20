@@ -107,6 +107,23 @@ pub fn run(args: TraceArgs) -> Result<()> {
     result
 }
 
+/// Writes what `bombadil trace --json --drop-excluded` prints.
+pub fn write_json_without_excluded(
+    trace_path: &Path,
+    out: &mut impl Write,
+) -> Result<()> {
+    let args = TraceArgs {
+        trace_path: trace_path.to_path_buf(),
+        state: None,
+        json: true,
+        screen: false,
+        color: false,
+        screenshots: None,
+        drop_excluded: true,
+    };
+    show_into(&args, out, &mut None)
+}
+
 /// What `--screenshots` did, once it started (even if showing stopped
 /// early, as some may have been written), or `None` if it didn't.
 fn extraction_summary(
@@ -762,7 +779,7 @@ fn write_state(
 /// with invisible and bidi format characters escaped, so it can't make
 /// names display misleadingly. Backslashes are escaped too, so escaped
 /// text doesn't look like these escapes.
-fn printable(text: &str) -> String {
+pub(crate) fn printable(text: &str) -> String {
     text.chars()
         .map(|c| {
             if c.is_control() || c == '\\' {
