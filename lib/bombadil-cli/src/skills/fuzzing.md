@@ -37,7 +37,8 @@ if concurrent runs will not interfere through shared application state.
 Browser specifications are positional arguments after the URL. Terminal
 specifications use `--specification`. Put terminal driver options before `--`,
 then the program and its arguments. Without a custom specification, Bombadil
-uses the driver's defaults.
+uses the driver's defaults. For domain-specific checks, run
+`bombadil skill show writing-specifications`.
 
 ## Keep browser exploration in bounds
 

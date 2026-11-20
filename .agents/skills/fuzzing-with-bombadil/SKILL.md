@@ -26,4 +26,5 @@ this from the project root instead:
 If the guide command is unavailable, use `bombadil --version`, `bombadil --help`,
 and subcommand help. Do not assume newer options exist in older versions.
 
+To write properties, run `bombadil skill show writing-specifications`.
 To investigate a failure, run `bombadil skill show investigating-failures`.
