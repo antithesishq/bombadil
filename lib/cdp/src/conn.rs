@@ -5,6 +5,8 @@ use std::marker::PhantomData;
 use std::net::TcpStream;
 use std::ops::Range;
 use std::os::fd::{AsRawFd, RawFd};
+#[cfg(test)]
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -34,7 +36,8 @@ const WEBSOCKET: Token = Token(0);
 const COMMANDS: Token = Token(1);
 
 #[cfg(test)]
-static RETRYABLE_WRITE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static RETRYABLE_WRITE_COUNT: (Mutex<usize>, Condvar) =
+    (Mutex::new(0), Condvar::new());
 
 #[derive(Debug, Clone)]
 pub struct Connection {
@@ -462,7 +465,10 @@ fn is_retryable(error: &tungstenite::Error) -> bool {
 
 fn record_retryable_write() {
     #[cfg(test)]
-    RETRYABLE_WRITE_COUNT.fetch_add(1, Ordering::Relaxed);
+    {
+        *RETRYABLE_WRITE_COUNT.0.lock().unwrap() += 1;
+        RETRYABLE_WRITE_COUNT.1.notify_all();
+    }
 }
 
 fn write_nonblocking(
@@ -775,7 +781,7 @@ mod tests {
     }
 
     fn websocket_server(
-        pause_before_reading: Duration,
+        before_reading: impl FnOnce() + Send + 'static,
     ) -> (String, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
@@ -789,7 +795,7 @@ mod tests {
                 .max_frame_size(None);
             let mut websocket =
                 tungstenite::accept_with_config(stream, Some(config)).unwrap();
-            thread::sleep(pause_before_reading);
+            before_reading();
 
             loop {
                 match websocket.read() {
@@ -1164,8 +1170,19 @@ mod tests {
 
     #[test]
     fn large_write_survives_socket_backpressure() {
-        RETRYABLE_WRITE_COUNT.store(0, Ordering::Relaxed);
-        let (url, server) = websocket_server(Duration::from_millis(250));
+        *RETRYABLE_WRITE_COUNT.0.lock().unwrap() = 0;
+        // The server reads nothing until the client's socket has filled up.
+        let (url, server) = websocket_server(|| {
+            let (_count, wait) = RETRYABLE_WRITE_COUNT
+                .1
+                .wait_timeout_while(
+                    RETRYABLE_WRITE_COUNT.0.lock().unwrap(),
+                    Duration::from_secs(3),
+                    |count| *count == 0,
+                )
+                .unwrap();
+            assert!(!wait.timed_out(), "the write never hit backpressure");
+        });
         let connection = Connection::connect(url).unwrap();
 
         connection
@@ -1186,7 +1203,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(response, TestResponse { received: true });
-        assert!(RETRYABLE_WRITE_COUNT.load(Ordering::Relaxed) > 0);
         connection.close().unwrap();
         server.join().unwrap();
     }
