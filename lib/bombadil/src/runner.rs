@@ -88,6 +88,7 @@ pub trait RunStrategy<Session: InterfaceSession> {
         _state: &Session::State,
         _snapshots: &[Snapshot],
         _leaves: &Leaves<'a, Session::ActionTemplate>,
+        _rng: &mut dyn rand::Rng,
     ) -> Option<Leaves<'a, Session::ActionTemplate>> {
         None
     }

@@ -1,9 +1,10 @@
 ---
 source: lib/bombadil/src/model.rs
+assertion_line: 2590
 expression: "errors.join(\"\\n\")"
 ---
 {"format": 3, "simhash": {"weights": {}}, "states": {}}
-  unsupported weights format 3 (expected 4)
+  unsupported weights format 3 (expected 4 or 5)
 {"states": {}}
   missing field `format` at line 1 column 14
 {"format": 4, "key": {"components": ["snapshot.route"]}}
@@ -34,3 +35,9 @@ expression: "errors.join(\"\\n\")"
   state key "2a" is not 16 lowercase hex digits
 {"format": 4, "key": {"components": ["snapshot.route"]}, "states": {}, "templates": {"00000000000000aa": 1}}
   invalid type: integer `1`, expected a string at line 1 column 106
+{"format": 5, "key": {"components": ["snapshot.route"]}, "states": {}, "sequences": {"00000000000000aa": []}}
+  sequence 00000000000000aa has 0 actions, fewer than two
+{"format": 5, "key": {"components": ["snapshot.route"]}, "states": {}, "sequences": {"00000000000000aa": ["00000000000000aa"]}}
+  sequence 00000000000000aa has 1 actions, fewer than two
+{"format": 5, "key": {"components": ["snapshot.route"]}, "states": {}, "templates": {"00000000000000aa": "a"}, "sequences": {"00000000000000aa": ["00000000000000aa", "00000000000000aa"]}}
+  sequence id 00000000000000aa is an action key of the templates

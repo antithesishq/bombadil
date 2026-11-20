@@ -10,7 +10,7 @@
 //! algorithm (FNV-1a, SplitMix64's finalizer), as training computes the
 //! same keys from traces.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt::Write as _;
 use std::hash::Hasher;
 use std::io::{self, Write};
@@ -541,10 +541,33 @@ struct WeightsFile<T> {
     /// template of the spec.
     #[serde(default)]
     templates: HashMap<ActionKey, T>,
+    /// Sequence id → the action keys it runs in order (format 5). A state's
+    /// weights may name a sequence id next to its action keys: the sequence
+    /// is weighed like any action and runs as one decision. An id is no
+    /// action key of `templates`.
+    #[serde(default)]
+    sequences: HashMap<ActionKey, Vec<ActionKey>>,
 }
 
 fn epsilon_default() -> f64 {
     0.1
+}
+
+/// A learned sequence of a state: picked as one decision by its weight,
+/// then run step by step while each next action is offered; abandoned
+/// where one is not.
+struct LearnedSequence {
+    /// Index in `Weights::steps`.
+    sequence: u32,
+    weight: f64,
+}
+
+/// One action of a sequence.
+#[derive(Clone, Copy)]
+struct Step {
+    key: ActionKey,
+    /// Index of the action's template in `Weights::templates`.
+    template: Option<u32>,
 }
 
 struct LearnedAction {
@@ -568,7 +591,9 @@ struct LearnedAction {
 pub struct Weights<T> {
     /// Share of probability kept by the fallback distribution (uniform for
     /// [`Policy::Replace`], the spec's for [`Policy::Prior`]), so that no
-    /// available action is starved.
+    /// available action is starved. The sequences of a state take their
+    /// share of the actions' learned weights before this, scaled by the
+    /// same `1 - epsilon`.
     epsilon: f64,
     policy: Policy,
     lookup: KeyLookup,
@@ -576,12 +601,18 @@ pub struct Weights<T> {
     states_index: HashMap<u64, u32>,
     /// The learned actions of each state, in key order.
     states: Vec<Vec<LearnedAction>>,
+    /// The learned sequences of each state (format 5), in id order.
+    sequences: Vec<Vec<LearnedSequence>>,
+    /// The steps of each sequence, in id order.
+    steps: Vec<Vec<Step>>,
     templates: Vec<T>,
     unservable_checked: AtomicBool,
 }
 
 impl<T> Weights<T> {
     const FORMAT: u32 = 4;
+    /// Format 5 adds `sequences`; the rest is format 4.
+    const FORMAT_SEQUENCES: u32 = 5;
 
     pub fn load(path: &Path) -> Result<Arc<Self>>
     where
@@ -604,15 +635,27 @@ impl<T> Weights<T> {
         }
         // Read first: a file of another format fails to parse as this one.
         let Header { format } = serde_json::from_str(text)?;
-        if format != Self::FORMAT {
+        if format != Self::FORMAT && format != Self::FORMAT_SEQUENCES {
             bail!(
-                "unsupported weights format {format} (expected {})",
-                Self::FORMAT
+                "unsupported weights format {format} (expected {} or {})",
+                Self::FORMAT,
+                Self::FORMAT_SEQUENCES
             );
         }
         let file: WeightsFile<T> = serde_json::from_str(text)?;
         if !(0.0..=1.0).contains(&file.epsilon) {
             bail!("epsilon must be within [0, 1], got {}", file.epsilon);
+        }
+        for (id, keys) in &file.sequences {
+            if keys.len() < 2 {
+                bail!(
+                    "sequence {id} has {} actions, fewer than two",
+                    keys.len()
+                );
+            }
+            if file.templates.contains_key(id) {
+                bail!("sequence id {id} is an action key of the templates");
+            }
         }
         let lookup = KeyLookup::new(file.key.components, file.key.goals)?;
 
@@ -623,16 +666,48 @@ impl<T> Weights<T> {
             templates.push(template);
         }
 
+        // Sequences in id order, so that a state's are in one order whatever
+        // the file's.
+        let mut sequences_ids: Vec<ActionKey> =
+            file.sequences.keys().copied().collect();
+        sequences_ids.sort_unstable();
+        let sequences_index: HashMap<ActionKey, u32> = sequences_ids
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (*id, index as u32))
+            .collect();
+        let steps: Vec<Vec<Step>> = sequences_ids
+            .iter()
+            .map(|id| {
+                file.sequences[id]
+                    .iter()
+                    .map(|key| Step {
+                        key: *key,
+                        template: templates_index.get(key).copied(),
+                    })
+                    .collect()
+            })
+            .collect();
+
         let mut states_index = HashMap::with_capacity(file.states.len());
         let mut states = Vec::with_capacity(file.states.len());
+        let mut sequences = Vec::with_capacity(file.states.len());
         for (state, weights) in &file.states {
             let mut actions = Vec::with_capacity(weights.len());
+            let mut runs = Vec::new();
             for (key, weight) in weights {
                 if !(weight.is_finite() && *weight >= 0.0) {
                     bail!(
                         "state {state}: the weight of action {key} is \
                          {weight}, which is not a non-negative number"
                     );
+                }
+                if let Some(sequence) = sequences_index.get(key) {
+                    runs.push(LearnedSequence {
+                        sequence: *sequence,
+                        weight: *weight,
+                    });
+                    continue;
                 }
                 actions.push(LearnedAction {
                     key: *key,
@@ -642,10 +717,11 @@ impl<T> Weights<T> {
                 });
             }
             actions.sort_unstable_by_key(|action| action.key);
+            runs.sort_unstable_by_key(|run| run.sequence);
             states_index.insert(parse_state_key(state)?, states.len() as u32);
             states.push(actions);
+            sequences.push(runs);
         }
-
         for (state, targets) in file.next.iter().flatten() {
             let state = states_index.get(&parse_state_key(state)?).copied();
             for (key, target) in targets {
@@ -668,6 +744,8 @@ impl<T> Weights<T> {
             lookup,
             states_index,
             states,
+            sequences,
+            steps,
             templates,
             unservable_checked: AtomicBool::new(false),
         })
@@ -703,6 +781,8 @@ impl<T> Weights<T> {
 #[derive(Default)]
 struct Scratch {
     path: String,
+    /// The action key of each offered leaf.
+    keys: Vec<ActionKey>,
     /// For each offered leaf, the index of its own learned action.
     own: Vec<Option<u32>>,
     /// For each learned action of the state, whether a leaf serves it.
@@ -717,6 +797,8 @@ struct WeightsRun<T> {
     /// Visits in this run of each learned state.
     visits: Vec<u32>,
     scratch: Scratch,
+    /// The rest of the sequence being run, next action first.
+    pending: VecDeque<Step>,
 }
 
 impl<T> WeightsRun<T> {
@@ -725,7 +807,35 @@ impl<T> WeightsRun<T> {
             visits: vec![0; weights.states.len()],
             weights,
             scratch: Scratch::default(),
+            pending: VecDeque::new(),
         }
+    }
+
+    /// The leaf that serves `step`: the offered one with its key, else the
+    /// step's own template under an offered one that contains it. `keys`
+    /// are the offered leaves' action keys.
+    fn offered_leaf<'a, A>(
+        offered: &[(&'a T, f64)],
+        keys: &[ActionKey],
+        templates: &'a [T],
+        step: Step,
+    ) -> Option<&'a T>
+    where
+        T: ActionTemplate<A>,
+    {
+        let mut enabled = offered
+            .iter()
+            .zip(keys)
+            .filter(|((_, probability), _)| *probability > 0.0);
+        if let Some(((template, _), _)) =
+            enabled.clone().find(|(_, key)| **key == step.key)
+        {
+            return Some(template);
+        }
+        let fine = &templates[step.template? as usize];
+        enabled
+            .find(|((template, _), _)| template.contains(fine))
+            .map(|_| fine)
     }
 
     /// The probabilities to pick by in `state`, when it is a learned state
@@ -738,6 +848,7 @@ impl<T> WeightsRun<T> {
         state: &(impl RunState + ?Sized),
         snapshots: &[Snapshot],
         leaves: &Leaves<'a, T>,
+        rng: &mut dyn rand::Rng,
     ) -> Option<Leaves<'a, T>>
     where
         T: ActionTemplate<A>,
@@ -746,9 +857,11 @@ impl<T> WeightsRun<T> {
             weights,
             visits,
             scratch,
+            pending,
         } = self;
         let weights: &'a Weights<T> = weights;
         weights.warn_unservable_once(snapshots);
+        let offered = leaves.as_slice();
 
         let key = state_key(&weights.lookup, |name| {
             component_hash(name, state, snapshots, &mut scratch.path)
@@ -756,13 +869,47 @@ impl<T> WeightsRun<T> {
         let state_index =
             key.and_then(|key| weights.states_index.get(&key)).copied();
         log::debug!("state key {key:016x?}, learned: {state_index:?}");
-        let state_index = state_index? as usize;
-        visits[state_index] += 1;
+        if let Some(state_index) = state_index {
+            visits[state_index as usize] += 1;
+        }
+        if pending.is_empty() && state_index.is_none() {
+            return None;
+        }
+        scratch.keys.clear();
+        scratch
+            .keys
+            .extend(offered.iter().map(|(template, _)| action_key(*template)));
 
-        let offered = leaves.as_slice();
+        // A sequence under way: its next action, with certainty, while it is
+        // offered; abandoned at the first that is not.
+        if let Some(step) = pending.front().copied() {
+            match Self::offered_leaf(
+                offered,
+                &scratch.keys,
+                &weights.templates,
+                step,
+            ) {
+                Some(template) => {
+                    pending.pop_front();
+                    log::debug!(
+                        "sequence step {}, {} left",
+                        step.key,
+                        pending.len()
+                    );
+                    return Leaves::from_weights([(template, 1.0)]);
+                }
+                None => {
+                    log::debug!("sequence abandoned: {} not offered", step.key);
+                    pending.clear();
+                }
+            }
+        }
+
+        let state_index = state_index? as usize;
         if !offered.iter().any(|(_, probability)| *probability > 0.0) {
             return None;
         }
+
         let learned = &weights.states[state_index];
         let weight_now = |action: &LearnedAction| match action.state_next {
             Some(state_next) => {
@@ -777,12 +924,9 @@ impl<T> WeightsRun<T> {
         scratch.own.clear();
         scratch.served.clear();
         scratch.served.resize(learned.len(), false);
-        for (template, _) in offered {
-            let own = learned
-                .binary_search_by_key(&action_key(*template), |action| {
-                    action.key
-                })
-                .ok();
+        for key in &scratch.keys {
+            let own =
+                learned.binary_search_by_key(key, |action| action.key).ok();
             if let Some(own) = own {
                 scratch.served[own] = true;
             }
@@ -842,6 +986,10 @@ impl<T> WeightsRun<T> {
         };
         let prior = weights.policy == Policy::Prior;
         let mut total = 0.0;
+        // The enabled actions' learned weights before the prior policy
+        // scales them by the spec's probabilities: the mass the sequences'
+        // weights are compared against.
+        let mut learned_total = 0.0;
         let mut enabled_count = 0usize;
         for ((_, probability), weight) in
             reweighted.iter().zip(&mut scratch.weights)
@@ -849,12 +997,61 @@ impl<T> WeightsRun<T> {
             if *probability > 0.0 {
                 enabled_count += 1;
                 let weight = weight.get_or_insert(fallback);
+                learned_total += *weight;
                 if prior {
                     *weight *= probability;
                 }
                 total += *weight;
             }
         }
+        // A sequence whose first action is offered is weighed against the
+        // actions' learned total, under the epsilon floor: picked, it is the
+        // decision and the rest of it is pending.
+        let runs = &weights.sequences[state_index];
+        let first_leaf = |run: &LearnedSequence| {
+            let steps = &weights.steps[run.sequence as usize];
+            Self::offered_leaf(
+                offered,
+                &scratch.keys,
+                &weights.templates,
+                steps[0],
+            )
+            .map(|template| (template, steps))
+        };
+        let applicable = || {
+            runs.iter().filter_map(|run| {
+                let (template, steps) =
+                    first_leaf(run).filter(|_| run.weight > 0.0)?;
+                Some((run, template, steps))
+            })
+        };
+        let sequence_total: f64 =
+            applicable().map(|(run, _, _)| run.weight).sum();
+        if sequence_total > 0.0
+            && rng.random::<f64>() * (sequence_total + learned_total)
+                < (1.0 - weights.epsilon) * sequence_total
+        {
+            let mut remaining = rng.random::<f64>() * sequence_total;
+            let mut chosen = None;
+            for candidate in applicable() {
+                chosen = Some(candidate);
+                if remaining < candidate.0.weight {
+                    break;
+                }
+                remaining -= candidate.0.weight;
+            }
+            let (run, template, steps) = chosen?;
+            pending.extend(steps[1..].iter().copied());
+            log::debug!(
+                "sequence of {} started (weight {} of {} + {})",
+                steps.len(),
+                run.weight,
+                sequence_total,
+                learned_total,
+            );
+            return Leaves::from_weights([(template, 1.0)]);
+        }
+
         for ((_, probability), weight) in
             reweighted.iter_mut().zip(&scratch.weights)
         {
@@ -941,12 +1138,13 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
         state: &Session::State,
         snapshots: &[Snapshot],
         leaves: &Leaves<'a, Session::ActionTemplate>,
+        rng: &mut dyn rand::Rng,
     ) -> Option<Leaves<'a, Session::ActionTemplate>> {
         let WeightedStrategy { inner, weights } = self;
         weights
             .as_mut()
-            .and_then(|weights| weights.reweight(state, snapshots, leaves))
-            .or_else(|| inner.reweight(state, snapshots, leaves))
+            .and_then(|weights| weights.reweight(state, snapshots, leaves, rng))
+            .or_else(|| inner.reweight(state, snapshots, leaves, rng))
     }
 }
 
@@ -1232,6 +1430,8 @@ mod tests {
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct Prefix(String);
 
+    hegel::pretty_print_as_debug!(Prefix);
+
     impl ActionTemplate<Prefix> for Prefix {
         fn generate<R: rand::TryRng + rand::RngExt>(
             &self,
@@ -1248,6 +1448,10 @@ mod tests {
         fn contains(&self, other: &Self) -> bool {
             other.0.starts_with(&self.0)
         }
+    }
+
+    fn rng() -> rand::rngs::StdRng {
+        rand::SeedableRng::seed_from_u64(0)
     }
 
     struct At(BTreeMap<String, u64>);
@@ -1334,6 +1538,87 @@ mod tests {
         ))
     }
 
+    /// Weights keyed on `place` with one learned state, format 5: `learned`
+    /// are its actions, `runs` its sequences as (weight, actions), under ids
+    /// `seq0`, `seq1`, ... that name no action of the tests.
+    fn weights_with_sequences(
+        place: u64,
+        epsilon_percent: u8,
+        policy: Policy,
+        learned: &[(Prefix, f64)],
+        runs: &[(f64, Vec<Prefix>)],
+    ) -> WeightsRun<Prefix> {
+        let id = |index: usize| {
+            action_key(&Prefix(format!("seq{index}"))).to_string()
+        };
+        let mut row = actions_json(learned);
+        let mut sequences = serde_json::Map::new();
+        for (index, (weight, keys)) in runs.iter().enumerate() {
+            row[id(index)] = json!(weight);
+            let keys: Vec<String> =
+                keys.iter().map(|key| action_key(key).to_string()).collect();
+            sequences.insert(id(index), json!(keys));
+        }
+        let document = json!({
+            "format": 5,
+            "epsilon": f64::from(epsilon_percent) / 100.0,
+            "policy": match policy {
+                Policy::Replace => "replace",
+                Policy::Prior => "prior",
+            },
+            "key": {"components": ["place"]},
+            "states": {place_key(place): row},
+            "sequences": sequences,
+        });
+        WeightsRun::new(Arc::new(
+            Weights::parse(&document.to_string()).unwrap(),
+        ))
+    }
+
+    /// A sequence of two to four of `names`, with its weight.
+    #[hegel::composite]
+    fn sequences(tc: &TestCase, names: Vec<Prefix>) -> (f64, Vec<Prefix>) {
+        let size =
+            tc.draw_silent(integers::<usize>().min_value(2).max_value(4));
+        let keys = (0..size)
+            .map(|_| tc.draw_silent(sampled_from(names.clone())))
+            .collect();
+        (f64::from(tc.draw_silent(integers::<u16>())), keys)
+    }
+
+    /// The learned mass of the enabled leaves: each one's learned weight, or
+    /// the mean of the enabled learned weights (1 when there are none).
+    fn learned_mass(
+        leaves: &Leaves<'_, Prefix>,
+        learned: &[(Prefix, f64)],
+    ) -> f64 {
+        let weight_of = |template: &Prefix| {
+            learned
+                .iter()
+                .find(|(known, _)| known == template)
+                .map(|(_, weight)| *weight)
+        };
+        let enabled: Vec<&Prefix> = leaves
+            .as_slice()
+            .iter()
+            .filter(|(_, spec)| *spec > 0.0)
+            .map(|(template, _)| *template)
+            .collect();
+        let known: Vec<f64> = enabled
+            .iter()
+            .filter_map(|template| weight_of(template))
+            .collect();
+        let mean = if known.is_empty() {
+            1.0
+        } else {
+            known.iter().sum::<f64>() / known.len() as f64
+        };
+        enabled
+            .iter()
+            .map(|template| weight_of(template).unwrap_or(mean))
+            .sum()
+    }
+
     fn policies(tc: &TestCase) -> Policy {
         if tc.draw(booleans()) {
             Policy::Replace
@@ -1399,7 +1684,8 @@ mod tests {
 
         let leaves = tree.leaves();
         let pickable = enabled_count(&leaves) > 0;
-        let reweighted = weights.reweight(&At::place(live), &[], &leaves);
+        let reweighted =
+            weights.reweight(&At::place(live), &[], &leaves, &mut rng());
         assert_eq!(reweighted.is_some(), stored == live && pickable);
     }
 
@@ -1418,8 +1704,9 @@ mod tests {
 
         let leaves = tree.leaves();
         tc.assume(enabled_count(&leaves) > 0);
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         assert_eq!(reweighted.as_slice().len(), leaves.as_slice().len());
         for ((template, probability), (offered, spec)) in
             reweighted.as_slice().iter().zip(leaves.as_slice())
@@ -1449,8 +1736,9 @@ mod tests {
         let leaves = tree.leaves();
         let enabled_count = enabled_count(&leaves);
         tc.assume(enabled_count > 0);
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         for ((template, probability), (_, spec)) in
             reweighted.as_slice().iter().zip(leaves.as_slice())
         {
@@ -1488,8 +1776,9 @@ mod tests {
 
         let leaves = tree.leaves();
         tc.assume(enabled_count(&leaves) > 0);
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         for ((template, probability), (_, spec)) in
             reweighted.as_slice().iter().zip(leaves.as_slice())
         {
@@ -1540,8 +1829,9 @@ mod tests {
         // Learned weights that are all zero say nothing.
         tc.assume(expected_total > 0.0);
 
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         for ((template, probability), expected) in
             reweighted.as_slice().iter().zip(expected)
         {
@@ -1566,8 +1856,9 @@ mod tests {
         let learned = [(a.clone(), 0.0), (b.clone(), 0.0)];
         let mut weights = weights_at(42, 0, Policy::Replace, &learned, &[]);
         let leaves = tree.leaves();
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         assert_eq!(reweighted.as_slice(), [(&a, 0.5), (&b, 0.5)]);
     }
 
@@ -1625,8 +1916,12 @@ mod tests {
             tc.draw(vecs(integers::<usize>().max_value(2)).max_size(20));
         for place in walk {
             visits[place] += 1;
-            let reweighted =
-                weights.reweight(&At::place(place as u64), &[], &leaves);
+            let reweighted = weights.reweight(
+                &At::place(place as u64),
+                &[],
+                &leaves,
+                &mut rng(),
+            );
             let Some(actions) = learned.get(place) else {
                 assert_eq!(reweighted, None);
                 continue;
@@ -1696,8 +1991,9 @@ mod tests {
 
         let leaves = tree.leaves();
         tc.assume(enabled_count(&leaves) > 0);
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
 
         let mut served: Vec<&Prefix> = vec![];
         let mut offered_leaves = leaves.as_slice().iter();
@@ -1760,8 +2056,9 @@ mod tests {
             std::slice::from_ref(&fine),
         );
         let leaves = tree.leaves();
-        let reweighted =
-            weights.reweight(&At::place(42), &[], &leaves).unwrap();
+        let reweighted = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng())
+            .unwrap();
         let rounded: Vec<(&Prefix, f64)> = reweighted
             .as_slice()
             .iter()
@@ -2092,6 +2389,256 @@ mod tests {
         assert_eq!(weights.lookup.components, ["a", "b"]);
     }
 
+    #[hegel::test]
+    fn a_sequence_starts_by_its_share_of_the_learned_mass(tc: TestCase) {
+        const SAMPLES: usize = 2000;
+        const TOLERANCE: f64 = 0.05;
+        let (tree, learned) = spec_and_learned(&tc);
+        let leaves = tree.leaves();
+        tc.assume(enabled_count(&leaves) > 0);
+        // `z` is never offered, so a sequence starting with it does not apply.
+        let names: Vec<Prefix> = tree
+            .values()
+            .into_iter()
+            .cloned()
+            .chain([Prefix("z".to_string())])
+            .collect();
+        let runs: Vec<(f64, Vec<Prefix>)> =
+            tc.draw(vecs(sequences(names)).max_size(4));
+        let epsilon_percent = tc.draw(integers().max_value(100));
+        let mut weights = weights_with_sequences(
+            42,
+            epsilon_percent,
+            policies(&tc),
+            &learned,
+            &runs,
+        );
+        let enabled = |template: &Prefix| {
+            leaves
+                .as_slice()
+                .iter()
+                .any(|(offered, spec)| *offered == template && *spec > 0.0)
+        };
+        let applicable: f64 = runs
+            .iter()
+            .filter(|(_, keys)| enabled(&keys[0]))
+            .map(|(weight, _)| *weight)
+            .sum();
+        let expected = if applicable > 0.0 {
+            (1.0 - f64::from(epsilon_percent) / 100.0) * applicable
+                / (applicable + learned_mass(&leaves, &learned))
+        } else {
+            0.0
+        };
+
+        let mut rng = rng();
+        let mut started = 0usize;
+        for _ in 0..SAMPLES {
+            // Each sample is a fresh decision: no sequence under way.
+            weights.pending.clear();
+            let served: Vec<(Prefix, f64)> = weights
+                .reweight(&At::place(42), &[], &leaves, &mut rng)
+                .unwrap()
+                .as_slice()
+                .iter()
+                .map(|(template, probability)| {
+                    ((*template).clone(), *probability)
+                })
+                .collect();
+            if weights.pending.is_empty() {
+                assert_eq!(served.len(), leaves.as_slice().len());
+                continue;
+            }
+            started += 1;
+            let [(first, probability)] = served.as_slice() else {
+                panic!("a started sequence serves one leaf, got {served:?}");
+            };
+            assert_eq!(*probability, 1.0);
+            assert!(
+                runs.iter().any(|(weight, keys)| *weight > 0.0
+                    && keys[0] == *first
+                    && enabled(first)),
+                "{first:?} starts no applicable sequence"
+            );
+        }
+        let frequency = started as f64 / SAMPLES as f64;
+        assert!(
+            (frequency - expected).abs() < TOLERANCE,
+            "a sequence started {frequency} of the time, expected {expected}"
+        );
+    }
+
+    #[hegel::test]
+    fn a_started_sequence_runs_in_order_until_a_step_is_not_offered(
+        tc: TestCase,
+    ) {
+        let names: Vec<Prefix> = NAMES[..4]
+            .iter()
+            .map(|name| Prefix(name.to_string()))
+            .collect();
+        let (_, keys) = tc.draw(sequences(names.clone()));
+        // The sequence outweighs the four actions' fallback mass by 1e12.
+        let mut weights = weights_with_sequences(
+            42,
+            0,
+            Policy::Replace,
+            &[],
+            &[(1e12, keys.clone())],
+        );
+        let offering = |disabled: &[&Prefix]| Tree::Branch {
+            branches: names
+                .iter()
+                .map(|name| {
+                    let weight = Weight::from(!disabled.contains(&name));
+                    (
+                        weight,
+                        Tree::Leaf {
+                            value: name.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        };
+        let mut rng = rng();
+
+        let all = offering(&[]);
+        let leaves = all.leaves();
+        let started = weights
+            .reweight(&At::place(42), &[], &leaves, &mut rng)
+            .unwrap();
+        assert_eq!(started.as_slice(), [(&keys[0], 1.0)]);
+        assert_eq!(weights.pending.len(), keys.len() - 1);
+
+        for (index, step) in keys.iter().enumerate().skip(1) {
+            // The next state as the walk needs it: learned or not, offering
+            // the step or not.
+            let learned = tc.draw(booleans());
+            let offered = tc.draw(booleans());
+            let place = if learned { 42 } else { 7 };
+            let tree = if offered {
+                offering(&[])
+            } else {
+                // Nor the first key, so that no sequence restarts here.
+                offering(&[step, &keys[0]])
+            };
+            let leaves = tree.leaves();
+            let served: Option<Vec<(Prefix, f64)>> = weights
+                .reweight(&At::place(place), &[], &leaves, &mut rng)
+                .map(|now| {
+                    now.as_slice()
+                        .iter()
+                        .map(|(template, probability)| {
+                            ((*template).clone(), *probability)
+                        })
+                        .collect()
+                });
+            if offered {
+                assert_eq!(served.unwrap(), [(step.clone(), 1.0)]);
+                assert_eq!(weights.pending.len(), keys.len() - 1 - index);
+                continue;
+            }
+            assert!(weights.pending.is_empty(), "abandoned at {step:?}");
+            // The draw resumes at once: the learned state reweights the
+            // offered leaves as a whole, the other keeps the spec's.
+            match served {
+                Some(now) => {
+                    assert!(learned);
+                    assert_eq!(now.len(), leaves.as_slice().len());
+                }
+                None => assert!(!learned),
+            }
+            return;
+        }
+        assert!(weights.pending.is_empty(), "the sequence ran out");
+    }
+
+    #[hegel::test]
+    fn sequences_whose_first_action_is_not_offered_leave_the_draw_as_is(
+        tc: TestCase,
+    ) {
+        let (tree, learned) = spec_and_learned(&tc);
+        let leaves = tree.leaves();
+        tc.assume(enabled_count(&leaves) > 0);
+        let unknown = Prefix("z".to_string());
+        let disabled: Vec<Prefix> = leaves
+            .as_slice()
+            .iter()
+            .filter(|(_, spec)| *spec == 0.0)
+            .map(|(template, _)| (*template).clone())
+            .chain([unknown.clone()])
+            .collect();
+        let names: Vec<Prefix> = tree
+            .values()
+            .into_iter()
+            .cloned()
+            .chain([unknown])
+            .collect();
+        let runs: Vec<(f64, Vec<Prefix>)> = tc
+            .draw(vecs(sequences(names)).max_size(4))
+            .into_iter()
+            .map(|(weight, mut keys)| {
+                keys[0] = tc.draw(sampled_from(disabled.clone()));
+                (weight, keys)
+            })
+            .collect();
+        let epsilon = tc.draw(integers().max_value(100));
+        let policy = policies(&tc);
+        let mut with =
+            weights_with_sequences(42, epsilon, policy, &learned, &runs);
+        let mut without = weights_at(42, epsilon, policy, &learned, &[]);
+        // Separate streams: a format-4 file and an inapplicable sequence
+        // draw nothing from the rng.
+        let (mut first, mut second) = (rng(), rng());
+        for _ in 0..3 {
+            assert_eq!(
+                with.reweight(&At::place(42), &[], &leaves, &mut first),
+                without.reweight(&At::place(42), &[], &leaves, &mut second)
+            );
+            assert!(with.pending.is_empty());
+        }
+    }
+
+    #[hegel::test]
+    fn a_row_loads_its_sequences_and_keeps_unknown_ids_as_actions(
+        tc: TestCase,
+    ) {
+        let names: Vec<Prefix> =
+            NAMES.iter().map(|name| Prefix(name.to_string())).collect();
+        let runs: Vec<(f64, Vec<Prefix>)> =
+            tc.draw(vecs(sequences(names.clone())).max_size(4));
+        let learned: Vec<(Prefix, f64)> = tc
+            .draw(vecs(sampled_from(names)).max_size(4))
+            .into_iter()
+            .map(|name| (name, 1.0))
+            .collect();
+        let weights =
+            weights_with_sequences(42, 10, Policy::Replace, &learned, &runs);
+        let mut expected: Vec<ActionKey> =
+            learned.iter().map(|(name, _)| action_key(name)).collect();
+        expected.sort_unstable();
+        expected.dedup();
+        let actions: Vec<ActionKey> = weights.weights.states[0]
+            .iter()
+            .map(|action| action.key)
+            .collect();
+        assert_eq!(actions, expected);
+        let sequences = &weights.weights.sequences[0];
+        assert_eq!(sequences.len(), runs.len());
+        for run in sequences {
+            let steps = &weights.weights.steps[run.sequence as usize];
+            let keys: Vec<ActionKey> =
+                steps.iter().map(|step| step.key).collect();
+            assert!(
+                runs.iter().any(|(weight, names)| {
+                    *weight == run.weight
+                        && names.iter().map(action_key).collect::<Vec<_>>()
+                            == keys
+                }),
+                "{keys:?} is no sequence of the file"
+            );
+        }
+    }
+
     #[test]
     fn weights_file_rejections() {
         let key = r#""key": {"components": ["snapshot.route"]}"#;
@@ -2129,6 +2676,15 @@ mod tests {
             ),
             format!(
                 r#"{{"format": 4, {key}, "states": {{}}, "templates": {{"{action}": 1}}}}"#
+            ),
+            format!(
+                r#"{{"format": 5, {key}, "states": {{}}, "sequences": {{"{action}": []}}}}"#
+            ),
+            format!(
+                r#"{{"format": 5, {key}, "states": {{}}, "sequences": {{"{action}": ["{action}"]}}}}"#
+            ),
+            format!(
+                r#"{{"format": 5, {key}, "states": {{}}, "templates": {{"{action}": "a"}}, "sequences": {{"{action}": ["{action}", "{action}"]}}}}"#
             ),
         ];
         let errors: Vec<String> = documents
