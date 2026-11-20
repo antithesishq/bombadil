@@ -120,11 +120,15 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                     ),
                     Some(vec![("Text", format!("{text:?}"))]),
                 ),
-                BrowserAction::PressKey { code, .. } => (
+                BrowserAction::PressKey { code, modifiers } => (
                     html!(
                         <>
                             <span class="action-name">{"Press"}</span>
-                            <span>{key_name(*code).unwrap_or("Unknown")}</span>
+                            <span>{format!(
+                                "{modifiers}{}",
+                                key_name(*code, false)
+                                    .unwrap_or("Unknown")
+                            )}</span>
                         </>
                     ),
                     Some(vec![("Code", code.to_string())]),

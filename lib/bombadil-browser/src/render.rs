@@ -79,13 +79,12 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                     styled::maybe_blue(format!("{}", Formatted(text))),
                 )
             }
-            BrowserAction::PressKey { code } => {
-                let key = key_name(*code).unwrap_or("Unknown");
+            BrowserAction::PressKey { code, modifiers } => {
+                let key = key_name(*code, false).unwrap_or("Unknown");
                 write!(
                     f,
-                    "{} {} (code: {})",
+                    "{} {modifiers}{key} (code: {})",
                     styled::maybe_bold("Pressing".to_string()),
-                    key,
                     styled::maybe_blue(format!("{code}"))
                 )
             }
@@ -161,5 +160,40 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                 )
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil_schema::browser::KeyModifiers;
+
+    fn render_press_key(code: u8, modifiers: KeyModifiers) -> String {
+        let action: BrowserAction = BrowserAction::PressKey { code, modifiers };
+        Formatted(&action).to_string()
+    }
+
+    #[test]
+    fn press_key_renders_modifiers_with_unshifted_key() {
+        let shift = KeyModifiers {
+            shift: true,
+            ..KeyModifiers::default()
+        };
+        let rendered = render_press_key(49, shift);
+        assert!(rendered.contains(" Shift+1 (code: "), "{rendered:?}");
+
+        let ctrl_shift = KeyModifiers {
+            ctrl: true,
+            shift: true,
+            ..KeyModifiers::default()
+        };
+        let rendered = render_press_key(77, ctrl_shift);
+        assert!(rendered.contains(" Ctrl+Shift+m (code: "), "{rendered:?}");
+    }
+
+    #[test]
+    fn press_key_renders_plain_key_without_modifiers() {
+        let rendered = render_press_key(13, KeyModifiers::default());
+        assert!(rendered.contains(" Enter (code: "), "{rendered:?}");
     }
 }

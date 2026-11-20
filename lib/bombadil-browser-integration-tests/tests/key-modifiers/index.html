@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Key Modifiers</title>
+</head>
+<body>
+    <h1>Key Modifiers Test</h1>
+    <textarea id="editor" autofocus rows="4" cols="40"></textarea>
+    <pre id="keys"></pre>
+
+    <script>
+        const editor = document.getElementById('editor');
+        const keys = document.getElementById('keys');
+        editor.focus();
+        window.addEventListener('keydown', (event) => {
+            const held = [
+                event.ctrlKey && 'Ctrl+',
+                event.altKey && 'Alt+',
+                event.shiftKey && 'Shift+',
+                event.metaKey && 'Meta+',
+            ].filter(Boolean).join('');
+            keys.textContent += `${held}${event.key}|${event.code}\n`;
+        });
+        window.addEventListener('keypress', (event) => {
+            keys.textContent += `press:${event.key}\n`;
+        });
+    </script>
+</body>
+</html>

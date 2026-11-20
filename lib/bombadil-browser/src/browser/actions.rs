@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
-use bombadil_schema::browser::Fingerprint;
+use bombadil_schema::browser::{Fingerprint, KeyModifiers};
 use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::browser_protocol::{dom, emulation, input, page};
 use cdp_protocol::cdp::js_protocol::runtime::{
@@ -18,7 +18,7 @@ use serde_json as json;
 use crate::browser::screenshots::FrameControl;
 use crate::geometry::Point;
 use crate::js_action::JsAction;
-use bombadil_browser_keys::{key_name, key_text};
+use bombadil_browser_keys::{key_code, key_name, key_text};
 
 #[derive(Clone, Debug)]
 pub struct ActionOptions {
@@ -99,6 +99,7 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
     },
     PressKey {
         code: u8,
+        modifiers: KeyModifiers,
     },
     ScrollUp {
         origin: Point<F64>,
@@ -281,16 +282,28 @@ impl BrowserAction {
                     Some(session_id),
                 )?;
             }
-            BrowserAction::PressKey { code } => {
-                let Some(name) = key_name(*code) else {
+            BrowserAction::PressKey { code, modifiers } => {
+                let (Some(physical), Some(name)) =
+                    (key_code(*code), key_name(*code, modifiers.shift))
+                else {
                     bail!("unknown key with code: {:?}", code);
                 };
-                let text = key_text(*code);
+                let text = if modifiers.alt || modifiers.ctrl || modifiers.meta
+                {
+                    None
+                } else {
+                    key_text(*code, modifiers.shift)
+                };
+                let modifier_bits = i64::from(modifiers.alt)
+                    | i64::from(modifiers.ctrl) << 1
+                    | i64::from(modifiers.meta) << 2
+                    | i64::from(modifiers.shift) << 3;
                 let build_params = |event_type, text: Option<&str>| {
                     let mut builder = input::DispatchKeyEventParams::builder()
                         .r#type(event_type)
+                        .modifiers(modifier_bits)
                         .windows_virtual_key_code(*code as i64)
-                        .code(name)
+                        .code(physical)
                         .key(name);
                     if let Some(text) = text {
                         builder = builder.unmodified_text(text).text(text);
@@ -461,8 +474,11 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::TypeText { text } => BrowserAction::TypeText {
                 text: text.generate(rng),
             },
-            BrowserAction::PressKey { code } => {
-                BrowserAction::PressKey { code: *code }
+            BrowserAction::PressKey { code, modifiers } => {
+                BrowserAction::PressKey {
+                    code: *code,
+                    modifiers: *modifiers,
+                }
             }
             BrowserAction::ScrollUp { origin, distance } => {
                 let distance = rng.random_range(distance.clone());
@@ -544,11 +560,16 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             (
                 BrowserAction::PressKey {
                     code: code_candidate,
+                    modifiers: modifiers_candidate,
                 },
                 BrowserAction::PressKey {
                     code: code_original,
+                    modifiers: modifiers_original,
                 },
-            ) => code_candidate == code_original,
+            ) => {
+                code_candidate == code_original
+                    && modifiers_candidate == modifiers_original
+            }
             (
                 BrowserAction::ScrollUp {
                     origin: origin_candidate,
@@ -641,8 +662,11 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             BrowserAction::TypeText { text } => {
                 ("TypeText", text).hash(hasher);
             }
-            BrowserAction::PressKey { code } => {
+            BrowserAction::PressKey { code, modifiers } => {
                 ("PressKey", code).hash(hasher);
+                if !modifiers.is_empty() {
+                    modifiers.hash(hasher);
+                }
             }
             BrowserAction::ScrollUp { .. } => {
                 "ScrollUp".hash(hasher);
@@ -682,7 +706,7 @@ mod tests {
     use bombadil::tree::Tree;
     use hegel::{
         Generator, TestCase,
-        generators::{integers, text},
+        generators::{booleans, integers, text},
     };
     use rand::{SeedableRng, rngs::StdRng};
 
@@ -744,6 +768,12 @@ mod tests {
             },
             PressKey {
                 code: tc.draw(integers().min_value(65).max_value(90)),
+                modifiers: KeyModifiers {
+                    alt: tc.draw(booleans()),
+                    ctrl: tc.draw(booleans()),
+                    meta: tc.draw(booleans()),
+                    shift: tc.draw(booleans()),
+                },
             },
             ScrollUp {
                 origin: point(tc),
@@ -908,6 +938,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn press_key_templates_reject_other_modifiers() {
+        fn press_m<U8, U16, U64, F64, Text>(
+            modifiers: KeyModifiers,
+        ) -> BrowserAction<U8, U16, U64, F64, Text> {
+            BrowserAction::PressKey {
+                code: 77,
+                modifiers,
+            }
+        }
+        let none = KeyModifiers::default();
+        let plain: BrowserActionTemplate = press_m(none);
+        for modifiers in [
+            KeyModifiers { alt: true, ..none },
+            KeyModifiers { ctrl: true, ..none },
+            KeyModifiers { meta: true, ..none },
+            KeyModifiers {
+                shift: true,
+                ..none
+            },
+        ] {
+            let modified: BrowserActionTemplate = press_m(modifiers);
+            assert!(!plain.accepts(&press_m(modifiers)), "{modifiers:?}");
+            assert!(!modified.accepts(&press_m(none)), "{modifiers:?}");
+        }
+    }
+
     /// Keys are recorded in traces, so a change here invalidates them.
     #[test]
     fn action_keys_are_pinned() {
@@ -939,7 +996,17 @@ mod tests {
             TypeText {
                 text: StringGenerator::Email,
             },
-            PressKey { code: 13 },
+            PressKey {
+                code: 13,
+                modifiers: KeyModifiers::default(),
+            },
+            PressKey {
+                code: 77,
+                modifiers: KeyModifiers {
+                    shift: true,
+                    ..KeyModifiers::default()
+                },
+            },
             ScrollUp {
                 origin: point.clone(),
                 distance: 100.0..=200.0,
@@ -985,6 +1052,7 @@ mod tests {
         TypeText 9432d62189972886
         TypeText 70ea82526866c7ea
         PressKey c93bc450d62fd98b
+        PressKey 1e635ec9dcc8b148
         ScrollUp 85945a0874e9846a
         ScrollDown e809786b3eb1b325
         Reload 5baacf2d68f01b69
