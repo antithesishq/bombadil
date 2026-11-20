@@ -30,7 +30,7 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
-    model::Recorded,
+    model::{Recorded, TemplateRegistry},
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
@@ -42,6 +42,7 @@ use bombadil_browser::{
     instrumentation::{self, BlockRegistry, InstrumentationConfig},
 };
 
+use crate::action_templates::{ActionTemplates, ActionTemplatesOptions};
 use crate::shrink::{self, ShrinkOptions};
 use crate::{
     browser_trace, duration, fuzz_report, inspect_server, output_path,
@@ -181,6 +182,9 @@ pub struct RunSharedOptions {
     /// parent must. Without it no table is written.
     #[arg(long = "coverage-symbols", value_name = "FILE")]
     pub coverage_symbols_path: Option<PathBuf>,
+
+    #[clap(flatten)]
+    pub action_templates: ActionTemplatesOptions,
 
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
@@ -709,6 +713,8 @@ fn browser_test(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
     )?;
+    let action_templates =
+        ActionTemplates::create(&shared_options.action_templates)?;
     let specification = load_specification(&shared_options.target);
 
     let is_reproduce = test_options.reproduce.is_some();
@@ -740,9 +746,15 @@ fn browser_test(
         output_path.clone(),
         shared_options.output_path_overwrite,
     )?;
-    let result = run_with_writer(run_options, trace_writer);
+    let result = run_with_writer(
+        run_options,
+        trace_writer,
+        action_templates.as_ref().map(ActionTemplates::registry),
+    );
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let result = output_path::or_logged(result, written);
+    let written = action_templates.map_or(Ok(()), ActionTemplates::finish);
     let test_result = output_path::or_logged(result, written)?;
 
     let heading = {
@@ -833,6 +845,8 @@ fn browser_fuzz(
         shared_options.coverage_symbols_path.as_deref(),
         &output_path,
     )?;
+    let action_templates =
+        ActionTemplates::create(&shared_options.action_templates)?;
     let specification = load_specification(&shared_options.target);
 
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -880,9 +894,14 @@ fn browser_fuzz(
         parallelism: fuzz_options.parallelism,
         exit_on_violation: shared_options.exit_on_violation,
         output_writer,
+        templates: action_templates
+            .as_ref()
+            .map(|templates| templates.registry().clone()),
     });
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let result = output_path::or_logged(result, written);
+    let written = action_templates.map_or(Ok(()), ActionTemplates::finish);
     let result = output_path::or_logged(result, written)?;
 
     print!(
@@ -921,6 +940,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         blocks,
     }: RunOptions,
     trace_writer: Writer,
+    templates: Option<&TemplateRegistry>,
 ) -> Result<TestResult> {
     let interrupted = Arc::new(AtomicBool::new(false));
     {
@@ -949,6 +969,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         debugger_options,
         blocks,
         trace_writer,
+        templates,
         interrupted,
         &mut strategy,
     )

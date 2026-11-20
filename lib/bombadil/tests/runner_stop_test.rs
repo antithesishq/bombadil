@@ -226,6 +226,7 @@ fn interrupt_before_run_terminates_driver_and_invokes_on_interrupted() {
         &mut strategy,
         verifier,
         &mut trace_writer,
+        None,
         interrupted,
     )
     .expect("runner returned Err");
@@ -357,6 +358,7 @@ fn run_stuck<const STALL_MILLIS: u64>(
         &mut strategy,
         dummy_verifier(),
         &mut NoopTraceWriter,
+        None,
         interrupted,
     );
     (result, terminated.load(Ordering::SeqCst))
@@ -495,6 +497,7 @@ fn run_failing(
         &mut strategy,
         dummy_verifier(),
         &mut writer,
+        None,
         Arc::new(AtomicBool::new(true)),
     );
     FailingRunOutcome {

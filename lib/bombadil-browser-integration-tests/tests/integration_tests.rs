@@ -525,6 +525,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     debugger_options,
                     blocks,
                     trace_writer,
+                    None,
                     Arc::new(AtomicBool::new(false)),
                     &mut strategy,
                 );

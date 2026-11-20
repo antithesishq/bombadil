@@ -113,6 +113,7 @@ impl TerminalIntegrationTest {
                     &mut strategy,
                     verifier,
                     &mut trace_writer,
+                    None,
                     Arc::new(AtomicBool::new(false)),
                 )?;
                 Ok(strategy.violations_count)

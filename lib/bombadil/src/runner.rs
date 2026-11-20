@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::antithesis;
 use crate::driver::{DriverEvent, InterfaceSession, TraceWriter};
-use crate::model::Picked;
+use crate::model::{Picked, TemplateRegistry};
 use crate::specification::convert::{
     ToSchema, violation_with_pretty_functions,
 };
@@ -95,12 +95,14 @@ pub fn run<
     strategy: &mut Strategy,
     verifier: Verifier,
     writer: &mut Writer,
+    templates: Option<&TemplateRegistry>,
     interrupted: Arc<AtomicBool>,
 ) -> Result<Strategy::StopValue> {
     log::info!("starting test");
     log::debug!("driver initiated");
 
-    let result = run_test(session, verifier, writer, interrupted, strategy);
+    let result =
+        run_test(session, verifier, writer, templates, interrupted, strategy);
 
     // Even after a failed run, so the trace of what happened is complete.
     let finished = writer.finish();
@@ -149,6 +151,7 @@ fn run_test<
     driver: &mut Session,
     mut verifier: Verifier,
     writer: &mut Writer,
+    templates: Option<&TemplateRegistry>,
     interrupted: Arc<AtomicBool>,
     strategy: &mut Strategy,
 ) -> Result<Strategy::StopValue> {
@@ -228,6 +231,9 @@ fn run_test<
                 let actions = strategy.constrain(&state, step_result.actions);
                 let leaves = actions.leaves();
 
+                if let Some(templates) = templates {
+                    templates.record(&leaves)?;
+                }
                 writer.write(
                     &state,
                     &snapshots,
