@@ -4,7 +4,6 @@ use std::fmt;
 use std::sync::Arc;
 
 use const_format::formatcp;
-use oxc::allocator;
 use oxc::ast::ast::{
     AssignmentOperator, AssignmentTarget, Expression, Statement,
 };
@@ -53,9 +52,6 @@ pub type InstrumentationResult<T> = Result<T, InstrumentationError>;
 
 pub const NAMESPACE: &str = "__bombadil__";
 
-pub const EDGES_PREVIOUS: &str = "edges_previous";
-pub const EDGES_CURRENT: &str = "edges_current";
-pub const EDGE_MAP_SIZE: usize = 64 * 1024;
 /// The ids of the blocks run since the last state capture.
 pub const HITS: &str = "hits";
 /// The id last added to the hits, per slot (the id modulo the size), or -1.
@@ -65,13 +61,8 @@ pub const HITS: &str = "hits";
 pub const HITS_CACHE: &str = "hits_cache";
 pub const HITS_CACHE_SIZE: usize = 64 * 1024;
 
-const LOCATION_PREVIOUS: &str = "previous";
-
 const PRELUDE: &str = formatcp!(
     "window.{NAMESPACE} = window.{NAMESPACE} || {{
-        {EDGES_PREVIOUS}: new window.Uint8Array({EDGE_MAP_SIZE}),
-        {EDGES_CURRENT}: new window.Uint8Array({EDGE_MAP_SIZE}),
-        {LOCATION_PREVIOUS}: 0,
         {HITS}: new window.Set(),
         {HITS_CACHE}: new window.Int32Array({HITS_CACHE_SIZE}).fill(-1),
     }};"
@@ -632,11 +623,11 @@ impl Instrumenter<'_> {
         id
     }
 
-    fn coverage_hooks<'b>(
+    fn coverage_hook<'b>(
         &mut self,
         ctx: &mut TraverseCtx<'b, ()>,
         span: Span,
-    ) -> allocator::Vec<'b, Expression<'b>> {
+    ) -> Expression<'b> {
         let antithesis_member = |name: &'static str| -> Expression {
             ctx.ast
                 .member_expression_static(
@@ -655,76 +646,6 @@ impl Instrumenter<'_> {
             id as f64,
             None,
             ast::NumberBase::Decimal,
-        );
-
-        let edge_index = ctx.ast.expression_binary(
-            SPAN,
-            ctx.ast.expression_binary(
-                SPAN,
-                ctx.ast.expression_binary(
-                    SPAN,
-                    branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
-                    ast::BinaryOperator::BitwiseXOR,
-                    antithesis_member(LOCATION_PREVIOUS),
-                ),
-                ast::BinaryOperator::ShiftRightZeroFill,
-                ctx.ast.expression_numeric_literal(
-                    SPAN,
-                    0.0,
-                    None,
-                    ast::NumberBase::Decimal,
-                ),
-            ),
-            ast::BinaryOperator::Remainder,
-            ctx.ast.expression_numeric_literal(
-                SPAN,
-                EDGE_MAP_SIZE as f64,
-                None,
-                ast::NumberBase::Decimal,
-            ),
-        );
-
-        let edge_addition = ctx.ast.expression_assignment(
-            SPAN,
-            AssignmentOperator::Addition,
-            AssignmentTarget::ComputedMemberExpression(
-                ctx.ast.alloc_computed_member_expression(
-                    SPAN,
-                    antithesis_member(EDGES_CURRENT),
-                    edge_index,
-                    false,
-                ),
-            ),
-            ctx.ast.expression_numeric_literal(
-                SPAN,
-                1.0,
-                None,
-                ast::NumberBase::Decimal,
-            ),
-        );
-
-        let location_previous_update = ctx.ast.expression_assignment(
-            SPAN,
-            AssignmentOperator::Assign,
-            AssignmentTarget::StaticMemberExpression(
-                ctx.ast.alloc_static_member_expression(
-                    SPAN,
-                    ctx.ast.expression_identifier(SPAN, NAMESPACE),
-                    ctx.ast.identifier_name(SPAN, LOCATION_PREVIOUS),
-                    false,
-                ),
-            ),
-            ctx.ast.expression_binary(
-                SPAN,
-                branch_id.clone_in_with_semantic_ids(ctx.ast.allocator),
-                ast::BinaryOperator::ShiftRight,
-                ctx.ast.expression_numeric_literal(
-                    SPAN,
-                    1.0,
-                    None,
-                    ast::NumberBase::Decimal,
-                ),
-            ),
         );
 
         let hits_cache_slot = || {
@@ -758,7 +679,7 @@ impl Instrumenter<'_> {
             )),
             false,
         );
-        let hit = ctx.ast.expression_logical(
+        ctx.ast.expression_logical(
             SPAN,
             ctx.ast.expression_binary(
                 SPAN,
@@ -781,18 +702,13 @@ impl Instrumenter<'_> {
                     hit_add,
                 ]),
             ),
-        );
-
-        ctx.ast
-            .vec_from_array([edge_addition, location_previous_update, hit])
+        )
     }
 
-    /// Adds the following three statements to the start of block, or wraps a single statement
-    /// in a block with these two at the start:
+    /// Adds the following statement to the start of block, or wraps a single
+    /// statement in a block with it at the start:
     ///
     /// ```not_rust
-    /// __bombadil__.edges_current[((<id> ^ __bombadil__.previous) >>> 0) % 65536] += 1;
-    /// __bombadil__.previous = <id> >> 1;
     /// __bombadil__.hits_cache[<id> % 65536] === <id>
     ///     || (__bombadil__.hits_cache[<id> % 65536] = <id>, __bombadil__.hits.add(<id>));
     /// ```
@@ -804,16 +720,14 @@ impl Instrumenter<'_> {
         statement: &'_ mut Statement<'b>,
         span: Span,
     ) {
-        let hook_expressions = self.coverage_hooks(ctx, span);
-        let mut statements =
-            ctx.ast.vec_with_capacity(hook_expressions.len() + 1);
-        for expression in hook_expressions {
-            statements.push(ctx.ast.statement_expression(SPAN, expression));
-        }
+        let hook = self.coverage_hook(ctx, span);
+        let hook = ctx.ast.statement_expression(SPAN, hook);
         if let Statement::BlockStatement(block_statement) = statement {
-            block_statement.body.splice(0..0, statements);
+            block_statement.body.insert(0, hook);
         } else {
-            statements.push(statement.take_in(ctx.ast.allocator));
+            let statements = ctx
+                .ast
+                .vec_from_array([hook, statement.take_in(ctx.ast.allocator)]);
             *statement = ctx.ast.statement_block(SPAN, statements);
         }
     }
@@ -824,11 +738,10 @@ impl Instrumenter<'_> {
         expression: &'_ mut Expression<'b>,
     ) {
         let span = expression.span();
-        let mut expressions = self.coverage_hooks(ctx, span);
-
-        let expression_old = expression.take_in(ctx.ast.allocator);
-        expressions.push(expression_old);
-
+        let hook = self.coverage_hook(ctx, span);
+        let expressions = ctx
+            .ast
+            .vec_from_array([hook, expression.take_in(ctx.ast.allocator)]);
         *expression = ctx.ast.expression_sequence(SPAN, expressions);
     }
 }
@@ -957,12 +870,9 @@ impl<'a> Traverse<'a, ()> for Instrumenter<'_> {
         node: &mut ast::SwitchCase<'a>,
         ctx: &mut TraverseCtx<'a, ()>,
     ) {
-        let expressions = self.coverage_hooks(ctx, node.span);
-        let mut statements = ctx.ast.vec_with_capacity(expressions.len() + 1);
-        for expression in expressions {
-            statements.push(ctx.ast.statement_expression(SPAN, expression));
-        }
-        node.consequent.splice(0..0, statements);
+        let hook = self.coverage_hook(ctx, node.span);
+        node.consequent
+            .insert(0, ctx.ast.statement_expression(SPAN, hook));
     }
 }
 
@@ -971,7 +881,7 @@ mod tests {
     use super::*;
     use crate::instrumentation::block_id;
     use crate::instrumentation::source_map::tests::{MapModel, SegmentModel};
-    use boa_engine::{Context, Source, object::builtins::JsUint8Array};
+    use boa_engine::{Context, Source};
     use hegel::{
         Generator, TestCase,
         generators::{
@@ -999,12 +909,12 @@ mod tests {
     }
 
     fn hook_ids(code: &str) -> Vec<u32> {
-        let hook = formatcp!("{NAMESPACE}.{EDGES_CURRENT}[((");
+        let hook = formatcp!("{NAMESPACE}.{HITS}.add(");
         code.split(hook)
             .skip(1)
             .map(|rest| {
                 // The code has a large ID as JavaScript prints it: 1105401e3.
-                let number = rest.split(' ').next().unwrap();
+                let number = rest.split(')').next().unwrap();
                 number.parse::<f64>().expect(number) as u32
             })
             .collect()
@@ -1020,16 +930,11 @@ mod tests {
             .eval(Source::from_bytes("var window = globalThis;"))
             .unwrap();
         context.eval(Source::from_bytes(&code)).unwrap();
-        let edges = context
-            .eval(Source::from_bytes("__bombadil__.edges_current"))
-            .unwrap();
-        JsUint8Array::from_object(edges.as_object().unwrap())
+        context
+            .eval(Source::from_bytes("__bombadil__.hits.size"))
             .unwrap()
-            .to_vec(&mut context)
+            .to_u32(&mut context)
             .unwrap()
-            .into_iter()
-            .map(u32::from)
-            .sum()
     }
 
     #[hegel::test(test_cases = 32)]
