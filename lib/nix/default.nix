@@ -8,7 +8,6 @@
   wasm-bindgen-cli,
   binaryen,
   apple-sdk ? null,
-  cctools ? null,
   chromium,
   google-chrome,
   freefont_ttf,
@@ -19,40 +18,10 @@
   craneLibStatic,
   libhegelC,
   darwin ? null,
-  xcbuild ? null,
-  # Ghostty source pinned to the commit referenced by libghostty-vt-sys's
-  # build.rs (`GHOSTTY_COMMIT`). Provided as a vendored source tree so that
-  # the Cargo build script can skip its in-tree `git clone` step (which has
-  # no network access in the Nix sandbox).
-  ghosttySrc,
-  zig,
-  git,
+  ghosttyLib,
+  ghosttyLibStatic,
 }:
 let
-  # Pre-fetched Zig package cache for ghostty's build.zig. Passed to zig via
-  # `--system` (set up by libghostty-vt-sys's build.rs when
-  # `GHOSTTY_ZIG_SYSTEM_DIR` is set), keeping the Zig build hermetic.
-  ghosttyZigDeps = callPackage "${ghosttySrc}/deps/packages.nix" {
-    name = "bombadil-ghostty-zig-deps";
-    zig_0_17 = zig;
-  };
-  ghosttyEnv = {
-    GHOSTTY_SOURCE_DIR = "${ghosttySrc}";
-    GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
-  };
-  ghosttyNativeBuildInputs = [
-    zig
-    pkg-config
-    git
-  ]
-  ++ lib.optionals stdenv.isDarwin [
-    # Ghostty's Zig build asks Zig to discover the native Darwin SDK via
-    # xcode-select and xcrun. Nix's apple-sdk propagates xcrun, but xcbuild
-    # provides xcode-select so Zig's findNative() path does not fail with
-    # DarwinSdkNotFound in sandboxed CI builds.
-    cctools
-    xcbuild
-  ];
   ghosttyBuildInputs = lib.optionals stdenv.isDarwin [
     # Put the SDK in buildInputs so Nix's Darwin SDK hook owns SDKROOT and
     # DEVELOPER_DIR. libiconv is propagated by newer SDKs, but keeping it here
@@ -127,24 +96,30 @@ let
       trunk
       wasm-bindgen-cli
       binaryen
-    ]
-    ++ ghosttyNativeBuildInputs;
+      pkg-config
+    ];
     buildInputs = ghosttyBuildInputs;
+    # GHOSTTY_SOURCE_DIR would override pkg-config and rebuild Ghostty in Cargo.
+    PKG_CONFIG_PATH = "${ghosttyLib.dev}/lib/pkgconfig";
     # Exclude the inspect crate from workspace builds since it
     # targets wasm32 and is built by bombadil-cli's build script.
     cargoExtraArgs = "--workspace --exclude bombadil-inspect";
     HEGEL_C_LIB_DIR = "${libhegelC}/lib";
-  }
-  // ghosttyEnv;
+  };
+  staticGhosttyArgs = {
+    PKG_CONFIG_PATH = "${ghosttyLibStatic.dev}/lib/pkgconfig";
+    # This archive matches the musl target, not the build host's libc.
+    PKG_CONFIG_ALLOW_CROSS = "1";
+  };
   depsArgs = commonArgs // {
     src = depsSrc;
     pname = "bombadil";
     version = "stable";
-    nativeBuildInputs = ghosttyNativeBuildInputs;
+    nativeBuildInputs = [ pkg-config ];
     buildInputs = ghosttyBuildInputs;
   };
   cargoArtifacts = craneLib.buildDepsOnly depsArgs;
-  cargoArtifactsStatic = craneLibStatic.buildDepsOnly depsArgs;
+  cargoArtifactsStatic = craneLibStatic.buildDepsOnly (depsArgs // staticGhosttyArgs);
 
   testPreCheck = ''
     export FONTCONFIG_FILE=${makeFontsConf { fontDirectories = [ freefont_ttf ]; }}
@@ -178,6 +153,7 @@ let
       // lib.optionalAttrs linkStatically {
         cargoArtifacts = cargoArtifactsStatic;
       }
+      // lib.optionalAttrs linkStatically staticGhosttyArgs
       // lib.optionalAttrs stdenv.isDarwin {
         # Rewrite Nix store dylib references to system paths so the buildBinary
         # is distributable outside of Nix.
@@ -199,6 +175,7 @@ in
 
   typescript-reference = craneLibStatic.buildPackage (
     commonArgs
+    // staticGhosttyArgs
     // {
       src = depsSrc;
       doCheck = false;
