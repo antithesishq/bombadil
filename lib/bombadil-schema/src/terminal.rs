@@ -122,7 +122,10 @@ impl Index<(u16, u16)> for TerminalGrid {
             self.size.columns
         );
         self.cells
-            .get((row * self.size.columns + column) as usize)
+            .get(
+                usize::from(row) * usize::from(self.size.columns)
+                    + usize::from(column),
+            )
             .expect("grid index out of bounds")
     }
 }
@@ -138,7 +141,10 @@ impl IndexMut<(u16, u16)> for TerminalGrid {
             self.size.columns
         );
         self.cells
-            .get_mut((row * self.size.columns + column) as usize)
+            .get_mut(
+                usize::from(row) * usize::from(self.size.columns)
+                    + usize::from(column),
+            )
             .unwrap_or_else(|| {
                 panic!(
                     "grid index {:?} out of bounds [0, {})",
@@ -309,5 +315,29 @@ mod tests {
         for field in ["actions_available", "action_taken"] {
             assert_eq!(rewritten.get(field), written.get(field));
         }
+    }
+
+    /// Grids of more than `u16::MAX` cells index each cell at its own
+    /// position.
+    #[test]
+    fn indexes_grids_larger_than_u16_cells() {
+        use super::{TerminalCell, TerminalGrid, TerminalSize, TerminalStyle};
+        let size = TerminalSize {
+            columns: 100,
+            rows: 1000,
+        };
+        let mut grid = TerminalGrid::with_size(size);
+        let last = (size.rows - 1, size.columns - 1);
+        grid[last] = TerminalCell::Continuation {
+            style: TerminalStyle::default(),
+        };
+        assert!(matches!(grid[last], TerminalCell::Continuation { .. }));
+        assert_eq!(
+            grid.cells.iter().position(|cell| matches!(
+                cell,
+                TerminalCell::Continuation { .. }
+            )),
+            Some(grid.cells.len() - 1)
+        );
     }
 }

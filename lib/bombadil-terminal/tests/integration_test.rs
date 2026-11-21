@@ -13,14 +13,14 @@ use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
 use bombadil::tree::Leaves;
-use bombadil_schema::terminal::{TerminalCell, TerminalSize};
+use bombadil_schema::terminal::{TerminalCell, TerminalGrid, TerminalSize};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
 use bombadil_terminal::state::TerminalState;
 use rand::rngs::ThreadRng;
 use tempfile::NamedTempFile;
 
-const MAX_SCROLLBACK: usize = 1_000;
+const MAX_SCROLLBACK: u16 = 1_000;
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 static INIT: Once = Once::new();
@@ -41,7 +41,7 @@ struct TerminalIntegrationTest {
     program: String,
     arguments: Vec<String>,
     size: TerminalSize,
-    max_scrollback: usize,
+    max_scrollback: u16,
     specification_source: String,
 }
 
@@ -498,6 +498,107 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
     receiver
         .recv_timeout(TEST_TIMEOUT)
         .expect("synchronized redraw test failed or stalled");
+}
+
+/// The scrollback is the most recent `scrollback_lines_max` rows above the
+/// active area, also while the viewport is scrolled up.
+#[test]
+fn test_scrollback() {
+    within_timeout(|| {
+        let (mut session, _spec) = scrollback_session(
+            10,
+            3,
+            "printf '1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9'; read input",
+        );
+        let state = state_with_grid(&mut session, &["8", "9"]);
+        // Ghostty keeps more history than the limit, rows 1 to 7.
+        assert_eq!(lines(&state.scrollback), ["5", "6", "7"]);
+
+        session.apply(TerminalAction::ScrollUp {}, state).unwrap();
+        let state = next_state(&mut session);
+        assert_eq!(lines(&state.grid), ["1", "2"]);
+        assert_eq!(lines(&state.scrollback), ["5", "6", "7"]);
+        session.terminate().unwrap();
+    });
+}
+
+/// Runs `test` on its own thread, failing if it panics or stalls.
+fn within_timeout(test: impl FnOnce() + Send + 'static) {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        test();
+        sender.send(()).unwrap();
+    });
+    receiver
+        .recv_timeout(TEST_TIMEOUT)
+        .expect("test failed or stalled");
+}
+
+/// A session running `script` in a terminal two rows high, with a spec that
+/// takes no actions. Keep the returned file alive with the session.
+fn scrollback_session(
+    columns: u16,
+    scrollback_lines_max: u16,
+    script: &str,
+) -> (TerminalSession, NamedTempFile) {
+    let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+    specification_file.write_all(br#"
+import { actions } from "@antithesishq/bombadil/terminal";
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
+"#).unwrap();
+    let driver = TerminalDriver::new(
+        Specification {
+            module_specifier: specification_file.path().display().to_string(),
+        },
+        bombadil_terminal::driver::TerminalProgramOptions {
+            size: TerminalSize { columns, rows: 2 },
+            scrollback_lines_max,
+            quiescence_timeout: Duration::from_millis(10),
+            program: "sh".to_string(),
+            arguments: vec!["-c".into(), script.into()],
+        },
+    )
+    .unwrap();
+    let (session, _) = driver.new_session(RunId::default()).unwrap();
+    (session, specification_file)
+}
+
+fn next_state(session: &mut TerminalSession) -> Arc<TerminalState> {
+    let Some(DriverEvent::StateChanged(state)) =
+        session.next_event(Duration::MAX)
+    else {
+        panic!("expected terminal state");
+    };
+    state
+}
+
+fn state_with_grid(
+    session: &mut TerminalSession,
+    grid: &[&str],
+) -> Arc<TerminalState> {
+    loop {
+        let state = next_state(session);
+        if lines(&state.grid) == grid {
+            return state;
+        }
+    }
+}
+
+fn lines(grid: &TerminalGrid) -> Vec<String> {
+    (0..grid.size.rows)
+        .map(|y| {
+            (0..grid.size.columns)
+                .map(|x| match &grid[(y, x)] {
+                    TerminalCell::Occupied { contents, .. } => {
+                        contents.to_string()
+                    }
+                    _ => " ".to_string(),
+                })
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect()
 }
 
 struct IntegrationTestStrategy {
