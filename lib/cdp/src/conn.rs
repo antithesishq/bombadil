@@ -108,24 +108,44 @@ impl<T: Command> PendingResponse<T> {
     /// A response received before the deadline can be collected after it expires.
     #[hotpath::measure]
     pub fn wait(self) -> Result<T::Response> {
-        let (received_at, result) = match self
-            .reply_rx
-            .recv_deadline(self.deadline)
-        {
-            Ok(reply) => reply,
-            Err(mpmc::RecvTimeoutError::Timeout) => {
-                bail!("timed out waiting for response for {}", self.method);
+        match self.receive(self.deadline)? {
+            Some((received_at, result)) if received_at <= self.deadline => {
+                self.decode(result)
             }
-            Err(mpmc::RecvTimeoutError::Disconnected) => {
-                bail!(
-                    "channel disconnected while waiting for response for {}",
-                    self.method
-                );
-            }
-        };
-        if received_at > self.deadline {
-            bail!("timed out waiting for response for {}", self.method);
+            _ => bail!("timed out waiting for response for {}", self.method),
         }
+    }
+
+    /// The response deadline, set at submission.
+    pub fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
+    /// Wait until `deadline` for the response, returning `None` if it has not
+    /// arrived yet. The handle stays usable, and a received response is always
+    /// returned, so polling never loses one.
+    #[hotpath::measure]
+    pub fn wait_deadline(
+        &self,
+        deadline: Instant,
+    ) -> Result<Option<T::Response>> {
+        self.receive(deadline)?
+            .map(|(_, result)| self.decode(result))
+            .transpose()
+    }
+
+    fn receive(&self, deadline: Instant) -> Result<Option<Reply>> {
+        match self.reply_rx.recv_deadline(deadline) {
+            Ok(reply) => Ok(Some(reply)),
+            Err(mpmc::RecvTimeoutError::Timeout) => Ok(None),
+            Err(mpmc::RecvTimeoutError::Disconnected) => bail!(
+                "channel disconnected while waiting for response for {}",
+                self.method
+            ),
+        }
+    }
+
+    fn decode(&self, result: Result<ResponsePayload>) -> Result<T::Response> {
         let value = result
             .with_context(|| format!("send failed for {}", self.method))?;
         log::debug!("got response for {} ({})", self.method, self.call_id);
@@ -882,6 +902,35 @@ mod tests {
             command: PhantomData,
         };
         assert_eq!(pending.wait().unwrap(), TestResponse { received: true });
+    }
+
+    #[test]
+    fn polling_keeps_response_received_after_poll_deadline() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let (tx, rx) = mpmc::bounded(1);
+        let id = CallId::new(7);
+        let mut calls = HashMap::from([(id, Some(tx))]);
+        let pending = PendingResponse::<TestCommand> {
+            call_id: id,
+            method: Cow::Borrowed("Test.command"),
+            deadline: Instant::now() + Duration::from_secs(1),
+            reply_rx: rx,
+            command: PhantomData,
+        };
+        // The reply is stamped after this poll's deadline, but it is
+        // received by the poll, so it must be returned rather than dropped.
+        let poll_deadline = Instant::now();
+        thread::sleep(Duration::from_millis(2));
+        handle_message(
+            WsMessage::text(r#"{"result":{"received":true},"id":7}"#),
+            &mut calls,
+            &subscribers,
+        )
+        .unwrap();
+        assert_eq!(
+            pending.wait_deadline(poll_deadline).unwrap(),
+            Some(TestResponse { received: true })
+        );
     }
 
     #[test]

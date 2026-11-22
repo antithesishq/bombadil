@@ -10,6 +10,7 @@ members = [
   "lib/bombadil-inspect",
   "lib/bombadil-schema",
   "lib/bombadil-terminal",
+  "lib/bombadil-trace",
   "lib/cli-reference",
   "lib/cdp",
   "lib/cdp/types",
@@ -23,7 +24,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.7.10"
+version = "0.8.0"
 edition = "2024"
 
 [workspace.dependencies]
@@ -39,6 +40,7 @@ boa_engine = "0.22.0"
 bytes = "1.11.0"
 clap = { version = "4.5.46", features = ["derive"] }
 const_format = "0.2.35"
+crc32fast = "1.5.2"
 crossbeam-channel = "0.5" # for mpmc, could probably be dropped when this goes into stable std
 ctrlc = "3.5.2"
 env_logger = "0.11.8"
@@ -57,7 +59,7 @@ indoc = "2.0.7"
 insta = "1.43.1"
 js-sys = "0.3"
 libc = "0.2"
-libghostty-vt = "0.2.2"
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "483ea3d5247b214060da58ef6037a95f30ae89fb" }
 log = "0.4.29"
 mime_guess = "2.0"
 mio = { version = "1", features = ["os-poll", "os-ext"] }
@@ -92,6 +94,7 @@ wasm-bindgen = "=0.2.121"
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 yew = "0.23"
+zerocopy = { version = "0.8.57", features = ["derive"] }
 
 [profile.release]
 opt-level = "z"

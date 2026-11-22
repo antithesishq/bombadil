@@ -203,6 +203,10 @@ This will run until you shut it down using <kbd>Ctrl</kbd>+<kbd>C</kbd>. Any
 property violations will be logged as errors, and with the `--output-path`
 option you will get results to inspect afterwards.
 
+The trace is the file `my-test`, including its screenshots. Any filename is
+accepted, but its parent directory must already exist; an existing directory
+cannot be used as the output path.
+
 Launch the *Bombadil Inspect* tool to see what happened in the test you
 just ran:
 
@@ -242,8 +246,13 @@ escape sequences. It also checks a few common properties, like that the program
 exits with a zero exit code and that it doesn't print any byte sequences the
 terminal can't render.
 
-::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
-so we can't easily inspect the results at this point.
-:::
+The test results are in the file `my-test` (any filename is accepted).
+Parent directories must already exist. To see what happened, show each
+state of the test with its screen:
+
+```bash
+bombadil trace my-test --screen
+```
+
+See [Inspecting test results] for more.
 :::

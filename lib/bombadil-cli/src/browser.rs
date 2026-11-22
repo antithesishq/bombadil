@@ -11,10 +11,9 @@ use bombadil_browser::{
     trace::writer::{FileOutputWriter, FileTraceWriter},
 };
 use clap::Args;
-use serde_json as json;
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io,
     num::NonZeroUsize,
     path::{Path, PathBuf},
     str::FromStr,
@@ -22,6 +21,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    thread::{self, JoinHandle},
     time::{Duration, SystemTime},
 };
 use tempfile::TempDir;
@@ -30,20 +30,22 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
+    model::Recorded,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
-use bombadil_browser::{
-    browser::actions::BrowserAction, instrumentation::InstrumentationConfig,
-};
-use bombadil_schema::browser;
-
 use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
 };
+use bombadil_browser::{
+    browser::actions::BrowserAction,
+    instrumentation::{self, BlockRegistry, InstrumentationConfig},
+};
 
 use crate::shrink::{self, ShrinkOptions};
-use crate::{duration, inspect_server, output_path};
+use crate::{
+    browser_trace, duration, fuzz_report, inspect_server, output_path,
+};
 
 const DEFAULT_WIDTH: u16 = 1024;
 const DEFAULT_HEIGHT: u16 = 768;
@@ -88,11 +90,11 @@ Examples:
 
 const INSPECT_EXAMPLES: &str = "\
 Examples:
-  # Inspect the trace in an output directory named `my-test`
+  # Inspect the trace file named `my-test`
   bombadil browser inspect my-test
 
   # Serve on another port, without trying to open a browser
-  bombadil browser inspect --port 8080 --no-open my-test/trace.jsonl
+  bombadil browser inspect --port 8080 --no-open my-test
 ";
 
 #[derive(clap::Subcommand)]
@@ -103,6 +105,8 @@ pub enum BrowserCommand {
         #[clap(flatten)]
         shared: RunSharedOptions,
         #[clap(flatten)]
+        test_options: TestOptions,
+        #[clap(flatten)]
         launch_options: ManagedBrowserOptions,
     },
     /// Run a test with an externally managed browser or Electron app (e.g. `chromium
@@ -111,6 +115,8 @@ pub enum BrowserCommand {
     TestExternal {
         #[clap(flatten)]
         shared: RunSharedOptions,
+        #[clap(flatten)]
+        test_options: TestOptions,
         /// Address to the remote debugger's server, e.g. http://localhost:9222
         #[arg(long)]
         remote_debugger: Url,
@@ -142,7 +148,7 @@ pub enum BrowserCommand {
     /// Launch Bombadil Inspect to inspect a trace file
     #[command(after_help = INSPECT_EXAMPLES)]
     Inspect {
-        /// Path to trace.jsonl file or directory containing it
+        /// Trace FILE to inspect (any filename, not a directory)
         trace_path: PathBuf,
         /// Port to bind the inspect server to
         #[arg(long, default_value_t = 1073)]
@@ -158,19 +164,31 @@ pub struct RunSharedOptions {
     #[clap(flatten)]
     pub target: TargetOptions,
 
-    /// Where to store output data (trace, screenshots, etc.)
+    /// Trace FILE to write (any filename), with embedded screenshots.
+    /// For fuzz, a file base: run.bin writes run-0.bin, run-1.bin, etc.
+    /// Defaults to a unique file/base in system temp. Parents must exist.
     #[arg(long)]
     pub output_path: Option<PathBuf>,
 
     /// Overwrite any existing trace at `--output-path`. Without this flag,
-    /// Bombadil refuses to write when trace.jsonl already exists.
+    /// Bombadil refuses to replace an existing file.
     #[arg(long)]
     pub output_path_overwrite: bool,
+
+    /// Write the table of instrumented coverage blocks that trace `branches`
+    /// ids refer to (id, script, function, line) to this file, as JSON
+    /// lines, as scripts are instrumented. The file must not exist, and its
+    /// parent must. Without it no table is written.
+    #[arg(long = "coverage-symbols", value_name = "FILE")]
+    pub coverage_symbols_path: Option<PathBuf>,
 
     /// Whether to exit the test when first failing property is found (useful in development and CI)
     #[arg(long)]
     pub exit_on_violation: bool,
+}
 
+#[derive(Args)]
+pub struct TestOptions {
     /// Maximum time to run the test. Accepts a number with a unit suffix:
     /// s (seconds), m (minutes), h (hours), or d (days).
     #[arg(long, value_parser = duration::parse_duration)]
@@ -256,14 +274,40 @@ pub struct ManagedBrowserOptions {
     /// Disable Chromium sandboxing
     #[arg(long, default_value_t = false)]
     no_sandbox: bool,
+    /// Which kind of Chrome/Chromium build to run. `headless-shell`
+    /// (chrome-headless-shell) controls rendering frame by frame, which
+    /// is faster but experimental, and implies `--headless`
+    #[arg(long, value_enum, default_value_t = ChromeVariant::Full)]
+    chrome_variant: ChromeVariant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ChromeVariant {
+    Full,
+    HeadlessShell,
+}
+
+impl From<ChromeVariant> for chromium::locate::ChromeVariant {
+    fn from(variant: ChromeVariant) -> Self {
+        match variant {
+            ChromeVariant::Full => chromium::locate::ChromeVariant::Full,
+            ChromeVariant::HeadlessShell => {
+                chromium::locate::ChromeVariant::HeadlessShell
+            }
+        }
+    }
 }
 
 impl ManagedBrowserOptions {
     fn debugger_options(&self) -> Result<DebuggerOptions> {
         Ok(DebuggerOptions::Managed {
             launch_options: LaunchOptions {
-                executable: chromium::locate::executable()?,
-                headless: self.headless,
+                executable: chromium::locate::executable(
+                    self.chrome_variant.into(),
+                )?,
+                // chrome-headless-shell has no headed mode.
+                headless: self.headless
+                    || self.chrome_variant == ChromeVariant::HeadlessShell,
                 no_sandbox: self.no_sandbox,
             },
         })
@@ -276,6 +320,9 @@ impl ManagedBrowserOptions {
         }
         if self.no_sandbox {
             args.push("--no-sandbox".into());
+        }
+        if self.chrome_variant == ChromeVariant::HeadlessShell {
+            args.push("--chrome-variant=headless-shell".into());
         }
         args
     }
@@ -323,9 +370,10 @@ pub fn run(command: BrowserCommand) -> Result<()> {
     match command {
         BrowserCommand::Test {
             shared,
+            test_options,
             launch_options,
         } => {
-            let mode = resolve_test_mode(&shared)?;
+            let downloads = downloads_directory()?;
             let user_data_directory = TempDir::with_prefix("user_data_")?;
             log::info!(
                 "storing chromium/chrome user data in {}",
@@ -340,23 +388,25 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             reproduce_args.extend(launch_options.reproduce_args());
 
             let browser_options =
-                browser_options_from_target(&shared.target, &output_path);
+                browser_options_from_target(&shared.target, downloads.path());
             let debugger_options = launch_options.debugger_options()?;
             browser_test(
-                mode,
                 reproduce_args,
                 output_path,
                 shared,
+                test_options,
                 browser_options,
                 debugger_options,
+                downloads,
             )
         }
         BrowserCommand::TestExternal {
             shared,
+            test_options,
             remote_debugger,
             create_target,
         } => {
-            let mode = resolve_test_mode(&shared)?;
+            let downloads = downloads_directory()?;
             let output_path =
                 output_path::resolve_output_path(&shared.output_path)?;
 
@@ -369,17 +419,18 @@ pub fn run(command: BrowserCommand) -> Result<()> {
 
             let browser_options = BrowserOptions {
                 create_target,
-                ..browser_options_from_target(&shared.target, &output_path)
+                ..browser_options_from_target(&shared.target, downloads.path())
             };
             let debugger_options =
                 DebuggerOptions::External { remote_debugger };
             browser_test(
-                mode,
                 reproduce_args,
                 output_path,
                 shared,
+                test_options,
                 browser_options,
                 debugger_options,
+                downloads,
             )
         }
         BrowserCommand::Fuzz {
@@ -387,13 +438,14 @@ pub fn run(command: BrowserCommand) -> Result<()> {
             run_shared_options,
             fuzz_options,
         } => {
+            let downloads = downloads_directory()?;
             let output_path = output_path::resolve_output_path(
                 &run_shared_options.output_path,
             )?;
 
             let browser_options = browser_options_from_target(
                 &run_shared_options.target,
-                &output_path,
+                downloads.path(),
             );
             let debugger_options = launch_options.debugger_options()?;
             browser_fuzz(
@@ -402,6 +454,7 @@ pub fn run(command: BrowserCommand) -> Result<()> {
                 browser_options,
                 debugger_options,
                 fuzz_options,
+                downloads,
             )
         }
         BrowserCommand::Shrink {
@@ -411,7 +464,8 @@ pub fn run(command: BrowserCommand) -> Result<()> {
         } => browser_shrink(
             target,
             shrink_options,
-            launch_options.debugger_options()?,
+            launch_options,
+            downloads_directory()?,
         ),
         BrowserCommand::Inspect {
             trace_path,
@@ -468,9 +522,18 @@ fn parse_instrumentation_config(
     })
 }
 
+fn downloads_directory() -> Result<TempDir> {
+    let downloads = TempDir::with_prefix("bombadil-downloads-")?;
+    log::info!(
+        "storing browser downloads in {}",
+        downloads.path().display()
+    );
+    Ok(downloads)
+}
+
 fn browser_options_from_target(
     target: &TargetOptions,
-    output_path: &Path,
+    downloads_path: &Path,
 ) -> BrowserOptions {
     BrowserOptions {
         create_target: true,
@@ -480,7 +543,7 @@ fn browser_options_from_target(
             device_scale_factor: target.device_scale_factor,
         },
         instrumentation: target.instrument_javascript.clone(),
-        downloads_directory: output_path.join("downloads"),
+        downloads_directory: downloads_path.to_path_buf(),
         grant_permissions: target
             .chrome_grant_permissions
             .split(',')
@@ -566,39 +629,91 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
 }
 
-fn resolve_test_mode(shared_options: &RunSharedOptions) -> Result<TestMode> {
-    match &shared_options.reproduce {
+fn resolve_test_mode(test_options: &TestOptions) -> Result<TestMode> {
+    match &test_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let trace_file_path =
-                output_path::resolve_trace_directory(path).join("trace.jsonl");
-            let trace_file = File::open(&trace_file_path)?;
-            let mut actions: Vec<BrowserAction> = vec![];
-            for line in BufReader::new(trace_file).lines() {
-                let line = line.context("failed to read line from trace")?;
-                let entry: browser::BrowserTraceEntry = json::from_str(&line)?;
-                if let Some(action) = entry.action {
-                    actions.push(action.to_internal());
-                }
-            }
+            let actions: Vec<Recorded<BrowserAction>> =
+                browser_trace::load_actions(path)?
+                    .into_iter()
+                    .map(|recorded| recorded.map(|action| action.to_internal()))
+                    .collect();
             Ok(TestMode::Reproduce(actions.into()))
         }
     }
 }
 
+/// The `--coverage-symbols` file, created before the run so that a path that
+/// cannot be written fails the command at its start. A thread appends each
+/// block as it is registered, so a killed run leaves its table.
+struct CoverageSymbols {
+    writer: JoinHandle<io::Result<()>>,
+    path: PathBuf,
+}
+
+impl CoverageSymbols {
+    fn create(
+        path: Option<&Path>,
+        output_path: &Path,
+    ) -> Result<(BlockRegistry, Option<Self>)> {
+        let Some(path) = path else {
+            return Ok((BlockRegistry::default(), None));
+        };
+        if stdx::fs::same_file(path, output_path)
+            || stdx::fs::same_location(path, output_path)
+        {
+            bail!(
+                "--coverage-symbols and --output-path name the same file: {}",
+                path.display()
+            );
+        }
+        let file = File::create_new(path).with_context(|| {
+            format!("creating coverage symbols file {}", path.display())
+        })?;
+        let (blocks, new_blocks) = BlockRegistry::with_channel();
+        let writer = thread::Builder::new()
+            .name("coverage-symbols".into())
+            .spawn(move || instrumentation::write_blocks(new_blocks, file))?;
+        Ok((
+            blocks,
+            Some(CoverageSymbols {
+                writer,
+                path: path.to_path_buf(),
+            }),
+        ))
+    }
+
+    /// Waits for the table to be written.
+    fn finish(self, blocks: &BlockRegistry) -> Result<()> {
+        blocks.close();
+        self.writer
+            .join()
+            .expect("coverage symbols writer panicked")
+            .with_context(|| {
+                format!("writing coverage symbols to {}", self.path.display())
+            })
+    }
+}
+
 fn browser_test(
-    mode: TestMode,
     reproduce_args: Vec<String>,
     output_path: PathBuf,
     shared_options: RunSharedOptions,
+    test_options: TestOptions,
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
+    downloads: TempDir,
 ) -> Result<()> {
+    let mode = resolve_test_mode(&test_options)?;
+    let (blocks, coverage_symbols) = CoverageSymbols::create(
+        shared_options.coverage_symbols_path.as_deref(),
+        &output_path,
+    )?;
     let specification = load_specification(&shared_options.target);
 
-    let is_reproduce = shared_options.reproduce.is_some();
+    let is_reproduce = test_options.reproduce.is_some();
 
-    if let Some(duration) = shared_options.time_limit {
+    if let Some(duration) = test_options.time_limit {
         log::info!(
             "test time limit set to {}",
             duration::format_duration(duration)
@@ -614,19 +729,21 @@ fn browser_test(
         browser_options,
         debugger_options,
         mode,
-        deadline: shared_options.time_limit.map(|d| SystemTime::now() + d),
+        deadline: test_options.time_limit.map(|d| SystemTime::now() + d),
         allow_urls,
         origin,
         exit_on_violation: shared_options.exit_on_violation,
+        blocks: blocks.clone(),
     };
 
-    let test_result = run_with_writer(
-        run_options,
-        FileTraceWriter::initialize(
-            output_path.clone(),
-            shared_options.output_path_overwrite,
-        )?,
+    let trace_writer = FileTraceWriter::initialize(
+        output_path.clone(),
+        shared_options.output_path_overwrite,
     )?;
+    let result = run_with_writer(run_options, trace_writer);
+    let written =
+        coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let test_result = output_path::or_logged(result, written)?;
 
     let heading = {
         let TestResult {
@@ -687,6 +804,7 @@ fn browser_test(
         );
     }
 
+    downloads.close()?;
     if test_result.violations_count > 0 {
         std::process::exit(2);
     }
@@ -703,6 +821,7 @@ fn browser_fuzz(
     browser_options: BrowserOptions,
     debugger_options: DebuggerOptions,
     fuzz_options: FuzzOptions,
+    downloads: TempDir,
 ) -> Result<()> {
     if antithesis::is_in_guest() {
         bail!(
@@ -710,6 +829,10 @@ fn browser_fuzz(
         );
     };
 
+    let (blocks, coverage_symbols) = CoverageSymbols::create(
+        shared_options.coverage_symbols_path.as_deref(),
+        &output_path,
+    )?;
     let specification = load_specification(&shared_options.target);
 
     let interrupted = Arc::new(AtomicBool::new(false));
@@ -734,9 +857,10 @@ fn browser_fuzz(
         browser_options,
         debugger_options,
         specification_bundle,
+        blocks: blocks.clone(),
     });
 
-    fuzzer::fuzz(fuzzer::FuzzOptions {
+    let result = fuzzer::fuzz(fuzzer::FuzzOptions {
         rng: AntithesisRng,
         driver,
         strategy: move || TestStrategy {
@@ -754,74 +878,20 @@ fn browser_fuzz(
         time_limit_run: fuzz_options.time_limit_run,
         swarm: fuzz_options.swarm,
         parallelism: fuzz_options.parallelism,
+        exit_on_violation: shared_options.exit_on_violation,
         output_writer,
-    })?;
+    });
+    let written =
+        coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
+    let result = output_path::or_logged(result, written)?;
 
-    // TODO: return result from `fuzz` that can be used to print something like the following:
-
-    /*
-    let heading = {
-        let TestResult {
-            exit_reason,
-            violations_count,
-        } = test_result;
-
-        let findings = match violations_count {
-            0 => "".into(),
-            1 => ", finding 1 violation".into(),
-            n => format!(", finding {n} violations"),
-        };
-
-        let heading = styled::maybe_bold(match exit_reason {
-            ExitReason::ExitOnViolation => {
-                format!("Test finished{findings}!",)
-            }
-            ExitReason::TimeLimit => {
-                format!("Test finished after time limit{findings}!")
-            }
-            ExitReason::Interrupted => {
-                format!("Test was interrupted by SIGINT{findings}!",)
-            }
-            ExitReason::Reproduced => {
-                format!("Reproduction finished{findings}!",)
-            }
-            ExitReason::AllDefinite => {
-                format!("Test finished with all properties definite{findings}!")
-            }
-        });
-
-        if violations_count > 0 {
-            styled::maybe_red(heading)
-        } else {
-            heading
-        }
-    };
-
-    let output_display = output_path.display();
-    let inspect_command = styled::maybe_italic(format!(
-        "bombadil browser inspect {output_display}"
-    ));
-    println!(
-        "\n{heading}\n\nInspect the test results using:\
-         \n\n  {inspect_command}\n",
+    print!(
+        "{}",
+        fuzz_report::render(&result, &output_path, "bombadil browser inspect")
     );
-    if !is_reproduce {
-        let reproduce_command = styled::maybe_italic(format!(
-            "bombadil {} --reproduce {output_display}",
-            reproduce_args.join(" "),
-        ));
-        println!(
-            "Reproduce this test using:\
-             \n\n  {reproduce_command}\n",
-        );
-    }
 
-    if test_result.violations_count > 0 {
-        std::process::exit(2);
-    }
-        */
-
-    Ok(())
+    downloads.close()?;
+    fuzz_report::exit(&result)
 }
 
 struct RunOptions {
@@ -834,6 +904,7 @@ struct RunOptions {
     exit_on_violation: bool,
     deadline: Option<SystemTime>,
     allow_urls: Vec<MatchPattern>,
+    blocks: BlockRegistry,
 }
 
 fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
@@ -847,6 +918,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         exit_on_violation,
         deadline,
         allow_urls,
+        blocks,
     }: RunOptions,
     trace_writer: Writer,
 ) -> Result<TestResult> {
@@ -875,6 +947,7 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
         specification,
         browser_options,
         debugger_options,
+        blocks,
         trace_writer,
         interrupted,
         &mut strategy,
@@ -884,13 +957,16 @@ fn run_with_writer<Writer: TraceWriter<BrowserSession>>(
 fn browser_shrink(
     target: TargetOptions,
     shrink_options: ShrinkOptions,
-    debugger_options: DebuggerOptions,
+    launch_options: ManagedBrowserOptions,
+    downloads: TempDir,
 ) -> Result<()> {
-    let options = shrink_options.resolve::<browser::BrowserAction>()?;
+    // Check the trace before looking for a browser to run it in.
+    let options = shrink_options.resolve(browser_trace::load_trace_actions)?;
+    let debugger_options = launch_options.debugger_options()?;
     let specification = load_specification(&target);
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
-        browser_options_from_target(&target, &options.output_path);
+        browser_options_from_target(&target, downloads.path());
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
@@ -899,6 +975,7 @@ fn browser_shrink(
             ".",
             &specification.module_specifier,
         )?),
+        blocks: Default::default(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
@@ -932,4 +1009,71 @@ fn browser_shrink(
         ))
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLOCK_ROW: &str =
+        "{\"id\":7,\"script\":\"/app.js\",\"function\":\"<top>\",\"line\":1}\n";
+
+    fn block() -> instrumentation::Block {
+        instrumentation::Block {
+            id: 7,
+            script: "/app.js".into(),
+            function: "<top>".into(),
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn coverage_symbols_never_replace_a_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocks.jsonl");
+        let trace_path = directory.path().join("trace.bin");
+        let create =
+            |path: &Path| CoverageSymbols::create(Some(path), &trace_path);
+
+        assert!(create(&path).unwrap().1.is_some());
+        assert!(create(&path).is_err());
+        assert!(
+            create(&directory.path().join("missing/blocks.jsonl")).is_err()
+        );
+
+        let is_trace = |path: &Path| {
+            let error = create(path).err().unwrap().to_string();
+            assert!(error.contains("name the same file"), "{error}");
+        };
+        let alias = directory.path().join(".").join("trace.bin");
+        is_trace(&trace_path);
+        is_trace(&alias);
+        assert!(!trace_path.exists());
+        std::fs::write(&trace_path, "trace").unwrap();
+        let link = directory.path().join("link.bin");
+        std::fs::hard_link(&trace_path, &link).unwrap();
+        is_trace(&alias);
+        is_trace(&link);
+        assert_eq!(std::fs::read_to_string(&trace_path).unwrap(), "trace");
+    }
+
+    #[test]
+    fn coverage_symbols_are_written_as_blocks_are_registered() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("blocks.jsonl");
+        let (blocks, symbols) =
+            CoverageSymbols::create(Some(&path), Path::new("trace.bin"))
+                .unwrap();
+        blocks.register([block()]);
+
+        // The block is on disk before the run ends, in case it is killed.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while std::fs::metadata(&path).unwrap().len() == 0 {
+            assert!(std::time::Instant::now() < deadline, "nothing written");
+            thread::yield_now();
+        }
+
+        symbols.unwrap().finish(&blocks).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), BLOCK_ROW);
+    }
 }

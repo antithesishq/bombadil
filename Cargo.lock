@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "antithesis-fuzzer"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "cc",
  "log",
@@ -455,7 +455,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "antithesis-fuzzer",
  "antithesis_sdk",
@@ -463,6 +463,7 @@ dependencies = [
  "boa_engine",
  "bombadil-ltl",
  "bombadil-schema",
+ "bombadil-trace",
  "crossbeam-channel",
  "hegeltest",
  "hotpath",
@@ -491,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "antithesis-fuzzer",
  "anyhow",
@@ -501,6 +502,7 @@ dependencies = [
  "bombadil-browser-keys",
  "bombadil-ltl",
  "bombadil-schema",
+ "bombadil-trace",
  "cdp",
  "cdp_protocol",
  "const_format",
@@ -523,6 +525,7 @@ dependencies = [
  "scraper",
  "serde",
  "serde_json",
+ "stdx",
  "stdx-derive",
  "tempfile",
  "url",
@@ -530,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-integration-tests"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -556,11 +559,11 @@ dependencies = [
 
 [[package]]
 name = "bombadil-browser-keys"
-version = "0.7.10"
+version = "0.8.0"
 
 [[package]]
 name = "bombadil-cli"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
@@ -571,18 +574,21 @@ dependencies = [
  "bombadil-ltl",
  "bombadil-schema",
  "bombadil-terminal",
+ "bombadil-trace",
  "clap",
  "ctrlc",
  "env_logger",
  "hegeltest",
  "hotpath",
  "include_dir",
+ "libghostty-vt",
  "log",
  "mime_guess",
  "open",
  "rand 0.10.2",
  "serde",
  "serde_json",
+ "stdx",
  "tempfile",
  "tokio",
  "url",
@@ -609,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-ltl"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "hegeltest",
@@ -618,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "bombadil-schema"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "bitflags 2.13.2",
  "hegeltest",
@@ -631,13 +637,14 @@ dependencies = [
 
 [[package]]
 name = "bombadil-terminal"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "antithesis_sdk",
  "anyhow",
  "boa_engine",
  "bombadil",
  "bombadil-schema",
+ "bombadil-trace",
  "bytes",
  "env_logger",
  "hegeltest",
@@ -650,7 +657,23 @@ dependencies = [
  "serde",
  "serde_json",
  "small-string",
+ "stdx-derive",
  "tempfile",
+]
+
+[[package]]
+name = "bombadil-trace"
+version = "0.8.0"
+dependencies = [
+ "anyhow",
+ "crc32fast",
+ "hegeltest",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zerocopy",
+ "zstd",
 ]
 
 [[package]]
@@ -724,7 +747,7 @@ dependencies = [
 
 [[package]]
 name = "cdp"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "cdp_protocol",
@@ -741,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_pdl"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "cdp_types",
@@ -757,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_protocol"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "cdp_pdl",
  "cdp_types",
@@ -768,7 +791,7 @@ dependencies = [
 
 [[package]]
 name = "cdp_types"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -852,7 +875,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli-reference"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "bombadil-cli",
@@ -2711,9 +2734,8 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libghostty-vt"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c7287a8dc35c3436224b39358af81ab9ea54bafa0f7ea2e068bd2a47bdcb2d"
+version = "0.2.1"
+source = "git+https://github.com/Uzaaft/libghostty-rs?rev=483ea3d5247b214060da58ef6037a95f30ae89fb#483ea3d5247b214060da58ef6037a95f30ae89fb"
 dependencies = [
  "bitflags 2.13.2",
  "int-enum",
@@ -2722,9 +2744,8 @@ dependencies = [
 
 [[package]]
 name = "libghostty-vt-sys"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df233d9b287cded4bbebba3463c6df7a8bdb516c0341ed984e870ef5594c2e6f"
+version = "0.2.1"
+source = "git+https://github.com/Uzaaft/libghostty-rs?rev=483ea3d5247b214060da58ef6037a95f30ae89fb#483ea3d5247b214060da58ef6037a95f30ae89fb"
 
 [[package]]
 name = "libloading"
@@ -4643,7 +4664,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "small-string"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "hegeltest",
  "serde",
@@ -4695,14 +4716,15 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stdx"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "hegeltest",
+ "tempfile",
 ]
 
 [[package]]
 name = "stdx-derive"
-version = "0.7.10"
+version = "0.8.0"
 
 [[package]]
 name = "str_indices"
@@ -5332,7 +5354,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typescript-reference"
-version = "0.7.10"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6018,3 +6040,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64d80649ab6db9d9f6f9c80a40becd948eda4714a0a5ac8c4d157a32231c7882"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.2+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

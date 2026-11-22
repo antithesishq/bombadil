@@ -3,11 +3,15 @@ use crate::driver::BrowserSession;
 use crate::match_pattern::MatchPattern;
 use crate::url::parse_browser_url;
 use anyhow::{Result, bail};
-use bombadil::driver::{ActionTemplate, RunState};
+use bombadil::driver::RunState;
+use bombadil::model::{Picked, Recorded, accepting_key};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
-use bombadil::{specification::domain::Snapshot, tree::Tree};
+use bombadil::{
+    specification::domain::Snapshot,
+    tree::{Leaves, Tree},
+};
 use bombadil_schema::browser::Fingerprint;
 use rand::{RngExt, TryRng};
 use std::{collections::VecDeque, time::SystemTime};
@@ -22,7 +26,7 @@ use bombadil_schema::markup;
 
 pub enum TestMode {
     RandomWalk,
-    Reproduce(VecDeque<BrowserAction>),
+    Reproduce(VecDeque<Recorded<BrowserAction>>),
 }
 
 pub struct TestStrategy<Rng> {
@@ -92,41 +96,39 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
 
     fn pick_action(
         &mut self,
-        tree: Tree<BrowserActionTemplate>,
-    ) -> Result<BrowserAction> {
-        let tree = tree
-            .prune()
-            .ok_or_else(|| anyhow::anyhow!("no actions available"))?;
+        leaves: &Leaves<'_, BrowserActionTemplate>,
+    ) -> Result<Picked<BrowserAction>> {
+        if leaves.as_slice().is_empty() {
+            bail!("no actions available");
+        }
         match &mut self.mode {
             TestMode::RandomWalk => {
-                let template = tree.pick(&mut self.rng)?.clone();
-                let action = template.generate(&mut self.rng);
-                Ok(action)
+                Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
             TestMode::Reproduce(actions_original) => {
-                if let Some(action_original) = actions_original.pop_front() {
-                    let available_actions = tree.values();
-                    let action_reconciled =
-                        available_actions.iter().any(|action_template| {
-                            action_template.accepts(&action_original)
-                        });
-
-                    if action_reconciled {
-                        Ok(action_original)
+                if let Some(original) = actions_original.pop_front() {
+                    let available_actions = leaves.as_slice();
+                    if let Some(template) = accepting_key(leaves, &original) {
+                        Ok(Picked {
+                            action: original.action,
+                            template,
+                        })
                     } else {
                         println!(
                             "\n{}\n\n{}\n\n{}\n\n{}\n",
                             styled::maybe_red(styled::maybe_bold(
                                 "no match for original:".into()
                             )),
-                            Formatted(&action_original),
+                            Formatted(&original.action),
                             styled::maybe_red(styled::maybe_bold(
                                 "in the set of available actions:".into()
                             )),
-                            tree.values()
+                            available_actions
                                 .iter()
-                                .copied()
-                                .map(|action| format!("{}", Formatted(action)))
+                                .map(|(action, _)| format!(
+                                    "{}",
+                                    Formatted(*action)
+                                ))
                                 .collect::<Vec<String>>()
                                 .join("\n")
                         );
@@ -148,11 +150,12 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     fn on_new_state(
         &mut self,
         state: &BrowserState,
-        tree: Tree<BrowserActionTemplate>,
+        leaves: &Leaves<'_, BrowserActionTemplate>,
         _last_action: Option<&BrowserAction>,
         _snapshots: &[Snapshot],
         properties: PropertiesState<'_>,
-    ) -> anyhow::Result<ControlFlow<Self::StopValue, BrowserAction>> {
+    ) -> anyhow::Result<ControlFlow<Self::StopValue, Picked<BrowserAction>>>
+    {
         let test_start = *self.test_start.get_or_insert(
             bombadil_schema::Time::from_system_time(state.timestamp),
         );
@@ -209,7 +212,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             }));
         }
 
-        let action = self.pick_action(tree)?;
+        let picked = self.pick_action(leaves)?;
         let elapsed = std::time::Duration::from_micros(
             state
                 .timestamp()
@@ -217,10 +220,10 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
                 .saturating_sub(test_start.as_micros()),
         );
         if !self.quiet {
-            println!("{} {}", Formatted(&elapsed), Formatted(&action));
+            println!("{} {}", Formatted(&elapsed), Formatted(&picked.action));
         }
 
-        Ok(ControlFlow::Continue(action))
+        Ok(ControlFlow::Continue(picked))
     }
 
     fn deadline(&self) -> Option<bombadil_schema::Time> {
@@ -254,5 +257,52 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             exit_reason: ExitReason::Interrupted,
             violations_count: self.violations_count,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bombadil::model::action_key;
+    use bombadil::specification::generators::StringGenerator;
+    use rand::{SeedableRng, rngs::StdRng};
+
+    /// The recorded key wins over an earlier template that also accepts
+    /// the action.
+    #[test]
+    fn reproduced_action_keeps_its_recorded_template() {
+        let text: BrowserActionTemplate = BrowserAction::TypeText {
+            text: StringGenerator::Text { length: 1..=100 },
+        };
+        let email: BrowserActionTemplate = BrowserAction::TypeText {
+            text: StringGenerator::Email,
+        };
+        let picked = Picked {
+            action: BrowserAction::TypeText {
+                text: "tom@example.com".to_string(),
+            },
+            template: action_key(&email),
+        };
+        let tree = Tree::Branch {
+            branches: vec![
+                (1, Tree::Leaf { value: text }),
+                (1, Tree::Leaf { value: email }),
+            ],
+        };
+        let recorded = Recorded {
+            action: picked.action.clone(),
+            template: Some(picked.template),
+        };
+        let mut strategy = TestStrategy {
+            rng: StdRng::seed_from_u64(0),
+            mode: TestMode::Reproduce([recorded].into()),
+            exit_on_violation: false,
+            test_start: None,
+            deadline: None,
+            allow_urls: vec![],
+            violations_count: 0,
+            quiet: true,
+        };
+        assert_eq!(strategy.pick_action(&tree.leaves()).unwrap(), picked);
     }
 }

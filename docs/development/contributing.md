@@ -14,6 +14,9 @@ nix develop
 direnv allow .
 ```
 
+Outside Nix, building the terminal driver needs Zig 0.16 on your `PATH`,
+since libghostty-vt builds Ghostty from source.
+
 ### Documentation shell
 
 Documentation building requires a separate shell with Pandoc and TeXLive. This keeps the default development environment lighter.

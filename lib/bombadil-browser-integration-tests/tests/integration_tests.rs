@@ -14,7 +14,7 @@ use bombadil_schema::{Time, markup};
 use futures_util::stream::{self, Stream};
 use rand::SeedableRng;
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     convert::Infallible,
     sync::{Arc, Mutex, atomic::AtomicBool},
 };
@@ -35,12 +35,13 @@ use bombadil::{
     styled,
 };
 use bombadil_browser::{
-    browser::actions::BrowserAction,
+    browser::actions::{BrowserAction, BrowserActionTemplate},
     browser_options::{BrowserOptions, Emulation},
     chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
     driver::{BrowserSession, DebuggerOptions},
+    instrumentation::BlockRegistry,
     match_pattern::MatchPattern,
     runner,
     strategy::{ExitReason, TestResult, TestStrategy},
@@ -83,6 +84,20 @@ impl Display for Expect {
     }
 }
 
+fn chrome_variant(
+    requires_full_browser: bool,
+) -> chromium::locate::ChromeVariant {
+    use chromium::locate::ChromeVariant;
+    if requires_full_browser {
+        return ChromeVariant::Full;
+    }
+    match std::env::var("BOMBADIL_TEST_CHROME_VARIANT").as_deref() {
+        Ok("headless-shell") => ChromeVariant::HeadlessShell,
+        Ok("full") | Err(_) => ChromeVariant::Full,
+        Ok(other) => panic!("unknown BOMBADIL_TEST_CHROME_VARIANT: {other}"),
+    }
+}
+
 struct BrowserIntegrationTest<'a> {
     seed: u64,
     name: &'a str,
@@ -95,6 +110,8 @@ struct BrowserIntegrationTest<'a> {
     cookies: Vec<BrowserCookie>,
     allow_urls: Option<Vec<bombadil_browser::match_pattern::MatchPattern>>,
     file_origin: bool,
+    blocks_hit_expected: bool,
+    requires_full_browser: bool,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -115,6 +132,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             cookies: vec![],
             allow_urls: None,
             file_origin: false,
+            blocks_hit_expected: false,
+            requires_full_browser: false,
         }
     }
 
@@ -126,6 +145,12 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn expect_error(mut self, substring: &'static str) -> Self {
         self.expect = Expect::Error { substring };
+        self
+    }
+
+    /// Fail unless some state after an action records a block as run.
+    fn expect_blocks_hit(mut self) -> Self {
+        self.blocks_hit_expected = true;
         self
     }
 
@@ -143,6 +168,12 @@ impl<'a> BrowserIntegrationTest<'a> {
 
     fn specification(mut self, specification: &'a str) -> Self {
         self.specification = Some(specification);
+        self
+    }
+
+    /// Run with full Chrome/Chromium rather than chrome-headless-shell.
+    fn requires_full_browser(mut self) -> Self {
+        self.requires_full_browser = true;
         self
     }
 
@@ -202,6 +233,8 @@ impl<'a> BrowserIntegrationTest<'a> {
             cookies,
             allow_urls,
             file_origin,
+            blocks_hit_expected,
+            requires_full_browser,
         } = self;
         setup();
         let _guard = acquire();
@@ -388,7 +421,10 @@ impl<'a> BrowserIntegrationTest<'a> {
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
-                executable: chromium::locate::executable().unwrap(),
+                executable: chromium::locate::executable(chrome_variant(
+                    requires_full_browser,
+                ))
+                .unwrap(),
                 headless: true,
                 no_sandbox: true,
             },
@@ -404,15 +440,22 @@ impl<'a> BrowserIntegrationTest<'a> {
         struct ViolationsCollectingTraceWriter {
             violations: CollectedViolations,
             state_times: Arc<Mutex<Vec<SystemTime>>>,
+            blocks_hit: Arc<Mutex<BTreeSet<u32>>>,
         }
 
         impl TraceWriter<BrowserSession> for ViolationsCollectingTraceWriter {
             fn write(
                 &mut self,
-                _state: &bombadil_browser::browser::state::BrowserState,
-                _last_action: Option<&BrowserAction>,
+                state: &bombadil_browser::browser::state::BrowserState,
                 _snapshots: &[bombadil::specification::domain::Snapshot],
                 violations: &[bombadil::runner::PropertyViolation],
+                _actions_available: &bombadil::tree::Leaves<
+                    '_,
+                    BrowserActionTemplate,
+                >,
+                action_previous: Option<
+                    &bombadil::model::Picked<BrowserAction>,
+                >,
             ) -> anyhow::Result<()> {
                 self.state_times
                     .lock()
@@ -422,6 +465,12 @@ impl<'a> BrowserIntegrationTest<'a> {
                     .lock()
                     .expect("failed to acquire lock for collected violations")
                     .extend_from_slice(violations);
+                if action_previous.is_some() {
+                    self.blocks_hit
+                        .lock()
+                        .expect("failed to acquire lock for blocks hit")
+                        .extend(&state.coverage.branches);
+                }
                 Ok(())
             }
         }
@@ -463,8 +512,10 @@ impl<'a> BrowserIntegrationTest<'a> {
         });
         log::info!("starting runner with infrastructure safety timeout");
         let (result_tx, result_rx) = crossbeam_channel::bounded(1);
+        let blocks = BlockRegistry::default();
         {
             let trace_writer = trace_writer.clone();
+            let blocks = blocks.clone();
             thread::spawn(move || {
                 let run_result = runner::launch(
                     RunId::default(),
@@ -472,6 +523,7 @@ impl<'a> BrowserIntegrationTest<'a> {
                     specification,
                     browser_options,
                     debugger_options,
+                    blocks,
                     trace_writer,
                     Arc::new(AtomicBool::new(false)),
                     &mut strategy,
@@ -541,6 +593,23 @@ impl<'a> BrowserIntegrationTest<'a> {
             }
         };
 
+        {
+            let blocks_hit = trace_writer.blocks_hit.lock().unwrap();
+            let unregistered: Vec<u32> = blocks_hit
+                .iter()
+                .copied()
+                .filter(|id| !blocks.contains(*id))
+                .collect();
+            assert!(
+                unregistered.is_empty(),
+                "blocks hit but not registered: {unregistered:?}"
+            );
+            assert!(
+                !blocks_hit_expected || !blocks_hit.is_empty(),
+                "no block hit after an action"
+            );
+        }
+
         log::info!("checking outcome");
         match (outcome, expect) {
             (Outcome::Error(error), Expect::Error { substring }) => {
@@ -566,6 +635,7 @@ impl<'a> BrowserIntegrationTest<'a> {
 fn test_console_error() {
     BrowserIntegrationTest::new("console-error")
         .expect_error("oh no you pressed too much")
+        .expect_blocks_hit()
         .run();
 }
 
@@ -1098,6 +1168,8 @@ export const geolocationGranted = now(() => {
 });
 "##,
         )
+        // chrome-headless-shell always reports notifications as denied.
+        .requires_full_browser()
         .grant_permissions(vec![
             "notifications".to_string(),
             "geolocation".to_string(),
@@ -1563,6 +1635,30 @@ export const ok = always(() => true);
 }
 
 #[test]
+fn test_opens_tabs() {
+    BrowserIntegrationTest::new("opens-tabs")
+        .state_interval_max(Duration::from_secs(5))
+        .specification(
+            r#"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const count = extract((state) =>
+  parseInt(state.document.querySelector("\#counter").textContent, 10)
+);
+
+// Each click opens a popup or a new tab. The driven page must stay in front.
+export const keepsGoing = eventually(() => count.current >= 10).within(
+  20,
+  "seconds"
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_debugger_in_handler() {
     BrowserIntegrationTest::new("debugger-in-handler")
         .state_interval_max(Duration::from_secs(5))
@@ -1608,6 +1704,36 @@ export const slow = always(() => {
   while (Date.now() - start < 100) {}
   return true;
 });
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_recovers_from_blocked_main_thread() {
+    // The page blocks its main thread for longer than a CDP command's
+    // timeout. The run must keep taking actions once it recovers, which
+    // violates the property.
+    BrowserIntegrationTest::new("blocked-main-thread")
+        .time_limit(Duration::from_secs(30))
+        .expect_error("stillBlocked")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract, getFingerprint } from "@antithesishq/bombadil/browser";
+
+const fingerprint = extract((state) =>
+  getFingerprint(state.document.getElementById("target")),
+);
+const clicks = extract((state) =>
+  Number(state.document.getElementById("clicks")?.textContent ?? "0"),
+);
+
+export const click = actions(() => [
+  { Click: { fingerprint: fingerprint.current, point: { x: 400, y: 300 } } },
+]);
+
+export const stillBlocked = always(() => clicks.current < 3);
 "#,
         )
         .run();

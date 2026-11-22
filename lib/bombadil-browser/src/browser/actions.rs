@@ -1,9 +1,9 @@
 use std::hash::Hash;
 use std::ops::RangeInclusive;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use bombadil::driver::{ActionTemplate, FromGeneratedAction};
 use bombadil::specification::generators::StringGenerator;
 use bombadil_schema::browser::Fingerprint;
@@ -15,13 +15,69 @@ use cdp_protocol::cdp::js_protocol::runtime::{
 use serde::{Deserialize, Serialize};
 use serde_json as json;
 
+use crate::browser::screenshots::FrameControl;
 use crate::geometry::Point;
 use crate::js_action::JsAction;
 use bombadil_browser_keys::{key_name, key_text};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ActionOptions {
     pub device_scale_factor: f64,
+    pub frame_control: Option<FrameControl>,
+}
+
+/// Scroll with a single wheel event.
+fn mouse_wheel(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    origin: Point,
+    delta_y: f64,
+) -> Result<()> {
+    mouse_event(
+        connection,
+        session_id,
+        options,
+        input::DispatchMouseEventParams::builder()
+            .r#type(input::DispatchMouseEventType::MouseWheel)
+            .x(origin.x)
+            .y(origin.y)
+            .delta_x(0.0)
+            .delta_y(delta_y)
+            .build()
+            .map_err(|err| anyhow!(err))?,
+    )
+}
+
+/// Dispatch a mouse event. When we do explicit frame control we request new frames
+/// until the event request is finished, or its deadline passes.
+fn mouse_event(
+    connection: &cdp::Connection,
+    session_id: &SessionId,
+    options: &ActionOptions,
+    params: input::DispatchMouseEventParams,
+) -> Result<()> {
+    match &options.frame_control {
+        Some(frame_control) => {
+            let pending = connection.request(params, Some(session_id))?;
+            while Instant::now() < pending.deadline() {
+                frame_control.frame()?;
+                if pending
+                    .wait_deadline(Instant::now() + Duration::from_millis(1))
+                    .context("mouse event response failed")?
+                    .is_some()
+                {
+                    return Ok(());
+                }
+            }
+            // Reports a timeout, unless the response arrived in time.
+            pending.wait()?;
+        }
+        None => {
+            connection.send(params, Some(session_id))?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -143,27 +199,13 @@ impl BrowserAction {
             }
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(*distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, -distance,
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
-                connection.send(
-                    input::SynthesizeScrollGestureParams::builder()
-                        .x(origin.x)
-                        .y(origin.y)
-                        .y_distance(-distance)
-                        .speed((distance.abs() * 10.0) as i64)
-                        .build()
-                        .map_err(|err| anyhow!(err))?,
-                    Some(session_id),
+                mouse_wheel(
+                    connection, session_id, &options, *origin, *distance,
                 )?;
             }
             BrowserAction::Click { point, .. } => {
@@ -172,13 +214,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(1);
-                connection.send(
+                mouse_event(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -205,13 +249,15 @@ impl BrowserAction {
                     .y(point.y)
                     .button(input::MouseButton::Left)
                     .click_count(2);
-                connection.send(
+                mouse_event(
+                    connection,
+                    session_id,
+                    &options,
                     input::DispatchMouseEventParams::new(
                         input::DispatchMouseEventType::MouseMoved,
                         point.x,
                         point.y,
                     ),
-                    Some(session_id),
                 )?;
                 connection.send(
                     builder
@@ -230,12 +276,10 @@ impl BrowserAction {
                 )?;
             }
             BrowserAction::TypeText { text } => {
-                for char in text.chars() {
-                    connection.post(
-                        input::InsertTextParams::new(char),
-                        Some(session_id),
-                    )?;
-                }
+                connection.send(
+                    input::InsertTextParams::new(text.as_str()),
+                    Some(session_id),
+                )?;
             }
             BrowserAction::PressKey { code } => {
                 let Some(name) = key_name(*code) else {
@@ -335,13 +379,15 @@ impl BrowserAction {
                     if !delay.is_zero() {
                         thread::sleep(delay);
                     }
-                    connection.send(
+                    mouse_event(
+                        connection,
+                        session_id,
+                        &options,
                         dispatch(
                             input::DispatchMouseEventType::MouseMoved,
                             point,
                             1,
                         )?,
-                        Some(session_id),
                     )?;
                 }
                 connection.send(
@@ -631,6 +677,9 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
+    use bombadil::model::{Picked, Recorded, accepting_key, action_key};
+    use bombadil::specification::generators::{CharSetEntry, Regexp};
+    use bombadil::tree::Tree;
     use hegel::{
         Generator, TestCase,
         generators::{integers, text},
@@ -755,5 +804,195 @@ mod tests {
                 "template {template:?} rejected {action:?} with seed {seed}"
             );
         }
+    }
+
+    /// [`action_templates`] plus templates that overlap them, shuffled:
+    /// click twins with a matching fingerprint, wider viewports, and
+    /// text generators that accept each other's output.
+    #[hegel::composite]
+    fn action_templates_with_overlaps(
+        tc: &TestCase,
+    ) -> Vec<BrowserActionTemplate> {
+        use BrowserAction::*;
+
+        let mut templates = tc.draw_silent(action_templates());
+        let twin = |fingerprint: &Fingerprint| Fingerprint {
+            text_content: Some("twin".into()),
+            ..fingerprint.clone()
+        };
+        let widened = |range: &RangeInclusive<u16>| {
+            range.start().saturating_sub(1)..=range.end().saturating_add(1)
+        };
+        let letters =
+            |last: char| CharSetEntry::Range(u32::from('a')..=u32::from(last));
+        let overlapping: Vec<BrowserActionTemplate> = templates
+            .iter()
+            .flat_map(|template| match template {
+                Click { fingerprint, point } => vec![Click {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }],
+                DoubleClick { fingerprint, point } => vec![DoubleClick {
+                    fingerprint: twin(fingerprint),
+                    point: point.clone(),
+                }],
+                TypeText { .. } => [
+                    // Accepts everything the others generate.
+                    StringGenerator::Text { length: 0..=1000 },
+                    StringGenerator::Email,
+                    StringGenerator::Regexp {
+                        regexp: Regexp("[a-c]{1,3}".into()),
+                    },
+                    StringGenerator::CharSet {
+                        entries: vec![letters('c')],
+                    },
+                    StringGenerator::CharSet {
+                        entries: vec![
+                            letters('z'),
+                            CharSetEntry::Literal("ab".into()),
+                        ],
+                    },
+                ]
+                .into_iter()
+                .map(|text| TypeText { text })
+                .collect(),
+                SetViewport { width, height } => vec![SetViewport {
+                    width: widened(width),
+                    height: widened(height),
+                }],
+                _ => vec![],
+            })
+            .collect();
+        templates.extend(overlapping);
+        for last in (1..templates.len()).rev() {
+            let other = tc.draw_silent(integers::<usize>().max_value(last));
+            templates.swap(last, other);
+        }
+        templates
+    }
+
+    #[hegel::test]
+    fn replayed_action_is_credited_to_the_template_that_generated_it(
+        tc: TestCase,
+    ) {
+        let seed = tc.draw(integers());
+        let templates =
+            tc.draw(action_templates_with_overlaps().print_as_debug());
+        let tree = Tree::Branch {
+            branches: templates
+                .iter()
+                .map(|template| {
+                    (
+                        1,
+                        Tree::Leaf {
+                            value: template.clone(),
+                        },
+                    )
+                })
+                .collect(),
+        };
+        let leaves = tree.leaves();
+        for template in &templates {
+            let picked =
+                Picked::generate(template, &mut StdRng::seed_from_u64(seed));
+            // What a trace would hold for this step.
+            let recorded = Recorded {
+                action: picked.action,
+                template: Some(picked.template),
+            };
+            assert_eq!(
+                accepting_key(&leaves, &recorded),
+                Some(action_key(template)),
+                "{recorded:?} generated by {template:?}"
+            );
+        }
+    }
+
+    /// Keys are recorded in traces, so a change here invalidates them.
+    #[test]
+    fn action_keys_are_pinned() {
+        use BrowserAction::*;
+
+        let fingerprint = Fingerprint {
+            id: Some("submit".into()),
+            tag: "button".into(),
+            ..Default::default()
+        };
+        let point = Point {
+            x: 0.0..=10.0,
+            y: 0.0..=10.0,
+        };
+        let templates: Vec<BrowserActionTemplate> = vec![
+            Back,
+            Forward,
+            Click {
+                fingerprint: fingerprint.clone(),
+                point: point.clone(),
+            },
+            DoubleClick {
+                fingerprint,
+                point: point.clone(),
+            },
+            TypeText {
+                text: StringGenerator::Text { length: 1..=8 },
+            },
+            TypeText {
+                text: StringGenerator::Email,
+            },
+            PressKey { code: 13 },
+            ScrollUp {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
+            ScrollDown {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
+            Reload,
+            Wait,
+            SetFileInputFiles {
+                selector: "input#file".into(),
+                files: vec!["/tmp/example.txt".into()],
+            },
+            MouseDrag {
+                from: point.clone(),
+                to: point,
+                steps: 1..=5,
+                delay_millis: 0..=10,
+            },
+            SetViewport {
+                width: 320..=1920,
+                height: 240..=1080,
+            },
+            Custom {
+                name: "login".into(),
+                arguments: vec![],
+            },
+        ];
+        let keys: Vec<String> = templates
+            .iter()
+            .map(|template| {
+                let name = format!("{template:?}");
+                let name = name.split([' ', '{']).next().unwrap_or_default();
+                format!("{name} {}", bombadil::model::action_key(template))
+            })
+            .collect();
+        insta::assert_snapshot!(keys.join("\n"), @"
+        Back 60e839e3a8241847
+        Forward db87399e7f8d9fdf
+        Click 72474e52f53e216f
+        DoubleClick d1d66493adc47ad6
+        TypeText 9432d62189972886
+        TypeText 70ea82526866c7ea
+        PressKey c93bc450d62fd98b
+        ScrollUp 85945a0874e9846a
+        ScrollDown e809786b3eb1b325
+        Reload 5baacf2d68f01b69
+        Wait 7a8f94b3770568cd
+        SetFileInputFiles 13c1eaddc053ff99
+        MouseDrag f2b58b3b656817cb
+        SetViewport f0b94cef879752ec
+        Custom 1a6b8b2d9c57359d
+        ");
     }
 }

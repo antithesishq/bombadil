@@ -9,6 +9,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    zig = {
+      url = "github:mitchellh/zig-overlay/98819174f1bb7c9961c3ebbb00d19fc4e1c1960d";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     hegel = {
       url = "github:hegeldev/hegel-rust?dir=nix&ref=v0.45.2";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -27,6 +31,7 @@
       flake-utils,
       crane,
       rust-overlay,
+      zig,
       hegel,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -70,8 +75,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "a887df42c56f6de86c0fe6da9c4eeca37931e083";
-          sha256 = "sha256-1Zz65SCk3rkJ9+Q0MmyNOTNiDSLBRIHRd3IvFM4iNXw=";
+          rev = "108cacb17ed8990840cd14abfce43d8ed8503ca1";
+          sha256 = "sha256-3XBFm8yq25P9eCdjLWwVwZ0tedWCN39U1FbjYD8C+w4=";
         };
         # Override postInstall to keep the native `libhegel_c.{so,dylib}`
         # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
@@ -88,6 +93,7 @@
         });
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
           inherit craneLib craneLibStatic ghosttySrc libhegelC;
+          zig = zig.packages.${system}."0.17.0";
         };
       in
       {
@@ -122,6 +128,9 @@
 
         checks = {
           inherit (bombadil) clippy fmt npm-package tests-unit tests-browser;
+        }
+        // pkgs.lib.optionalAttrs (bombadil ? tests-browser-headless-shell) {
+          inherit (bombadil) tests-browser-headless-shell;
         };
 
         devShells = {
@@ -148,7 +157,7 @@
                   # Nix
                   nil
 
-                  # For bombadil-terminal. zig_0_15 / pkg-config come in via
+                  # For bombadil-terminal. Zig / pkg-config come in via
                   # `inputsFrom = [ self.packages.${system}.default ]`; adding
                   # them again here re-sources zig's setup-hook and trips its
                   # readonly `zigDefaultCpuFlag` guard.
@@ -175,11 +184,8 @@
                 ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
                   # Runtime
                   pkgs.chromium
+                  (pkgs.callPackage lib/nix/chrome-headless-shell.nix { })
                 ];
-            }
-            // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-              # override how chromiumoxide finds the chromium executable
-              CHROME = pkgs.lib.getExe pkgs.chromium;
             }
           );
 

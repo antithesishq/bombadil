@@ -10,30 +10,27 @@ use std::{
 
 use anyhow::{Result, bail};
 use bombadil::{
-    shrink::{
-        self, ShrinkExitReason, ShrinkResult, ShrinkSettings, TraceActions,
-    },
+    shrink::{ShrinkExitReason, ShrinkResult, ShrinkSettings, TraceActions},
     styled,
 };
-use serde::de::DeserializeOwned;
 
 use crate::{duration, output_path};
 
 /// Options shared by the shrink commands of all drivers.
 #[derive(clap::Args)]
 pub struct ShrinkOptions {
-    /// Trace to shrink (file path or directory containing `trace.jsonl`)
+    /// Trace FILE to shrink (any filename, not a directory)
     #[arg(long = "trace", value_name = "TRACE_PATH")]
     pub trace_path: PathBuf,
     /// Name of the property to shrink for. Required if the trace has
     /// violations of more than one property.
     #[arg(long)]
     pub property: Option<String>,
-    /// Where to store the shrunk trace. Defaults to a fresh temporary
-    /// directory.
+    /// Trace FILE to write. Defaults to a unique file in system temp.
+    /// Parent directories must already exist. Must not alias the input.
     #[arg(long)]
     pub output_path: Option<PathBuf>,
-    /// Overwrite any existing trace at `--output-path`.
+    /// Overwrite any existing file at `--output-path`.
     #[arg(long)]
     pub output_path_overwrite: bool,
     /// Maximum time to shrink for, after which the smallest trace found
@@ -67,17 +64,17 @@ pub struct ResolvedShrinkOptions<A> {
 }
 
 impl ShrinkOptions {
-    pub fn resolve<A: DeserializeOwned>(
+    /// `load_trace` reads the driver's trace from the trace path as
+    /// given: a trace file, never a directory.
+    pub fn resolve<A>(
         self,
+        load_trace: impl FnOnce(&Path) -> Result<TraceActions<A>>,
     ) -> Result<ResolvedShrinkOptions<A>> {
-        let trace_directory =
-            output_path::resolve_trace_directory(&self.trace_path);
-        let trace =
-            shrink::load_trace_actions(&trace_directory.join("trace.jsonl"))?;
+        let trace = load_trace(&self.trace_path)?;
         let output_path = output_path::resolve_output_path(&self.output_path)?;
-        if same_directory(&trace_directory, &output_path) {
+        if stdx::fs::same_file(&self.trace_path, &output_path) {
             bail!(
-                "the output path must differ from the directory of the trace being shrunk"
+                "the output path must differ from the trace file being shrunk"
             );
         }
 
@@ -103,13 +100,6 @@ impl ShrinkOptions {
             },
             interrupted,
         })
-    }
-}
-
-fn same_directory(a: &Path, b: &Path) -> bool {
-    match (a.canonicalize(), b.canonicalize()) {
-        (Ok(a), Ok(b)) => a == b,
-        _ => false,
     }
 }
 

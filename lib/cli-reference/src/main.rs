@@ -27,6 +27,20 @@ fn main() -> Result<()> {
         &[root.get_name(), driver.get_name()],
         driver,
     )?;
+    // Top-level commands without subcommands are shared by all drivers.
+    for command in root.get_subcommands() {
+        if command.has_subcommands()
+            || command.is_hide_set()
+            || command.get_name() == "help"
+        {
+            continue;
+        }
+        render_command(
+            &mut output,
+            &[root.get_name(), command.get_name()],
+            command,
+        )?;
+    }
     print!("{output}");
     Ok(())
 }

@@ -25,22 +25,23 @@
   # the Cargo build script can skip its in-tree `git clone` step (which has
   # no network access in the Nix sandbox).
   ghosttySrc,
-  zig_0_15,
+  zig,
   git,
 }:
 let
   # Pre-fetched Zig package cache for ghostty's build.zig. Passed to zig via
   # `--system` (set up by libghostty-vt-sys's build.rs when
   # `GHOSTTY_ZIG_SYSTEM_DIR` is set), keeping the Zig build hermetic.
-  ghosttyZigDeps = callPackage "${ghosttySrc}/build.zig.zon.nix" {
+  ghosttyZigDeps = callPackage "${ghosttySrc}/deps/packages.nix" {
     name = "bombadil-ghostty-zig-deps";
+    zig_0_17 = zig;
   };
   ghosttyEnv = {
     GHOSTTY_SOURCE_DIR = "${ghosttySrc}";
     GHOSTTY_ZIG_SYSTEM_DIR = "${ghosttyZigDeps}";
   };
   ghosttyNativeBuildInputs = [
-    zig_0_15
+    zig
     pkg-config
     git
   ]
@@ -255,4 +256,28 @@ in
 }
 // lib.optionalAttrs stdenv.isLinux {
   bin-dynamic = buildBinary { linkStatically = false; };
+}
+# chrome-headless-shell.nix only packages the linux64 build.
+// lib.optionalAttrs (stdenv.hostPlatform.system == "x86_64-linux") {
+  # Begin frame control only works in chrome-headless-shell, so its code
+  # paths need their own run of the browser tests.
+  tests-browser-headless-shell = craneLib.cargoTest (
+    commonArgs
+    // {
+      inherit cargoArtifacts;
+      # Tests marked `requires_full_browser` still run with chromium.
+      nativeCheckInputs = [
+        chromium
+        (callPackage ./chrome-headless-shell.nix { })
+      ];
+      # Keep this name short. Chromium puts a Unix socket under the build
+      # directory, which is named after the derivation on CI, and aborts
+      # when its path is longer than 107 bytes.
+      pname = "bombadil-tests-headless";
+      cargoExtraArgs = "-p bombadil-browser-integration-tests";
+      preCheck = testPreCheck + ''
+        export BOMBADIL_TEST_CHROME_VARIANT=headless-shell
+      '';
+    }
+  );
 }

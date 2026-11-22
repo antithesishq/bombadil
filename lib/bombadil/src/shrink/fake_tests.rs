@@ -1,8 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    fs::File,
     hash::{DefaultHasher, Hash, Hasher},
-    io::{BufWriter, Write},
+    io::Write,
     num::NonZeroUsize,
     path::PathBuf,
     sync::{Arc, OnceLock, atomic::AtomicBool},
@@ -29,10 +28,11 @@ use crate::{
         ActionTemplate, DriverEvent, FromGeneratedAction, InterfaceDriver,
         InterfaceSession, RunId, RunState, TraceWriter,
     },
+    model::{Picked, Recorded, action_key},
     render::Format,
     runner::{ControlFlow, PropertiesState, PropertyViolation, RunStrategy},
     specification::{bundler::bundle, domain::Snapshot, verifier::Verifier},
-    tree::Tree,
+    tree::{Leaves, Tree},
 };
 
 const ALPHABET_SIZE: u8 = 8;
@@ -64,24 +64,50 @@ impl Format for FakeAction {
     }
 }
 
-impl ActionTemplate<FakeAction> for FakeAction {
+/// Every action has two templates with different keys. Both accept it, so
+/// only the recorded key tells them apart.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+struct FakeTemplate {
+    action: FakeAction,
+    twin: bool,
+}
+
+impl FakeTemplate {
+    /// The template these tests record for `action`: the first twin for
+    /// the lower half of the alphabet, the second for the rest.
+    fn recorded_for(action: FakeAction) -> Self {
+        FakeTemplate {
+            action,
+            twin: action.0 >= ALPHABET_SIZE / 2,
+        }
+    }
+}
+
+impl Format for FakeTemplate {
+    fn format(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "template of action {}", self.action.0)
+    }
+}
+
+impl ActionTemplate<FakeAction> for FakeTemplate {
     fn generate<Rng: rand::TryRng + rand::RngExt>(
         &self,
         _rng: &mut Rng,
     ) -> FakeAction {
-        *self
+        self.action
     }
 
     fn accepts(&self, original: &FakeAction) -> bool {
-        self == original
+        self.action == *original
     }
 
     fn category_hash<H: Hasher>(&self, hasher: &mut H) {
-        hasher.write_u8(self.0)
+        hasher.write_u8(self.action.0);
+        hasher.write_u8(u8::from(self.twin));
     }
 }
 
-impl FromGeneratedAction for FakeAction {
+impl FromGeneratedAction for FakeTemplate {
     fn from_generated(value: json::Value) -> Result<Self> {
         Ok(json::from_value(value)?)
     }
@@ -166,7 +192,7 @@ struct FakeSession {
 
 impl InterfaceSession for FakeSession {
     type Action = FakeAction;
-    type ActionTemplate = FakeAction;
+    type ActionTemplate = FakeTemplate;
     type State = FakeState;
 
     const STALL_TIMEOUT: Duration = Duration::from_secs(1);
@@ -229,16 +255,18 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn on_new_state(
         &mut self,
         state: &FakeState,
-        tree: Tree<FakeAction>,
+        leaves: &Leaves<'_, FakeTemplate>,
         _last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         _properties: PropertiesState,
-    ) -> Result<ControlFlow<(), FakeAction>> {
+    ) -> Result<ControlFlow<(), Picked<FakeAction>>> {
         if state.step >= self.steps_max {
             return Ok(ControlFlow::Stop(()));
         }
-        match tree.values().first() {
-            Some(&&action) => Ok(ControlFlow::Continue(action)),
+        match leaves.as_slice().first() {
+            Some(&(template, _)) => Ok(ControlFlow::Continue(
+                Picked::generate(template, &mut rand::rng()),
+            )),
             None => Ok(ControlFlow::Stop(())),
         }
     }
@@ -262,24 +290,21 @@ impl RunStrategy<FakeSession> for FakeStrategy {
     fn constrain(
         &self,
         state: &FakeState,
-        tree: Tree<FakeAction>,
-    ) -> Tree<FakeAction> {
-        tree.filter(&|action| state.available(action.0))
+        tree: Tree<FakeTemplate>,
+    ) -> Tree<FakeTemplate> {
+        tree.filter(&|template| state.available(template.action.0))
     }
 }
 
-struct FakeTraceWriter {
-    writer: BufWriter<File>,
-}
+struct FakeTraceWriter(bombadil_trace::TraceFileWriter<json::Value>);
 
 impl FakeTraceWriter {
-    fn new(directory: PathBuf) -> Result<Self> {
-        std::fs::create_dir_all(&directory)?;
-        Ok(FakeTraceWriter {
-            writer: BufWriter::new(File::create(
-                directory.join("trace.jsonl"),
-            )?),
-        })
+    fn file(path: PathBuf) -> Result<Self> {
+        Ok(Self(bombadil_trace::TraceFileWriter::create(
+            &path,
+            bombadil_trace::TraceDriver::Terminal,
+            false,
+        )?))
     }
 }
 
@@ -287,31 +312,53 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
     fn write(
         &mut self,
         _state: &FakeState,
-        last_action: Option<&FakeAction>,
         _snapshots: &[Snapshot],
         violations: &[PropertyViolation],
+        _actions_available: &Leaves<'_, FakeTemplate>,
+        action_previous: Option<&Picked<FakeAction>>,
     ) -> Result<()> {
+        let last_action = action_previous.map(|picked| &picked.action);
         let names: Vec<_> = violations
             .iter()
             .map(|violation| json::json!({ "name": violation.name }))
             .collect();
-        json::to_writer(
-            &mut self.writer,
-            &json::json!({ "action": last_action, "violations": names }),
-        )?;
-        writeln!(self.writer)?;
-        Ok(())
+        let action_taken = action_previous.map(|picked| picked.template);
+        let metadata = json::json!({
+            "action": last_action,
+            "state": { "action_taken": action_taken },
+            "violations": names,
+        });
+        self.0.write_state(metadata, None)
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        self.0.finish()
+    }
+}
+
+/// `action` as loaded from a trace, credited to
+/// [`FakeTemplate::recorded_for`].
+fn recorded(action: FakeAction) -> Recorded<FakeAction> {
+    Recorded {
+        action,
+        template: Some(action_key(&FakeTemplate::recorded_for(action))),
     }
 }
 
 fn bundle_code() -> &'static str {
     static BUNDLE_CODE: OnceLock<String> = OnceLock::new();
     BUNDLE_CODE.get_or_init(|| {
-        let alphabet: Vec<u8> = (0..ALPHABET_SIZE).collect();
+        let templates: Vec<String> = (0..ALPHABET_SIZE)
+            .flat_map(|action| {
+                [false, true]
+                    .map(|twin| format!("{{ action: {action}, twin: {twin} }}"))
+            })
+            .collect();
+        let templates = templates.join(", ");
         let specification = format!(
             r#"
             import {{ actions, always, extract }} from "@antithesishq/bombadil";
-            export const _actions = actions(() => {alphabet:?});
+            export const _actions = actions(() => [{templates}]);
             const bug = extract((state) => state);
             export const {PROPERTY_NAME} = always(() => !bug.current);
             "#
@@ -356,7 +403,7 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
         actions: executed
             .iter()
             .chain(&tail)
-            .map(|&action| FakeAction(action))
+            .map(|&action| recorded(FakeAction(action)))
             .collect(),
         violations_earliest: BTreeMap::from([(
             PROPERTY_NAME.to_string(),
@@ -374,10 +421,10 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             seed,
         }),
         strategy: move || FakeStrategy { steps_max },
-        trace_writer: FakeTraceWriter::new,
+        trace_writer: FakeTraceWriter::file,
         trace,
         property_name: None,
-        output_path: output.path().to_path_buf(),
+        output_path: output.path().join("result.custom"),
         output_path_overwrite: false,
         parallelism: NonZeroUsize::new(parallelism).unwrap(),
         interrupted: Arc::new(AtomicBool::new(false)),
@@ -394,7 +441,7 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             "unexpected error: {error:#}"
         );
         assert!(
-            !output.path().join("trace.jsonl").exists(),
+            !output.path().join("result.custom").exists(),
             "no trace should be written"
         );
         tc.event("calibration did not reproduce");
@@ -429,16 +476,23 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
     assert!(result.trace_length_shrunk <= result.trace_length_truncated);
     assert!(result.confirmation.hit_count >= 1);
     assert!(
-        !output.path().join(super::ATTEMPTS_DIRECTORY_NAME).exists(),
+        !output.path().join(".shrink-attempts").exists(),
         "attempts directory should be removed"
     );
 
     let shrunk =
-        load_trace_actions::<FakeAction>(&output.path().join("trace.jsonl"))
+        load_trace_actions::<FakeAction>(&output.path().join("result.custom"))
             .unwrap();
-    let shrunk_actions: Vec<u8> =
-        shrunk.actions.iter().map(|action| action.0).collect();
+    let shrunk_actions: Vec<u8> = shrunk
+        .actions
+        .iter()
+        .map(|recorded| recorded.action.0)
+        .collect();
     assert_eq!(shrunk_actions.len(), result.trace_length_shrunk);
+    // Same credit as in the original trace, though both twins accept.
+    for replayed in &shrunk.actions {
+        assert_eq!(replayed, &recorded(replayed.action));
+    }
     assert_eq!(
         shrunk.violations_earliest.get(PROPERTY_NAME),
         Some(&shrunk_actions.len()),
@@ -464,4 +518,225 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             );
         }
     }
+}
+
+fn shrink_with_writer(
+    output: &std::path::Path,
+    overwrite: bool,
+    trace_writer: impl Fn(PathBuf) -> Result<FakeTraceWriter>
+    + Send
+    + Sync
+    + 'static,
+) -> Result<super::ShrinkResult> {
+    shrink_actions_with_writer(output, overwrite, trace_writer, &[0, 2, 1])
+}
+
+fn shrink_actions_with_writer(
+    output: &std::path::Path,
+    overwrite: bool,
+    trace_writer: impl Fn(PathBuf) -> Result<FakeTraceWriter>
+    + Send
+    + Sync
+    + 'static,
+    original: &[u8],
+) -> Result<super::ShrinkResult> {
+    let triggers = BTreeSet::from([1]);
+    let executed = replay(original, &triggers).expect("bug is triggered");
+    let trace = TraceActions {
+        actions: executed
+            .iter()
+            .map(|&action| recorded(FakeAction(action)))
+            .collect(),
+        violations_earliest: BTreeMap::from([(
+            PROPERTY_NAME.to_string(),
+            executed.len(),
+        )]),
+    };
+    let steps_max = executed.len() as u64 + 1;
+    shrink(ShrinkOptions {
+        driver: Arc::new(FakeDriver {
+            bundle_code: bundle_code(),
+            triggers,
+            flakiness: Flakiness::Deterministic,
+            seed: 0,
+        }),
+        strategy: move || FakeStrategy { steps_max },
+        trace_writer,
+        trace,
+        property_name: None,
+        output_path: output.to_path_buf(),
+        output_path_overwrite: overwrite,
+        parallelism: NonZeroUsize::new(1).unwrap(),
+        interrupted: Arc::new(AtomicBool::new(false)),
+        time_limit: Some(Duration::from_secs(60)),
+        settings: ShrinkSettings {
+            calibration_runs: NonZeroUsize::new(2).unwrap(),
+            ..ShrinkSettings::default()
+        },
+    })
+}
+
+#[test]
+fn shrinks_to_arbitrary_files_without_touching_siblings() {
+    let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("arbitrary.custom");
+    let sibling = output.path().join("trace.jsonl");
+    std::fs::write(&sibling, b"kept").unwrap();
+    for overwrite in [false, true] {
+        shrink_with_writer(&path, overwrite, FakeTraceWriter::file).unwrap();
+        let mut reader =
+            bombadil_trace::open_trace::<json::Value>(&path).unwrap();
+        assert!(reader.by_ref().count() > 0);
+        assert!(reader.finished());
+        assert_eq!(std::fs::read(&sibling).unwrap(), b"kept");
+    }
+    let before = std::fs::read(&path).unwrap();
+    assert!(shrink_with_writer(&path, false, FakeTraceWriter::file).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 2);
+    let missing = output.path().join("missing");
+    assert!(
+        shrink_with_writer(&missing.join("run"), false, FakeTraceWriter::file)
+            .is_err()
+    );
+    assert!(!missing.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn shrinks_to_name_max_files() {
+    let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("x".repeat(255));
+    for overwrite in [false, true] {
+        shrink_with_writer(&path, overwrite, FakeTraceWriter::file).unwrap();
+        assert!(path.is_file());
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn shrinks_across_filesystems_when_available() {
+    use std::os::unix::fs::MetadataExt;
+    let attempts = tempfile::tempdir().unwrap();
+    let other = match tempfile::TempDir::new_in("/dev/shm") {
+        Ok(other) => other,
+        Err(error) => {
+            eprintln!(
+                "skipping cross-filesystem coverage: /dev/shm is unavailable: {error}"
+            );
+            return;
+        }
+    };
+    if attempts.path().metadata().unwrap().dev()
+        == other.path().metadata().unwrap().dev()
+    {
+        eprintln!(
+            "skipping cross-filesystem coverage: system temp and /dev/shm share a device"
+        );
+        return;
+    }
+    if let Err(error) =
+        std::fs::write(other.path().join("writable-probe"), b"probe")
+    {
+        eprintln!(
+            "skipping cross-filesystem coverage: fixture is not writable: {error}"
+        );
+        return;
+    }
+    let path = other.path().join("cross-filesystem.custom");
+    shrink_with_writer(&path, false, FakeTraceWriter::file).unwrap();
+    assert!(path.is_file());
+}
+
+#[test]
+fn file_publication_does_not_clobber_a_concurrent_creator() {
+    let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("race.custom");
+    let target = path.clone();
+    let error = shrink_with_writer(&path, false, move |attempt| {
+        std::fs::write(&target, b"concurrent creator")?;
+        FakeTraceWriter::file(attempt)
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().unwrap().kind(),
+        std::io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"concurrent creator");
+    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn attempts_are_independent_and_cleaned_after_success_and_failure() {
+    for fail in [false, true] {
+        let output = tempfile::tempdir().unwrap();
+        let path = output.path().join("result");
+        let attempts = Arc::new(std::sync::Mutex::new(BTreeSet::new()));
+        let recorded = attempts.clone();
+        let result = shrink_with_writer(&path, false, move |attempt| {
+            recorded
+                .lock()
+                .unwrap()
+                .insert(attempt.parent().unwrap().to_path_buf());
+            if fail {
+                anyhow::bail!("injected attempt failure");
+            }
+            FakeTraceWriter::file(attempt)
+        });
+        assert_eq!(result.is_err(), fail);
+        let attempts = attempts.lock().unwrap();
+        assert!(!attempts.is_empty());
+        for attempt in attempts.iter() {
+            assert!(!attempt.starts_with(output.path()));
+            assert!(!attempt.exists(), "{} was not cleaned", attempt.display());
+        }
+    }
+}
+
+#[test]
+fn refuses_directory_outputs_without_touching_contents() {
+    let output = tempfile::tempdir().unwrap();
+    let sibling = output.path().join("unrelated");
+    std::fs::write(&sibling, b"kept").unwrap();
+    for overwrite in [false, true] {
+        let error =
+            shrink_with_writer(output.path(), overwrite, FakeTraceWriter::file)
+                .unwrap_err();
+        assert!(error.to_string().contains("not a directory"), "{error:#}");
+        assert_eq!(std::fs::read(&sibling).unwrap(), b"kept");
+        assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_replacement_preserves_the_published_trace() {
+    let output = tempfile::tempdir().unwrap();
+    let path = output.path().join("result.custom");
+    let target = path.clone();
+    let original = Arc::new(std::sync::Mutex::new(None));
+    let captured = original.clone();
+    let error = shrink_with_writer(&path, false, move |attempt| {
+        let writer = FakeTraceWriter::file(attempt.clone())?;
+        if target.is_file() {
+            *captured.lock().unwrap() = Some(std::fs::read(&target)?);
+            // The writer finishes its open file, but promotion cannot open
+            // the vanished attempt. A published result must remain intact.
+            std::fs::remove_file(&attempt)?;
+        }
+        Ok(writer)
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<std::io::Error>().unwrap().kind(),
+        std::io::ErrorKind::NotFound
+    );
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        original.lock().unwrap().as_ref().unwrap().as_slice()
+    );
+    assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
+    let mut reader = bombadil_trace::open_trace::<json::Value>(&path).unwrap();
+    assert!(reader.by_ref().count() > 0);
+    assert!(reader.finished());
 }

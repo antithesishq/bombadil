@@ -14,6 +14,7 @@ base64.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-browser-keys = { path = "../bombadil-browser-keys" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-trace = { path = "../bombadil-trace" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 cdp = { path = "../cdp" }
 cdp_protocol = { path = "../cdp/protocol" }
@@ -30,8 +31,9 @@ rand.workspace = true
 regex-syntax.workspace = true
 reqwest.workspace = true
 scraper.workspace = true
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
+stdx = { path = "../stdx" }
 tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
 

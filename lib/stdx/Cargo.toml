@@ -7,3 +7,4 @@ edition.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
+tempfile.workspace = true

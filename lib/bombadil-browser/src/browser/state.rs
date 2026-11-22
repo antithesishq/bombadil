@@ -1,4 +1,6 @@
-use crate::instrumentation::js::{EDGES_CURRENT, EDGES_PREVIOUS, NAMESPACE};
+use crate::instrumentation::js::{
+    EDGES_CURRENT, EDGES_PREVIOUS, HITS, HITS_CACHE, NAMESPACE,
+};
 use anyhow::{Context, Result};
 use bombadil::driver::RunState;
 use bombadil_schema::Time;
@@ -6,6 +8,7 @@ use cdp_protocol::cdp::browser_protocol::target::SessionId;
 use cdp_protocol::cdp::js_protocol::runtime;
 use cdp_protocol::cdp::{
     browser_protocol::{
+        headless_experimental,
         page::{self, CaptureScreenshotFormat},
         performance,
     },
@@ -51,7 +54,6 @@ pub struct BrowserState {
     pub console_entries: Vec<ConsoleEntry>,
     pub navigation_history: NavigationHistory,
     pub exceptions: Vec<Exception>,
-    pub transition_hash: Option<u64>,
     pub coverage: Coverage,
     pub screenshot: Screenshot,
     pub resources: Resources,
@@ -69,6 +71,8 @@ pub type EdgeBucket = u8;
 #[derive(Clone, Debug)]
 pub struct Coverage {
     pub edges_new: Vec<(EdgeIndex, EdgeBucket)>,
+    /// IDs of the blocks run since the previous capture (sorted).
+    pub branches: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,6 +194,15 @@ impl From<ScreenshotFormat> for CaptureScreenshotFormat {
     }
 }
 
+impl From<ScreenshotFormat> for headless_experimental::ScreenshotParamsFormat {
+    fn from(val: ScreenshotFormat) -> Self {
+        match val {
+            ScreenshotFormat::Jpeg => Self::Jpeg,
+            ScreenshotFormat::Png => Self::Png,
+        }
+    }
+}
+
 impl From<ScreenshotFormat> for page::StartScreencastFormat {
     fn from(val: ScreenshotFormat) -> page::StartScreencastFormat {
         match val {
@@ -202,7 +215,8 @@ impl From<ScreenshotFormat> for page::StartScreencastFormat {
 #[derive(Clone)]
 pub struct Screenshot {
     pub format: ScreenshotFormat,
-    pub data: Vec<u8>,
+    /// Shared rather than copied when handed to the trace writer.
+    pub data: std::sync::Arc<Vec<u8>>,
 }
 
 impl std::fmt::Debug for Screenshot {
@@ -268,7 +282,7 @@ struct RuntimeStateSnapshot {
     title: String,
     content_type: String,
     edges_new: Vec<(EdgeIndex, EdgeBucket)>,
-    transition_hash: Option<String>,
+    branches: Vec<u32>,
 }
 
 impl BrowserState {
@@ -290,17 +304,19 @@ impl BrowserState {
             formatcp!(
                 "
                 (() => {{
-                    const snapshot = (edgesNew, transitionHash) => ({{
+                    const snapshot = (edgesNew, branches) => ({{
                         url: window.location.href,
                         title: document.title,
                         content_type: document.contentType,
                         edges_new: edgesNew,
-                        transition_hash: transitionHash,
+                        branches,
                     }});
                     const coverage = window.{NAMESPACE};
-                    if (!coverage) return snapshot([], null);
+                    if (!coverage) return snapshot([], []);
 
-                    const SIMHASH_BITS = 64;
+                    const branches = Array.from(coverage.{HITS});
+                    coverage.{HITS}.clear();
+                    coverage.{HITS_CACHE}.fill(-1);
 
                     // Bucket current hits into [1,8], similar to AFL.
                     function bucket(hits) {{
@@ -314,17 +330,7 @@ impl BrowserState {
                         return Math.min(msb + 1, 8);
                     }}
 
-                    // Stateless version of Splitmix64.
-                    function hash64(x) {{
-                        const M = 0xffffffffffffffffn;
-                        let h = BigInt(x) + 0x9e3779b97f4a7c15n & M;
-                        h = (h ^ (h >> 30n)) * 0xbf58476d1ce4e5b9n & M;
-                        h = (h ^ (h >> 27n)) * 0x94d049bb133111ebn & M;
-                        return h ^ (h >> 31n);
-                    }}
-
                     const differences = [];
-                    const similarityWeights = new Int32Array(SIMHASH_BITS);
                     for (let edge = 0; edge < coverage.{EDGES_CURRENT}.length; edge++) {{
                         const current = bucket(coverage.{EDGES_CURRENT}[edge]);
                         coverage.{EDGES_CURRENT}[edge] = current;
@@ -332,33 +338,15 @@ impl BrowserState {
                         if (current !== coverage.{EDGES_PREVIOUS}[edge]) {{
                             differences.push([edge, current]);
                         }}
-                        if (current === 0) continue;
-
-                        const weight = Math.max(1, Math.min(3, Math.floor(Math.log2(current))));
-                        const hash = hash64(edge);
-                        for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
-                            const enabled = (hash >> BigInt(bit)) & 1n;
-                            similarityWeights[bit] += enabled === 1n ? weight : -weight;
-                        }}
                     }}
 
-                    // Reuse the previous buffer for the next capture. Clear it
-                    // here even when the transition hash will return null.
+                    // Reuse the previous buffer for the next capture.
                     const reusable = coverage.{EDGES_PREVIOUS};
                     coverage.{EDGES_PREVIOUS} = coverage.{EDGES_CURRENT};
                     reusable.fill(0);
                     coverage.{EDGES_CURRENT} = reusable;
 
-                    if (similarityWeights.every(weight => weight === 0)) {{
-                        return snapshot(differences, null);
-                    }}
-
-                    let transitionHash = 0n;
-                    for (let bit = 0; bit < SIMHASH_BITS; bit++) {{
-                        if (similarityWeights[bit] <= 0) continue;
-                        transitionHash |= 1n << BigInt(bit);
-                    }}
-                    return snapshot(differences, transitionHash.toString());
+                    return snapshot(differences, branches);
                 }})()
                 "
             ),
@@ -411,10 +399,6 @@ impl BrowserState {
             forward,
         };
 
-        let transition_hash = match runtime_state.transition_hash {
-            Some(string) => Some(string.parse::<u64>()?),
-            None => None,
-        };
         let resources =
             Resources::from_metrics(&performance_metrics_result.metrics);
 
@@ -433,8 +417,12 @@ impl BrowserState {
             exceptions,
             coverage: Coverage {
                 edges_new: runtime_state.edges_new,
+                branches: {
+                    let mut branches = runtime_state.branches;
+                    branches.sort_unstable();
+                    branches
+                },
             },
-            transition_hash,
             screenshot,
             resources,
         })

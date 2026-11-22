@@ -9,6 +9,7 @@ anyhow.workspace = true
 boa_engine.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-trace = { path = "../bombadil-trace" }
 bytes.workspace = true
 hotpath.workspace = true
 libghostty-vt.workspace = true
@@ -23,4 +24,5 @@ small-string = { path = "../small-string" }
 [dev-dependencies]
 env_logger.workspace = true
 hegeltest.workspace = true
+stdx-derive = { path = "../stdx-derive" }
 tempfile.workspace = true

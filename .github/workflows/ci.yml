@@ -6,10 +6,10 @@ on:
     branches: [main]
     tags: ["v*"]
 
+# actions: write lets cache-nix-action purge stale caches. Anything more is
+# granted per job.
 permissions:
-  id-token: write
-  contents: write
-  pages: write
+  contents: read
   actions: write
 
 jobs:
@@ -174,6 +174,18 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: nix build -L .#checks.${{ matrix.system }}.tests-browser
 
+  check-tests-browser-headless-shell:
+    name: Check (tests, browser, headless-shell, x86_64-linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nix
+        with:
+          scope: check-tests-browser-headless-shell-x86_64-linux
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: nix build -L .#checks.x86_64-linux.tests-browser-headless-shell
+
   build-npm-package:
     runs-on: ubuntu-latest
     steps:
@@ -229,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1.7.3
         id: setup-chrome
         with:
           chrome-version: stable
@@ -299,6 +311,90 @@ jobs:
           name: inspect-test-output-${{ matrix.mode }}
           path: inspect-test-output/
 
+  fuzz-test:
+    name: Fuzz test (${{ matrix.os }})
+    needs: [build-x86_64-linux, build-aarch64-darwin]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: bombadil-x86_64-linux
+          - os: macos-15
+            artifact: bombadil-aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1.7.3
+        id: setup-chrome
+        if: runner.os == 'Linux'
+        with:
+          chrome-version: stable
+      - if: runner.os == 'Linux'
+        run: echo "CHROME=${{ steps.setup-chrome.outputs.chrome-path }}" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+      - name: Fuzz a page without violations
+        run: |
+          chmod +x bombadil
+          mkdir fuzz-test-output
+          ./bombadil browser fuzz --headless --no-sandbox \
+            --parallelism 2 \
+            --time-limit-fuzz 20s \
+            --time-limit-run 5s \
+            --output-path fuzz-test-output/clean.bin \
+            lib/bombadil-browser-integration-tests/tests/links/a.html
+          test -s fuzz-test-output/clean-0.bin
+      - name: Fuzz a page with a violation
+        run: |
+          code=0
+          ./bombadil browser fuzz --headless --no-sandbox \
+            --parallelism 2 \
+            --exit-on-violation \
+            --time-limit-fuzz 1m \
+            --time-limit-run 10s \
+            --output-path fuzz-test-output/violation.bin \
+            lib/bombadil-browser-integration-tests/tests/console-error/index.html \
+            > fuzz.out || code=$?
+          cat fuzz.out
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit code 2, got $code" >&2
+            exit 1
+          fi
+          trace=$(grep -o 'fuzz-test-output/violation-[0-9]*\.bin' fuzz.out | tail -n 1)
+          ./bombadil trace "$trace" | grep violated
+      - name: Fuzz terminal programs with and without a violation
+        run: |
+          ./bombadil terminal fuzz \
+            --time-limit-fuzz 10s \
+            --time-limit-run 2s \
+            --output-path fuzz-test-output/terminal-clean.bin \
+            -- cat
+          test -s fuzz-test-output/terminal-clean-0.bin
+          code=0
+          ./bombadil terminal fuzz \
+            --exit-on-violation \
+            --time-limit-fuzz 1m \
+            --time-limit-run 2s \
+            --output-path fuzz-test-output/terminal-violation.bin \
+            -- sh -c 'exit 3' \
+            > fuzz.out || code=$?
+          cat fuzz.out
+          if [ "$code" -ne 2 ]; then
+            echo "expected exit code 2, got $code" >&2
+            exit 1
+          fi
+          trace=$(grep -o 'fuzz-test-output/terminal-violation-[0-9]*\.bin' fuzz.out | tail -n 1)
+          ./bombadil trace "$trace" | grep violated
+      - name: Upload fuzz test output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-test-output-${{ matrix.os }}
+          path: fuzz-test-output/
+
   smoke-test:
     name: Smoke test (${{ matrix.os }})
     needs: [build-x86_64-linux, build-aarch64-darwin]
@@ -326,12 +422,27 @@ jobs:
             --specification examples/cat.ts \
             --output-path terminal-test-output \
             head -n 100
+          test -s terminal-test-output
+          # Read the whole trace, which warns if it wasn't finished. (A
+          # negated command doesn't fail the step under `bash -e`.)
+          ./bombadil trace terminal-test-output \
+            > trace-check.out 2> trace-check.err \
+            || { cat trace-check.err; exit 1; }
+          cat trace-check.err
+          if grep -q 'not finished' trace-check.err; then exit 1; fi
+          # The screen of the last state, one line per state starting `#`.
+          states=$(grep -c '^#' trace-check.out || true)
+          if [ "$states" -eq 0 ]; then
+            echo "the trace holds no states" >&2
+            exit 1
+          fi
+          ./bombadil trace terminal-test-output --state "$((states - 1))" --screen
       - name: Upload terminal test output
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: terminal-test-output-${{ matrix.os }}
-          path: terminal-test-output/
+          path: terminal-test-output
 
   smoke-test-docker:
     name: Smoke test (docker)
@@ -359,7 +470,7 @@ jobs:
             "$IMAGE_TAG" \
             browser test /test/index.html \
               --headless --no-sandbox \
-              --output-path /output \
+              --output-path /output/trace.bin \
               --time-limit 10s
           exit_code=$?
           set -e
@@ -367,7 +478,13 @@ jobs:
             echo "::error::bombadil exited with unexpected code $exit_code (expected 0 or 2)"
             exit "$exit_code"
           fi
-          test -s docker-smoke-output/trace.jsonl
+          test -s docker-smoke-output/trace.bin
+      - name: Read browser trace
+        run: |
+          docker run --rm \
+            -v "$PWD/docker-smoke-output:/output:ro" \
+            "$IMAGE_TAG" \
+            trace /output/trace.bin
       - name: Upload docker smoke test output
         if: failure()
         uses: actions/upload-artifact@v4
@@ -430,6 +547,8 @@ jobs:
         test-npm-package,
       ]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -441,7 +560,7 @@ jobs:
             mv artifacts/bombadil-$target/bombadil artifacts/bombadil-$target/bombadil-$target
           done
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           draft: true
           body: ${{ needs.check-version.outputs.changelog }}
@@ -466,6 +585,8 @@ jobs:
         release,
       ]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -493,14 +614,16 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-docker, smoke-test-docker]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - name: OIDC token
         id: docker_oidc
-        uses: docker/oidc-action@v1
+        uses: docker/oidc-action@96ba694c64860c7209bcd1ede7d698c71564ef78 # v1.2.0
         with:
           connection-id: "149b2b02-59d1-42e7-98f3-2cc6961226bb"
       - name: Docker login
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           username: antithesishq
           password: ${{ steps.docker_oidc.outputs.token }}
@@ -521,6 +644,9 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-manual, release]
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -562,6 +688,7 @@ jobs:
       - build-npm-package
       - build-manual
       - inspect-test
+      - fuzz-test
       - smoke-test
       - smoke-test-docker
       - test-npm-package

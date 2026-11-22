@@ -2,11 +2,10 @@
 //! Needs a single property to target. It uses a calibration pass of the original
 //! trace to estimate reproducibility/flakiness, then uses that metric when verifying
 //! generated candidates. Writes the currently known smallest trace to the output
-//! direction as it searches.
+//! file as it searches.
 
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    ffi::OsString,
     hash::{DefaultHasher, Hash, Hasher},
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -23,12 +22,11 @@ use bombadil_schema::Time;
 use crossbeam_channel as mpmc;
 
 use crate::{
-    driver::{
-        ActionTemplate, InterfaceDriver, InterfaceSession, RunId, TraceWriter,
-    },
+    driver::{InterfaceDriver, InterfaceSession, RunId, TraceWriter},
+    model::{Picked, Recorded, accepting_key},
     runner::{self, ControlFlow, PropertiesState, RunStrategy},
     specification::domain::Snapshot,
-    tree::Tree,
+    tree::{Leaves, Tree},
 };
 
 mod trace_actions;
@@ -101,8 +99,6 @@ pub struct ShrinkResult {
     pub elapsed: Duration,
 }
 
-const ATTEMPTS_DIRECTORY_NAME: &str = ".shrink-attempts";
-
 /// Acceptable risk of discarding a failing candidate that happened not to
 /// reproduce in any of its tries.
 const CANDIDATE_MISS_PROBABILITY_MAX: f64 = 0.1;
@@ -144,18 +140,21 @@ where
         actions.into()
     };
 
-    if output_path.join("trace.jsonl").try_exists()? && !output_path_overwrite {
+    if output_path.is_file() && !output_path_overwrite {
         bail!(
-            "trace.jsonl already exists at {}. \
+            "trace already exists at {}. \
              Use --output-path-overwrite to overwrite, or choose a different --output-path.",
             output_path.display(),
         );
     }
-    let attempts_path = output_path.join(ATTEMPTS_DIRECTORY_NAME);
-    if attempts_path.try_exists()? {
-        std::fs::remove_dir_all(&attempts_path)?;
+    if output_path.is_dir() {
+        bail!(
+            "output path must name a trace file, not a directory: {}",
+            output_path.display()
+        );
     }
-    std::fs::create_dir_all(&attempts_path)?;
+    let attempts = tempfile::TempDir::with_prefix("bombadil-shrink-")?;
+    let attempts_path = attempts.path().to_path_buf();
 
     let bound = Arc::new(AtomicUsize::new(trace_length_truncated + 1));
     let worker_shared = Arc::new(WorkerShared {
@@ -211,7 +210,7 @@ where
         candidate_tries_max: 1,
         confirmation_hit_count_min: 1,
         pool: Vec::new(),
-        files_best: Vec::new(),
+        overwrite: output_path_overwrite,
         pending: BTreeMap::new(),
         retries: VecDeque::new(),
         tried: HashMap::new(),
@@ -270,9 +269,8 @@ where
             log::error!("shrink worker panicked");
         }
     }
-    let attempts_removed = std::fs::remove_dir_all(&attempts_path);
     let exit_reason = loop_result?;
-    attempts_removed?;
+    attempts.close()?;
 
     let Some(best) = coordinator.pool.first() else {
         bail!("shrinking stopped before calibration finished");
@@ -345,7 +343,7 @@ struct WorkerShared<Driver: InterfaceDriver, MakeStrategy, MakeWriter> {
     driver: Arc<Driver>,
     strategy: MakeStrategy,
     trace_writer: MakeWriter,
-    actions: Arc<[<Driver::Session as InterfaceSession>::Action]>,
+    actions: Arc<[Recorded<<Driver::Session as InterfaceSession>::Action>]>,
     property_name: String,
     bound: Arc<AtomicUsize>,
     interrupted: Arc<AtomicBool>,
@@ -372,8 +370,8 @@ where
             bound: &self.bound,
         };
         let outcome = (|| {
-            let directory = self.attempts_path.join(job.run_id.to_string());
-            let mut writer = (self.trace_writer)(directory)?;
+            let path = self.attempts_path.join(job.run_id.to_string());
+            let mut writer = (self.trace_writer)(path)?;
             let (mut session, verifier) =
                 self.driver.new_session(job.run_id)?;
             runner::run(
@@ -383,8 +381,8 @@ where
                 &mut writer,
                 self.interrupted.clone(),
             )
-            // Drops (and flushes) the writer before the coordinator moves
-            // the run directory.
+            // The runner finishes the writer, so the trace is complete
+            // before the coordinator publishes the file.
         })();
         if let Err(error) = &outcome {
             log::warn!("shrink run {} failed: {:#}", job.run_id, error);
@@ -396,7 +394,7 @@ where
 struct ShrinkStrategy<'a, Session: InterfaceSession, Inner> {
     inner: Inner,
     property_name: &'a str,
-    actions: &'a [Session::Action],
+    actions: &'a [Recorded<Session::Action>],
     candidate: &'a [u32],
     position: usize,
     executed: Vec<u32>,
@@ -411,11 +409,11 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
     fn on_new_state(
         &mut self,
         state: &Session::State,
-        tree: Tree<Session::ActionTemplate>,
+        leaves: &Leaves<'_, Session::ActionTemplate>,
         last_action: Option<&Session::Action>,
         snapshots: &[Snapshot],
         properties: PropertiesState,
-    ) -> Result<ControlFlow<RunOutcome, Session::Action>> {
+    ) -> Result<ControlFlow<RunOutcome, Picked<Session::Action>>> {
         if properties
             .violations
             .iter()
@@ -424,10 +422,9 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
             return Ok(ControlFlow::Stop(RunOutcome::Reproduced));
         }
 
-        let available = tree.clone();
         if let ControlFlow::Stop(_) = self.inner.on_new_state(
             state,
-            tree,
+            leaves,
             last_action,
             snapshots,
             properties,
@@ -435,19 +432,21 @@ impl<Session: InterfaceSession, Inner: RunStrategy<Session>>
             return Ok(ControlFlow::Stop(RunOutcome::NotReproduced));
         }
 
-        let available = available.values();
         while let Some(&index) = self.candidate.get(self.position) {
             self.position += 1;
-            let action = &self.actions[index as usize];
-            if available.iter().any(|template| template.accepts(action)) {
+            let recorded = &self.actions[index as usize];
+            if let Some(template) = accepting_key(leaves, recorded) {
                 if self.executed.len() + 1 >= self.bound.load(Ordering::SeqCst)
                 {
                     return Ok(ControlFlow::Stop(RunOutcome::Pruned));
                 }
                 self.executed.push(index);
-                return Ok(ControlFlow::Continue(action.clone()));
+                return Ok(ControlFlow::Continue(Picked {
+                    action: recorded.action.clone(),
+                    template,
+                }));
             }
-            log::debug!("skipping unavailable action: {:?}", action);
+            log::debug!("skipping unavailable action: {:?}", recorded.action);
         }
         Ok(ControlFlow::Stop(RunOutcome::NotReproduced))
     }
@@ -501,7 +500,7 @@ struct PoolEntry {
 
 struct Pending {
     sequence: Sequence,
-    directory: PathBuf,
+    path: PathBuf,
     hit_count: usize,
     run_count: usize,
     in_flight: usize,
@@ -520,10 +519,10 @@ struct Coordinator {
     calibration: Calibration,
     candidate_tries_max: usize,
     confirmation_hit_count_min: usize,
-    /// Smallest first. The first is the result in the output directory.
+    /// Smallest first. The first is the result in the output file.
     pool: Vec<PoolEntry>,
-    /// Files in the output directory that belong to the result.
-    files_best: Vec<OsString>,
+    /// File results replace earlier improvements after first publication.
+    overwrite: bool,
     pending: BTreeMap<RunId, Pending>,
     retries: VecDeque<Sequence>,
     /// Dispatch counts by sequence hash.
@@ -542,16 +541,16 @@ impl Coordinator {
         run_id
     }
 
-    fn run_directory(&self, run_id: RunId) -> PathBuf {
+    fn run_path(&self, run_id: RunId) -> PathBuf {
         self.attempts_path.join(run_id.to_string())
     }
 
-    fn remove_run_directory(&self, run_id: RunId) {
-        let directory = self.run_directory(run_id);
-        if let Err(error) = std::fs::remove_dir_all(&directory)
+    fn remove_run(&self, run_id: RunId) {
+        let path = self.run_path(run_id);
+        if let Err(error) = std::fs::remove_file(&path)
             && error.kind() != std::io::ErrorKind::NotFound
         {
-            log::warn!("failed to remove {}: {}", directory.display(), error);
+            log::warn!("failed to remove {}: {}", path.display(), error);
         }
     }
 
@@ -650,9 +649,9 @@ impl Coordinator {
         let reproduced = matches!(outcome, Ok(RunOutcome::Reproduced));
         match job.kind {
             JobKind::Calibration => {
-                let directory = self.run_directory(job.run_id);
+                let path = self.run_path(job.run_id);
                 if !reproduced {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                 }
                 let Calibration::Pending {
                     run_count,
@@ -666,7 +665,7 @@ impl Coordinator {
                 *run_count += 1;
                 match outcome {
                     Ok(RunOutcome::Reproduced) => {
-                        successes.push((executed, directory))
+                        successes.push((executed, path))
                     }
                     Ok(_) => {}
                     Err(error) => errors.push(format!("{error:#}")),
@@ -679,7 +678,7 @@ impl Coordinator {
                 if reproduced {
                     self.on_success(job.run_id, executed);
                 } else {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                     let tries = self
                         .tried
                         .get(&sequence_hash(&job.sequence))
@@ -705,7 +704,7 @@ impl Coordinator {
                     // Failed earlier this time, a new candidate.
                     self.on_success(job.run_id, executed);
                 } else {
-                    self.remove_run_directory(job.run_id);
+                    self.remove_run(job.run_id);
                 }
                 let confirmation_runs_max =
                     self.settings.confirmation_runs_max.get();
@@ -731,7 +730,7 @@ impl Coordinator {
                         pending.hit_count,
                         pending.run_count
                     );
-                    self.remove_run_directory(entry);
+                    self.remove_run(entry);
                 }
             }
         }
@@ -790,15 +789,15 @@ impl Coordinator {
         let mut successes = successes;
         successes.sort_by_key(|(executed, _)| executed.len());
         let mut successes = successes.into_iter();
-        let (executed, directory) = successes.next().expect("hit_count > 0");
-        for (_, directory) in successes {
-            let _ = std::fs::remove_dir_all(directory);
+        let (executed, path) = successes.next().expect("hit_count > 0");
+        for (_, path) in successes {
+            let _ = std::fs::remove_file(&path);
         }
         println!(
             "Reproduced in {hit_count}/{run_count} calibration run(s), retrying candidates up to {} time(s)",
             self.candidate_tries_max
         );
-        self.promote(&directory)?;
+        self.promote(&path)?;
         self.bound.store(executed.len(), Ordering::SeqCst);
         println!("  {} actions", executed.len());
         self.pool.push(PoolEntry {
@@ -819,7 +818,7 @@ impl Coordinator {
                 .values()
                 .any(|pending| known(&pending.sequence))
         {
-            self.remove_run_directory(run_id);
+            self.remove_run(run_id);
             return;
         }
         log::info!("{} actions reproduced, confirming", executed.len());
@@ -827,7 +826,7 @@ impl Coordinator {
             run_id,
             Pending {
                 sequence: executed.into(),
-                directory: self.run_directory(run_id),
+                path: self.run_path(run_id),
                 hit_count: 0,
                 run_count: 0,
                 in_flight: 0,
@@ -849,7 +848,7 @@ impl Coordinator {
                 "  {length} actions (reproduced {}/{})",
                 entry.hit_count, entry.run_count
             );
-            self.promote(&pending.directory)?;
+            self.promote(&pending.path)?;
             self.bound.store(length, Ordering::SeqCst);
             self.pool.insert(0, entry);
             // Continue at the granularity reached.
@@ -869,11 +868,11 @@ impl Coordinator {
                 .collect();
             for run_id in obsolete {
                 self.pending.remove(&run_id);
-                self.remove_run_directory(run_id);
+                self.remove_run(run_id);
             }
             self.retries.retain(|sequence| sequence.len() < length);
         } else {
-            let _ = std::fs::remove_dir_all(&pending.directory);
+            let _ = std::fs::remove_file(&pending.path);
             let position = self
                 .pool
                 .iter()
@@ -885,30 +884,30 @@ impl Coordinator {
         Ok(())
     }
 
-    /// Replace the result in the output directory with a run's trace.
-    fn promote(&mut self, directory: &Path) -> Result<()> {
-        let previous = self.attempts_path.join("previous");
-        std::fs::create_dir_all(&previous)?;
-        for name in self.files_best.drain(..) {
-            std::fs::rename(
-                self.output_path.join(&name),
-                previous.join(&name),
-            )?;
+    /// Publish a complete trace through a sibling file on the output filesystem.
+    fn promote(&mut self, path: &Path) -> Result<()> {
+        let parent = self
+            .output_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut staged = tempfile::Builder::new()
+            .prefix(".bombadil-shrink-")
+            .suffix(".tmp")
+            .tempfile_in(parent)?;
+        std::io::copy(&mut std::fs::File::open(path)?, &mut staged)?;
+        staged.as_file().sync_all()?;
+        if self.overwrite {
+            staged
+                .persist(&self.output_path)
+                .map_err(|error| error.error)?;
+        } else {
+            staged
+                .persist_noclobber(&self.output_path)
+                .map_err(|error| error.error)?;
         }
-        for entry in std::fs::read_dir(directory)? {
-            let name = entry?.file_name();
-            let target = self.output_path.join(&name);
-            // Left over from an earlier shrink, when overwriting.
-            if target.is_dir() {
-                std::fs::remove_dir_all(&target)?;
-            } else if target.try_exists()? {
-                std::fs::remove_file(&target)?;
-            }
-            std::fs::rename(directory.join(&name), &target)?;
-            self.files_best.push(name);
-        }
-        std::fs::remove_dir(directory)?;
-        std::fs::remove_dir_all(&previous)?;
+        self.overwrite = true;
+        std::fs::remove_file(path)?;
         Ok(())
     }
 }

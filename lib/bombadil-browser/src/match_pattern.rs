@@ -330,7 +330,8 @@ mod tests {
     use hegel::{
         Generator, TestCase,
         generators::{
-            booleans, integers, one_of, optional, sampled_from, text, vecs,
+            booleans, integers, just, one_of, optional, sampled_from, text,
+            vecs,
         },
     };
 
@@ -505,27 +506,49 @@ mod tests {
         assert!(!pattern.matches(&url("file:///app/other.html")));
     }
 
+    /// Every character a generated path or query segment may hold.
+    const SEGMENT_ALPHABET: &str = "abc[]*";
+    /// The same without `*`, for tests that write the segments into a pattern
+    /// by hand, where a `*` would read as a wildcard.
+    const LITERAL_SEGMENT_ALPHABET: &str = "abc[]";
+
+    /// A hostname label: hyphens only on the inside, and starting with one
+    /// of `first`.
+    #[hegel::composite]
+    fn labels(tc: &TestCase, first: &'static str) -> String {
+        let edge = "ab12點看";
+        let mut label =
+            tc.draw_silent(text().alphabet(first).min_size(1).max_size(1));
+        if tc.draw_silent(booleans()) {
+            label.push_str(
+                &tc.draw_silent(text().alphabet("ab12-點看").max_size(2)),
+            );
+            label.push_str(
+                &tc.draw_silent(text().alphabet(edge).min_size(1).max_size(1)),
+            );
+        }
+        label
+    }
+
     #[hegel::composite]
     fn hostnames(tc: &TestCase) -> String {
-        let label = text().alphabet("ab12-點看").min_size(1).max_size(4);
-        tc.draw_silent(vecs(label).min_size(2).max_size(3).filter(|labels| {
-            let edges_are_alphanumeric = |label: &String| {
-                !label.starts_with('-') && !label.ends_with('-')
-            };
-            // A trailing all-numeric label makes the url crate read the host
-            // as a malformed IPv4 address.
-            labels.iter().all(edges_are_alphanumeric)
-                && labels.last().is_some_and(|last| {
-                    last.starts_with(|first: char| first.is_ascii_alphabetic())
-                })
-        }))
-        .join(".")
+        let mut host =
+            tc.draw_silent(vecs(labels("ab12點看")).min_size(1).max_size(2));
+        // A trailing all-numeric label makes the url crate read the host
+        // as a malformed IPv4 address, so the last one starts with a letter.
+        host.push(tc.draw_silent(labels("ab")));
+        host.join(".")
+    }
+
+    #[hegel::composite]
+    fn segments(tc: &TestCase, alphabet: &'static str) -> Vec<String> {
+        let segment = text().alphabet(alphabet).min_size(1).max_size(3);
+        tc.draw_silent(vecs(segment).max_size(3))
     }
 
     #[hegel::composite]
     fn path_segments(tc: &TestCase) -> Vec<String> {
-        let segment = text().alphabet("abc[]*").min_size(1).max_size(3);
-        tc.draw_silent(vecs(segment).max_size(3))
+        tc.draw_silent(segments(SEGMENT_ALPHABET))
     }
 
     #[hegel::composite]
@@ -533,14 +556,16 @@ mod tests {
         tc.draw_silent(integers::<u16>().min_value(1024).max_value(65535))
     }
 
+    /// An http(s) URL whose path, query and fragment segments are drawn from
+    /// `alphabet`.
     #[hegel::composite]
-    fn http_urls(tc: &TestCase) -> Url {
+    fn http_urls_of(tc: &TestCase, alphabet: &'static str) -> Url {
         let scheme = tc.draw_silent(sampled_from(["http", "https"].as_slice()));
         let host = tc.draw(hostnames());
         let port = tc.draw(optional(ports()));
-        let path = tc.draw(path_segments()).join("/");
-        let query = tc.draw(optional(path_segments()));
-        let fragment = tc.draw(optional(path_segments()));
+        let path = tc.draw(segments(alphabet)).join("/");
+        let query = tc.draw(optional(segments(alphabet)));
+        let fragment = tc.draw(optional(segments(alphabet)));
         let authority = match port {
             Some(port) => format!("{host}:{port}"),
             None => host,
@@ -552,15 +577,26 @@ mod tests {
         if let Some(fragment) = fragment {
             raw.push_str(&format!("#{}", fragment.join("-")));
         }
-        Url::parse(&raw).unwrap_or_else(|_| tc.reject())
+        url(&raw)
     }
 
     #[hegel::composite]
-    fn file_urls(tc: &TestCase) -> Url {
-        let mut segments = tc.draw_silent(path_segments());
-        if segments.is_empty() {
-            segments.push("index.html".to_string());
-        }
+    fn http_urls(tc: &TestCase) -> Url {
+        tc.draw_silent(http_urls_of(SEGMENT_ALPHABET))
+    }
+
+    /// A file URL whose directory segments are drawn from
+    /// `directory_alphabet`; the file name may hold any segment character.
+    #[hegel::composite]
+    fn file_urls_in(tc: &TestCase, directory_alphabet: &'static str) -> Url {
+        let directory = text().alphabet(directory_alphabet).min_size(1);
+        let mut segments =
+            tc.draw_silent(vecs(directory.max_size(3)).max_size(2));
+        let name = text().alphabet(SEGMENT_ALPHABET).min_size(1).max_size(3);
+        segments.push(tc.draw_silent(one_of([
+            name.boxed(),
+            just("index.html".to_string()).boxed(),
+        ])));
         let mut url = url(&format!("file:///{}", segments.join("/")));
 
         let query = tc.draw(optional(path_segments()));
@@ -568,6 +604,11 @@ mod tests {
             url.set_query(Some(&format!("q={}", query.join("+"))))
         }
         url
+    }
+
+    #[hegel::composite]
+    fn file_urls(tc: &TestCase) -> Url {
+        tc.draw_silent(file_urls_in(SEGMENT_ALPHABET))
     }
 
     #[hegel::composite]
@@ -710,7 +751,10 @@ mod tests {
 
     #[hegel::test]
     fn test_file_patterns_match_paths(tc: TestCase) {
-        let file_url = tc.draw(file_urls().print_as_debug());
+        // The directory is written into a pattern by hand, and the syntax
+        // has no escape for a literal `*`.
+        let file_url =
+            tc.draw(file_urls_in(LITERAL_SEGMENT_ALPHABET).print_as_debug());
         let suffix = tc.draw(text().alphabet("abc").min_size(1).max_size(3));
         let only_this_file = MatchPattern::from_origin(&file_url).unwrap();
         tc.note(&format!("pattern: {only_this_file}"));
@@ -721,10 +765,6 @@ mod tests {
 
         let directory =
             &file_url.path()[..=file_url.path().rfind('/').unwrap()];
-        // Written by hand, and the syntax has no escape for a literal `*`.
-        if directory.contains('*') {
-            tc.reject();
-        }
         let whole_directory = pattern(&format!("file://{directory}*"));
         assert!(whole_directory.matches(&file_url));
         assert!(whole_directory.matches(&url(&format!("{file_url}{suffix}"))));
@@ -746,16 +786,14 @@ mod tests {
 
     #[hegel::test]
     fn test_path_globs_match_suffixes(tc: TestCase) {
-        let http_url = tc.draw(http_urls().print_as_debug());
+        // The target is written into the patterns by hand, so a `*` in it
+        // would read as a wildcard.
+        let http_url =
+            tc.draw(http_urls_of(LITERAL_SEGMENT_ALPHABET).print_as_debug());
         let suffix =
             tc.draw(text().alphabet("abc[]*?/").min_size(1).max_size(3));
         let host = http_url.host_str().unwrap();
         let target = path_and_query(&http_url);
-        // Written by hand around `target`, so a `*` in it would read as a
-        // wildcard.
-        if target.contains('*') {
-            tc.reject();
-        }
 
         let prefixed = pattern(&format!("*://{host}{target}*"));
         let longer =

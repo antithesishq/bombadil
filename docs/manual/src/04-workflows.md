@@ -10,7 +10,7 @@ If Bombadil finds a bug in a project you're working on, you might want to
 reproduce that test case when working on a bug fix. That is, have Bombadil
 perform the same sequence of actions to reach the same state.
 
-Use the `--reproduce` option and point it to the output directory of the
+Use the `--reproduce` option and point it to the trace file of the
 original test run:
 
 ::: browser
@@ -60,9 +60,18 @@ It's important that the shrink invocation uses the same options as the original
 Shrinking begins with a calibration phase that tries to assess the flakiness of
 reproducing the violation. Calibration can be controlled with
 `--calibration-runs` and `--confirmation-runs-max` if needed. At the end of
-shrinking, you get a new trace in the output directory, configured with
+shrinking, you get a new trace file, configured with
 `--output-path` and `--output-path-overwrite`, that can be
-[[reproduced][Reproducing violations] or [inspected][Inspecting test results]]{.browser}[[reproduced][Reproducing violations]]{.terminal}.
+[reproduced][Reproducing violations] or [inspected][Inspecting test results].
+
+Trace inputs are always files, never directories. For a single test or shrink,
+`--output-path` names the actual trace file and accepts any filename; its parent
+directory must already exist. Without it, Bombadil chooses a unique file in
+system temp. For fuzz, the option is a file base: `run.bin` writes sibling files
+`run-0.bin`, `run-1.bin`, and so on, without per-run directories. Browser downloads
+use a separate temporary directory logged before the run and removed afterwards.
+Shrinking permits a sibling output but rejects an input alias, including symbolic
+links and hard links. Use `--output-path-overwrite` to replace an existing file.
 
 ## Inspecting test results
 
@@ -82,13 +91,69 @@ the transition caused by the selected action. A transition shows state before
 and state after. Along with screenshots, you see violations and all captured
 snapshot values per state.
 
+To look at a trace in the terminal instead, [bombadil trace] lists its states
+with their actions, URLs and violations. With `--screenshots`, it also writes
+each state's screenshot to a directory, named by the state's index:
+
+```bash
+bombadil trace my-test --screenshots my-test-screenshots
+```
+
+Pick states with `--state` (`--state 40..50` shows states 40 to 49), or print
+one JSON object per state with `--json` to process the trace with tools like
+`jq`. Running `--screenshots` again leaves the screenshots already written as
+they are.
+
 :::
 
 ::: terminal
 
-::: {.callout .callout-note}
-There's not yet an equivalent to `bombadil browser inspect` for terminal tests,
-so results can't easily be inspected at this point.
+When you've run a test and found one or more violations, you likely want to
+understand what happened. The [bombadil trace] command shows a trace in the
+terminal, one state at a time:
+
+```bash
+bombadil trace my-test --screen
+```
+
+Each state lists the action that led to it, the time since the first state,
+and the properties it violated. With `--screen`, you also see the terminal
+screen as the properties saw it. Pick states with `--state` (`--state 40..50`
+shows states 40 to 49), keep the screen's colors with `--color`, or print one
+JSON object per state with `--json` (with `--screen`, including the screen) to
+process the trace with tools like `jq`.
+
 :::
+
+::: browser
+
+## Running with chrome-headless-shell
+
+::: {.callout .callout-warning}
+This is experimental.
+:::
+
+By default, Bombadil runs a regular Chrome or Chromium. For higher throughput
+(up to 4x), consider using
+[chrome-headless-shell](https://developer.chrome.com/docs/automation-and-testing/headless-chrome-shell)
+instead:
+
+```bash
+bombadil browser test --chrome-variant headless-shell https://example.com
+```
+
+Bombadil does not download chrome-headless-shell for you. Put the
+`chrome-headless-shell` executable on your `PATH`, or point the `CHROME`
+environment variable at it.
+
+You can get an executable using the following command:
+
+```bash
+npx @puppeteer/browsers install chrome-headless-shell@stable
+```
+
+As with other options, use the same `--chrome-variant` and executable when
+[reproducing][Reproducing violations] or [shrinking][Shrinking violations] a
+violation.
 
 :::

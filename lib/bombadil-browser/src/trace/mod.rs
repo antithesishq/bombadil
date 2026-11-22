@@ -1,6 +1,6 @@
-use std::{borrow::Cow, path::Path, time::SystemTime};
+use std::{borrow::Cow, time::SystemTime};
 
-use bombadil_schema::Time;
+use bombadil_schema::{ActionKey, Time};
 use serde::Serialize;
 use url::Url;
 
@@ -18,13 +18,16 @@ pub mod writer;
 pub struct TraceEntry<'a> {
     pub timestamp: SystemTime,
     pub url: Cow<'a, Url>,
-    pub hash_previous: Option<u64>,
-    pub hash_current: Option<u64>,
     pub action: Option<Cow<'a, BrowserAction>>,
-    pub screenshot: Cow<'a, Path>,
+    /// The screenshot's format (file extension); the image is the
+    /// state's payload in the trace.
+    pub screenshot: &'a str,
     pub snapshots: Cow<'a, [Snapshot]>,
     pub violations: Cow<'a, [PropertyViolation]>,
     pub resources: Cow<'a, Resources>,
+    pub actions_available: Cow<'a, [(ActionKey, f64)]>,
+    pub action_taken: Option<ActionKey>,
+    pub branches: Cow<'a, [u32]>,
 }
 
 impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
@@ -36,10 +39,11 @@ impl<'a> ToSchema<bombadil_schema::browser::BrowserTraceEntry>
             action: self.action.as_ref().map(|a| a.to_schema()),
             state: bombadil_schema::browser::BrowserStateSummary {
                 url: self.url.to_string(),
-                hash_previous: self.hash_previous,
-                hash_current: self.hash_current,
-                screenshot: self.screenshot.to_string_lossy().to_string(),
+                screenshot: self.screenshot.to_string(),
                 resources: self.resources.to_schema(),
+                actions_available: Some(self.actions_available.to_vec()),
+                action_taken: self.action_taken,
+                branches: Some(self.branches.to_vec()),
             },
             snapshots: self.snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: self.violations.iter().map(|v| v.to_schema()).collect(),
