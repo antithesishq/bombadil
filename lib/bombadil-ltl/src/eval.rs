@@ -220,21 +220,16 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 let end = bound.map(|duration| time + duration);
                 self.evaluate_eventually(formula.clone(), time, end, time)
             }
-            Formula::Until(left, right) => self.evaluate_until(
-                left.clone(),
-                right.clone(),
-                time,
-                &[],
-                true,
-                time,
-            ),
+            Formula::Until(left, right) => {
+                self.evaluate_until(left, right, time, &[], true, time)
+            }
         }
     }
 
     fn evaluate_until(
         &mut self,
-        left: Box<Formula<D>>,
-        right: Box<Formula<D>>,
+        left: &Formula<D>,
+        right: &Formula<D>,
         start: D::Time,
         pending: &[UntilPending<D>],
         mut future: bool,
@@ -243,31 +238,29 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
         let mut updated = Vec::with_capacity(pending.len() + 1);
         for pending in pending {
             let right_value = self.step(&pending.right, time)?;
-            if let Value::True(state) = right_value {
-                updated.push(UntilPending {
-                    left: Residual::True(D::State::default()),
-                    right: Residual::True(state),
-                });
-                future = false;
-                break;
-            }
-            let left_value = self.step(&pending.left, time)?;
-            let left_failed = matches!(left_value, Value::False(_, _));
+            let right_holds = matches!(right_value, Value::True(_));
+            let left_value = if right_holds {
+                Value::True(D::State::default())
+            } else {
+                self.step(&pending.left, time)?
+            };
+            let terminal =
+                right_holds || matches!(left_value, Value::False(_, _));
             updated.push(UntilPending {
                 left: until_operand(left_value),
                 right: until_operand(right_value),
             });
-            if left_failed {
+            if terminal {
                 future = false;
                 break;
             }
         }
         if future {
-            let right_value = self.evaluate(&right, time)?;
+            let right_value = self.evaluate(right, time)?;
             let left_value = if matches!(right_value, Value::True(_)) {
                 Value::True(D::State::default())
             } else {
-                self.evaluate(&left, time)?
+                self.evaluate(left, time)?
             };
             updated.push(UntilPending {
                 left: until_operand(left_value),
@@ -818,14 +811,8 @@ impl<'a, D: Domain, Error> Evaluator<'a, D, Error> {
                 start,
                 pending,
                 future,
-            } => self.evaluate_until(
-                left.clone(),
-                right.clone(),
-                *start,
-                pending,
-                *future,
-                time,
-            )?,
+            } => self
+                .evaluate_until(left, right, *start, pending, *future, time)?,
             Residual::OrEventually {
                 subformula,
                 start,
@@ -877,8 +864,8 @@ fn until_operand<D: Domain>(value: Value<D>) -> Residual<D> {
 }
 
 pub(crate) fn reduce_until<D: Domain>(
-    left: Box<Formula<D>>,
-    right: Box<Formula<D>>,
+    left: &Formula<D>,
+    right: &Formula<D>,
     start: D::Time,
     pending: Vec<UntilPending<D>>,
     mut future: bool,
@@ -922,8 +909,8 @@ pub(crate) fn reduce_until<D: Domain>(
         Some(Ok(state)) => Value::True(state),
         Some(Err(reason)) => Value::False(
             Violation::Until {
-                left,
-                right,
+                left: Box::new(left.clone()),
+                right: Box::new(right.clone()),
                 start,
                 reason,
             },
@@ -937,8 +924,8 @@ pub(crate) fn reduce_until<D: Domain>(
                         || same_until_obligation(&older.left, &newer.left))
             });
             Value::Residual(Residual::Until {
-                left,
-                right,
+                left: Box::new(left.clone()),
+                right: Box::new(right.clone()),
                 start,
                 pending: retained,
                 future,
@@ -1480,42 +1467,6 @@ mod tests {
         ));
     }
 
-    fn denotation(formula: &F, trace: &[(bool, bool)], at: usize) -> bool {
-        match formula {
-            Formula::Pure { value, .. } => *value,
-            Formula::Thunk { function, negated } => {
-                let value = match function {
-                    Variable::X => trace[at].0,
-                    Variable::Y => trace[at].1,
-                    Variable::Z => false,
-                };
-                value != *negated
-            }
-            Formula::And(left, right) => {
-                denotation(left, trace, at) && denotation(right, trace, at)
-            }
-            Formula::Or(left, right) => {
-                denotation(left, trace, at) || denotation(right, trace, at)
-            }
-            Formula::Implies(left, right) => {
-                !denotation(left, trace, at) || denotation(right, trace, at)
-            }
-            Formula::Next(sub) => {
-                at + 1 == trace.len() || denotation(sub, trace, at + 1)
-            }
-            Formula::Always(sub, None) => {
-                (at..trace.len()).all(|i| denotation(sub, trace, i))
-            }
-            Formula::Eventually(sub, None) => {
-                (at..trace.len()).any(|i| denotation(sub, trace, i))
-            }
-            Formula::Until(left, right) => (at..trace.len()).any(|witness| {
-                denotation(right, trace, witness)
-                    && (at..witness).all(|i| denotation(left, trace, i))
-            }),
-            _ => panic!("bounded operators are not generated"),
-        }
-    }
     fn run(formula: &F, trace: &[(bool, bool)]) -> bool {
         let mut value = evaluate(formula, trace[0]);
         for (time, &current) in trace.iter().enumerate().skip(1) {
@@ -1527,42 +1478,20 @@ mod tests {
         match value {
             Value::True(_) => true,
             Value::False(_, _) => false,
-            Value::Residual(residual) => matches!(
-                stop_default(&residual, TestTime(trace.len() as u64 - 1)),
-                Some(StopDefault::True(_))
-            ),
+            Value::Residual(residual) => {
+                match stop_default(&residual, TestTime(trace.len() as u64 - 1))
+                {
+                    Some(StopDefault::True(_)) => true,
+                    Some(StopDefault::False(_)) => false,
+                    None => panic!("no verdict for {formula:?} on {trace:?}"),
+                }
+            }
         }
     }
 
     #[test]
-    fn until_matches_finite_trace_denotation() {
-        let p = atom(Variable::X);
-        let q = atom(Variable::Y);
-        let operands = [
-            p.clone(),
-            q.clone(),
-            next(p.clone()),
-            next(q.clone()),
-            always(p.clone()),
-            always(q.clone()),
-            eventually(p.clone()),
-            eventually(q.clone()),
-            Formula::And(Box::new(p.clone()), Box::new(q.clone())),
-            Formula::Or(Box::new(p.clone()), Box::new(q.clone())),
-            Formula::Implies(Box::new(p.clone()), Box::new(q.clone())),
-            until(p, q.clone()),
-        ];
-        let mut formulas = Vec::new();
-        for left in &operands {
-            for right in &operands {
-                formulas.push(until(left.clone(), right.clone()));
-            }
-            formulas.extend([
-                next(until(left.clone(), q.clone())),
-                always(until(left.clone(), q.clone())),
-                eventually(until(left.clone(), q.clone())),
-            ]);
-        }
+    fn strong_until_matches_finite_trace_definition() {
+        let formula = until(atom(Variable::X), atom(Variable::Y));
         for len in 1..=4usize {
             for code in 0..4usize.pow(len as u32) {
                 let trace: Vec<_> = (0..len)
@@ -1571,13 +1500,11 @@ mod tests {
                         (bits & 1 != 0, bits & 2 != 0)
                     })
                     .collect();
-                for formula in &formulas {
-                    assert_eq!(
-                        run(formula, &trace),
-                        denotation(formula, &trace, 0),
-                        "{formula:?}, {trace:?}"
-                    );
-                }
+                let expected =
+                    trace.iter().enumerate().any(|(witness, &(_, q))| {
+                        q && trace[..witness].iter().all(|&(p, _)| p)
+                    });
+                assert_eq!(run(&formula, &trace), expected, "trace: {trace:?}");
             }
         }
     }

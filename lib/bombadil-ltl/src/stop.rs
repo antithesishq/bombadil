@@ -77,13 +77,7 @@ pub fn stop_default<D: Domain>(
                     right: operand(&pending.right),
                 })
                 .collect();
-            match reduce_until(
-                left.clone(),
-                right.clone(),
-                *start,
-                pending,
-                false,
-            ) {
+            match reduce_until(left, right, *start, pending, false) {
                 Value::True(state) => Some(StopDefault::True(state)),
                 Value::False(violation, _) => {
                     Some(StopDefault::False(violation))
