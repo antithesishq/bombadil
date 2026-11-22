@@ -1,13 +1,22 @@
 use std::rc::Rc;
 
-use bombadil_schema::Time;
 use bombadil_schema::browser;
+use bombadil_schema::{PropertyViolation, Snapshot, Time};
+use gloo_timers::callback::Timeout;
+use serde::Serialize;
 use serde_json as json;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 use yew::component;
 use yew::prelude::*;
 
 use crate::container_size::use_container_size;
 use crate::render::{markup_to_html, render_violation};
+
+#[derive(Serialize)]
+struct CopiedStateDetails<'a> {
+    violations: &'a [PropertyViolation],
+    snapshots: &'a [Snapshot],
+}
 
 #[derive(PartialEq, Properties)]
 pub struct StateDetailsProps {
@@ -18,6 +27,34 @@ pub struct StateDetailsProps {
 #[component]
 pub fn StateDetails(props: &StateDetailsProps) -> Html {
     let (container_ref, container_size) = use_container_size();
+    let copy_status = use_state(|| None::<bool>);
+    let copy_text = json::to_string_pretty(&CopiedStateDetails {
+        violations: &props.entry.violations,
+        snapshots: &props.entry.snapshots,
+    })
+    .expect("violations and snapshots should serialize");
+    let copy_details = {
+        let copy_status = copy_status.clone();
+        Callback::from(move |_: MouseEvent| {
+            let copy_status = copy_status.clone();
+            let promise = web_sys::window()
+                .expect("window should exist")
+                .navigator()
+                .clipboard()
+                .write_text(&copy_text);
+            spawn_local(async move {
+                copy_status.set(Some(JsFuture::from(promise).await.is_ok()));
+                let copy_status = copy_status.clone();
+                Timeout::new(2_000, move || copy_status.set(None)).forget();
+            });
+        })
+    };
+    let copy_label = match *copy_status {
+        None => "Copy violations and snapshots",
+        Some(true) => "Copied violations and snapshots",
+        Some(false) => "Failed to copy violations and snapshots",
+    };
+
     html!(
         <>
             <details open={true} ref={container_ref} class={if props.entry.violations.is_empty() {""} else {"has-violations"}}>
@@ -35,6 +72,29 @@ pub fn StateDetails(props: &StateDetailsProps) -> Html {
                 <summary>
                 {format!("Violations ({})", props.entry.violations.len())}
                 </summary>
+                {if props.entry.violations.is_empty() {
+                    html!()
+                } else {
+                    html!(<button
+                        type="button"
+                        class="copy-details"
+                        onclick={copy_details}
+                        aria-label={copy_label}
+                        aria-live="polite"
+                        title={copy_label}
+                    >
+                        {if *copy_status == Some(true) {
+                            html!(<svg viewBox="0 0 16 16" aria-hidden="true">
+                                <path d="m3 8.5 3 3 7-7" />
+                            </svg>)
+                        } else {
+                            html!(<svg viewBox="0 0 16 16" aria-hidden="true">
+                                <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
+                                <path d="M10.5 5.5V3.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+                            </svg>)
+                        }}
+                    </button>)
+                }}
                 <ol>
                 {
                     props
