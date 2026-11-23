@@ -500,6 +500,39 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
         .expect("synchronized redraw test failed or stalled");
 }
 
+/// The state in which the program has exited includes all its output, also
+/// output not yet read when the exit is seen (#474). Here the program
+/// draws a frame, shows the cursor and exits during the session's startup
+/// delay. Collecting the first state stops at the completed frame, so the
+/// exit is seen with the cursor still unread.
+#[test]
+fn test_exit_state_includes_final_output() {
+    TerminalIntegrationTest::new(
+        "sh",
+        &[
+            "-c",
+            "printf '\\033[?25l\\033[?2026hFRAME\\033[?2026l'; sleep 0.2; \
+             printf '\\033[?25h'",
+        ],
+    )
+    .specification(
+        r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/terminal";
+
+const exited = extract((state) => state.exitStatus != null);
+const cursorVisible = extract((state) => state.cursor.visible);
+
+export const cursorVisibleAfterExit = always(
+    () => !exited.current || cursorVisible.current,
+);
+
+export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]);
+"#,
+    )
+    .run();
+}
+
 struct IntegrationTestStrategy {
     rng: ThreadRng,
     violations_count: u64,

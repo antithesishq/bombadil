@@ -403,6 +403,30 @@ fn collect_output(
     received_any
 }
 
+/// Collect the rest of the output of a program that has exited, until EOF
+/// or the collection deadline, and return whether EOF came. EOF comes after
+/// the last byte written to the terminal, even if the exit was observed
+/// before those bytes were readable. The deadline bounds the wait when a
+/// process the program left running keeps the terminal open.
+fn collect_remaining_output(
+    terminal: &mut Terminal<'_, '_>,
+    mut read: impl FnMut(Duration) -> ReadResult,
+    now: impl Fn() -> Instant,
+) -> bool {
+    let deadline = now() + DRAIN_DURATION_MAX;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        if remaining.is_zero() {
+            return false;
+        }
+        match read(remaining) {
+            ReadResult::Chunk(data) => terminal.vt_write(&data),
+            ReadResult::Empty => {}
+            ReadResult::Ended => return true,
+        }
+    }
+}
+
 pub struct TerminalSession {
     extractor: Extractors,
     terminal: Terminal<'static, 'static>,
@@ -439,7 +463,26 @@ impl TerminalSession {
     }
 
     #[hotpath::measure]
-    fn extract_state(&mut self) -> Result<TerminalState> {
+    fn drain_remaining_output(&mut self) {
+        let ended = collect_remaining_output(
+            &mut self.terminal,
+            |timeout| self.output.read_until(timeout),
+            Instant::now,
+        );
+        if !ended {
+            log::warn!(
+                "the program exited but its terminal was still open after \
+                 {DRAIN_DURATION_MAX:?}, so the final state may lack output \
+                 from processes it left running"
+            );
+        }
+    }
+
+    #[hotpath::measure]
+    fn extract_state(
+        &mut self,
+        exit_status: Option<ProcessExitStatus>,
+    ) -> Result<TerminalState> {
         // Encoded before the render snapshot below borrows the terminal.
         let terminal_snapshot = self.encode_terminal_snapshot();
         let snapshot = self.render_state.update(&self.terminal)?;
@@ -466,12 +509,7 @@ impl TerminalSession {
             }),
             scroll_offset,
             cursor,
-            exit_status: self.process.borrow_mut().exit_status()?.map(
-                |status| ProcessExitStatus {
-                    signal: status.signal().map(ToString::to_string),
-                    code: status.exit_code(),
-                },
-            ),
+            exit_status,
             last_action: self.last_action.clone(),
             terminal_snapshot,
         })
@@ -527,6 +565,20 @@ impl InterfaceSession for TerminalSession {
         _timeout: Duration,
     ) -> Option<DriverEvent<TerminalState>> {
         let received = self.drain_output(self.quiescence_timeout);
+        // Checked once, after the drain above: the program may have
+        // written and exited since its quiet gap. If it has exited, the
+        // state includes all it wrote, so read the rest of its output
+        // before building the state with this same status.
+        let exit_status = match self.process.borrow_mut().exit_status() {
+            Ok(status) => status.map(|status| ProcessExitStatus {
+                signal: status.signal().map(ToString::to_string),
+                code: status.exit_code(),
+            }),
+            Err(error) => return Some(DriverEvent::Error(Arc::new(error))),
+        };
+        if exit_status.is_some() {
+            self.drain_remaining_output();
+        }
         if received {
             self.last_output_at = Instant::now();
         }
@@ -546,7 +598,7 @@ impl InterfaceSession for TerminalSession {
                 ))));
             }
         }
-        match self.extract_state() {
+        match self.extract_state(exit_status) {
             Ok(state) => Some(DriverEvent::StateChanged(Arc::new(state))),
             Err(error) => Some(DriverEvent::Error(Arc::new(error))),
         }
@@ -773,7 +825,8 @@ mod tests {
     use bombadil::tree::Tree;
     use bytes::Bytes;
     use hegel::TestCase;
-    use hegel::generators::integers;
+    use hegel::generators::{integers, optional, vecs};
+    use hegel::tuples;
     use rand::{SeedableRng, rngs::StdRng};
 
     const VARIANT_COUNT: usize = TerminalActionTemplate::VARIANT_COUNT;
@@ -1060,6 +1113,85 @@ mod tests {
             assert_eq!(screen(&terminal), expected);
             assert_eq!(now.get() - start, Duration::from_millis(elapsed));
         }
+    }
+
+    /// After exit, all output up to EOF is read, whatever the gaps between
+    /// chunks, unless EOF comes after the deadline: then exactly the
+    /// output up to the deadline is read.
+    #[hegel::test]
+    fn remaining_output_is_read_to_eof_or_deadline(tc: TestCase) {
+        let deadline = DRAIN_DURATION_MAX.as_millis() as u64;
+        let chunks: Vec<(u64, Vec<u8>)> = tc.draw(vecs(tuples!(
+            integers::<u64>().max_value(400),
+            vecs(integers::<u8>()).min_size(1).max_size(16),
+        )));
+        let end_gap = tc.draw(optional(integers::<u64>().max_value(400)));
+
+        // Chunks arrive at the cumulative sums of their gaps, then EOF.
+        let start = Instant::now();
+        let mut at = 0;
+        let mut schedule = VecDeque::new();
+        for (gap, bytes) in &chunks {
+            at += gap;
+            schedule.push_back((
+                start + Duration::from_millis(at),
+                ReadResult::Chunk(Bytes::from(bytes.clone())),
+            ));
+        }
+        let end = end_gap.map(|gap| at + gap);
+        if let Some(end) = end {
+            schedule.push_back((
+                start + Duration::from_millis(end),
+                ReadResult::Ended,
+            ));
+        }
+        let mut output = TimedOutput {
+            now: Rc::new(Cell::new(start)),
+            chunks: schedule,
+        };
+        let now = output.now.clone();
+
+        let mut terminal = Terminal::new(10, 2).unwrap();
+        let ended = collect_remaining_output(
+            &mut terminal,
+            |timeout| output.read(timeout),
+            || now.get(),
+        );
+
+        let ended_in_time = end.is_some_and(|end| end <= deadline);
+        assert_eq!(ended, ended_in_time);
+        let stop = if ended_in_time {
+            end.unwrap()
+        } else {
+            deadline
+        };
+        assert_eq!(now.get() - start, Duration::from_millis(stop));
+
+        // The chunks that came in time, written straight to a terminal.
+        let mut expected = Terminal::new(10, 2).unwrap();
+        let mut at = 0;
+        for (gap, bytes) in &chunks {
+            at += gap;
+            if at <= stop {
+                expected.vt_write(bytes);
+            }
+        }
+        assert_eq!(full_screen(&terminal), full_screen(&expected));
+    }
+
+    fn full_screen(terminal: &Terminal<'_, '_>) -> TerminalGrid {
+        let mut render = RenderState::new().unwrap();
+        let snapshot = render.update(terminal).unwrap();
+        viewport_grid(
+            &snapshot,
+            &mut RowIterator::new().unwrap(),
+            &mut CellIterator::new().unwrap(),
+            TerminalSize {
+                columns: 10,
+                rows: 2,
+            },
+        )
+        .unwrap()
     }
 
     #[test]
