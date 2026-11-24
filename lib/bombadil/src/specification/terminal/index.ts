@@ -106,6 +106,9 @@ export interface Style {
 
 export interface State {
   grid: Grid;
+  // Lines scrolled off the top of the screen, oldest first: at most
+  // `--scrollback-lines-max`, often fewer as old lines are dropped in blocks.
+  // Empty on the alternate screen.
   scrollback: Grid;
   scrollOffset: number;
   cursor: Cursor;

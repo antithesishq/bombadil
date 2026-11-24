@@ -70,7 +70,9 @@ pub struct ProgramArgs {
     /// Terminal rows at startup
     #[arg(long, default_value_t = defaults::ROWS)]
     rows: u16,
-    /// Maximum line count to keep in scrollback buffer
+    /// Maximum line count to keep in scrollback buffer (may keep fewer).
+    ///
+    /// Every state copies the scrollback, so large values slow each step.
     #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
     scrollback_lines_max: u16,
     /// How long to wait (in milliseconds) for the program to stop emitting
@@ -108,7 +110,9 @@ pub enum Command {
         /// Terminal rows at startup
         #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
-        /// Maximum line count to keep in scrollback buffer
+        /// Maximum line count to keep in scrollback buffer (may keep fewer).
+        ///
+        /// Every state copies the scrollback, so large values slow each step.
         #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
         scrollback_lines_max: u16,
         /// How long to wait (in milliseconds) for the program to stop emitting
@@ -179,7 +183,9 @@ pub enum Command {
         /// Terminal rows at startup
         #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
-        /// Maximum line count to keep in scrollback buffer
+        /// Maximum line count to keep in scrollback buffer (may keep fewer).
+        ///
+        /// Every state copies the scrollback, so large values slow each step.
         #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
         scrollback_lines_max: u16,
         /// How long to wait (in milliseconds) for the program to stop emitting
@@ -246,7 +252,7 @@ pub fn run(command: Command) {
 
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
-                    scrollback_lines_max: scrollback_lines_max as usize,
+                    scrollback_lines_max,
                     quiescence_timeout: Duration::from_millis(
                         quiescence_timeout_ms,
                     ),
@@ -396,7 +402,7 @@ pub fn run(command: Command) {
 
                 let program_options = TerminalProgramOptions {
                     size: TerminalSize { columns, rows },
-                    scrollback_lines_max: scrollback_lines_max as usize,
+                    scrollback_lines_max,
                     quiescence_timeout: Duration::from_millis(
                         quiescence_timeout_ms,
                     ),
@@ -496,7 +502,7 @@ fn terminal_shrink(
         load_specification(specification_file),
         TerminalProgramOptions {
             size: TerminalSize { columns, rows },
-            scrollback_lines_max: scrollback_lines_max as usize,
+            scrollback_lines_max,
             quiescence_timeout: Duration::from_millis(quiescence_timeout_ms),
             program,
             arguments,
