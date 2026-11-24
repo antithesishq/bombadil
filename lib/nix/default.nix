@@ -192,8 +192,22 @@ let
     ));
 in
 
-{
+let
   bin = buildBinary { linkStatically = stdenv.isLinux; };
+in
+{
+  inherit bin;
+
+  tests-exit-codes =
+    runCommand "bombadil-tests-exit-codes"
+      {
+        nativeBuildInputs = [ (if stdenv.isDarwin then google-chrome else chromium) ];
+      }
+      ''
+        ${testPreCheck}
+        bash ${./tests-exit-codes.sh} ${bin}/bin/bombadil
+        touch $out
+      '';
 
   npm-package = callPackage ./npm-package.nix { inherit src; };
 

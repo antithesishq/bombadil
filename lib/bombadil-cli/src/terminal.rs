@@ -227,7 +227,7 @@ pub fn run(command: Command) {
             reproduce,
             command,
         } => {
-            let run_test = || -> Result<()> {
+            let run_test = || -> Result<u64> {
                 let (program, arguments) = match &command[..] {
                     [program, args @ ..] => (program.as_str(), args),
                     _ => bail!("expected `<program> [args...]` after `--`"),
@@ -336,27 +336,26 @@ pub fn run(command: Command) {
                 );
                 println!("Output written to: {}", output_path.display());
 
-                if strategy.violations_count > 0 {
-                    bail!(
-                        "{} violation(s) reported",
-                        strategy.violations_count
-                    );
-                }
-                Ok(())
+                Ok(strategy.violations_count)
             };
 
-            if let Err(error) = run_test() {
-                eprintln!("\n\nterminal test failed: {error}");
+            // Exit out here, after the trace writer is dropped.
+            match run_test() {
+                Ok(0) => {}
+                Ok(_) => exit(2),
+                Err(error) => {
+                    eprintln!("\n\nterminal test failed: {error}");
 
-                if let Some(source) = error.source() {
-                    eprintln!("\nCauses:");
+                    if let Some(source) = error.source() {
+                        eprintln!("\nCauses:");
 
-                    for cause in anyhow::Chain::new(source) {
-                        eprintln!("  - {cause}");
+                        for cause in anyhow::Chain::new(source) {
+                            eprintln!("  - {cause}");
+                        }
                     }
-                }
 
-                exit(1);
+                    exit(1);
+                }
             }
         }
         Command::Fuzz {
