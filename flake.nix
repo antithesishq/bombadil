@@ -9,9 +9,10 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    zig = {
-      url = "github:mitchellh/zig-overlay/98819174f1bb7c9961c3ebbb00d19fc4e1c1960d";
-      inputs.nixpkgs.follows = "nixpkgs";
+    ghostty = {
+      # Match GHOSTTY_COMMIT in the pinned libghostty-vt-sys build.rs.
+      # Keep upstream's inputs intact so its binary cache can be used.
+      url = "github:ghostty-org/ghostty/108cacb17ed8990840cd14abfce43d8ed8503ca1";
     };
     hegel = {
       url = "github:hegeldev/hegel-rust?dir=nix&ref=v0.45.2";
@@ -20,8 +21,8 @@
   };
 
   nixConfig = {
-    extra-substituters = "https://bombadil.cachix.org";
-    extra-trusted-public-keys = "bombadil.cachix.org-1:6L4epM9zwhEcAwouNgBa8ENtsgLNfedtQgqtdnQhZiM=";
+    extra-substituters = "https://bombadil.cachix.org https://ghostty.cachix.org";
+    extra-trusted-public-keys = "bombadil.cachix.org-1:6L4epM9zwhEcAwouNgBa8ENtsgLNfedtQgqtdnQhZiM= ghostty.cachix.org-1:QB389yTa6gTyneehvqG58y0WnHjQOqgnA+wBnpWWxns=";
   };
 
   outputs =
@@ -31,7 +32,7 @@
       flake-utils,
       crane,
       rust-overlay,
-      zig,
+      ghostty,
       hegel,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -69,15 +70,17 @@
             ];
           }
         );
-        # Pinned to match `GHOSTTY_COMMIT` in libghostty-vt-sys's build.rs at
-        # the `libghostty-vt` rev used by `lib/bombadil-terminal/Cargo.toml`.
-        # Bump these together when updating libghostty-vt.
-        ghosttySrc = pkgs.fetchFromGitHub {
-          owner = "ghostty-org";
-          repo = "ghostty";
-          rev = "108cacb17ed8990840cd14abfce43d8ed8503ca1";
-          sha256 = "sha256-3XBFm8yq25P9eCdjLWwVwZ0tedWCN39U1FbjYD8C+w4=";
-        };
+        ghosttyLib = ghostty.packages.${system}.libghostty-vt;
+        # Upstream exposes native packages only; Linux releases need musl.
+        ghosttyLibStatic =
+          if pkgs.stdenv.hostPlatform.isLinux then
+            ghosttyLib.overrideAttrs (old: {
+              zigBuildFlags = old.zigBuildFlags ++ [
+                "-Dtarget=${pkgs.stdenv.hostPlatform.parsed.cpu.name}-linux-musl"
+              ];
+            })
+          else
+            ghosttyLib;
         # Override postInstall to keep the native `libhegel_c.{so,dylib}`
         # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
         libhegelC = (hegel.lib.mkLibhegel { inherit pkgs; }).overrideAttrs (_: {
@@ -92,13 +95,19 @@
             '';
         });
         bombadil = pkgs.callPackage ./lib/nix/default.nix {
-          inherit craneLib craneLibStatic ghosttySrc libhegelC;
-          zig = zig.packages.${system}."0.17.0";
+          inherit
+            craneLib
+            craneLibStatic
+            ghosttyLib
+            ghosttyLibStatic
+            libhegelC
+            ;
         };
       in
       {
         packages = {
           default = bombadil.bin;
+          libghostty-vt = ghosttyLib;
           npm-package = bombadil.npm-package;
           manual = pkgs.callPackage ./docs/manual/default.nix {
             inherit (bombadil) npm-package typescript-reference cli-reference;
@@ -107,6 +116,7 @@
           nix-build-push = pkgs.callPackage ./lib/nix/cachix-push.nix { };
         }
         // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          libghostty-vt-musl = ghosttyLibStatic;
           docker = pkgs.callPackage ./lib/nix/docker.nix { bombadil = bombadil.bin-dynamic; };
         };
 
@@ -148,6 +158,8 @@
                 export CXX=${pkgs.clang}/bin/clang++
               '';
               CARGO_INSTALL_ROOT = "${toString ./.}/.cargo";
+              # Cargo defaults to the native target, not the musl release target.
+              PKG_CONFIG_PATH = "${ghosttyLib.dev}/lib/pkgconfig";
               inputsFrom = [ self.packages.${system}.default ];
               # nativeBuildInputs takes priority over inputsFrom in
               # PATH, so rustToolchainWasm shadows crane's toolchain.
@@ -164,10 +176,7 @@
                   # Nix
                   nil
 
-                  # For bombadil-terminal. Zig / pkg-config come in via
-                  # `inputsFrom = [ self.packages.${system}.default ]`; adding
-                  # them again here re-sources zig's setup-hook and trips its
-                  # readonly `zigDefaultCpuFlag` guard.
+                  # Ghostty is supplied prebuilt through pkg-config.
                   cmake
                   clang
 
