@@ -74,6 +74,10 @@ terminal() {
   expect 1 terminal-test-error \
     terminal test --specification missing.ts \
     --time-limit 3s --output-path terminal-test-error -- cat
+  expect 1 terminal-test-usage-error \
+    terminal test --specification terminal-violation.ts --no-such-flag \
+    --time-limit 3s --output-path terminal-test-usage-error -- cat
+  expect 0 help --help
 
   expect 2 terminal-fuzz-violation \
     terminal fuzz --specification terminal-violation.ts \
