@@ -174,6 +174,26 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: nix build -L .#checks.${{ matrix.system }}.tests-browser
 
+  check-tests-exit-codes:
+    name: Check (tests, exit codes, ${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+          - os: macos-15-xlarge
+            system: aarch64-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-nix
+        with:
+          scope: check-tests-exit-codes-${{ matrix.system }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: nix build -L .#checks.${{ matrix.system }}.tests-exit-codes
+
   check-tests-browser-headless-shell:
     name: Check (tests, browser, headless-shell, x86_64-linux)
     runs-on: ubuntu-latest
@@ -536,6 +556,7 @@ jobs:
         check-clippy,
         check-tests-unit,
         check-tests-browser,
+        check-tests-exit-codes,
         build-x86_64-linux,
         build-aarch64-linux,
         build-aarch64-darwin,
@@ -685,6 +706,7 @@ jobs:
       - check-clippy
       - check-tests-unit
       - check-tests-browser
+      - check-tests-exit-codes
       - build-npm-package
       - build-manual
       - inspect-test

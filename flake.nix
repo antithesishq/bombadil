@@ -127,7 +127,14 @@
         };
 
         checks = {
-          inherit (bombadil) clippy fmt npm-package tests-unit tests-browser;
+          inherit (bombadil)
+            clippy
+            fmt
+            npm-package
+            tests-unit
+            tests-browser
+            tests-exit-codes
+            ;
         }
         // pkgs.lib.optionalAttrs (bombadil ? tests-browser-headless-shell) {
           inherit (bombadil) tests-browser-headless-shell;
