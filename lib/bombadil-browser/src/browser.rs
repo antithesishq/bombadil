@@ -24,6 +24,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use url::Url;
 
 use crate::browser::actions::{ActionOptions, BrowserAction};
+use crate::browser::inbox::{InboxReceiver, InboxSender, inbox};
 use crate::browser::screenshots::{FrameControl, ScreencastFrame};
 use crate::browser::state::Generation;
 use crate::browser::state::{
@@ -36,6 +37,7 @@ use crate::instrumentation::BlockRegistry;
 
 pub mod actions;
 pub mod evaluation;
+mod inbox;
 pub mod instrumentation;
 pub mod quiescence;
 pub mod screenshots;
@@ -153,7 +155,7 @@ const CAPTURE_FAILURES_MAX: u32 = 5;
 
 struct BrowserContext {
     sender: mpmc::Sender<BrowserEvent>,
-    events_tx: mpmc::Sender<InnerEvent>,
+    events_tx: InboxSender<InnerEvent>,
     connection: cdp::Connection,
     target_id: TargetId,
     frame_id: FrameId,
@@ -167,7 +169,7 @@ struct BrowserContext {
 
 pub struct Browser {
     browser_events_rx: mpmc::Receiver<BrowserEvent>,
-    events_tx: mpmc::Sender<InnerEvent>,
+    events_tx: InboxSender<InnerEvent>,
     connection: cdp::Connection,
     target_id: TargetId,
     session_id: SessionId,
@@ -194,7 +196,7 @@ impl Browser {
             chromium.web_socket_remote_debugger.to_string(),
         )?;
 
-        let (events_tx, events_rx) = mpmc::bounded(32);
+        let (events_tx, events_rx) = inbox(32);
         let (browser_events_tx, browser_events_rx) =
             mpmc::bounded::<BrowserEvent>(1);
 
@@ -510,7 +512,7 @@ impl Browser {
 fn auto_accept_dialogs(
     connection: cdp::Connection,
     session_id: &SessionId,
-    events_tx: mpmc::Sender<InnerEvent>,
+    events_tx: InboxSender<InnerEvent>,
 ) -> Result<()> {
     let events = connection
         .events
@@ -553,7 +555,7 @@ fn auto_accept_dialogs(
 fn forward_inner_events(
     connection: &cdp::Connection,
     frame_id: FrameId,
-    events_tx: mpmc::Sender<InnerEvent>,
+    events_tx: InboxSender<InnerEvent>,
 ) -> Result<()> {
     let event_source = connection.events.clone();
     let events = connection.events.methods([
@@ -744,7 +746,7 @@ fn forward_inner_events(
 
 fn run_state_machine(
     context: BrowserContext,
-    events_rx: mpmc::Receiver<InnerEvent>,
+    mut events_rx: InboxReceiver<InnerEvent>,
     mut state_current: InnerState,
     terminated: Arc<AtomicBool>,
 ) {
@@ -753,7 +755,7 @@ fn run_state_machine(
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<()> {
                 log::info!("processing events");
-                while let Ok(event) = events_rx.recv()
+                while let Some(event) = events_rx.next()
                     && !terminated.load(Ordering::SeqCst)
                 {
                     state_current = if log::log_enabled!(log::Level::Debug) {
@@ -772,8 +774,12 @@ fn run_state_machine(
                                 event_formatted
                             );
                         }
-                        let state_new =
-                            process_event(&context, state_current, event)?;
+                        let state_new = process_event(
+                            &context,
+                            &mut events_rx,
+                            state_current,
+                            event,
+                        )?;
                         log::debug!(
                             "{} + {} -> {:?} ({})",
                             before,
@@ -783,22 +789,37 @@ fn run_state_machine(
                         );
                         state_new
                     } else {
-                        process_event(&context, state_current, event)?
+                        process_event(
+                            &context,
+                            &mut events_rx,
+                            state_current,
+                            event,
+                        )?
                     }
                 }
                 log::debug!("shutting down browser state machine");
                 Ok(())
             },
         ));
+        let error = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some(format!("{error:#}")),
+            Err(payload) => {
+                Some(match stdx::panic::message(payload.as_ref()) {
+                    Some(message) => {
+                        format!("state machine panicked: {message}")
+                    }
+                    None => "state machine panicked".to_string(),
+                })
+            }
+        };
         if terminated.load(Ordering::SeqCst) {
             // In case the browser was actively terminated, we ignore potential errors.
-            log::debug!("terminated with result: {:?}", result);
+            log::debug!("terminated with error: {:?}", error);
             return;
         }
-        let error = match result {
-            Ok(Ok(())) => return,
-            Ok(Err(error)) => format!("{error:#}"),
-            Err(_) => "state machine panicked".to_string(),
+        let Some(error) = error else {
+            return;
         };
         log::error!("state machine error: {error}");
         if let Err(error) = error_tx.send(BrowserEvent::Error(Arc::new(
@@ -815,7 +836,7 @@ fn apply_action(
     session_id: SessionId,
     execution_context_id: Option<String>,
     action_options: ActionOptions,
-    events_tx: mpmc::Sender<InnerEvent>,
+    events_tx: InboxSender<InnerEvent>,
     generation: Generation,
 ) {
     thread::spawn(move || {
@@ -875,6 +896,7 @@ fn apply_action(
 
 fn process_event(
     context: &BrowserContext,
+    events_rx: &mut InboxReceiver<InnerEvent>,
     state_current: InnerState,
     event: InnerEvent,
 ) -> Result<InnerState> {
@@ -1356,7 +1378,7 @@ fn process_event(
                 state
             } else if matches!(state.kind, Running) {
                 log::debug!("quiesced, requesting new state capture");
-                let _ = context.events_tx.send(InnerEvent::StateRequested(
+                events_rx.send_to_self(InnerEvent::StateRequested(
                     StateRequestReason::Quiesced,
                     state.shared.generation,
                 ));
