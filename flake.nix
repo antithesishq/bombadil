@@ -75,8 +75,8 @@
         ghosttySrc = pkgs.fetchFromGitHub {
           owner = "ghostty-org";
           repo = "ghostty";
-          rev = "108cacb17ed8990840cd14abfce43d8ed8503ca1";
-          sha256 = "sha256-3XBFm8yq25P9eCdjLWwVwZ0tedWCN39U1FbjYD8C+w4=";
+          rev = "573c4a21e02311ae87844af26b6a7a179f82858e";
+          sha256 = "sha256-/l6pAeGSLe2+ttGl/GvJJzXdHP8rg6wPhuKeyQ42QAo=";
         };
         # Override postInstall to keep the native `libhegel_c.{so,dylib}`
         # name (hegeltest's loader wants that, not upstream's `libhegel.so`).
