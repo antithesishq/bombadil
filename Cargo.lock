@@ -754,6 +754,7 @@ dependencies = [
  "cdp_types",
  "crossbeam-channel",
  "env_logger",
+ "hegeltest",
  "hotpath",
  "log",
  "mio",
