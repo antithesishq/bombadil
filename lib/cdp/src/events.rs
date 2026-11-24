@@ -14,11 +14,26 @@ pub struct Events {
     pub(crate) subscribers: Arc<Mutex<Subscribers>>,
 }
 
-#[derive(Debug, Clone, Default)]
+/// How many unread events a subscription can hold before we give up.
+const EVENTS_PENDING_MAX: usize = 1 << 16;
+
+#[derive(Debug, Clone)]
 pub(crate) struct Subscribers {
     closed: bool,
     close_error: Option<String>,
     single: HashMap<MethodId, Vec<mpmc::Sender<Arc<CdpJsonEventMessage>>>>,
+    events_pending_max: usize,
+}
+
+impl Default for Subscribers {
+    fn default() -> Self {
+        Self {
+            closed: false,
+            close_error: None,
+            single: HashMap::new(),
+            events_pending_max: EVENTS_PENDING_MAX,
+        }
+    }
 }
 
 impl Subscribers {
@@ -31,13 +46,30 @@ impl Subscribers {
         assert!(!self.closed, "Subscribers are closed, can't dispatch");
         let event = Arc::new(event);
 
-        // These channels are unbounded, so a slow subscriber cannot block the
-        // WebSocket worker that must read command responses.
+        // Never block on a slow subscriber: the WebSocket worker must keep
+        // reading command responses. A full subscription closes them all.
+        let mut overflowed = false;
         if let Some(subscriptions) = self.single.get_mut(&event.method) {
-            subscriptions.retain(|s| s.send(event.clone()).is_ok());
+            subscriptions.retain(|s| match s.try_send(event.clone()) {
+                Ok(()) => true,
+                Err(mpmc::TrySendError::Full(_)) => {
+                    overflowed = true;
+                    true
+                }
+                Err(mpmc::TrySendError::Disconnected(_)) => false,
+            });
             if subscriptions.is_empty() {
                 self.single.remove(&event.method);
             }
+        }
+        if overflowed {
+            let error = format!(
+                "more than {} unprocessed CDP events: the page likely emits \
+                 events faster than they can be processed",
+                self.events_pending_max
+            );
+            log::error!("{error}");
+            self.close(Some(error));
         }
     }
 
@@ -61,7 +93,7 @@ impl Events {
             .subscribers
             .lock()
             .expect("failed to acquire lock for subscribers");
-        let (tx, rx) = mpmc::unbounded();
+        let (tx, rx) = mpmc::bounded(subscribers.events_pending_max);
         if !subscribers.closed {
             let mut unique = std::collections::HashSet::new();
             for method in methods {
@@ -84,7 +116,7 @@ impl Events {
             .subscribers
             .lock()
             .expect("failed to acquire lock for subscribers");
-        let (tx, rx) = mpmc::unbounded();
+        let (tx, rx) = mpmc::bounded(subscribers.events_pending_max);
         if !subscribers.closed {
             subscribers
                 .single
@@ -155,6 +187,10 @@ mod tests {
     use std::borrow::Cow;
     use std::time::Duration;
 
+    use hegel::{
+        TestCase,
+        generators::{booleans, integers},
+    };
     use serde::Deserialize;
 
     use super::*;
@@ -198,6 +234,72 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("dispatch blocked on a slow subscriber");
         assert_eq!(receiver.len(), 100);
+    }
+
+    fn subscribers_with_max(
+        events_pending_max: usize,
+    ) -> (Arc<Mutex<Subscribers>>, Events) {
+        let subscribers = Arc::new(Mutex::new(Subscribers {
+            events_pending_max,
+            ..Subscribers::default()
+        }));
+        let events = Events {
+            subscribers: subscribers.clone(),
+        };
+        (subscribers, events)
+    }
+
+    #[hegel::test]
+    fn full_subscription_closes_all(tc: TestCase) {
+        let events_pending_max =
+            tc.draw(integers::<usize>().min_value(1).max_value(8));
+        let (subscribers, events) = subscribers_with_max(events_pending_max);
+        let drained = events.methods([TestEvent::method_id()]);
+        let slow = events.methods([TestEvent::method_id()]);
+        let mut pending = 0;
+
+        for _ in 0..tc.draw(integers::<usize>().max_value(64)) {
+            if tc.draw(booleans()) {
+                subscribers.lock().unwrap().dispatch(event());
+                drained.try_recv().unwrap();
+                if pending == events_pending_max {
+                    let error = events.close_error().unwrap();
+                    assert!(error.contains("faster than"), "{error}");
+                    assert!(matches!(
+                        drained.try_recv(),
+                        Err(mpmc::TryRecvError::Disconnected)
+                    ));
+                    return;
+                }
+                pending += 1;
+            } else if pending > 0 {
+                slow.try_recv().unwrap();
+                pending -= 1;
+            }
+            assert_eq!(events.close_error(), None);
+            assert_eq!(slow.len(), pending);
+        }
+    }
+
+    #[test]
+    fn closed_full_subscription_keeps_buffered_events() {
+        let (subscribers, events) = subscribers_with_max(2);
+        let receiver = events.methods([TestEvent::method_id()]);
+        for _ in 0..3 {
+            subscribers.lock().unwrap().dispatch(event());
+        }
+
+        assert_eq!(receiver.try_iter().count(), 2);
+        assert!(matches!(
+            receiver.try_recv(),
+            Err(mpmc::TryRecvError::Disconnected)
+        ));
+        assert!(
+            !subscribers
+                .lock()
+                .unwrap()
+                .is_interested_in(&TestEvent::method_id())
+        );
     }
 
     #[test]
