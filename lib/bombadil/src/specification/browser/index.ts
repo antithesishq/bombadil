@@ -39,7 +39,15 @@ export type Action<Number = number, String = string> =
         delayMillis?: Range;
       };
     }
-  | { PressKey: { code: number } }
+  | {
+      PressKey: {
+        code: number;
+        shift?: boolean;
+        ctrl?: boolean;
+        alt?: boolean;
+        meta?: boolean;
+      };
+    }
   | { ScrollUp: { origin: Point; distance: Number } }
   | { ScrollDown: { origin: Point; distance: Number } }
   | { SetFileInputFiles: { selector: string; files: string[] } }
