@@ -702,7 +702,8 @@ impl<Rng: TryRng + RngExt, Session: InterfaceSession, Inner>
         if leaves.as_slice().is_empty() {
             anyhow::bail!("no actions available");
         }
-        let reweighted = self.inner.reweight(state, snapshots, leaves);
+        let reweighted =
+            self.inner.reweight(state, snapshots, leaves, &mut self.rng);
         let leaves = reweighted.as_ref().unwrap_or(leaves);
         Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
     }
