@@ -443,6 +443,16 @@ mod tests {
         )
     }
 
+    fn snapshot(index: usize, value: json::Value, time: Time) -> Snapshot {
+        Snapshot {
+            index,
+            name: None,
+            value,
+            time,
+            excluded: false,
+        }
+    }
+
     fn verifier(specification: &str) -> Verifier {
         use crate::specification::bundler::bundle;
 
@@ -517,15 +527,7 @@ mod tests {
         let time = time_from_millis(0);
 
         let result: StepResult<'_, Snapshot> = verifier
-            .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(false),
-                    time,
-                }],
-                time,
-            )
+            .step(&[snapshot(0, json::json!(false), time)], time)
             .unwrap();
 
         let (name, value) = result.properties().next().unwrap();
@@ -552,18 +554,8 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[
-                    Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(true),
-                        time,
-                    },
-                    Snapshot {
-                        index: 1,
-                        name: None,
-                        value: json::json!(true),
-                        time,
-                    },
+                    snapshot(0, json::json!(true), time),
+                    snapshot(1, json::json!(true), time),
                 ],
                 time,
             )
@@ -593,18 +585,8 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[
-                    Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(false),
-                        time,
-                    },
-                    Snapshot {
-                        index: 1,
-                        name: None,
-                        value: json::json!(true),
-                        time,
-                    },
+                    snapshot(0, json::json!(false), time),
+                    snapshot(1, json::json!(true), time),
                 ],
                 time,
             )
@@ -634,18 +616,8 @@ mod tests {
         let result: StepResult<Snapshot> = verifier
             .step(
                 &[
-                    Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(false),
-                        time,
-                    },
-                    Snapshot {
-                        index: 1,
-                        name: None,
-                        value: json::json!(false),
-                        time,
-                    },
+                    snapshot(0, json::json!(false), time),
+                    snapshot(1, json::json!(false), time),
                 ],
                 time,
             )
@@ -672,15 +644,7 @@ mod tests {
         for i in 0..=1 {
             let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(i), time)], time)
                 .unwrap();
 
             let (name, value) = result.properties().next().unwrap();
@@ -718,15 +682,7 @@ mod tests {
         for i in 0..=100 {
             let time = time_from_millis(0);
             let result: StepResult<Snapshot> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(i), time)], time)
                 .unwrap();
 
             let (name, value) = result.properties().next().unwrap();
@@ -757,15 +713,7 @@ mod tests {
         // Residual when given a passing value.
         let time = time_from_millis(0);
         let result: StepResult<Snapshot> = verifier
-            .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(0),
-                    time,
-                }],
-                time,
-            )
+            .step(&[snapshot(0, json::json!(0), time)], time)
             .unwrap();
         let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
@@ -792,15 +740,7 @@ mod tests {
         for i in 0..10 {
             let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(i), time)], time)
                 .unwrap();
 
             if let Some((name, value)) = result.properties().next() {
@@ -845,15 +785,7 @@ mod tests {
         for i in 0..10 {
             let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(i), time)], time)
                 .unwrap();
 
             let (name, value) = result.properties().next().unwrap();
@@ -910,15 +842,7 @@ mod tests {
         for i in 0..10 {
             let time = time_from_millis(i);
             let result: StepResult<Snapshot> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(i), time)], time)
                 .unwrap();
 
             if let Some((name, value)) = result.properties().next() {
@@ -964,12 +888,7 @@ mod tests {
         for i in 0..5 {
             let result: StepResult<Snapshot> = verifier
                 .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(i),
-                        time: time_from_millis(0),
-                    }],
+                    &[snapshot(0, json::json!(i), time_from_millis(0))],
                     time_from_millis(0),
                 )
                 .unwrap();
@@ -985,12 +904,7 @@ mod tests {
         // Step with value 5: False (violation)
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(5),
-                    time: time_from_millis(0),
-                }],
+                &[snapshot(0, json::json!(5), time_from_millis(0))],
                 time_from_millis(0),
             )
             .unwrap();
@@ -1004,12 +918,7 @@ mod tests {
         // Step with value 0: should reset to Residual (not repeat False)
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(0),
-                    time: time_from_millis(0),
-                }],
+                &[snapshot(0, json::json!(0), time_from_millis(0))],
                 time_from_millis(0),
             )
             .unwrap();
@@ -1023,12 +932,7 @@ mod tests {
         // Step with value 5 again: should produce a new False
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(5),
-                    time: time_from_millis(0),
-                }],
+                &[snapshot(0, json::json!(5), time_from_millis(0))],
                 time_from_millis(0),
             )
             .unwrap();
@@ -1057,15 +961,7 @@ mod tests {
 
         // First step: False (no continuation)
         let result: StepResult<Snapshot> = verifier
-            .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(false),
-                    time,
-                }],
-                time,
-            )
+            .step(&[snapshot(0, json::json!(false), time)], time)
             .unwrap();
         let (name, value) = result.properties().next().unwrap();
         assert_eq!(*name, "my_prop");
@@ -1077,15 +973,7 @@ mod tests {
 
         // Subsequent step: property is settled, no result emitted
         let result: StepResult<Snapshot> = verifier
-            .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(true),
-                    time,
-                }],
-                time,
-            )
+            .step(&[snapshot(0, json::json!(true), time)], time)
             .unwrap();
         assert!(
             result.properties().next().is_none(),
@@ -1111,12 +999,7 @@ mod tests {
         // At time 0, value 0: Residual
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(0),
-                    time: time_from_millis(0),
-                }],
+                &[snapshot(0, json::json!(0), time_from_millis(0))],
                 time_from_millis(0),
             )
             .unwrap();
@@ -1126,12 +1009,7 @@ mod tests {
         // At time 3ms, value 10: fails the always, but has continuation
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(10),
-                    time: time_from_millis(3),
-                }],
+                &[snapshot(0, json::json!(10), time_from_millis(3))],
                 time_from_millis(3),
             )
             .unwrap();
@@ -1146,12 +1024,7 @@ mod tests {
         // At time 4ms, value 0: should be Residual (reset via continuation)
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(0),
-                    time: time_from_millis(4),
-                }],
+                &[snapshot(0, json::json!(0), time_from_millis(4))],
                 time_from_millis(4),
             )
             .unwrap();
@@ -1165,12 +1038,7 @@ mod tests {
         // At time 6ms (past the 5ms bound): should resolve to True
         let result: StepResult<Snapshot> = verifier
             .step(
-                &[Snapshot {
-                    index: 0,
-                    name: None,
-                    value: json::json!(0),
-                    time: time_from_millis(6),
-                }],
+                &[snapshot(0, json::json!(0), time_from_millis(6))],
                 time_from_millis(6),
             )
             .unwrap();
@@ -1322,15 +1190,7 @@ mod tests {
         let mut step = |enabled: bool, millis: u64| {
             let time = time_from_millis(millis);
             let result: StepResult<json::Value> = verifier
-                .step(
-                    &[Snapshot {
-                        index: 0,
-                        name: None,
-                        value: json::json!(enabled),
-                        time,
-                    }],
-                    time,
-                )
+                .step(&[snapshot(0, json::json!(enabled), time)], time)
                 .unwrap();
             result.actions.prune()
         };

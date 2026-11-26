@@ -1039,6 +1039,7 @@ import { extract } from "@antithesishq/bombadil";
 const plain = extract((state) => state.count);
 const custom = extract((state) => state.count).named("custom_name");
 const doubled = plain.map((count) => count * 2);
+const hidden = extract((state) => state.count).setStateKeyBehavior("excluded");
 
 function nested() {
   const inner = extract((state) => state.count);
@@ -1071,7 +1072,7 @@ const getters = (() => ({
             .eval(Source::from_bytes(
                 r#"__bombadilRequire("@antithesishq/bombadil").runtime
                     .runExtractors({ count: 3 })
-                    .map(({ name, value }) => [name, value])"#,
+                    .map(({ name, value, excluded }) => [name, value, excluded])"#,
             ))
             .unwrap()
             .to_json(&mut context)
@@ -1080,10 +1081,11 @@ const getters = (() => ({
         assert_eq!(
             snapshots,
             Some(json!([
-                ["plain", 3],
-                ["custom_name", 3],
-                ["doubled", 6],
-                [null, 3],
+                ["plain", 3, false],
+                ["custom_name", 3, false],
+                ["doubled", 6, false],
+                ["hidden", 3, true],
+                [null, 3, false],
             ]))
         );
     }
