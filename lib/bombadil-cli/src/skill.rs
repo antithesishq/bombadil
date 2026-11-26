@@ -147,6 +147,7 @@ macro_rules! skill {
 const SKILLS: &[Skill] = &[
     skill!("fuzzing", "fuzzing-with-bombadil"),
     skill!("investigating-failures", "investigating-bombadil-failures"),
+    skill!("writing-specifications", "writing-bombadil-specifications"),
 ];
 
 /// Every pointer skill carries this metadata key. Its presence marks a file

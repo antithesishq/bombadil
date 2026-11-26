@@ -24,4 +24,5 @@ this from the project root instead:
 If the guide command is unavailable, use `bombadil --version`, `bombadil --help`,
 and subcommand help. Do not assume newer options exist in older versions.
 
+To check a property's meaning, run `bombadil skill show writing-specifications`.
 To search for more bugs after a fix, run `bombadil skill show fuzzing`.
