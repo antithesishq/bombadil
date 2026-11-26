@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::hash::Hash;
-use std::ops::{Range, RangeInclusive};
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::thread::sleep;
@@ -27,11 +27,11 @@ use libghostty_vt::{
     RenderState, Terminal,
     color::{PaletteIndex, Rgb},
     render::{
-        CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle, Overscan,
+        CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
         RowIterator, Snapshot as GhosttyRenderSnapshot,
     },
     screen::{CellContentTag, CellWide, cell},
-    terminal::{ScrollViewport, Scrollbar},
+    terminal::ScrollViewport,
 };
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
@@ -51,11 +51,6 @@ const DRAIN_DURATION_MAX: Duration = Duration::from_secs(1);
 /// have been dropped since the last output, treat the child as hung and
 /// surface it as a driver error (which ends the current run).
 const HANG_QUIET_THRESHOLD: Duration = Duration::from_secs(5);
-
-/// How many bytes of an unfinished escape sequence ghostty retains so that
-/// a terminal snapshot taken mid-sequence can still be encoded. States
-/// sampled inside a longer sequence get no snapshot.
-const SNAPSHOT_CONTINUATION_MAX_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[cfg_attr(test, derive(stdx_derive::VariantCount))]
@@ -292,13 +287,11 @@ impl InterfaceDriver for TerminalDriver {
             self.program_options.size.columns,
             self.program_options.size.rows,
         )?;
-        terminal.set_continuation_max_bytes(SNAPSHOT_CONTINUATION_MAX_BYTES)?;
-        let mut render_state = RenderState::new()?;
-        keep_scrollback(
-            &mut terminal,
-            &mut render_state,
-            self.program_options.scrollback_lines_max,
-        )?;
+        terminal
+            .set_scrollback_max_bytes(Some(usize::MAX))?
+            .set_scrollback_max_lines(Some(usize::from(
+                self.program_options.scrollback_lines_max,
+            )))?;
 
         let (process, output) = PtyProcess::spawn(
             self.program_options.size,
@@ -325,15 +318,12 @@ impl InterfaceDriver for TerminalDriver {
                 output,
                 render_progress,
                 size: self.program_options.size,
-                scrollback_lines_max: self.program_options.scrollback_lines_max,
                 quiescence_timeout: self.program_options.quiescence_timeout,
                 last_action: None,
                 last_output_at: Instant::now(),
-                render_state,
+                render_state: RenderState::new()?,
                 row_iterator: RowIterator::new()?,
                 cell_iterator: CellIterator::new()?,
-                snapshot_capacity: 0,
-                snapshot_failed: false,
             },
             verifier,
         ))
@@ -394,7 +384,6 @@ fn collect_output(
                 terminal.vt_write(&data);
                 let progress = render_progress.get();
                 if progress.completed != completed && !progress.held {
-                    // Parse the whole chunk before encoding a snapshot.
                     // If another hold began in this chunk, wait for it
                     // rather than publishing its half-drawn screen.
                     break;
@@ -413,7 +402,6 @@ pub struct TerminalSession {
     output: PtyOutput,
     render_progress: Rc<Cell<RenderProgress>>,
     size: TerminalSize,
-    scrollback_lines_max: u16,
     quiescence_timeout: Duration,
     last_action: Option<TerminalAction>,
     last_output_at: Instant,
@@ -423,11 +411,6 @@ pub struct TerminalSession {
     render_state: RenderState<'static>,
     row_iterator: RowIterator<'static>,
     cell_iterator: CellIterator<'static>,
-    // Size of the last terminal snapshot, used to allocate the next one
-    // up front so encoding writes straight into its final buffer.
-    snapshot_capacity: usize,
-    // Whether encoding a snapshot has failed yet, to warn only once.
-    snapshot_failed: bool,
 }
 
 impl TerminalSession {
@@ -444,8 +427,6 @@ impl TerminalSession {
 
     #[hotpath::measure]
     fn extract_state(&mut self) -> Result<TerminalState> {
-        // Encoded before the render snapshot below borrows the terminal.
-        let terminal_snapshot = self.encode_terminal_snapshot();
         let snapshot = self.render_state.update(&self.terminal)?;
         let cursor = cursor_from_libghostty(&self.terminal, &snapshot)?;
         let grid = viewport_grid(
@@ -456,19 +437,10 @@ impl TerminalSession {
         )?;
 
         let scrollbar = self.terminal.scrollbar()?;
-        let scrollback = scrollback_grid(
-            &snapshot,
-            &mut self.row_iterator,
-            &mut self.cell_iterator,
-            self.size.columns,
-            &scrollbar,
-            self.scrollback_lines_max,
-        )?;
 
         Ok(TerminalState {
             timestamp: SystemTime::now(),
             grid,
-            scrollback,
             scroll_offset: scrollbar.offset as u32,
             cursor,
             exit_status: self.process.borrow_mut().exit_status()?.map(
@@ -478,37 +450,7 @@ impl TerminalSession {
                 },
             ),
             last_action: self.last_action.clone(),
-            terminal_snapshot,
         })
-    }
-
-    #[hotpath::measure]
-    fn encode_terminal_snapshot(&mut self) -> Option<Arc<Vec<u8>>> {
-        // Encoded into a buffer presized from the previous snapshot, then
-        // shared with the trace writer without a further copy.
-        let mut buffer = Vec::with_capacity(
-            self.snapshot_capacity + self.snapshot_capacity / 8,
-        );
-        match self.terminal.encode_snapshot(&mut buffer) {
-            Ok(()) => {
-                self.snapshot_capacity = buffer.len();
-                Some(Arc::new(buffer))
-            }
-            Err(error) if !self.snapshot_failed => {
-                self.snapshot_failed = true;
-                log::warn!(
-                    "failed to encode terminal snapshot: {error} (e.g. an \
-                     escape sequence longer than \
-                     {SNAPSHOT_CONTINUATION_MAX_BYTES} bytes was unfinished); \
-                     the trace has no screen for such states"
-                );
-                None
-            }
-            Err(error) => {
-                log::debug!("failed to encode terminal snapshot: {error}");
-                None
-            }
-        }
     }
 }
 
@@ -616,89 +558,9 @@ pub(crate) fn viewport_grid<'alloc>(
     cell_iterator: &mut CellIterator<'alloc>,
     size: TerminalSize,
 ) -> Result<TerminalGrid> {
-    snapshot_grid(
-        snapshot,
-        row_iterator,
-        cell_iterator,
-        size.columns,
-        0..i64::from(size.rows),
-    )
-}
-
-/// Keeps up to `lines_max` lines of scrollback in `terminal`, which
-/// `render_state` captures along with the viewport.
-fn keep_scrollback(
-    terminal: &mut Terminal<'_, '_>,
-    render_state: &mut RenderState<'_>,
-    lines_max: u16,
-) -> Result<()> {
-    // Limit scrollback by lines only: ghostty also has a byte limit, which
-    // would otherwise cap it regardless of the line count. `None` would
-    // restore ghostty's default byte limit, not lift it.
-    terminal
-        .set_scrollback_max_bytes(Some(usize::MAX))?
-        .set_scrollback_max_lines(Some(usize::from(lines_max)))?;
-    // Rows above the viewport, and those below it when it is scrolled up.
-    render_state.set_overscan(Overscan {
-        above: lines_max,
-        below: u16::MAX,
-    })?;
-    Ok(())
-}
-
-/// The most recent `lines_max` rows above the active area in a render
-/// `snapshot`, wherever the viewport is, with `scrollbar` taken at the same
-/// time. Ghostty prunes whole pages, so it may hold fewer.
-fn scrollback_grid<'alloc>(
-    snapshot: &GhosttyRenderSnapshot<'alloc, '_>,
-    row_iterator: &mut RowIterator<'alloc>,
-    cell_iterator: &mut CellIterator<'alloc>,
-    columns: u16,
-    scrollbar: &Scrollbar,
-    lines_max: u16,
-) -> Result<TerminalGrid> {
-    let history_end = (scrollbar.total - scrollbar.len) as i64;
-    let history_start = history_end.saturating_sub(i64::from(lines_max));
-    let offset = scrollbar.offset as i64;
-    snapshot_grid(
-        snapshot,
-        row_iterator,
-        cell_iterator,
-        columns,
-        history_start - offset..history_end - offset,
-    )
-}
-
-/// The rows of a render `snapshot` at positions `keep` relative to the
-/// viewport top, as a grid `columns` wide.
-fn snapshot_grid<'alloc>(
-    snapshot: &GhosttyRenderSnapshot<'alloc, '_>,
-    row_iterator: &mut RowIterator<'alloc>,
-    cell_iterator: &mut CellIterator<'alloc>,
-    columns: u16,
-    keep: Range<i64>,
-) -> Result<TerminalGrid> {
-    // Size for the kept rows that were captured.
-    let overscan = snapshot.overscan()?;
-    let captured = -i64::from(overscan.above)
-        ..i64::from(snapshot.rows()?) + i64::from(overscan.below);
-    let kept = keep.start.max(captured.start)..keep.end.min(captured.end);
-    let mut cells = Vec::with_capacity(
-        usize::from(columns)
-            * usize::try_from(kept.end - kept.start).unwrap_or(0),
-    );
     let mut row_iter = row_iterator.update(snapshot)?;
-    let mut rows = 0;
+    let mut cells = Vec::with_capacity(size.cell_count() as usize);
     while let Some(row) = row_iter.next() {
-        // Rows come top to bottom.
-        let y = i64::from(row.viewport_y()?);
-        if y >= keep.end {
-            break;
-        }
-        if y < keep.start {
-            continue;
-        }
-        rows += 1;
         let mut cell_iter = cell_iterator.update(row)?;
         for (column, raw) in row.cells_raw()?.enumerate() {
             let (wide, tag, codepoint, styled) = raw.get_multi((
@@ -750,10 +612,7 @@ fn snapshot_grid<'alloc>(
             });
         }
     }
-    Ok(TerminalGrid::from_cells(
-        TerminalSize { columns, rows },
-        cells,
-    ))
+    Ok(TerminalGrid::from_cells(size, cells))
 }
 
 fn cursor_from_libghostty(
@@ -1055,11 +914,8 @@ mod tests {
         line
     }
 
-    /// The scrollback is the most recent lines that scrolled off the
-    /// screen, in order, wherever the viewport is: as many of those ghostty
-    /// keeps as the limit allows.
     #[hegel::test(test_cases = 50)]
-    fn scrollback_is_the_most_recent_history_up_to_the_limit(tc: TestCase) {
+    fn captured_grid_is_only_the_visible_viewport(tc: TestCase) {
         let columns = tc.draw(integers::<u16>().min_value(2).max_value(40));
         let rows = tc.draw(integers::<u16>().min_value(1).max_value(10));
         let lines_max = tc.draw(integers::<u16>().max_value(1000));
@@ -1071,7 +927,11 @@ mod tests {
 
         let mut terminal = Terminal::new(columns, rows).unwrap();
         let mut render_state = RenderState::new().unwrap();
-        keep_scrollback(&mut terminal, &mut render_state, lines_max).unwrap();
+        terminal
+            .set_scrollback_max_bytes(Some(usize::MAX))
+            .unwrap()
+            .set_scrollback_max_lines(Some(usize::from(lines_max)))
+            .unwrap();
         for line in &lines {
             terminal.vt_write(line.as_bytes());
             terminal.vt_write(b"\r\n");
@@ -1082,45 +942,25 @@ mod tests {
         });
         let snapshot = render_state.update(&terminal).unwrap();
         let scrollbar = terminal.scrollbar().unwrap();
-        let scrollback = scrollback_grid(
+        let grid = viewport_grid(
             &snapshot,
             &mut RowIterator::new().unwrap(),
             &mut CellIterator::new().unwrap(),
-            columns,
-            &scrollbar,
-            lines_max,
+            TerminalSize { columns, rows },
         )
         .unwrap();
-        let scrollback: Vec<String> = (0..scrollback.size.rows)
-            .map(|row| {
-                crate::js::row_text(&scrollback, row).trim_end().to_string()
-            })
+        let visible: Vec<String> = (0..grid.size.rows)
+            .map(|row| crate::js::row_text(&grid, row).trim_end().to_string())
             .collect();
 
-        // The lines above the screen, whose last row is the empty one the
-        // cursor ended on.
         let history = (count + 1).saturating_sub(usize::from(rows));
         let kept = (scrollbar.total - scrollbar.len) as usize;
-        // Ghostty only prunes history beyond the limit.
-        if history <= usize::from(lines_max) {
-            assert_eq!(kept, history);
-        }
-        assert_eq!(scrollback.len(), kept.min(usize::from(lines_max)));
-        assert_eq!(scrollback, lines[history - scrollback.len()..history]);
-    }
-
-    /// Scrollback is not also capped by ghostty's default byte limit, which
-    /// keeps under a thousand rows of 100 columns.
-    #[test]
-    fn scrollback_is_not_capped_by_bytes() {
-        let mut terminal = Terminal::new(100, 2).unwrap();
-        let mut render_state = RenderState::new().unwrap();
-        keep_scrollback(&mut terminal, &mut render_state, 1500).unwrap();
-        for line in 1..=1200 {
-            terminal.vt_write(format!("{line}\r\n").as_bytes());
-        }
-        let scrollbar = terminal.scrollbar().unwrap();
-        assert_eq!(scrollbar.total - scrollbar.len, 1199);
+        let first = history - kept + scrollbar.offset as usize;
+        let expected: Vec<String> = (first..first + usize::from(rows))
+            .map(|index| lines.get(index).cloned().unwrap_or_default())
+            .collect();
+        assert_eq!(grid.size, TerminalSize { columns, rows });
+        assert_eq!(visible, expected);
     }
 
     /// A stream with scheduled chunks and a monotonic virtual clock.

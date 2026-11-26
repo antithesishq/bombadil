@@ -581,7 +581,6 @@ dependencies = [
  "hegeltest",
  "hotpath",
  "include_dir",
- "libghostty-vt",
  "log",
  "mime_guess",
  "open",

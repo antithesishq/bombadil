@@ -15,8 +15,6 @@ pub enum TerminalAction {
     ScrollDown {},
 }
 
-/// Per-state metadata in a terminal trace. The screen contents (grid,
-/// scrollback, modes) are in the ghostty snapshot stored next to it.
 /// No `Eq`: the spec probabilities in `actions_available` are `f64`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TerminalStateSummary {

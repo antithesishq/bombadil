@@ -7,12 +7,13 @@ use std::time::Duration;
 use anyhow::Result;
 use bombadil::driver::{
     DriverEvent, InterfaceDriver, InterfaceSession, NoopTraceWriter, RunId,
+    TraceWriter,
 };
 use bombadil::model::Picked;
 use bombadil::runner::{self, ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::domain::Snapshot;
 use bombadil::specification::verifier::Specification;
-use bombadil::tree::Leaves;
+use bombadil::tree::{Leaves, Tree};
 use bombadil_schema::terminal::{TerminalCell, TerminalGrid, TerminalSize};
 use bombadil_terminal::driver::{TerminalAction, TerminalDriver};
 use bombadil_terminal::driver::{TerminalActionTemplate, TerminalSession};
@@ -139,8 +140,11 @@ fn test_eventually_ready() {
     TerminalIntegrationTest::new("sh", &["-c", "printf 'ready\\n'"])
         .specification(
             r#"
-import { eventually } from "@antithesishq/bombadil";
+import { always, eventually } from "@antithesishq/bombadil";
 import { actions, extract } from "@antithesishq/bombadil/terminal";
+
+const viewportOnly = extract((state) => !("scrollback" in state) && typeof state.scrollOffset === "number");
+export const viewportState = always(() => viewportOnly.current);
 
 // Exercises the fast `rowText` path.
 const screen = extract((state) => {
@@ -357,10 +361,8 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
     .run();
 }
 
-/// A state sampled while the program is in the middle of an escape
-/// sequence still has a terminal snapshot.
 #[test]
-fn test_snapshot_mid_escape_sequence() {
+fn test_viewport_mid_escape_sequence() {
     setup();
     let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
     specification_file
@@ -377,7 +379,6 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
             module_specifier: specification_file.path().display().to_string(),
         },
         bombadil_terminal::driver::TerminalProgramOptions {
-            // Small, so encoding is cheap.
             size: TerminalSize {
                 columns: 10,
                 rows: 2,
@@ -409,12 +410,9 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
         }
     };
     session.terminate().unwrap();
-    assert!(state.terminal_snapshot.is_some());
+    assert_eq!(recorded_screen(&state), ["abc", ""]);
 }
 
-/// Exercise the real PTY and verify that the observed complete frame and
-/// its recorded native snapshot agree. Exact chunk and deadline behavior
-/// is covered separately with controlled input and a virtual clock.
 #[test]
 fn test_synchronized_redraws() {
     let (sender, receiver) = mpsc::channel();
@@ -478,21 +476,8 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
             }
         };
         session.terminate().unwrap();
-        let snapshot =
-            state.terminal_snapshot.as_ref().expect("missing snapshot");
-        let lines =
-            bombadil_terminal::trace::render_screen(snapshot, None, false)
-                .unwrap();
+        let lines = recorded_screen(&state);
         assert_eq!(lines[0], "FINAL");
-        let restored = libghostty_vt::snapshot::Decoder::new_buf(snapshot)
-            .unwrap()
-            .decode()
-            .unwrap();
-        assert!(
-            !restored
-                .mode(libghostty_vt::mode::Mode::SYNC_OUTPUT)
-                .unwrap()
-        );
         sender.send(()).unwrap();
     });
     receiver
@@ -500,10 +485,8 @@ export const noop = actions(() => [{ TypeText: { CharSet: [{ Literal: "" }] } }]
         .expect("synchronized redraw test failed or stalled");
 }
 
-/// The scrollback is the most recent `scrollback_lines_max` rows above the
-/// active area, also while the viewport is scrolled up.
 #[test]
-fn test_scrollback() {
+fn test_runtime_scrollback_and_viewport_trace() {
     within_timeout(|| {
         let (mut session, _spec) = scrollback_session(
             10,
@@ -511,13 +494,63 @@ fn test_scrollback() {
             "printf '1\\n2\\n3\\n4\\n5\\n6\\n7\\n8\\n9'; read input",
         );
         let state = state_with_grid(&mut session, &["8", "9"]);
-        // Ghostty keeps more history than the limit, rows 1 to 7.
-        assert_eq!(lines(&state.scrollback), ["5", "6", "7"]);
+        assert_eq!(state.scroll_offset, 7);
+        assert_eq!(recorded_screen(&state), ["8", "9"]);
+        assert!(
+            serde_json::to_value(&state)
+                .unwrap()
+                .get("scrollback")
+                .is_none()
+        );
 
         session.apply(TerminalAction::ScrollUp {}, state).unwrap();
         let state = next_state(&mut session);
         assert_eq!(lines(&state.grid), ["1", "2"]);
-        assert_eq!(lines(&state.scrollback), ["5", "6", "7"]);
+        assert_eq!(state.scroll_offset, 0);
+        assert_eq!(recorded_screen(&state), ["1", "2"]);
+
+        session.apply(TerminalAction::ScrollDown {}, state).unwrap();
+        let state = next_state(&mut session);
+        assert_eq!(state.scroll_offset, 7);
+        assert_eq!(recorded_screen(&state), ["8", "9"]);
+        session.terminate().unwrap();
+    });
+}
+
+fn recorded_screen(state: &TerminalState) -> Vec<String> {
+    use bombadil_terminal::trace::{
+        TerminalTraceWriter, open_terminal_trace, render_screen,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("trace.bin");
+    let mut writer = TerminalTraceWriter::initialize(&path, false).unwrap();
+    let tree = Tree::Leaf {
+        value: TerminalActionTemplate::ScrollUp {},
+    };
+    writer.write(state, &[], &[], &tree.leaves(), None).unwrap();
+    writer.finish().unwrap();
+    let recorded = open_terminal_trace(&path).unwrap().next().unwrap().unwrap();
+    assert_eq!(recorded.metadata.state.scroll_offset, state.scroll_offset);
+    let payload = recorded.payload.unwrap();
+    let grid: TerminalGrid = serde_json::from_slice(&payload).unwrap();
+    assert_eq!(grid, state.grid);
+    render_screen(&payload, false).unwrap()
+}
+
+#[test]
+fn test_runtime_scrollback_is_not_capped_by_bytes() {
+    within_timeout(|| {
+        let (mut session, _spec) = scrollback_session(
+            100,
+            1500,
+            "i=1; while [ $i -le 1201 ]; do printf '%s\\n' $i; i=$((i+1)); done; printf READY; read input",
+        );
+        let state = state_with_grid(&mut session, &["1201", "READY"]);
+        assert_eq!(state.scroll_offset, 1200);
+        assert_eq!(recorded_screen(&state), ["1201", "READY"]);
+        session.apply(TerminalAction::ScrollUp {}, state).unwrap();
+        let state = next_state(&mut session);
+        assert_eq!(recorded_screen(&state), ["1", "2"]);
         session.terminate().unwrap();
     });
 }

@@ -40,7 +40,6 @@ url = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 hegeltest.workspace = true
-libghostty-vt.workspace = true
 
 [features]
 default = ["terminal"]

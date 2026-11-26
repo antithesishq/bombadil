@@ -71,8 +71,6 @@ pub struct ProgramArgs {
     #[arg(long, default_value_t = defaults::ROWS)]
     rows: u16,
     /// Maximum line count to keep in scrollback buffer (may keep fewer).
-    ///
-    /// Every state copies the scrollback, so large values slow each step.
     #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
     scrollback_lines_max: u16,
     /// How long to wait (in milliseconds) for the program to stop emitting
@@ -111,8 +109,6 @@ pub enum Command {
         #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
         /// Maximum line count to keep in scrollback buffer (may keep fewer).
-        ///
-        /// Every state copies the scrollback, so large values slow each step.
         #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
         scrollback_lines_max: u16,
         /// How long to wait (in milliseconds) for the program to stop emitting
@@ -184,8 +180,6 @@ pub enum Command {
         #[arg(long, default_value_t = defaults::ROWS)]
         rows: u16,
         /// Maximum line count to keep in scrollback buffer (may keep fewer).
-        ///
-        /// Every state copies the scrollback, so large values slow each step.
         #[arg(long, default_value_t = defaults::SCROLLBACK_LINES_MAX)]
         scrollback_lines_max: u16,
         /// How long to wait (in milliseconds) for the program to stop emitting

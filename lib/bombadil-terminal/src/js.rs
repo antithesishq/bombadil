@@ -32,18 +32,11 @@ impl FromGeneratedAction for TerminalActionTemplate {
     }
 }
 
-#[derive(Clone, Copy)]
-enum GridKind {
-    Screen,
-    Scrollback,
-}
-
 // Captured by a grid's `row`/`rowText` functions so they can read the shared
 // state without copying the grid. Holds no garbage-collected pointers, hence
 // the empty `Trace`.
 struct GridCapture {
     state: Arc<TerminalState>,
-    kind: GridKind,
 }
 
 impl Finalize for GridCapture {}
@@ -54,7 +47,7 @@ unsafe impl Trace for GridCapture {
 
 impl GridCapture {
     fn grid(&self) -> &TerminalGrid {
-        state_grid(&self.state, self.kind)
+        &self.state.grid
     }
 }
 
@@ -63,8 +56,7 @@ pub fn terminal_state_to_js(
     state: Arc<TerminalState>,
     context: &mut Context,
 ) -> JsValue {
-    let grid = grid_to_js(&state, GridKind::Screen, context);
-    let scrollback = grid_to_js(&state, GridKind::Scrollback, context);
+    let grid = grid_to_js(&state, context);
     let cursor = cursor_to_js(&state.cursor, context);
     let last_action = match &state.last_action {
         Some(action) => action_to_js(action, context),
@@ -93,7 +85,6 @@ pub fn terminal_state_to_js(
     };
     ObjectInitializer::new(context)
         .property(js_string!("grid"), grid, Attribute::all())
-        .property(js_string!("scrollback"), scrollback, Attribute::all())
         .property(
             js_string!("scrollOffset"),
             JsValue::from(state.scroll_offset as f64),
@@ -162,14 +153,10 @@ fn cursor_visual_style_name(
     }
 }
 
-fn grid_to_js(
-    state: &Arc<TerminalState>,
-    kind: GridKind,
-    context: &mut Context,
-) -> JsValue {
-    let size = size_to_js(state_grid(state, kind).size, context);
-    let row = grid_function(state, kind, row_at);
-    let row_text = grid_function(state, kind, row_text_at);
+fn grid_to_js(state: &Arc<TerminalState>, context: &mut Context) -> JsValue {
+    let size = size_to_js(state.grid.size, context);
+    let row = grid_function(state, row_at);
+    let row_text = grid_function(state, row_text_at);
     ObjectInitializer::new(context)
         .property(js_string!("size"), size, Attribute::all())
         .function(row, js_string!("row"), 1)
@@ -178,16 +165,8 @@ fn grid_to_js(
         .into()
 }
 
-fn state_grid(state: &Arc<TerminalState>, kind: GridKind) -> &TerminalGrid {
-    match kind {
-        GridKind::Screen => &state.grid,
-        GridKind::Scrollback => &state.scrollback,
-    }
-}
-
 fn grid_function(
     state: &Arc<TerminalState>,
-    kind: GridKind,
     function: fn(
         &JsValue,
         &[JsValue],
@@ -197,7 +176,6 @@ fn grid_function(
 ) -> NativeFunction {
     let capture = GridCapture {
         state: Arc::clone(state),
-        kind,
     };
     // `GridCapture` holds no garbage-collected pointers (see the empty `Trace` impl).
     unsafe { NativeFunction::from_closure_with_captures(function, capture) }

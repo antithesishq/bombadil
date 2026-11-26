@@ -1,17 +1,12 @@
 //! Terminal traces: `trace.bin` files (see [`bombadil_trace`]) written by
 //! the terminal driver.
-//!
-//! Each state's metadata is a [`TerminalTraceEntry`] (action, cursor, exit
-//! status, extractor snapshots, violations), and its payload is ghostty's
-//! binary snapshot of the whole terminal (`GHOSTSNP`), holding the grid,
-//! scrollback and modes. The payload is left out when no snapshot could be
-//! encoded for that state. Each snapshot carries its own format version,
-//! which ghostty's decoder checks; that format has no cross-version
-//! compatibility guarantee yet.
 
-use std::{collections::BTreeMap, fs::File, io::BufReader, path::Path};
+use std::{
+    collections::BTreeMap, fmt::Write, fs::File, io::BufReader, path::Path,
+    sync::Arc,
+};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use bombadil::shrink::TraceActions;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
@@ -21,24 +16,15 @@ use bombadil::{
     tree::Leaves,
 };
 use bombadil_schema::Time;
-use bombadil_schema::terminal::TerminalSize;
 use bombadil_schema::terminal::{
-    self as schema, TerminalStateSummary, TerminalTraceEntry,
+    self as schema, TerminalAttributes, TerminalCell, TerminalColor,
+    TerminalGrid, TerminalStateSummary, TerminalStyle, TerminalTraceEntry,
+    TerminalUnderline,
 };
 use bombadil_trace::{StateReader, TraceDriver, TraceFileWriter, open_trace};
-use libghostty_vt::{
-    RenderState,
-    fmt::{Extras, Format, Formatter},
-    point::{Coordinate, Point},
-    render::{CellIterator, RowIterator},
-    selection::Selection,
-    terminal::ScrollViewport,
-};
 
 use crate::{
-    driver::{
-        TerminalAction, TerminalActionTemplate, TerminalSession, viewport_grid,
-    },
+    driver::{TerminalAction, TerminalActionTemplate, TerminalSession},
     js::row_text,
     state::TerminalState,
 };
@@ -99,8 +85,10 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
             snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
             violations: violations.iter().map(|v| v.to_schema()).collect(),
         };
-        // The snapshot is shared with the state, not copied.
-        self.0.write_state(entry, state.terminal_snapshot.clone())
+        self.0.write_state(
+            entry,
+            Some(Arc::new(serde_json::to_vec(&state.grid)?)),
+        )
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -149,88 +137,101 @@ pub fn load_trace_actions(
 
 /// Renders the screen of a terminal snapshot as text, one line per row
 /// of the viewport, blank rows included, so screens of consecutive states
-/// line up. The viewport is `scroll_offset` rows from the top of the
-/// scrollback (the state's `scroll_offset`), as the state's properties
-/// saw it, or the bottom (the active screen) if `None`. Trailing
-/// spaces are trimmed from each line. Its colors and styles are ANSI
-/// escape sequences if `color` is set. The text is the terminal's, so
+/// line up. Trailing spaces are trimmed from each line. Its colors and
+/// styles are ANSI escape sequences if `color` is set. The text is the terminal's, so
 /// callers showing it must escape it.
-pub fn render_screen(
-    snapshot: &[u8],
-    scroll_offset: Option<usize>,
-    color: bool,
-) -> Result<Vec<String>> {
-    let render_error =
-        |error| anyhow!("failed to render terminal snapshot: {error}");
-    let mut terminal = libghostty_vt::snapshot::Decoder::new_buf(snapshot)
-        .and_then(|decoder| decoder.decode())
-        .map_err(|error| {
-            anyhow!("failed to decode terminal snapshot: {error}")
-        })?;
-    terminal.scroll_viewport(match scroll_offset {
-        Some(offset) => ScrollViewport::Row(offset),
-        None => ScrollViewport::Bottom,
-    });
-    let (columns, rows) = (
-        terminal.cols().map_err(render_error)?,
-        terminal.rows().map_err(render_error)?,
-    );
-    if !color {
-        // From the cells as the properties saw them: ghostty's plain
-        // formatter leaves out marks on blank cells.
-        let mut render_state = RenderState::new()?;
-        let snapshot = render_state.update(&terminal)?;
-        let grid = viewport_grid(
-            &snapshot,
-            &mut RowIterator::new()?,
-            &mut CellIterator::new()?,
-            TerminalSize { columns, rows },
-        )?;
-        return Ok((0..rows)
-            .map(|y| row_text(&grid, y).trim_end_matches(' ').to_string())
-            .collect());
+pub fn render_screen(snapshot: &[u8], color: bool) -> Result<Vec<String>> {
+    let grid: TerminalGrid = serde_json::from_slice(snapshot)
+        .context("failed to decode terminal viewport")?;
+    if (&grid).into_iter().count() != grid.size.cell_count() as usize {
+        bail!("invalid terminal viewport cell count");
     }
-    let corner = |x, y| {
-        terminal
-            .grid_ref(Point::Viewport(Coordinate { x, y }))
-            .map_err(render_error)
-    };
-    // Row by row: formatting the viewport at once leaves out blank rows
-    // at its top and bottom.
-    (0..u32::from(rows))
+    (0..grid.size.rows)
         .map(|y| {
-            let row =
-                Selection::new(corner(0, y)?, corner(columns - 1, y)?, false);
-            let mut formatter =
-                Formatter::new(&terminal).map_err(render_error)?;
-            formatter
-                .set_format(Format::Vt)?
-                .set_extras(Extras::NONE)?
-                .set_trim(true)?;
-            // SAFETY: Both endpoints came from this terminal's active
-            // screen above, and it cannot change while the formatter lives.
-            unsafe { formatter.set_selection(Some(&row)) }
-                .map_err(render_error)?;
-            let line = formatter.format_alloc(None).map_err(render_error)?;
-            let mut line = String::from_utf8_lossy(&line).into_owned();
-            // VT formatting emits cell hyperlinks as OSC 8, independently
-            // of the extra cursor hyperlink option. Keep only their text.
-            while let Some(start) = line.find("\x1b]8;") {
-                let Some(end) = line[start..].find("\x1b\\") else {
+            let plain = row_text(&grid, y);
+            if !color {
+                return Ok(plain.trim_end_matches(' ').to_string());
+            }
+            let mut line = String::new();
+            let mut current = TerminalStyle::default();
+            let mut remaining = plain.trim_end_matches(' ').len();
+            for x in 0..grid.size.columns {
+                if remaining == 0 {
                     break;
+                }
+                let (text, style) = match &grid[(y, x)] {
+                    TerminalCell::Occupied {
+                        contents, style, ..
+                    } => (contents.to_string(), style),
+                    TerminalCell::Empty { style } => (" ".to_string(), style),
+                    TerminalCell::Continuation { .. } => continue,
                 };
-                line.replace_range(start..start + end + 2, "");
+                let text = &text[..text.len().min(remaining)];
+                if *style != current {
+                    line.push_str("\x1b[0m");
+                    write_style(&mut line, style)?;
+                    current = style.clone();
+                }
+                line.push_str(text);
+                remaining -= text.len();
+            }
+            if current != TerminalStyle::default() {
+                line.push_str("\x1b[0m");
             }
             Ok(line)
         })
         .collect()
 }
 
+fn write_style(out: &mut String, style: &TerminalStyle) -> std::fmt::Result {
+    for (attribute, code) in [
+        (TerminalAttributes::BOLD, 1),
+        (TerminalAttributes::DIM, 2),
+        (TerminalAttributes::ITALIC, 3),
+        (TerminalAttributes::BLINK, 5),
+        (TerminalAttributes::INVERSE, 7),
+        (TerminalAttributes::INVISIBLE, 8),
+        (TerminalAttributes::STRIKETHROUGH, 9),
+        (TerminalAttributes::OVERLINE, 53),
+    ] {
+        if style.attributes.contains(attribute) {
+            write!(out, "\x1b[{code}m")?;
+        }
+    }
+    let underline = match style.underline {
+        TerminalUnderline::None => 0,
+        TerminalUnderline::Single => 1,
+        TerminalUnderline::Double => 2,
+        TerminalUnderline::Curly => 3,
+        TerminalUnderline::Dotted => 4,
+        TerminalUnderline::Dashed => 5,
+    };
+    if underline != 0 {
+        write!(out, "\x1b[4:{underline}m")?;
+    }
+    for (color, code) in [
+        (&style.foreground_color, 38),
+        (&style.background_color, 48),
+        (&style.underline_color, 58),
+    ] {
+        match color {
+            TerminalColor::None => {}
+            TerminalColor::Palette(index) => {
+                write!(out, "\x1b[{code};5;{index}m")?
+            }
+            TerminalColor::RGB { r, g, b } => {
+                write!(out, "\x1b[{code};2;{r};{g};{b}m")?
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{sync::Arc, time::SystemTime};
+    use std::time::SystemTime;
 
-    use crate::driver::TerminalAction;
+    use crate::driver::{TerminalAction, viewport_grid};
     use crate::{TerminalStrategy, TerminalTestMode};
     use bombadil::model::action_key;
     use bombadil::specification::convert::ToInternal;
@@ -241,22 +242,25 @@ mod tests {
         TerminalCursorVisualStyle, TerminalGrid, TerminalSize,
     };
     use bombadil_trace::{tag, write_envelope, write_record};
+    use libghostty_vt::{
+        RenderState,
+        render::{CellIterator, RowIterator},
+        terminal::ScrollViewport,
+    };
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
 
-    fn state(terminal_snapshot: Option<Vec<u8>>) -> TerminalState {
+    fn state(payload: Option<Vec<u8>>) -> TerminalState {
         let size = TerminalSize {
             columns: 10,
             rows: 2,
         };
         TerminalState {
             timestamp: SystemTime::now(),
-            grid: TerminalGrid::with_size(size),
-            scrollback: TerminalGrid::with_size(TerminalSize {
-                rows: 0,
-                ..size
-            }),
+            grid: payload
+                .map(|bytes| serde_json::from_slice(&bytes).unwrap())
+                .unwrap_or_else(|| TerminalGrid::with_size(size)),
             scroll_offset: 3,
             cursor: TerminalCursor {
                 position: TerminalCursorPosition { column: 5, row: 0 },
@@ -267,22 +271,33 @@ mod tests {
             },
             exit_status: None,
             last_action: None,
-            terminal_snapshot: terminal_snapshot.map(Arc::new),
         }
     }
 
     fn snapshot(input: &[u8]) -> Vec<u8> {
         let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
-        terminal.set_continuation_max_bytes(1024).unwrap();
         terminal.vt_write(input);
-        let mut snapshot = Vec::new();
-        terminal.encode_snapshot(&mut snapshot).unwrap();
-        snapshot
+        capture(&terminal)
+    }
+
+    fn capture(terminal: &libghostty_vt::Terminal<'_, '_>) -> Vec<u8> {
+        let mut render = RenderState::new().unwrap();
+        let snapshot = render.update(terminal).unwrap();
+        let grid = viewport_grid(
+            &snapshot,
+            &mut RowIterator::new().unwrap(),
+            &mut CellIterator::new().unwrap(),
+            TerminalSize {
+                columns: terminal.cols().unwrap(),
+                rows: terminal.rows().unwrap(),
+            },
+        )
+        .unwrap();
+        serde_json::to_vec(&grid).unwrap()
     }
 
     #[test]
     fn test_trace_round_trip() {
-        // End mid-escape-sequence so the snapshot has to carry it.
         let snapshot = snapshot(b"hello\x1b[3");
         let directory = tempfile::tempdir().unwrap();
         let action = TerminalAction::TypeText {
@@ -339,18 +354,20 @@ mod tests {
         );
         assert_eq!(states[0].metadata.state.action_taken, Some(type_text_key));
         assert_eq!(states[1].metadata.state.action_taken, None);
-        assert!(states[1].payload.is_none());
+        assert_eq!(
+            render_screen(states[1].payload.as_ref().unwrap(), false).unwrap(),
+            ["", ""]
+        );
 
         let restored_snapshot = states[0].payload.as_ref().unwrap();
         assert_eq!(restored_snapshot, &snapshot);
-        let mut restored =
-            libghostty_vt::snapshot::Decoder::new_buf(restored_snapshot)
-                .unwrap()
-                .decode()
-                .unwrap();
-        assert_eq!(restored.cursor_x().unwrap(), 5);
-        restored.vt_write(b"1mX");
-        assert_eq!(restored.cursor_x().unwrap(), 6);
+        assert_eq!(
+            render_screen(restored_snapshot, false).unwrap(),
+            ["hello", ""]
+        );
+        let restored: TerminalGrid =
+            serde_json::from_slice(restored_snapshot).unwrap();
+        assert_eq!(restored, state(Some(snapshot)).grid);
     }
 
     /// Written, loaded and reproduced: the action keeps its template,
@@ -485,11 +502,8 @@ mod tests {
     #[test]
     fn test_render_screen() {
         let snapshot = snapshot(b"hello\r\n\x1b[31mred\x1b[0m");
-        assert_eq!(
-            render_screen(&snapshot, Some(0), false).unwrap(),
-            ["hello", "red"]
-        );
-        let colored = render_screen(&snapshot, Some(0), true).unwrap();
+        assert_eq!(render_screen(&snapshot, false).unwrap(), ["hello", "red"]);
+        let colored = render_screen(&snapshot, true).unwrap();
         assert_eq!(colored.len(), 2);
         assert!(
             colored[1].contains("red") && colored[1].contains("\x1b["),
@@ -497,13 +511,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_render_screen_preserves_cell_styles_and_wide_graphemes() {
+        let mut terminal = libghostty_vt::Terminal::new(24, 2).unwrap();
+        terminal.vt_write(
+            "\x1b[1;2;3;5;7;8;9;53;4:3;38;2;11;22;33;48;5;42;58;2;44;55;66mA界e\u{301} B\x1b[0mZ\r\nC\x1b[48;2;7;8;9m \x1b[0mD".as_bytes(),
+        );
+        let payload = capture(&terminal);
+        assert_eq!(
+            render_screen(&payload, false).unwrap(),
+            ["A界e\u{301} BZ", "C D"]
+        );
+        let rendered = render_screen(&payload, true).unwrap().join("\r\n");
+        let mut restored = libghostty_vt::Terminal::new(24, 2).unwrap();
+        restored.vt_write(rendered.as_bytes());
+        let expected: TerminalGrid = serde_json::from_slice(&payload).unwrap();
+        let actual: TerminalGrid =
+            serde_json::from_slice(&capture(&restored)).unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_trace_payload_does_not_grow_with_history() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let mut writer = TerminalTraceWriter::initialize(&path, false).unwrap();
+        let tree = Tree::Leaf {
+            value: TerminalActionTemplate::ScrollUp {},
+        };
+        let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
+        terminal
+            .set_scrollback_max_bytes(Some(usize::MAX))
+            .unwrap()
+            .set_scrollback_max_lines(Some(10_000))
+            .unwrap();
+        for _ in 0..100 {
+            terminal.vt_write(b"\r\nhidden\r\nsame\r\nview");
+            let mut captured = state(Some(capture(&terminal)));
+            captured.scroll_offset =
+                terminal.scrollbar().unwrap().offset as u32;
+            writer
+                .write(&captured, &[], &[], &tree.leaves(), None)
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        let states = open_terminal_trace(&path)
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(states.len(), 100);
+        assert!(
+            states.last().unwrap().metadata.state.scroll_offset
+                > states[0].metadata.state.scroll_offset
+        );
+        let payload = states[0].payload.as_ref().unwrap();
+        assert_eq!(render_screen(payload, false).unwrap(), ["same", "view"]);
+        for state in &states {
+            assert_eq!(state.payload.as_ref().unwrap(), payload);
+        }
+    }
+
+    #[test]
+    fn test_render_screen_rejects_invalid_payloads() {
+        assert!(render_screen(b"GHOSTSNP", false).is_err());
+        for color in [false, true] {
+            assert!(
+                render_screen(
+                    br#"{"size":{"rows":2,"columns":10},"cells":[]}"#,
+                    color
+                )
+                .is_err()
+            );
+        }
+    }
+
     /// Marks on blank cells, which the properties see, are kept.
     #[test]
     fn test_render_screen_keeps_marks_on_blank_cells() {
         let snapshot = snapshot("B: \u{301}|\r\nD: \u{202e}|".as_bytes());
         let screen = ["B: \u{301}|", "D: \u{202e}|"];
-        assert_eq!(render_screen(&snapshot, Some(0), false).unwrap(), screen);
-        let colored = render_screen(&snapshot, Some(0), true).unwrap();
+        assert_eq!(render_screen(&snapshot, false).unwrap(), screen);
+        let colored = render_screen(&snapshot, true).unwrap();
         assert_eq!(colored, screen);
     }
 
@@ -511,34 +599,16 @@ mod tests {
     fn test_render_screen_shows_the_viewport_only() {
         // Two rows of screen below two of scrollback.
         let snapshot = snapshot(b"one\r\ntwo\r\nthree\r\nfour");
-        assert_eq!(
-            render_screen(&snapshot, Some(2), false).unwrap(),
-            ["three", "four"]
-        );
-        assert_eq!(
-            render_screen(&snapshot, Some(1), false).unwrap(),
-            ["two", "three"]
-        );
+        assert_eq!(render_screen(&snapshot, false).unwrap(), ["three", "four"]);
     }
 
-    /// Without a recorded scroll offset, the screen is the active one at
-    /// the bottom of the scrollback, not the top.
     #[test]
-    fn test_render_screen_defaults_to_the_bottom() {
+    fn test_render_screen_keeps_scrolled_viewport() {
         let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
         terminal.vt_write(b"one\r\ntwo\r\nthree\r\nfour");
-        // Scrolled away when encoded, which the snapshot doesn't keep.
         terminal.scroll_viewport(ScrollViewport::Top);
-        let mut snapshot = Vec::new();
-        terminal.encode_snapshot(&mut snapshot).unwrap();
-        assert_eq!(
-            render_screen(&snapshot, None, false).unwrap(),
-            ["three", "four"]
-        );
-        assert_eq!(
-            render_screen(&snapshot, Some(0), false).unwrap(),
-            ["one", "two"]
-        );
+        let snapshot = capture(&terminal);
+        assert_eq!(render_screen(&snapshot, false).unwrap(), ["one", "two"]);
     }
 
     /// Every row of the viewport is a line, blank rows at the top and
@@ -548,14 +618,13 @@ mod tests {
     fn test_render_screen_is_full_height() {
         let mut terminal = libghostty_vt::Terminal::new(6, 6).unwrap();
         terminal.vt_write(b"\r\n a  \r\n\r\nabcdefgh");
-        let mut snapshot = Vec::new();
-        terminal.encode_snapshot(&mut snapshot).unwrap();
+        let snapshot = capture(&terminal);
         let screen = ["", " a", "", "abcdef", "gh", ""];
-        assert_eq!(render_screen(&snapshot, None, false).unwrap(), screen);
-        assert_eq!(render_screen(&snapshot, None, true).unwrap().len(), 6);
+        assert_eq!(render_screen(&snapshot, false).unwrap(), screen);
+        assert_eq!(render_screen(&snapshot, true).unwrap(), screen);
         // Blank.
         let blank = self::snapshot(b"");
-        assert_eq!(render_screen(&blank, None, false).unwrap(), ["", ""]);
+        assert_eq!(render_screen(&blank, false).unwrap(), ["", ""]);
     }
 
     /// A file that isn't a binary trace is reported with its path, and a

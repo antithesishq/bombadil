@@ -205,14 +205,13 @@ fn show_into(
         }
         let screen = match (&state.payload, show_screen) {
             (Some(snapshot), true) => {
-                let scroll_offset = read_scroll_offset(state.metadata.get());
                 Some(if args.json && !args.color {
                     // Escaped as JSON below. With color, the styled text
                     // is filtered as in text mode, so a JSON reader
                     // printing it gets SGR sequences only.
-                    render_screen(snapshot, scroll_offset, false)?
+                    render_screen(snapshot, false)?
                 } else {
-                    printable_screen(snapshot, scroll_offset, args.color)?
+                    printable_screen(snapshot, args.color)?
                 })
             }
             _ => None,
@@ -803,37 +802,15 @@ impl<'de: 'a, 'a> Deserialize<'de> for Members<'a> {
     }
 }
 
-/// The `state.scroll_offset` of a terminal state's metadata: where its
-/// viewport was, in rows from the top of the scrollback. `None` if it
-/// isn't there as a number, so the screen is shown at the bottom (the
-/// active screen) rather than at the top of the scrollback.
-fn read_scroll_offset(json: &str) -> Option<usize> {
-    #[derive(Deserialize)]
-    struct Metadata<'a> {
-        #[serde(borrow)]
-        state: &'a RawValue,
-    }
-    #[derive(Deserialize)]
-    struct State {
-        scroll_offset: usize,
-    }
-    let metadata: Metadata = read_object(json)?;
-    read_object::<State>(metadata.state.get()).map(|state| state.scroll_offset)
-}
-
-/// The screen of a terminal snapshot as lines of text, [`printable`] as
+/// The captured terminal grid as lines of text, [`printable`] as
 /// it is the terminal's text. With `color`, the SGR sequences
 /// (`ESC [ … m`) the renderer styles it with are kept, and nothing else.
-fn printable_screen(
-    snapshot: &[u8],
-    scroll_offset: Option<usize>,
-    color: bool,
-) -> Result<Vec<String>> {
-    let plain = render_screen(snapshot, scroll_offset, false)?;
+fn printable_screen(snapshot: &[u8], color: bool) -> Result<Vec<String>> {
+    let plain = render_screen(snapshot, false)?;
     if !color {
         return Ok(plain.iter().map(|line| printable(line)).collect());
     }
-    let styled = render_screen(snapshot, scroll_offset, true)?;
+    let styled = render_screen(snapshot, true)?;
     if styled.len() != plain.len() {
         bail!("failed to render terminal snapshot: rows differ with color");
     }
@@ -883,20 +860,12 @@ fn sgr_prefix(text: &str) -> Option<&str> {
 }
 
 #[cfg(feature = "terminal")]
-fn render_screen(
-    snapshot: &[u8],
-    scroll_offset: Option<usize>,
-    color: bool,
-) -> Result<Vec<String>> {
-    bombadil_terminal::trace::render_screen(snapshot, scroll_offset, color)
+fn render_screen(snapshot: &[u8], color: bool) -> Result<Vec<String>> {
+    bombadil_terminal::trace::render_screen(snapshot, color)
 }
 
 #[cfg(not(feature = "terminal"))]
-fn render_screen(
-    _snapshot: &[u8],
-    _scroll_offset: Option<usize>,
-    _color: bool,
-) -> Result<Vec<String>> {
+fn render_screen(_snapshot: &[u8], _color: bool) -> Result<Vec<String>> {
     bail!("this build of bombadil has no terminal support")
 }
 
@@ -1959,16 +1928,35 @@ mod tests {
     #[cfg(feature = "terminal")]
     mod screens {
         use super::*;
+        use bombadil_schema::terminal::{
+            TerminalCell, TerminalColor, TerminalGrid, TerminalSize,
+            TerminalStyle,
+        };
 
-        /// A 12×2 terminal's snapshot after `input`, scrolled to the top.
-        fn snapshot(input: &[u8]) -> Vec<u8> {
-            let mut terminal = libghostty_vt::Terminal::new(12, 2).unwrap();
-            terminal.vt_write(input);
-            terminal
-                .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Top);
-            let mut snapshot = Vec::new();
-            terminal.encode_snapshot(&mut snapshot).unwrap();
-            snapshot
+        /// A captured 12×2 viewport, with optional red text on its first row.
+        fn snapshot(rows: [&str; 2], red: bool) -> Vec<u8> {
+            let mut grid = TerminalGrid::with_size(TerminalSize {
+                columns: 12,
+                rows: 2,
+            });
+            for (row, text) in rows.into_iter().enumerate() {
+                for (column, c) in text.chars().enumerate() {
+                    grid[(row as u16, column as u16)] =
+                        TerminalCell::Occupied {
+                            contents: c.to_string().into(),
+                            wide: false,
+                            style: TerminalStyle {
+                                foreground_color: if red && row == 0 {
+                                    TerminalColor::Palette(1)
+                                } else {
+                                    TerminalColor::None
+                                },
+                                ..TerminalStyle::default()
+                            },
+                        };
+                }
+            }
+            serde_json::to_vec(&grid).unwrap()
         }
 
         /// Writes a finished terminal trace of states with these metadata
@@ -2012,11 +2000,12 @@ mod tests {
         }
 
         #[test]
-        fn shows_screens_full_height_at_the_scroll_offset() {
+        fn shows_captured_screens_full_height_without_scrolling_again() {
             let directory = tempfile::tempdir().unwrap();
-            // Three rows of scrollback above the two of the screen.
-            let snapshot = snapshot(b"one\r\ntwo\r\nthree\r\nfour\r\nfive");
-            let blank = self::snapshot(b"");
+            // The viewport was already selected when captured. Metadata
+            // must never select different rows from this payload.
+            let snapshot = snapshot(["three", "four"], false);
+            let blank = self::snapshot(["", ""], false);
             write_screens(
                 directory.path(),
                 &[
@@ -2028,7 +2017,7 @@ mod tests {
                         r#"{"action":null,"state":{"scroll_offset":2}}"#,
                         Some(&snapshot),
                     ),
-                    // Missing or not a number: the bottom.
+                    // Missing or invalid offsets do not change the viewport.
                     (r#"{"action":null}"#, Some(&snapshot)),
                     (
                         r#"{"action":null,"state":{"scroll_offset":"0"}}"#,
@@ -2050,32 +2039,45 @@ mod tests {
                 screens,
                 [
                     "terminal trace",
-                    "       | one",
-                    "       | two",
                     "       | three",
                     "       | four",
+                    "       | three",
                     "       | four",
-                    "       | five",
+                    "       | three",
                     "       | four",
-                    "       | five",
+                    "       | three",
+                    "       | four",
                     "       | ",
                     "       | ",
                     "       (no screen: no terminal snapshot was recorded)",
                 ],
                 "{shown}"
             );
+            for color in [false, true] {
+                let json = output(&TraceArgs {
+                    json: true,
+                    color,
+                    ..screen_args(directory.path())
+                });
+                let states: Vec<Value> = json
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect();
+                for state in &states[1..4] {
+                    assert_eq!(state["screen"], states[0]["screen"]);
+                }
+                assert_eq!(states[1]["metadata"]["state"]["scroll_offset"], 2);
+                assert_eq!(states[4]["screen"], "\n");
+            }
         }
 
         #[test]
         fn escapes_screens() {
             let directory = tempfile::tempdir().unwrap();
-            // Format characters and backslashes in the cells, and a link,
-            // a title and a C1 control that rendering must not pass on.
-            let snapshot = snapshot(
-                "\x1b]0;title\x07\x1b[31ma\u{202e}b\\c\x1b[0m\r\n\
-                 \x1b]8;;http://x\x1b\\d\u{9b}2Je\u{200b}\x1b]8;;\x1b\\"
-                    .as_bytes(),
-            );
+            // Format characters, backslashes and C1 controls in cells
+            // must not pass through, even when styling is enabled.
+            let snapshot =
+                snapshot(["a\u{202e}b\\c", "d\u{9b}2Je\u{200b}"], true);
             write_screens(
                 directory.path(),
                 &[(
@@ -2086,7 +2088,7 @@ mod tests {
             let plain = output(&screen_args(directory.path()));
             assert!(
                 plain.ends_with(
-                    "       | a\\u{202e}b\\\\c\n       | d2Je\\u{200b}\n"
+                    "       | a\\u{202e}b\\\\c\n       | d\\u{9b}2Je\\u{200b}\n"
                 ),
                 "{plain:?}"
             );
@@ -2100,8 +2102,9 @@ mod tests {
             // The styling, and the same escaped text without it.
             assert!(lines[2].contains("\x1b[38;5;1m"), "{colored:?}");
             assert!(lines[2].ends_with("\x1b[0m"), "{colored:?}");
-            for (line, text) in
-                lines[2..].iter().zip(["a\\u{202e}b\\\\c", "d2Je\\u{200b}"])
+            for (line, text) in lines[2..]
+                .iter()
+                .zip(["a\\u{202e}b\\\\c", "d\\u{9b}2Je\\u{200b}"])
             {
                 let mut without_sgr = line.to_string();
                 while let Some(start) = without_sgr.find('\x1b') {
@@ -2134,10 +2137,49 @@ mod tests {
         }
 
         #[test]
+        fn escapes_terminal_commands_in_captured_cells() {
+            let directory = tempfile::tempdir().unwrap();
+            let rows = ["\x1b]0;title\x07", "\x1b[31mx\x1b[2J"];
+            let snapshot = snapshot(rows, true);
+            write_screens(
+                directory.path(),
+                &[(r#"{"action":null}"#, Some(&snapshot))],
+            );
+            // SGR-like cell text must not be mistaken for trusted styles.
+            for color in [false, true] {
+                let shown = output(&TraceArgs {
+                    color,
+                    ..screen_args(directory.path())
+                });
+                assert!(!shown.contains(['\x1b', '\x07']), "{shown:?}");
+                assert!(
+                    shown.ends_with(&format!(
+                        "       | {}\n       | {}\n",
+                        printable(rows[0]),
+                        printable(rows[1])
+                    )),
+                    "{shown:?}"
+                );
+                let json = output(&TraceArgs {
+                    json: true,
+                    color,
+                    ..screen_args(directory.path())
+                });
+                let json: Value =
+                    serde_json::from_str(json.trim_end()).unwrap();
+                let expected = if color {
+                    rows.map(printable).join("\n")
+                } else {
+                    rows.join("\n")
+                };
+                assert_eq!(json["screen"], expected);
+            }
+        }
+
+        #[test]
         fn adds_screens_to_json() {
             let directory = tempfile::tempdir().unwrap();
-            let snapshot =
-                snapshot("\x1b[31mred\u{202e}\x1b[0m\r\nx".as_bytes());
+            let snapshot = snapshot(["red\u{202e}", "x"], true);
             write_screens(
                 directory.path(),
                 &[
