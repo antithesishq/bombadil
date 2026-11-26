@@ -27,6 +27,7 @@ log.workspace = true
 oxc = { workspace = true, features = ["codegen", "semantic", "transformer"] }
 oxc_str.workspace = true
 oxc_traverse.workspace = true
+percent-encoding.workspace = true
 rand.workspace = true
 regex-syntax.workspace = true
 reqwest.workspace = true

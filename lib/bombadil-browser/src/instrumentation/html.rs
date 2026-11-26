@@ -93,7 +93,7 @@ fn transform_inline_scripts(
     let mut blocks = Vec::new();
     for (script_id, text_ids, original, source_type, source_id) in scripts {
         let transformed =
-            instrument_source_code(source_id, &original, source_type)?;
+            instrument_source_code(source_id, &original, source_type, None)?;
         blocks.extend(transformed.blocks);
 
         for text_id in text_ids {

@@ -39,7 +39,7 @@ export function example(a) {
 
 </body></html>
 ---- blocks ----
- 488063581  /page#inline0:2  <top>
- 114450366  /page#inline0:2  <top>
-1391230168  /page#inline1:3  example
-1228362170  /page#inline1:3  example
+ 488063581  /page#inline0:2:7  <top>
+ 114450366  /page#inline0:2:0  <top>
+1391230168  /page#inline1:3:15  example
+1228362170  /page#inline1:3:19  example
