@@ -105,6 +105,9 @@ impl ActionTemplate<FakeAction> for FakeTemplate {
         hasher.write_u8(self.action.0);
         hasher.write_u8(u8::from(self.twin));
     }
+    fn contains(&self, other: &Self) -> bool {
+        self == other
+    }
 }
 
 impl FromGeneratedAction for FakeTemplate {
