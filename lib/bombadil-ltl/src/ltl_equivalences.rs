@@ -210,14 +210,11 @@ fn next_residual(value: &Value<TestDomain>) -> Option<Residual<TestDomain>> {
     }
 }
 
-fn check_equivalence(
-    formula_left: Formula<TestDomain>,
-    formula_right: Formula<TestDomain>,
-    trace: Vec<TraceState>,
-    mode: ValueEqMode,
-) {
-    let current = RefCell::new(0);
-    let mut evaluate_thunk = |thunk: &Thunk, negated| match thunk {
+fn trace_thunks<'a>(
+    trace: &'a [TraceState],
+    current: &'a RefCell<usize>,
+) -> impl FnMut(&Thunk, bool) -> Result<(Formula<TestDomain>, ()), Error> + 'a {
+    move |thunk, negated| match thunk {
         Thunk::Atomic(variable) => {
             let state = &trace[*current.borrow()];
 
@@ -226,13 +223,7 @@ fn check_equivalence(
                 Variable::Y => state.y,
             };
             let value = if negated { !value } else { value };
-            Ok((
-                Formula::Pure {
-                    value,
-                    pretty: format!("{}", value),
-                },
-                (),
-            ))
+            Ok((pure(value), ()))
         }
         Thunk::Subformula(syntax) => {
             let syntax = if negated {
@@ -242,9 +233,18 @@ fn check_equivalence(
             };
             Ok((syntax.nnf(), ()))
         }
-    };
-    let mut evaluator: Evaluator<'_, TestDomain, Error> =
-        Evaluator::new(&mut evaluate_thunk);
+    }
+}
+
+fn check_equivalence(
+    formula_left: Formula<TestDomain>,
+    formula_right: Formula<TestDomain>,
+    trace: Vec<TraceState>,
+    mode: ValueEqMode,
+) {
+    let current = RefCell::new(0);
+    let mut evaluate_thunk = trace_thunks(&trace, &current);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
     let mut time = TestTime(0);
 
@@ -268,6 +268,67 @@ fn check_equivalence(
     }
 
     assert_values_eq(value_left, value_right, time, mode);
+}
+
+fn finite_truth(
+    formula: &Formula<TestDomain>,
+    trace: &[TraceState],
+) -> Option<bool> {
+    let current = RefCell::new(0);
+    let mut evaluate_thunk = trace_thunks(trace, &current);
+    let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+    let mut value = evaluator.evaluate(formula, TestTime(0)).unwrap();
+
+    for index in 1..trace.len() {
+        let Value::Residual(residual) = value else {
+            break;
+        };
+        *current.borrow_mut() = index;
+        value = evaluator.step(&residual, TestTime(index as u64)).unwrap();
+    }
+
+    match value {
+        Value::True(_) => Some(true),
+        Value::False(_, _) => Some(false),
+        Value::Residual(residual) => {
+            stop_default(&residual, TestTime(trace.len() as u64 - 1))
+                .map(|default| matches!(default, StopDefault::True(_)))
+        }
+    }
+}
+
+fn check_finite_equivalence(
+    formula_left: &Formula<TestDomain>,
+    formula_right: &Formula<TestDomain>,
+    trace: &[TraceState],
+) {
+    let left = finite_truth(formula_left, trace);
+    let right = finite_truth(formula_right, trace);
+    assert!(
+        left.is_some() && left == right,
+        "Left: {formula_left:?} => {left:?}\nRight: {formula_right:?} => {right:?}\nTrace: {trace:?}",
+    );
+}
+
+fn pure(value: bool) -> Formula<TestDomain> {
+    Formula::Pure {
+        value,
+        pretty: value.to_string(),
+    }
+}
+
+fn true_until(formula: Formula<TestDomain>) -> Formula<TestDomain> {
+    Formula::Until(Box::new(pure(true)), Box::new(formula))
+}
+
+fn complement(formula: Formula<TestDomain>) -> Formula<TestDomain> {
+    Formula::Implies(Box::new(formula), Box::new(pure(false)))
+}
+
+fn check_always_as_until(p: Formula<TestDomain>, trace: &[TraceState]) {
+    let always = Formula::Always(Box::new(p.clone()), None);
+    let dual = complement(true_until(complement(p)));
+    check_finite_equivalence(&always, &dual, trace);
 }
 
 // Properties organically sourced from: https://en.wikipedia.org/wiki/Linear_temporal_logic
@@ -443,4 +504,41 @@ fn test_always_idempotency(tc: TestCase) {
         trace,
         ValueEqMode::UpToViolations,
     );
+}
+
+#[hegel::test]
+fn test_eventually_as_until(tc: TestCase) {
+    let p = tc.draw(syntax().print_as_debug()).nnf();
+    let trace = tc.draw(trace().print_as_debug());
+
+    let eventually = Formula::Eventually(Box::new(p.clone()), None);
+    let until = true_until(p);
+    check_finite_equivalence(&eventually, &until, &trace);
+}
+
+#[hegel::test]
+fn test_always_as_until(tc: TestCase) {
+    let p = tc.draw(syntax().print_as_debug()).nnf();
+    let trace = tc.draw(trace().print_as_debug());
+
+    check_always_as_until(p, &trace);
+}
+
+#[test]
+fn test_always_as_until_at_last_state() {
+    let p = Formula::Next(Box::new(pure(false)));
+    let trace = [TraceState { x: false, y: false }];
+
+    check_always_as_until(p, &trace);
+}
+
+#[hegel::test]
+fn test_until_right_nesting(tc: TestCase) {
+    let p = tc.draw(syntax().print_as_debug()).nnf();
+    let q = tc.draw(syntax().print_as_debug()).nnf();
+    let trace = tc.draw(trace().print_as_debug());
+
+    let until = Formula::Until(Box::new(p.clone()), Box::new(q));
+    let nested = Formula::Until(Box::new(p), Box::new(until.clone()));
+    check_finite_equivalence(&until, &nested, &trace);
 }
