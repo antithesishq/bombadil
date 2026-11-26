@@ -264,6 +264,10 @@ pub enum BrowserAction {
         #[deprecated]
         delay_millis: Option<u64>,
     },
+    Hover {
+        fingerprint: Fingerprint,
+        point: Point,
+    },
     TypeText {
         text: String,
         #[deprecated]
