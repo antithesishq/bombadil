@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -46,6 +47,13 @@ pub trait InterfaceDriver {
 
 pub trait RunState {
     fn timestamp(&self) -> Time;
+
+    /// Named 64-bit hashes of the state, as the driver defines them. Each is
+    /// equal for two states when the hashed part of the state is.
+    fn hashes(&self) -> &BTreeMap<String, u64> {
+        static NONE: BTreeMap<String, u64> = BTreeMap::new();
+        &NONE
+    }
 }
 
 pub trait ActionTemplate<Action> {
