@@ -36,7 +36,7 @@ use bombadil::{
 };
 use bombadil_browser::{
     browser::actions::{BrowserAction, BrowserActionTemplate},
-    browser_options::{BrowserOptions, Emulation},
+    browser_options::{BrowserOptions, Emulation, VirtualTimePolicy},
     chromium::{self, LaunchOptions},
     convert::ToSchema,
     cookie::BrowserCookie,
@@ -112,6 +112,7 @@ struct BrowserIntegrationTest<'a> {
     file_origin: bool,
     blocks_hit_expected: bool,
     requires_full_browser: bool,
+    virtual_time_policy: Option<VirtualTimePolicy>,
 }
 
 impl<'a> BrowserIntegrationTest<'a> {
@@ -134,6 +135,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             file_origin: false,
             blocks_hit_expected: false,
             requires_full_browser: false,
+            virtual_time_policy: Some(VirtualTimePolicy::Advance),
         }
     }
 
@@ -206,6 +208,14 @@ impl<'a> BrowserIntegrationTest<'a> {
         self
     }
 
+    fn virtual_time_policy(
+        mut self,
+        virtual_time_policy: Option<VirtualTimePolicy>,
+    ) -> Self {
+        self.virtual_time_policy = virtual_time_policy;
+        self
+    }
+
     fn fixture_directory(name: &str) -> String {
         format!("{}/tests/{name}", env!("CARGO_MANIFEST_DIR"))
     }
@@ -235,6 +245,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             file_origin,
             blocks_hit_expected,
             requires_full_browser,
+            virtual_time_policy,
         } = self;
         setup();
         let _guard = acquire();
@@ -418,9 +429,7 @@ impl<'a> BrowserIntegrationTest<'a> {
             grant_permissions,
             extra_headers,
             cookies,
-            virtual_time_policy: Some(
-                bombadil_browser::browser_options::VirtualTimePolicy::Advance,
-            ),
+            virtual_time_policy,
         };
         let debugger_options = DebuggerOptions::Managed {
             launch_options: LaunchOptions {
@@ -1147,6 +1156,32 @@ const outputText = extract((state) => {
 export const moduleLoaded = now(() => {
   return outputText.current === "External ES module loaded successfully";
 });
+"##,
+        )
+        .run();
+}
+
+#[test]
+fn test_service_worker() {
+    BrowserIntegrationTest::new("service-worker")
+        .time_limit(Duration::from_secs(10))
+        // A worker that fetches during install never activates under
+        // virtual time.
+        .virtual_time_policy(None)
+        .expect_blocks_hit()
+        .specification(
+            r##"
+import { eventually } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const count = extract((state) =>
+  Number(state.document.querySelector("#count")?.textContent)
+);
+
+export const scriptHandlesClicks = eventually(
+  () => count.current > 0
+).within(8, "seconds");
 "##,
         )
         .run();
