@@ -138,6 +138,15 @@ The browser defaults include properties checking for uncaught exceptions,
 unhandled promise rejections, error logs, HTTP 4xx and 5xx responses, and more.
 On the actions side, there are generators for general navigation and
 interaction with semantic HTML elements.
+
+There is also a `mediaBand` extractor, which is not part of the defaults. It
+is the number of width thresholds in the page's own media queries that the
+viewport is past, so it changes at the breakpoints of the application under
+test:
+
+```typescript
+import { mediaBand } from "@antithesishq/bombadil/browser/defaults/extractors";
+```
 :::
 
 ::: terminal
