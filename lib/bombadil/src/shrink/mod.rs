@@ -379,6 +379,7 @@ where
                 &mut strategy,
                 verifier,
                 &mut writer,
+                None,
                 self.interrupted.clone(),
             )
             // The runner finishes the writer, so the trace is complete

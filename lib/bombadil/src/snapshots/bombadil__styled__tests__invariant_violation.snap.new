@@ -1,0 +1,6 @@
+---
+source: lib/bombadil/src/styled.rs
+assertion_line: 416
+expression: render_violation(&violation)
+---
+as of 00:00.000, it should always be the case that count.current <= 5, however at 05:05.000, count = 6
