@@ -167,10 +167,12 @@ pub fn render_screen(
         .map_err(|error| {
             anyhow!("failed to decode terminal snapshot: {error}")
         })?;
-    terminal.scroll_viewport(match scroll_offset {
-        Some(offset) => ScrollViewport::Row(offset),
-        None => ScrollViewport::Bottom,
-    });
+    terminal
+        .scroll_viewport(match scroll_offset {
+            Some(offset) => ScrollViewport::Row(offset),
+            None => ScrollViewport::Bottom,
+        })
+        .map_err(render_error)?;
     let (columns, rows) = (
         terminal.cols().map_err(render_error)?,
         terminal.rows().map_err(render_error)?,
@@ -199,18 +201,19 @@ pub fn render_screen(
     // at its top and bottom.
     (0..u32::from(rows))
         .map(|y| {
-            let row =
-                Selection::new(corner(0, y)?, corner(columns - 1, y)?, false);
+            let row = Selection::new(
+                &terminal,
+                corner(0, y)?,
+                corner(columns - 1, y)?,
+                false,
+            );
             let mut formatter =
                 Formatter::new(&terminal).map_err(render_error)?;
             formatter
                 .set_format(Format::Vt)?
                 .set_extras(Extras::NONE)?
                 .set_trim(true)?;
-            // SAFETY: Both endpoints came from this terminal's active
-            // screen above, and it cannot change while the formatter lives.
-            unsafe { formatter.set_selection(Some(&row)) }
-                .map_err(render_error)?;
+            formatter.set_selection(Some(row)).map_err(render_error)?;
             let line = formatter.format_alloc(None).map_err(render_error)?;
             let mut line = String::from_utf8_lossy(&line).into_owned();
             // VT formatting emits cell hyperlinks as OSC 8, independently
@@ -528,7 +531,7 @@ mod tests {
         let mut terminal = libghostty_vt::Terminal::new(10, 2).unwrap();
         terminal.vt_write(b"one\r\ntwo\r\nthree\r\nfour");
         // Scrolled away when encoded, which the snapshot doesn't keep.
-        terminal.scroll_viewport(ScrollViewport::Top);
+        terminal.scroll_viewport(ScrollViewport::Top).unwrap();
         let mut snapshot = Vec::new();
         terminal.encode_snapshot(&mut snapshot).unwrap();
         assert_eq!(

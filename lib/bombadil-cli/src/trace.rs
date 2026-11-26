@@ -1965,7 +1965,8 @@ mod tests {
             let mut terminal = libghostty_vt::Terminal::new(12, 2).unwrap();
             terminal.vt_write(input);
             terminal
-                .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Top);
+                .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Top)
+                .unwrap();
             let mut snapshot = Vec::new();
             terminal.encode_snapshot(&mut snapshot).unwrap();
             snapshot

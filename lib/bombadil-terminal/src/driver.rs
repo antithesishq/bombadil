@@ -26,12 +26,9 @@ use libghostty_vt::style as ghostty_style;
 use libghostty_vt::{
     RenderState, Terminal,
     color::{PaletteIndex, Rgb},
-    render::{
-        CellIterator, CursorVisualStyle as GhosttyCursorVisualStyle,
-        RowIterator, Snapshot as GhosttyRenderSnapshot,
-    },
+    render::{CellIterator, RowIterator, Snapshot as GhosttyRenderSnapshot},
     screen::{CellContentTag, CellWide, cell},
-    terminal::ScrollViewport,
+    terminal::{CursorStyle as GhosttyCursorVisualStyle, ScrollViewport},
 };
 use serde::{Deserialize, Serialize};
 use small_string::SmallString;
@@ -571,10 +568,10 @@ impl InterfaceSession for TerminalSession {
                 self.process.borrow_mut().resize(*size)?;
             }
             TerminalAction::ScrollUp {} => {
-                self.terminal.scroll_viewport(ScrollViewport::Top);
+                self.terminal.scroll_viewport(ScrollViewport::Top)?;
             }
             TerminalAction::ScrollDown {} => {
-                self.terminal.scroll_viewport(ScrollViewport::Bottom);
+                self.terminal.scroll_viewport(ScrollViewport::Bottom)?;
             }
             TerminalAction::Click { row, column } => {
                 self.process.borrow_mut().write(
@@ -643,7 +640,7 @@ pub(crate) fn viewport_grid<'alloc>(
                 // nothing renders here.
                 CellWide::SpacerHead => TerminalCell::Empty { style },
                 kind => {
-                    if codepoint == 0 {
+                    if codepoint == '\0' {
                         TerminalCell::Empty { style }
                     } else {
                         let contents = if cluster {
@@ -653,11 +650,7 @@ pub(crate) fn viewport_grid<'alloc>(
                             cell_iter.graphemes_buf(&mut contents[..])?;
                             contents
                         } else {
-                            SmallString::from(
-                                &[char::from_u32(codepoint).ok_or_else(
-                                    || anyhow!("invalid terminal codepoint"),
-                                )?][..],
-                            )
+                            SmallString::from(&[codepoint][..])
                         };
                         TerminalCell::Occupied {
                             contents,
