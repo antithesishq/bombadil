@@ -6,7 +6,6 @@ edition.workspace = true
 [dependencies]
 antithesis_sdk.workspace = true
 anyhow.workspace = true
-boa_engine.workspace = true
 bombadil = { path = "../bombadil" }
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-trace = { path = "../bombadil-trace" }
@@ -17,6 +16,7 @@ log.workspace = true
 owo-colors.workspace = true
 portable-pty.workspace = true
 rand.workspace = true
+rquickjs.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 small-string = { path = "../small-string" }

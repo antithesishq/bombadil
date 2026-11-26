@@ -11,7 +11,6 @@ path = "src/lib.rs"
 antithesis_sdk = { workspace = true }
 antithesis-fuzzer = { path = "../antithesis-fuzzer" }
 anyhow = { workspace = true, features = ["backtrace"] }
-boa_engine.workspace = true
 bombadil-schema = { path = "../bombadil-schema" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-trace = { path = "../bombadil-trace" }
@@ -30,6 +29,7 @@ rand_distr.workspace = true
 rand_regex.workspace = true
 regex.workspace = true
 regex-syntax.workspace = true
+rquickjs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 stdx = { path = "../stdx" }

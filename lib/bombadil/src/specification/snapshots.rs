@@ -1,36 +1,32 @@
-use boa_engine::{
-    Context, JsValue, js_string, object::builtins::JsArray, value::TryFromJs,
-};
+use rquickjs::{Array, Ctx, Value, function::This};
 
 use crate::specification::js::BombadilExports;
-use crate::specification::result::{Result, SpecificationError};
+use crate::specification::result::{JsResultExt, Result, SpecificationError};
 
-pub fn with_snapshot_tracking<R>(
-    context: &mut Context,
+pub fn with_snapshot_tracking<'js, R>(
+    ctx: &Ctx<'js>,
     bombadil_exports: &BombadilExports,
-    f: impl FnOnce(&mut Context) -> Result<R>,
-) -> Result<(JsArray, R)> {
-    let runtime = bombadil_exports.runtime.clone();
+    f: impl FnOnce(&Ctx<'js>) -> Result<R>,
+) -> Result<(Vec<usize>, R)> {
+    let runtime = bombadil_exports.runtime.clone().restore(ctx).js(ctx)?;
 
-    let start = runtime
-        .get(js_string!("startTracking"), context)?
-        .as_callable()
-        .ok_or(SpecificationError::OtherError(
-            "startTracking is not callable".to_string(),
-        ))?;
+    let start = runtime.get::<_, Value>("startTracking").js(ctx)?;
+    let start = start.as_function().ok_or(SpecificationError::OtherError(
+        "startTracking is not callable".to_string(),
+    ))?;
 
-    let stop = runtime
-        .get(js_string!("stopTracking"), context)?
-        .as_callable()
-        .ok_or(SpecificationError::OtherError(
-            "stopTracking is not callable".to_string(),
-        ))?;
+    let stop = runtime.get::<_, Value>("stopTracking").js(ctx)?;
+    let stop = stop.as_function().ok_or(SpecificationError::OtherError(
+        "stopTracking is not callable".to_string(),
+    ))?;
 
-    start.call(&JsValue::from(runtime.clone()), &[], context)?;
-    let result = f(context);
-    let accesses_js =
-        stop.call(&JsValue::from(runtime.clone()), &[], context)?;
-    let indices = JsArray::try_from_js(&accesses_js, context)?;
+    start.call::<_, Value>((This(runtime.clone()),)).js(ctx)?;
+    let result = f(ctx);
+    let accesses = stop.call::<_, Value>((This(runtime.clone()),)).js(ctx)?;
+    let accesses = Array::from_value(accesses).js(ctx)?;
+    let indices = (0..accesses.len())
+        .map(|i| accesses.get::<usize>(i).js(ctx))
+        .collect::<Result<Vec<usize>>>()?;
 
     Ok((indices, result?))
 }

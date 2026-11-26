@@ -96,8 +96,38 @@ fn module_key_to_relative_path(key: &ModuleKey, base: &Path) -> String {
     }
 }
 
+fn file_module_source(contents: &[u8]) -> String {
+    use std::fmt::Write;
+
+    let mut source = String::with_capacity(contents.len() * 4 + 48);
+    source.push_str("module.exports.default = (new Uint8Array([");
+    for byte in contents {
+        write!(source, "{},", byte).unwrap();
+    }
+    source.push_str("])).buffer;");
+    source
+}
+
+const BUNDLER_STACK_SIZE: usize = 256 * 1024 * 1024;
+
 pub fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
     let path = path.as_ref();
+    std::thread::scope(|scope| {
+        let worker = std::thread::Builder::new()
+            .name("bombadil-bundler".into())
+            .stack_size(BUNDLER_STACK_SIZE)
+            .spawn_scoped(scope, || bundle_on_current_thread(path, specifier))
+            .map_err(|error| {
+                anyhow::anyhow!("failed to spawn bundler thread: {error}")
+            })?;
+        match worker.join() {
+            Ok(result) => result,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    })
+}
+
+fn bundle_on_current_thread(path: &Path, specifier: &str) -> Result<String> {
     let canonical_path = path.canonicalize()?;
     let resolver = Resolver::new_with_cwd(canonical_path.clone());
     let allocator = Allocator::default();
@@ -320,14 +350,8 @@ pub fn bundle(path: impl AsRef<Path>, specifier: &str) -> Result<String> {
                 }
             }
             ModuleContents::File(contents) => {
-                // Boa doesn't yet support ArrayBuffer.fromBase64, so we'll have to use this
-                // less space-efficient encoding.
-                bundle
-                    .push_str("    module.exports.default = (new Uint8Array([");
-                for byte in contents {
-                    bundle.push_str(&format!("{},", byte));
-                }
-                bundle.push_str("])).buffer;");
+                bundle.push_str("    ");
+                bundle.push_str(&file_module_source(contents));
                 bundle.push('\n');
             }
         }
@@ -1026,9 +1050,12 @@ mod tests {
     fn test_extractor_names_at_runtime() {
         use std::io::Write;
 
-        use boa_engine::{Context, Source};
+        use rquickjs::Value;
         use serde_json::json;
         use tempfile::NamedTempFile;
+
+        use crate::specification::engine::Engine;
+        use crate::specification::result::JsResultExt;
 
         let mut spec_file = NamedTempFile::with_suffix(".ts").unwrap();
         spec_file
@@ -1065,17 +1092,24 @@ const getters = (() => ({
         let bundle =
             bundle(".", &spec_file.path().display().to_string()).unwrap();
 
-        let mut context = Context::default();
-        context.eval(Source::from_bytes(&bundle)).unwrap();
-        let snapshots = context
-            .eval(Source::from_bytes(
-                r#"__bombadilRequire("@antithesishq/bombadil").runtime
+        let engine = Engine::new().unwrap();
+        let snapshots = engine.context.with(|ctx| {
+            ctx.eval::<Value, _>(bundle.as_str()).js(&ctx).unwrap();
+            let result: Value = ctx
+                .eval(
+                    r#"__bombadilRequire("@antithesishq/bombadil").runtime
                     .runExtractors({ count: 3 })
                     .map(({ name, value }) => [name, value])"#,
-            ))
-            .unwrap()
-            .to_json(&mut context)
-            .unwrap();
+                )
+                .js(&ctx)
+                .unwrap();
+            ctx.json_stringify(result).js(&ctx).unwrap().map(|text| {
+                serde_json::from_str::<serde_json::Value>(
+                    &text.to_string().unwrap(),
+                )
+                .unwrap()
+            })
+        });
 
         assert_eq!(
             snapshots,
@@ -1111,5 +1145,26 @@ const getters = (() => ({
             bundle.contains("new Uint8Array(["),
             "Binary import should produce Uint8Array"
         );
+    }
+
+    #[test]
+    fn test_file_module_round_trips_bytes() {
+        use crate::specification::engine::Engine;
+        use crate::specification::result::JsResultExt;
+
+        let all_bytes: Vec<u8> = (0..=255).collect();
+        for contents in [all_bytes.as_slice(), &[][..]] {
+            let source = file_module_source(contents);
+            let engine = Engine::new().unwrap();
+            let decoded: Vec<u8> = engine.context.with(|ctx| {
+                let expr = format!(
+                    "(() => {{ const module = {{ exports: {{}} }}; {source} \
+                     return Array.from(new Uint8Array(module.exports.default)); \
+                     }})()"
+                );
+                ctx.eval::<Vec<u8>, _>(expr).js(&ctx).unwrap()
+            });
+            assert_eq!(decoded, contents);
+        }
     }
 }

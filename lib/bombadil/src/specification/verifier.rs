@@ -1,20 +1,19 @@
 use std::collections::HashMap;
 
 use crate::driver::FromGeneratedAction;
+use crate::specification::engine::{Engine, display_value, to_json, type_of};
 use crate::specification::js::{
     BombadilExports, Extractors, RuntimeFunction, syntax_from_value,
 };
-use crate::specification::result::{Result, SpecificationError};
+use crate::specification::result::{JsResultExt, Result, SpecificationError};
 use crate::specification::snapshots::with_snapshot_tracking;
 use crate::tree::Tree;
-use boa_engine::{
-    Context, JsString, NativeFunction, Source, context::ContextBuilder,
-    js_string, object::builtins::JsArray, property::PropertyKey,
-};
-use boa_engine::{JsObject, JsValue, value::TryFromJs};
 use bombadil_ltl::eval::{self, Evaluator};
 use bombadil_ltl::formula::Formula;
 use bombadil_ltl::syntax::Syntax;
+use rquickjs::{
+    Ctx, Function, Persistent, Symbol, Value, function::This, object::Filter,
+};
 use serde_json as json;
 
 use crate::specification::domain::{BombadilDomain, Snapshot, UniqueSnapshots};
@@ -42,12 +41,19 @@ impl<A> StepResult<'_, A> {
     }
 }
 
+type LoadedSpecification = (
+    HashMap<String, Property>,
+    HashMap<String, ActionGenerator>,
+    Extractors,
+    BombadilExports,
+);
+
 pub struct Verifier {
-    context: Context,
-    bombadil_exports: BombadilExports,
     properties: HashMap<String, Property>,
     action_generators: HashMap<String, ActionGenerator>,
     extractors: Extractors,
+    bombadil_exports: BombadilExports,
+    engine: Engine,
 }
 
 #[derive(Clone)]
@@ -55,200 +61,178 @@ pub struct Specification {
     pub module_specifier: String,
 }
 
-fn format_console_args(args: &[JsValue]) -> String {
-    args.iter()
-        .map(|v| match v.as_string() {
-            Some(s) => s.to_std_string_escaped(),
-            None => v.display().to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 impl Verifier {
     pub fn new(bundle_code: &str) -> Result<Self> {
-        let mut context = ContextBuilder::default()
-            .build()
+        let engine = Engine::new()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
 
-        // Add console object for compatibility with libraries that use console
-        let console_obj =
-            boa_engine::object::ObjectInitializer::new(&mut context)
-                .function(
-                    NativeFunction::from_copy_closure(
-                        |_this, args, _context| {
-                            log::info!("{}", format_console_args(args));
-                            Ok(JsValue::undefined())
-                        },
-                    ),
-                    js_string!("log"),
-                    0,
-                )
-                .function(
-                    NativeFunction::from_copy_closure(
-                        |_this, args, _context| {
-                            log::warn!("{}", format_console_args(args));
-                            Ok(JsValue::undefined())
-                        },
-                    ),
-                    js_string!("warn"),
-                    0,
-                )
-                .function(
-                    NativeFunction::from_copy_closure(
-                        |_this, args, _context| {
-                            log::error!("{}", format_console_args(args));
-                            Ok(JsValue::undefined())
-                        },
-                    ),
-                    js_string!("error"),
-                    0,
-                )
-                .build();
-        context
-            .register_global_property(
-                js_string!("console"),
-                console_obj,
-                boa_engine::property::Attribute::all(),
-            )
-            .map_err(|e| {
-                SpecificationError::JS(format!(
-                    "Failed to register console: {}",
-                    e
-                ))
-            })?;
+        let (properties, action_generators, extractors, bombadil_exports) =
+            engine.context.with(
+                |ctx| -> Result<LoadedSpecification> {
+                    let specification_exports_value =
+                        ctx.eval::<Value, _>(bundle_code).js(&ctx)?;
+                    let specification_exports = specification_exports_value
+                        .as_object()
+                        .ok_or(SpecificationError::OtherError(
+                            "specification exports is not an object".to_string(),
+                        ))?;
 
-        let specification_exports_value =
-            context.eval(Source::from_bytes(bundle_code))?;
-        let specification_exports_obj = specification_exports_value
-            .as_object()
-            .ok_or(SpecificationError::OtherError(
-                "specification exports is not an object".to_string(),
-            ))?;
+                    let require_value =
+                        ctx.globals().get::<_, Value>("__bombadilRequire").js(&ctx)?;
+                    let require_fn = require_value.as_function().ok_or(
+                        SpecificationError::OtherError(
+                            "__bombadilRequire is not a function".to_string(),
+                        ),
+                    )?;
 
-        let require_fn = context
-            .global_object()
-            .get(js_string!("__bombadilRequire"), &mut context)?
-            .as_callable()
-            .ok_or(SpecificationError::OtherError(
-                "__bombadilRequire is not a function".to_string(),
-            ))?;
+                    let bombadil_exports_value = require_fn
+                        .call::<_, Value>(("@antithesishq/bombadil",))
+                        .js(&ctx)?;
+                    let bombadil_exports_obj = bombadil_exports_value
+                        .as_object()
+                        .ok_or(SpecificationError::OtherError(
+                            "bombadil exports is not an object".to_string(),
+                        ))?;
 
-        let bombadil_exports_value = require_fn.call(
-            &JsValue::undefined(),
-            &[js_string!("@antithesishq/bombadil").into()],
-            &mut context,
-        )?;
-        let bombadil_exports_obj = bombadil_exports_value.as_object().ok_or(
-            SpecificationError::OtherError(
-                "bombadil exports is not an object".to_string(),
-            ),
-        )?;
+                    let bombadil_exports =
+                        BombadilExports::from_object(bombadil_exports_obj, &ctx)?;
 
-        let bombadil_exports =
-            BombadilExports::from_object(&bombadil_exports_obj, &mut context)?;
+                    let formula_class =
+                        bombadil_exports.formula.clone().restore(&ctx).js(&ctx)?;
+                    let action_generator_class = bombadil_exports
+                        .action_generator
+                        .clone()
+                        .restore(&ctx)
+                        .js(&ctx)?;
+                    let instance_of = ctx
+                        .eval::<Function, _>(
+                            "(value, ctor) => value instanceof ctor",
+                        )
+                        .js(&ctx)?;
 
-        let specification_export_keys =
-            specification_exports_obj.own_property_keys(&mut context)?;
+                    let mut properties: HashMap<String, Property> =
+                        HashMap::new();
+                    let mut action_generators: HashMap<String, ActionGenerator> =
+                        HashMap::new();
+                    for key in specification_exports
+                        .own_keys::<Value>(Filter::new().string().symbol())
+                    {
+                        let key = key.js(&ctx)?;
+                        let name = key_name(&key);
+                        let value =
+                            specification_exports.get::<_, Value>(key.clone()).js(&ctx)?;
+                        if is_instance(&instance_of, &value, &formula_class, &ctx)? {
+                            let syntax =
+                                syntax_from_value(&value, &bombadil_exports, &ctx)?;
+                            let formula = syntax.nnf();
+                            properties.insert(
+                                name.clone(),
+                                Property {
+                                    name,
+                                    state: PropertyState::Initial(formula),
+                                },
+                            );
+                        } else if is_instance(
+                            &instance_of,
+                            &value,
+                            &action_generator_class,
+                            &ctx,
+                        )? {
+                            let object = value.as_object().ok_or(
+                                SpecificationError::OtherError(format!(
+                                    "action generator {} is not an object, it is {}",
+                                    name,
+                                    type_of(&value)
+                                )),
+                            )?;
+                            let generate =
+                                object.get::<_, Value>("generate").js(&ctx)?;
+                            let function = generate.as_function().ok_or(
+                                SpecificationError::OtherError(format!(
+                                    "action {} is not a function, it is {}",
+                                    name,
+                                    type_of(&value)
+                                )),
+                            )?;
+                            action_generators.insert(
+                                name.clone(),
+                                ActionGenerator {
+                                    name,
+                                    this: Persistent::save(&ctx, value.clone()),
+                                    function: Persistent::save(
+                                        &ctx,
+                                        function.clone(),
+                                    ),
+                                },
+                            );
+                        } else if symbol_description(&key).is_some_and(|description| {
+                            IGNORED_SYMBOL_EXPORTS.contains(&description.as_str())
+                        }) || IGNORED_STRING_EXPORTS.contains(&name.as_str()) {
+                            continue;
+                        } else {
+                            return Err(SpecificationError::OtherError(format!(
+                                "export {:?} is of unknown type ({}): {}",
+                                name,
+                                type_of(&value),
+                                display_value(&value)
+                            )));
+                        }
+                    }
 
-        let mut properties: HashMap<String, Property> = HashMap::new();
-        let mut action_generators: HashMap<String, ActionGenerator> =
-            HashMap::new();
-        for key in specification_export_keys {
-            let value =
-                specification_exports_obj.get(key.clone(), &mut context)?;
-            if value.instance_of(&bombadil_exports.formula, &mut context)? {
-                let syntax =
-                    syntax_from_value(&value, &bombadil_exports, &mut context)?;
-                let formula = syntax.nnf();
-                properties.insert(
-                    key.to_string(),
-                    Property {
-                        name: key.to_string(),
-                        state: PropertyState::Initial(formula),
-                    },
-                );
-            } else if value
-                .instance_of(&bombadil_exports.action_generator, &mut context)?
-            {
-                let object = value.as_object().ok_or(
-                    SpecificationError::OtherError(format!(
-                        "action generator {} is not an object, it is {}",
-                        key,
-                        value.type_of()
-                    )),
-                )?;
-                let function = object
-                    .get(js_string!("generate"), &mut context)
-                    .map_err(|error| SpecificationError::JS(error.to_string()))?
-                    .as_object()
-                    .ok_or(SpecificationError::OtherError(format!(
-                        "action {} is not a function, it is {}",
-                        key,
-                        value.type_of()
-                    )))?;
-                action_generators.insert(
-                    key.to_string(),
-                    ActionGenerator {
-                        name: key.to_string(),
-                        this: value.clone(),
-                        function,
-                    },
-                );
-            } else if let PropertyKey::Symbol(ref symbol) = key
-                && let Some(description) = symbol.description()
-                && IGNORED_SYMBOL_EXPORTS.contains(&description)
-            {
-                continue;
-            } else if IGNORED_STRING_EXPORTS.contains(&key.to_string().as_str())
-            {
-                continue;
-            } else {
-                return Err(SpecificationError::OtherError(format!(
-                    "export {:?} is of unknown type ({}): {}",
-                    key.to_string(),
-                    value.type_of(),
-                    value.display()
-                )));
-            }
-        }
+                    if action_generators.is_empty() {
+                        return Err(SpecificationError::OtherError(
+                            "specification exports no action generators".to_string(),
+                        ));
+                    }
 
-        if action_generators.is_empty() {
-            return Err(SpecificationError::OtherError(
-                "specification exports no action generators".to_string(),
-            ));
-        }
+                    let mut extractors = Extractors::default();
 
-        let mut extractors = Extractors::default();
+                    let runtime =
+                        bombadil_exports.runtime.clone().restore(&ctx).js(&ctx)?;
+                    let extractors_value =
+                        runtime.get::<_, Value>("extractors").js(&ctx)?;
+                    let extractors_object = extractors_value.as_object().ok_or(
+                        SpecificationError::OtherError(format!(
+                            "extractors is not an object, it is {}",
+                            type_of(&extractors_value)
+                        )),
+                    )?;
+                    let extractors_array = extractors_object
+                        .clone()
+                        .into_array()
+                        .ok_or(SpecificationError::OtherError(format!(
+                            "extractors is not an array, it is {}",
+                            type_of(&extractors_value)
+                        )))?;
+                    for i in 0..extractors_array.len() {
+                        let extractor =
+                            extractors_array.get::<Value>(i).js(&ctx)?;
+                        let extractor = extractor.as_object().ok_or(
+                            SpecificationError::OtherError(
+                                "extractor is not an object".to_string(),
+                            ),
+                        )?;
+                        extractors.register(Persistent::save(
+                            &ctx,
+                            extractor.clone(),
+                        ));
+                    }
 
-        let extractors_value = bombadil_exports
-            .runtime
-            .get(js_string!("extractors"), &mut context)?;
-        let extractors_array =
-            JsArray::from_object(extractors_value.as_object().ok_or(
-                SpecificationError::OtherError(format!(
-                    "extractors is not an object, it is {}",
-                    extractors_value.type_of()
-                )),
-            )?)?;
-        let length = extractors_array.length(&mut context)?;
-        for i in 0..length {
-            extractors.register(
-                extractors_array
-                    .at(i as i64, &mut context)?
-                    .as_object()
-                    .ok_or(SpecificationError::OtherError(
-                        "extractor is not an object".to_string(),
-                    ))?,
-            );
-        }
+                    Ok((
+                        properties,
+                        action_generators,
+                        extractors,
+                        bombadil_exports,
+                    ))
+                },
+            )?;
 
         Ok(Verifier {
-            context,
             properties,
             action_generators,
-            bombadil_exports,
             extractors,
+            bombadil_exports,
+            engine,
         })
     }
 
@@ -262,104 +246,139 @@ impl Verifier {
         snapshots: &[Snapshot],
         time: bombadil_schema::Time,
     ) -> Result<StepResult<'_, A>> {
-        self.extractors
-            .update_from_snapshots(snapshots, &mut self.context)?;
-        let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
+        let Verifier {
+            properties,
+            action_generators,
+            extractors,
+            bombadil_exports,
+            engine,
+        } = self;
+        let (action_tree, all_definite) =
+            engine.context.with(|ctx| -> Result<(Tree<A>, bool)> {
+                extractors.update_from_snapshots(snapshots, &ctx)?;
+                let mut generator_branches: Vec<(u16, Tree<A>)> = Vec::new();
 
-        let context = &mut self.context;
-        let mut evaluate_thunk = |function: &RuntimeFunction,
-                                  negated: bool|
-         -> Result<(
-            Formula<BombadilDomain<RuntimeFunction>>,
-            UniqueSnapshots,
-        )> {
-            let (indices, value) = with_snapshot_tracking(
-                context,
-                &self.bombadil_exports,
-                |context| {
-                    function
-                        .object
-                        .call(&JsValue::undefined(), &[], context)
-                        .map_err(Into::into)
-                },
-            )?;
-            let accessed_snapshots: UniqueSnapshots = (0..indices
-                .length(context)?)
-                .map(|i| {
-                    let index = usize::try_from_js(
-                        &indices.at(i as i64, context)?,
-                        context,
+                let mut evaluate_thunk = |function: &RuntimeFunction,
+                                          negated: bool|
+                 -> Result<(
+                    Formula<BombadilDomain<RuntimeFunction>>,
+                    UniqueSnapshots,
+                )> {
+                    let (indices, value) = with_snapshot_tracking(
+                        &ctx,
+                        bombadil_exports,
+                        |ctx| {
+                            let function = function
+                                .function
+                                .clone()
+                                .restore(ctx)
+                                .js(ctx)?;
+                            function.call::<_, Value>(()).js(ctx)
+                        },
                     )?;
-                    Ok(snapshots.get(index).cloned().map(|snapshot| {
-                        ((snapshot.index, snapshot.time), snapshot)
-                    }))
-                })
-                .filter_map(|result: Result<Option<_>>| result.transpose())
-                .collect::<Result<_>>()?;
-            let syntax =
-                syntax_from_value(&value, &self.bombadil_exports, context)?;
-            Ok((
-                (if negated {
-                    Syntax::Not(Box::new(syntax))
-                } else {
-                    syntax
-                })
-                .nnf(),
-                accessed_snapshots,
-            ))
-        };
-        let mut evaluator = Evaluator::new(&mut evaluate_thunk);
+                    let accessed_snapshots: UniqueSnapshots = indices
+                        .iter()
+                        .filter_map(|&index| {
+                            snapshots.get(index).cloned().map(|snapshot| {
+                                ((snapshot.index, snapshot.time), snapshot)
+                            })
+                        })
+                        .collect();
+                    let syntax =
+                        syntax_from_value(&value, bombadil_exports, &ctx)?;
+                    Ok((
+                        (if negated {
+                            Syntax::Not(Box::new(syntax))
+                        } else {
+                            syntax
+                        })
+                        .nnf(),
+                        accessed_snapshots,
+                    ))
+                };
+                let mut evaluator = Evaluator::new(&mut evaluate_thunk);
 
-        for property in self.properties.values_mut() {
-            let value = match &property.state {
-                PropertyState::Initial(formula) => {
-                    evaluator.evaluate(formula, time)?
+                for property in properties.values_mut() {
+                    let value = match &property.state {
+                        PropertyState::Initial(formula) => {
+                            evaluator.evaluate(formula, time)?
+                        }
+                        PropertyState::Evaluated(
+                            eval::Value::Residual(residual)
+                            | eval::Value::False(_, Some(residual)),
+                        ) => evaluator.step(residual, time)?,
+                        PropertyState::Evaluated(_)
+                        | PropertyState::Settled => {
+                            property.state = PropertyState::Settled;
+                            continue;
+                        }
+                    };
+                    property.state = PropertyState::Evaluated(match value {
+                        eval::Value::True(_) => {
+                            eval::Value::True(UniqueSnapshots::default())
+                        }
+                        value => value,
+                    });
                 }
-                PropertyState::Evaluated(
-                    eval::Value::Residual(residual)
-                    | eval::Value::False(_, Some(residual)),
-                ) => evaluator.step(residual, time)?,
-                PropertyState::Evaluated(_) | PropertyState::Settled => {
-                    property.state = PropertyState::Settled;
-                    continue;
+
+                for action_generator in action_generators.values() {
+                    // All exported generators are weighted equally.
+                    generator_branches
+                        .push((1, action_generator.generate(&ctx)?));
                 }
-            };
-            property.state = PropertyState::Evaluated(match value {
-                eval::Value::True(_) => {
-                    eval::Value::True(UniqueSnapshots::default())
-                }
-                value => value,
-            });
-        }
 
-        for action_generator in self.action_generators.values() {
-            // All exported generators are weighted equally.
-            generator_branches.push((1, action_generator.generate(context)?));
-        }
+                let action_tree = Tree::Branch {
+                    branches: generator_branches,
+                };
 
-        let action_tree = Tree::Branch {
-            branches: generator_branches,
-        };
-
-        let all_definite = self.properties.values().all(|p| {
-            matches!(
-                &p.state,
-                PropertyState::Settled
-                    | PropertyState::Evaluated(
-                        eval::Value::True(_) | eval::Value::False(_, None)
+                let all_definite = properties.values().all(|p| {
+                    matches!(
+                        &p.state,
+                        PropertyState::Settled
+                            | PropertyState::Evaluated(
+                                eval::Value::True(_)
+                                    | eval::Value::False(_, None)
+                            )
                     )
-            )
-        });
+                });
+
+                Ok((action_tree, all_definite))
+            })?;
 
         Ok(StepResult {
-            properties: &self.properties,
+            properties,
             actions: action_tree,
             all_definite,
         })
     }
 }
 
-const IGNORED_SYMBOL_EXPORTS: &[JsString] = &[js_string!("Symbol.toStringTag")];
+fn is_instance<'js>(
+    instance_of: &Function<'js>,
+    value: &Value<'js>,
+    class: &Value<'js>,
+    ctx: &Ctx<'js>,
+) -> Result<bool> {
+    instance_of
+        .call::<_, bool>((value.clone(), class.clone()))
+        .js(ctx)
+}
+
+fn symbol_description(key: &Value<'_>) -> Option<String> {
+    let symbol = key.get::<Symbol>().ok()?;
+    symbol.description().ok()?.as_string()?.to_string().ok()
+}
+
+fn key_name(key: &Value<'_>) -> String {
+    match key.as_string().and_then(|text| text.to_string().ok()) {
+        Some(name) => name,
+        None => {
+            format!("Symbol({})", symbol_description(key).unwrap_or_default())
+        }
+    }
+}
+
+const IGNORED_SYMBOL_EXPORTS: &[&str] = &["Symbol.toStringTag"];
 const IGNORED_STRING_EXPORTS: &[&str] = &["__esModule"];
 
 #[derive(Debug, Clone)]
@@ -382,23 +401,24 @@ enum PropertyState {
 #[derive(Debug, Clone)]
 pub struct ActionGenerator {
     pub name: String,
-    this: JsValue,
-    function: JsObject,
+    this: Persistent<Value<'static>>,
+    function: Persistent<Function<'static>>,
 }
 
 impl ActionGenerator {
-    fn generate<A: FromGeneratedAction>(
+    fn generate<'js, A: FromGeneratedAction>(
         &self,
-        context: &mut Context,
+        ctx: &Ctx<'js>,
     ) -> Result<Tree<A>> {
-        let value = self.function.call(&self.this, &[], context)?;
-        let actions_json =
-            value
-                .to_json(context)?
-                .ok_or(SpecificationError::OtherError(format!(
-                    "action generator {} returned undefined",
-                    self.name
-                )))?;
+        let this = self.this.clone().restore(ctx).js(ctx)?;
+        let function = self.function.clone().restore(ctx).js(ctx)?;
+        let value = function.call::<_, Value>((This(this),)).js(ctx)?;
+        let actions_json: json::Value = to_json(ctx, value).js(ctx)?.ok_or(
+            SpecificationError::OtherError(format!(
+                "action generator {} returned undefined",
+                self.name
+            )),
+        )?;
         let value_tree: Tree<json::Value> = json::from_value(actions_json)
             .map_err(|error| {
                 SpecificationError::OtherError(format!(
@@ -873,25 +893,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn test_format_console_args() {
-        assert_eq!(format_console_args(&[]), "");
-        assert_eq!(
-            format_console_args(&[JsValue::from(js_string!("hello"))]),
-            "hello"
-        );
-        assert_eq!(
-            format_console_args(&[
-                JsValue::from(js_string!("count:")),
-                JsValue::from(42),
-                JsValue::from(true),
-            ]),
-            "count: 42 true"
-        );
-        assert_eq!(format_console_args(&[JsValue::undefined()]), "undefined");
-        assert_eq!(format_console_args(&[JsValue::null()]), "null");
     }
 
     #[test]
@@ -1424,5 +1425,302 @@ mod tests {
                 )],
             })
         );
+    }
+
+    fn step_error(specification: &str) -> String {
+        let mut verifier = verifier(specification);
+        match verifier.step::<json::Value>(&[], time_from_millis(0)) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("expected step to fail"),
+        }
+    }
+
+    fn constructor_error(specification: &str) -> String {
+        use crate::specification::bundler::bundle;
+
+        let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+        specification_file
+            .write_all(specification.as_bytes())
+            .unwrap();
+        let bundle_code =
+            bundle(".", &specification_file.path().display().to_string())
+                .unwrap();
+        match Verifier::new(&bundle_code) {
+            Err(error) => error.to_string(),
+            Ok(_) => panic!("expected verifier construction to fail"),
+        }
+    }
+
+    fn generated_values(specification: &str) -> Vec<json::Value> {
+        let mut verifier = verifier(specification);
+        let result: StepResult<json::Value> =
+            verifier.step(&[], time_from_millis(0)).unwrap();
+        result.actions.values().into_iter().cloned().collect()
+    }
+
+    #[test]
+    fn test_action_generator_replaces_lone_surrogates() {
+        let values = generated_values(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => [
+              "😀".slice(0, 1),
+              "😀",
+              { [ "😀".slice(0, 1) ]: "😀".slice(0, 1) },
+            ]);
+            "#,
+        );
+        assert_eq!(
+            values,
+            vec![
+                json::json!("\u{FFFD}"),
+                json::json!("😀"),
+                json::json!({ "\u{FFFD}": "\u{FFFD}" }),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_action_generator_floats_are_bit_exact() {
+        let expected: [f64; 6] = [
+            7.231233596801759e-16,
+            7.073538409042359e-13,
+            366.01340770721436,
+            0.1 + 0.2,
+            5e-324,
+            1.7976931348623157e308,
+        ];
+        let values = generated_values(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => [
+              7.231233596801759e-16,
+              7.073538409042359e-13,
+              366.01340770721436,
+              0.1 + 0.2,
+              5e-324,
+              1.7976931348623157e308,
+            ]);
+            "#,
+        );
+        assert_eq!(values.len(), expected.len());
+        for (value, expected) in values.iter().zip(expected) {
+            let actual = value.as_f64().unwrap();
+            assert_eq!(actual.to_bits(), expected.to_bits(), "{actual:e}");
+        }
+    }
+
+    fn json_depth(value: &json::Value) -> usize {
+        let mut deepest = 0;
+        let mut stack = vec![(value, 1)];
+        while let Some((value, depth)) = stack.pop() {
+            deepest = deepest.max(depth);
+            match value {
+                json::Value::Array(items) => {
+                    stack.extend(items.iter().map(|item| (item, depth + 1)));
+                }
+                json::Value::Object(entries) => {
+                    stack.extend(
+                        entries.values().map(|entry| (entry, depth + 1)),
+                    );
+                }
+                _ => {}
+            }
+        }
+        deepest
+    }
+
+    fn on_small_stack(test: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(test)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_action_generator_accepts_values_nested_1000_deep() {
+        on_small_stack(|| {
+            let values = generated_values(
+                r#"
+                import { actions } from "@antithesishq/bombadil";
+                export const _actions = actions(() => {
+                  let value = 1;
+                  for (let i = 0; i < 1000; i++) {
+                    value = [value];
+                  }
+                  return [value];
+                });
+                "#,
+            );
+            assert_eq!(values.len(), 1);
+            assert_eq!(json_depth(&values[0]), 1001);
+        });
+    }
+
+    #[test]
+    fn test_action_generator_accepts_values_near_max_json_depth() {
+        on_small_stack(|| {
+            let values = generated_values(&format!(
+                r#"
+                import {{ actions }} from "@antithesishq/bombadil";
+                export const _actions = actions(() => {{
+                  let value = 1;
+                  for (let i = 0; i < {}; i++) {{
+                    value = [value];
+                  }}
+                  return [value];
+                }});
+                "#,
+                crate::specification::engine::MAX_JSON_DEPTH - 16
+            ));
+            assert_eq!(
+                json_depth(&values[0]),
+                crate::specification::engine::MAX_JSON_DEPTH - 15
+            );
+        });
+    }
+
+    #[test]
+    fn test_action_generator_rejects_values_beyond_max_json_depth() {
+        on_small_stack(|| {
+            let error = step_error(
+                r#"
+                import { actions } from "@antithesishq/bombadil";
+                export const _actions = actions(() => {
+                  let value = 1;
+                  for (let i = 0; i < 100000; i++) {
+                    value = [value];
+                  }
+                  return [value];
+                });
+                "#,
+            );
+            assert!(
+                error.contains("Object reference chain is too long"),
+                "{error}"
+            );
+        });
+    }
+
+    #[test]
+    fn test_action_generator_integer_and_float_representations() {
+        on_small_stack(|| {
+            let values = generated_values(
+                r#"
+                import { actions } from "@antithesishq/bombadil";
+                export const _actions = actions(() => [
+                  0, 3, -4, 2 ** 53, 2 ** 64, 1.5, 1e21,
+                ]);
+                "#,
+            );
+            assert_eq!(values.len(), 7);
+            assert!(values[0].is_u64() && values[0].as_u64() == Some(0));
+            assert!(values[1].is_u64() && values[1].as_u64() == Some(3));
+            assert!(values[2].is_i64() && values[2].as_i64() == Some(-4));
+            assert!(
+                values[3].is_u64()
+                    && values[3].as_u64() == Some(9_007_199_254_740_992)
+            );
+            assert!(values[4].is_f64());
+            assert_eq!(values[4].as_f64(), Some(18_446_744_073_709_551_616.0));
+            assert!(values[5].is_f64() && values[5].as_f64() == Some(1.5));
+            assert!(values[6].is_f64() && values[6].as_f64() == Some(1e21));
+        });
+    }
+
+    #[test]
+    fn test_action_generator_object_keys_and_values() {
+        on_small_stack(|| {
+            let values = generated_values(
+                r#"
+                import { actions } from "@antithesishq/bombadil";
+                export const _actions = actions(() => [
+                  { b: 1, a: 2, "1": 3 },
+                ]);
+                "#,
+            );
+            let entries = values[0].as_object().unwrap();
+            let mut keys: Vec<&str> =
+                entries.keys().map(String::as_str).collect();
+            keys.sort();
+            assert_eq!(keys, vec!["1", "a", "b"]);
+            assert_eq!(entries["1"], json::json!(3));
+            assert_eq!(entries["a"], json::json!(2));
+            assert_eq!(entries["b"], json::json!(1));
+        });
+    }
+
+    #[test]
+    fn test_dropping_deeply_nested_json_value_does_not_overflow() {
+        on_small_stack(|| {
+            let mut value = json::Value::Null;
+            for _ in 0..5000 {
+                value = json::Value::Array(vec![value]);
+            }
+            assert_eq!(json_depth(&value), 5001);
+            drop(value);
+        });
+    }
+
+    #[test]
+    fn test_thunk_error_reports_error_name_and_message() {
+        let error = step_error(
+            r#"
+            import { always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export const boom = always(() => { throw new TypeError("boom"); });
+            "#,
+        );
+        assert!(error.starts_with("TypeError: boom"), "{error}");
+    }
+
+    #[test]
+    fn test_thunk_error_without_message_reports_name() {
+        let error = step_error(
+            r#"
+            import { always, actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export const boom = always(() => { throw new Error(); });
+            "#,
+        );
+        assert!(error.starts_with("Error"), "{error}");
+    }
+
+    #[test]
+    fn test_unknown_export_number_is_described_by_typeof() {
+        let error = constructor_error(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export const five = 5;
+            "#,
+        );
+        assert!(error.contains("(number): 5"), "{error}");
+    }
+
+    #[test]
+    fn test_unknown_export_object_is_printed_as_json() {
+        let error = constructor_error(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export const object = { a: 1 };
+            "#,
+        );
+        assert!(error.contains("\"a\": 1"), "{error}");
+    }
+
+    #[test]
+    fn test_unknown_export_symbol_is_printed_with_description() {
+        let error = constructor_error(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+            export const _actions = actions(() => []);
+            export const symbol = Symbol("x");
+            "#,
+        );
+        assert!(error.contains("(symbol): Symbol(x)"), "{error}");
     }
 }

@@ -41,9 +41,9 @@ url = { workspace = true, features = ["serde"] }
 libc.workspace = true
 
 [dev-dependencies]
-boa_engine.workspace = true
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
 hegeltest.workspace = true
+rquickjs.workspace = true
 stdx-derive = { path = "../stdx-derive" }

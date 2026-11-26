@@ -987,6 +987,35 @@ const bar = extract((state) => foo.current);
 }
 
 #[test]
+fn test_extractor_values_match_return_by_value() {
+    BrowserIntegrationTest::new("extractor-values")
+        .time_limit(Duration::from_secs(10))
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+const values = extract(() => ({
+  d: new Date(0),
+  t: { toJSON() { return 7; } },
+  z: -0,
+  f: () => 1,
+  u: undefined,
+  n: [undefined, 1],
+}));
+
+const EXPECTED = '{"d":{},"t":{"toJSON":{}},"z":0,"f":{},"n":[null,1]}';
+
+export const extractorValuesMatchReturnByValue = always(
+  () => values.current === undefined || JSON.stringify(values.current) === EXPECTED
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_module_script() {
     BrowserIntegrationTest::new("module-script")
         .time_limit(Duration::from_secs(5))

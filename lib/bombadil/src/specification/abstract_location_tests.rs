@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 use std::sync::OnceLock;
 
-use boa_engine::{Context, JsValue, Source};
 use hegel::TestCase;
 use hegel::generators::{
     Generator, booleans, from_regex, integers, one_of, optional, sampled_from,
@@ -14,7 +13,11 @@ use hegel::generators::{
 use serde_json::{self as json, json};
 use tempfile::NamedTempFile;
 
+use rquickjs::{Function, Value};
+
 use crate::specification::bundler::bundle;
+use crate::specification::engine::Engine;
+use crate::specification::result::JsResultExt;
 
 const TRACKING_PARAMETERS: [&str; 13] = [
     "_gl",
@@ -47,27 +50,34 @@ export const titled = always(() => title.current !== "");"#,
         bundle(".", &specification_file.path().display().to_string()).unwrap()
     });
 
-    let mut context = Context::default();
-    context.eval(Source::from_bytes(bundle_code)).unwrap();
-    let run = context
-        .eval(Source::from_bytes(
-            r#"(location) => __bombadilRequire("@antithesishq/bombadil").runtime.extractors
+    let engine = Engine::new().unwrap();
+    engine.context.with(|ctx| {
+        ctx.eval::<Value, _>(bundle_code.as_str()).js(&ctx).unwrap();
+        let run: Function = ctx
+            .eval(
+                r#"(location) => __bombadilRequire("@antithesishq/bombadil").runtime.extractors
                 .find((extractor) => extractor.name === "abstractLocation")
                 .run({ window: { location } })"#,
-        ))
-        .unwrap();
-    let location = JsValue::from_json(
-        &json!({ "pathname": pathname, "search": search, "hash": hash }),
-        &mut context,
-    )
-    .unwrap();
-    run.as_callable()
-        .unwrap()
-        .call(&JsValue::undefined(), &[location], &mut context)
-        .unwrap()
-        .to_json(&mut context)
-        .unwrap()
-        .unwrap()
+            )
+            .js(&ctx)
+            .unwrap();
+        let location = ctx
+            .json_parse(
+                json!({ "pathname": pathname, "search": search, "hash": hash })
+                    .to_string(),
+            )
+            .js(&ctx)
+            .unwrap();
+        let result: Value = run.call((location,)).js(&ctx).unwrap();
+        let text = ctx
+            .json_stringify(result)
+            .js(&ctx)
+            .unwrap()
+            .unwrap()
+            .to_string()
+            .unwrap();
+        json::from_str(&text).unwrap()
+    })
 }
 
 /// A path segment, fragment segment or query value: a word that is kept, or

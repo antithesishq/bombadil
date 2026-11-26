@@ -1,7 +1,9 @@
 use std::{fmt::Display, io, time::SystemTimeError};
 
-use boa_engine::JsError;
 use oxc::diagnostics::OxcDiagnostic;
+use rquickjs::{CatchResultExt, Ctx};
+
+use crate::specification::engine::caught_to_string;
 
 #[derive(Debug)]
 pub enum SpecificationError {
@@ -33,12 +35,6 @@ impl Display for SpecificationError {
 
 impl std::error::Error for SpecificationError {}
 
-impl From<JsError> for SpecificationError {
-    fn from(value: JsError) -> Self {
-        SpecificationError::JS(format!("{}", value))
-    }
-}
-
 impl From<io::Error> for SpecificationError {
     fn from(value: io::Error) -> Self {
         SpecificationError::IO(value)
@@ -48,6 +44,17 @@ impl From<io::Error> for SpecificationError {
 impl From<SystemTimeError> for SpecificationError {
     fn from(value: SystemTimeError) -> Self {
         SpecificationError::SystemTimeError(value)
+    }
+}
+
+pub trait JsResultExt<'js, T> {
+    fn js(self, ctx: &Ctx<'js>) -> Result<T>;
+}
+
+impl<'js, T> JsResultExt<'js, T> for rquickjs::Result<T> {
+    fn js(self, ctx: &Ctx<'js>) -> Result<T> {
+        self.catch(ctx)
+            .map_err(|error| SpecificationError::JS(caught_to_string(error)))
     }
 }
 

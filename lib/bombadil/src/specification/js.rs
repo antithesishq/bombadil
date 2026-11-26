@@ -1,39 +1,43 @@
 use std::cell::OnceCell;
-use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{anyhow, ensure};
-use boa_engine::{
-    Context, JsObject, JsValue, Module, js_string, property::PropertyKey,
-};
 use num_traits::NumCast;
+use rquickjs::{
+    CatchResultExt, Ctx, Function, Object, Persistent, Value, function::This,
+};
 use serde::{
     Deserialize, Serialize,
     de::{self},
 };
 use std::ops::RangeInclusive;
 
+use crate::specification::engine::{caught_to_string, display_value};
 use crate::specification::{
     domain::{BombadilDomain, Snapshot},
     generators::{CharSetEntry, StringGenerator},
 };
 use crate::specification::{
     generators::Regexp,
-    result::{Result, SpecificationError},
+    result::{JsResultExt, Result, SpecificationError},
 };
 use bombadil_ltl::syntax::Syntax;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeFunction {
-    pub object: JsObject,
+    pub function: Persistent<Function<'static>>,
     pub pretty: String,
 }
 
+fn string_of(value: &Value<'_>) -> Option<String> {
+    value.as_string()?.to_string().ok()
+}
+
 #[hotpath::measure]
-pub fn syntax_from_value(
-    value: &JsValue,
+pub fn syntax_from_value<'js>(
+    value: &Value<'js>,
     bombadil: &BombadilExports,
-    context: &mut Context,
+    ctx: &Ctx<'js>,
 ) -> Result<Syntax<BombadilDomain<RuntimeFunction>>> {
     use Syntax::*;
 
@@ -42,123 +46,116 @@ pub fn syntax_from_value(
             .as_object()
             .ok_or(SpecificationError::OtherError(format!(
                 "formula is not an object: {}",
-                value.display()
+                display_value(value)
             )))?;
 
     // The formula classes are never subclassed, so we compare
     // the prototypes rather than doing more expensive instanceof
     // checks.
-    let prototypes = bombadil.prototypes(context)?;
-    let prototype = object.prototype();
-    let is_instance = |class_prototype: &JsObject| {
-        prototype.as_ref().is_some_and(|prototype| {
-            JsObject::equals(prototype, class_prototype)
-        })
+    let prototypes = bombadil.prototypes(ctx)?;
+    let prototype = object.get_prototype();
+    let is_instance = |class_prototype: &Persistent<Object<'static>>| {
+        let class_prototype = class_prototype.clone().restore(ctx).js(ctx)?;
+        Ok::<_, SpecificationError>(
+            prototype.as_ref() == Some(&class_prototype),
+        )
     };
 
-    if is_instance(&prototypes.pure) {
-        let value = object
-            .get(js_string!("value"), context)?
-            .as_boolean()
-            .ok_or(SpecificationError::OtherError(
+    if is_instance(&prototypes.pure)? {
+        let value = object.get::<_, Value>("value").js(ctx)?.as_bool().ok_or(
+            SpecificationError::OtherError(
                 "Pure.value is not a boolean".to_string(),
-            ))?;
-        let pretty = object
-            .get(js_string!("pretty"), context)?
-            .as_string()
-            .ok_or(SpecificationError::OtherError(
+            ),
+        )?;
+        let pretty_value = object.get::<_, Value>("pretty").js(ctx)?;
+        let pretty =
+            string_of(&pretty_value).ok_or(SpecificationError::OtherError(
                 "Pure.pretty is not a string".to_string(),
-            ))?
-            .to_std_string_escaped();
+            ))?;
         return Ok(Pure { value, pretty });
     }
 
-    if is_instance(&prototypes.thunk) {
-        let apply_object = object
-            .get(js_string!("apply"), context)?
-            .as_callable()
-            .ok_or(SpecificationError::OtherError(
+    if is_instance(&prototypes.thunk)? {
+        let apply = object.get::<_, Value>("apply").js(ctx)?;
+        let apply =
+            apply.as_function().ok_or(SpecificationError::OtherError(
                 "Thunk.apply is not callable".to_string(),
             ))?;
-        let pretty_value = object.get(js_string!("pretty"), context)?;
-        let pretty = pretty_value
-            .as_string()
-            .ok_or(SpecificationError::OtherError(format!(
+        let pretty_value = object.get::<_, Value>("pretty").js(ctx)?;
+        let pretty = string_of(&pretty_value).ok_or(
+            SpecificationError::OtherError(format!(
                 "Thunk.pretty is not a string: {}",
-                pretty_value.display()
-            )))?
-            .to_std_string_escaped();
+                display_value(&pretty_value)
+            )),
+        )?;
         return Ok(Thunk(RuntimeFunction {
-            object: apply_object,
+            function: Persistent::save(ctx, apply.clone()),
             pretty,
         }));
     }
 
-    if is_instance(&prototypes.not) {
-        let value = object.get(js_string!("subformula"), context)?;
-        let subformula = syntax_from_value(&value, bombadil, context)?;
+    if is_instance(&prototypes.not)? {
+        let value = object.get::<_, Value>("subformula").js(ctx)?;
+        let subformula = syntax_from_value(&value, bombadil, ctx)?;
         return Ok(Not(Box::new(subformula)));
     }
 
-    if is_instance(&prototypes.and) {
-        let left_value = object.get(js_string!("left"), context)?;
-        let right_value = object.get(js_string!("right"), context)?;
-        let left = syntax_from_value(&left_value, bombadil, context)?;
-        let right = syntax_from_value(&right_value, bombadil, context)?;
+    if is_instance(&prototypes.and)? {
+        let left_value = object.get::<_, Value>("left").js(ctx)?;
+        let right_value = object.get::<_, Value>("right").js(ctx)?;
+        let left = syntax_from_value(&left_value, bombadil, ctx)?;
+        let right = syntax_from_value(&right_value, bombadil, ctx)?;
         return Ok(And(Box::new(left), Box::new(right)));
     }
 
-    if is_instance(&prototypes.or) {
-        let left_value = object.get(js_string!("left"), context)?;
-        let right_value = object.get(js_string!("right"), context)?;
-        let left = syntax_from_value(&left_value, bombadil, context)?;
-        let right = syntax_from_value(&right_value, bombadil, context)?;
+    if is_instance(&prototypes.or)? {
+        let left_value = object.get::<_, Value>("left").js(ctx)?;
+        let right_value = object.get::<_, Value>("right").js(ctx)?;
+        let left = syntax_from_value(&left_value, bombadil, ctx)?;
+        let right = syntax_from_value(&right_value, bombadil, ctx)?;
         return Ok(Or(Box::new(left), Box::new(right)));
     }
 
-    if is_instance(&prototypes.implies) {
-        let left_value = object.get(js_string!("left"), context)?;
-        let right_value = object.get(js_string!("right"), context)?;
-        let left = syntax_from_value(&left_value, bombadil, context)?;
-        let right = syntax_from_value(&right_value, bombadil, context)?;
+    if is_instance(&prototypes.implies)? {
+        let left_value = object.get::<_, Value>("left").js(ctx)?;
+        let right_value = object.get::<_, Value>("right").js(ctx)?;
+        let left = syntax_from_value(&left_value, bombadil, ctx)?;
+        let right = syntax_from_value(&right_value, bombadil, ctx)?;
         return Ok(Implies(Box::new(left), Box::new(right)));
     }
 
-    if is_instance(&prototypes.next) {
-        let subformula_value = object.get(js_string!("subformula"), context)?;
-        let subformula =
-            syntax_from_value(&subformula_value, bombadil, context)?;
+    if is_instance(&prototypes.next)? {
+        let subformula_value = object.get::<_, Value>("subformula").js(ctx)?;
+        let subformula = syntax_from_value(&subformula_value, bombadil, ctx)?;
         return Ok(Next(Box::new(subformula)));
     }
 
-    if is_instance(&prototypes.always) {
-        let subformula_value = object.get(js_string!("subformula"), context)?;
-        let subformula =
-            syntax_from_value(&subformula_value, bombadil, context)?;
+    if is_instance(&prototypes.always)? {
+        let subformula_value = object.get::<_, Value>("subformula").js(ctx)?;
+        let subformula = syntax_from_value(&subformula_value, bombadil, ctx)?;
         let bound = optional_duration_from_js(
-            object.get(js_string!("boundMillis"), context)?,
+            object.get::<_, Value>("boundMillis").js(ctx)?,
         )?;
         return Ok(Always(Box::new(subformula), bound));
     }
 
-    if is_instance(&prototypes.eventually) {
-        let subformula_value = object.get(js_string!("subformula"), context)?;
-        let subformula =
-            syntax_from_value(&subformula_value, bombadil, context)?;
+    if is_instance(&prototypes.eventually)? {
+        let subformula_value = object.get::<_, Value>("subformula").js(ctx)?;
+        let subformula = syntax_from_value(&subformula_value, bombadil, ctx)?;
         let bound = optional_duration_from_js(
-            object.get(js_string!("boundMillis"), context)?,
+            object.get::<_, Value>("boundMillis").js(ctx)?,
         )?;
         return Ok(Eventually(Box::new(subformula), bound));
     }
 
     Err(SpecificationError::OtherError(format!(
         "can't convert to formula: {}",
-        value.display()
+        display_value(value)
     )))
 }
 
-fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
-    if value.is_null_or_undefined() {
+fn optional_duration_from_js(value: Value<'_>) -> Result<Option<Duration>> {
+    if value.is_null() || value.is_undefined() {
         return Ok(None);
     }
     let millis =
@@ -166,18 +163,18 @@ fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
             .as_number()
             .ok_or(SpecificationError::OtherError(format!(
                 "milliseconds is not a number: {}",
-                value.display()
+                display_value(&value)
             )))?;
     if millis < 0.0 {
         return Err(SpecificationError::OtherError(format!(
             "milliseconds is negative: {}",
-            value.display()
+            display_value(&value)
         )));
     }
     if millis.is_nan() || millis.is_infinite() {
         return Err(SpecificationError::OtherError(format!(
             "milliseconds is {}",
-            value.display()
+            display_value(&value)
         )));
     }
     Ok(Some(Duration::from_millis(millis as u64)))
@@ -185,56 +182,63 @@ fn optional_duration_from_js(value: JsValue) -> Result<Option<Duration>> {
 
 #[derive(Debug)]
 pub struct BombadilExports {
-    pub formula: JsValue,
-    pub pure: JsValue,
-    pub thunk: JsValue,
-    pub not: JsValue,
-    pub and: JsValue,
-    pub or: JsValue,
-    pub implies: JsValue,
-    pub next: JsValue,
-    pub always: JsValue,
-    pub eventually: JsValue,
-    pub runtime: JsObject,
-    pub action_generator: JsValue,
+    pub formula: Persistent<Value<'static>>,
+    pub pure: Persistent<Value<'static>>,
+    pub thunk: Persistent<Value<'static>>,
+    pub not: Persistent<Value<'static>>,
+    pub and: Persistent<Value<'static>>,
+    pub or: Persistent<Value<'static>>,
+    pub implies: Persistent<Value<'static>>,
+    pub next: Persistent<Value<'static>>,
+    pub always: Persistent<Value<'static>>,
+    pub eventually: Persistent<Value<'static>>,
+    pub runtime: Persistent<Object<'static>>,
+    pub action_generator: Persistent<Value<'static>>,
     prototypes: OnceCell<FormulaPrototypes>,
 }
 
 /// The `prototype` objects of the formula classes.
 #[derive(Debug)]
 pub struct FormulaPrototypes {
-    pub pure: JsObject,
-    pub thunk: JsObject,
-    pub not: JsObject,
-    pub and: JsObject,
-    pub or: JsObject,
-    pub implies: JsObject,
-    pub next: JsObject,
-    pub always: JsObject,
-    pub eventually: JsObject,
+    pub pure: Persistent<Object<'static>>,
+    pub thunk: Persistent<Object<'static>>,
+    pub not: Persistent<Object<'static>>,
+    pub and: Persistent<Object<'static>>,
+    pub or: Persistent<Object<'static>>,
+    pub implies: Persistent<Object<'static>>,
+    pub next: Persistent<Object<'static>>,
+    pub always: Persistent<Object<'static>>,
+    pub eventually: Persistent<Object<'static>>,
 }
 
 impl BombadilExports {
-    pub fn prototypes(
+    pub fn prototypes<'js>(
         &self,
-        context: &mut Context,
+        ctx: &Ctx<'js>,
     ) -> Result<&FormulaPrototypes> {
         if let Some(prototypes) = self.prototypes.get() {
             return Ok(prototypes);
         }
-        let mut prototype_of = |class: &JsValue| -> Result<JsObject> {
-            class
-                .as_object()
-                .ok_or(SpecificationError::OtherError(format!(
+        let prototype_of = |class: &Persistent<Value<'static>>| {
+            let class = class.clone().restore(ctx).js(ctx)?;
+            let class_object = class.as_object().ok_or(
+                SpecificationError::OtherError(format!(
                     "formula class is not an object: {}",
-                    class.display()
-                )))?
-                .get(js_string!("prototype"), context)?
-                .as_object()
-                .ok_or(SpecificationError::OtherError(format!(
+                    display_value(&class)
+                )),
+            )?;
+            let prototype =
+                class_object.get::<_, Value>("prototype").js(ctx)?;
+            let prototype_object = prototype.as_object().ok_or(
+                SpecificationError::OtherError(format!(
                     "formula class has no prototype object: {}",
-                    class.display()
-                )))
+                    display_value(&class)
+                )),
+            )?;
+            Ok::<_, SpecificationError>(Persistent::save(
+                ctx,
+                prototype_object.clone(),
+            ))
         };
         let prototypes = FormulaPrototypes {
             pure: prototype_of(&self.pure)?,
@@ -249,86 +253,53 @@ impl BombadilExports {
         };
         Ok(self.prototypes.get_or_init(|| prototypes))
     }
-}
 
-impl BombadilExports {
-    pub fn from_module(module: &Module, context: &mut Context) -> Result<Self> {
-        let exports = module_exports(module, context)?;
-
-        let get_export = |name: &str| -> Result<JsValue> {
-            exports
-                .get(&PropertyKey::String(js_string!(name)))
-                .cloned()
-                .ok_or(SpecificationError::OtherError(format!(
-                    "{name} is missing in exports"
-                )))
-        };
-        Ok(Self {
-            formula: get_export("Formula")?,
-            pure: get_export("Pure")?,
-            thunk: get_export("Thunk")?,
-            not: get_export("Not")?,
-            and: get_export("And")?,
-            or: get_export("Or")?,
-            implies: get_export("Implies")?,
-            next: get_export("Next")?,
-            always: get_export("Always")?,
-            eventually: get_export("Eventually")?,
-            runtime: get_export("runtime")?.as_object().ok_or(
-                SpecificationError::OtherError(
-                    "runtime is not an object".to_string(),
-                ),
-            )?,
-            action_generator: get_export("ActionGenerator")?,
-            prototypes: OnceCell::new(),
-        })
-    }
-
-    pub fn from_object(obj: &JsObject, context: &mut Context) -> Result<Self> {
-        let mut get_export = |name: &str| -> Result<JsValue> {
-            obj.get(js_string!(name), context).map_err(|e| {
+    pub fn from_object<'js>(obj: &Object<'js>, ctx: &Ctx<'js>) -> Result<Self> {
+        let get_export = |name: &str| -> Result<Value<'js>> {
+            obj.get::<_, Value>(name).catch(ctx).map_err(|error| {
                 SpecificationError::OtherError(format!(
                     "Failed to get {}: {}",
-                    name, e
+                    name,
+                    caught_to_string(error)
                 ))
             })
         };
+        let formula = get_export("Formula")?;
+        let pure = get_export("Pure")?;
+        let thunk = get_export("Thunk")?;
+        let not = get_export("Not")?;
+        let and = get_export("And")?;
+        let or = get_export("Or")?;
+        let implies = get_export("Implies")?;
+        let next = get_export("Next")?;
+        let always = get_export("Always")?;
+        let eventually = get_export("Eventually")?;
+        let runtime = get_export("runtime")?;
+        let runtime =
+            runtime.as_object().ok_or(SpecificationError::OtherError(
+                "runtime is not an object".to_string(),
+            ))?;
+        let action_generator = get_export("ActionGenerator")?;
         Ok(Self {
-            formula: get_export("Formula")?,
-            pure: get_export("Pure")?,
-            thunk: get_export("Thunk")?,
-            not: get_export("Not")?,
-            and: get_export("And")?,
-            or: get_export("Or")?,
-            implies: get_export("Implies")?,
-            next: get_export("Next")?,
-            always: get_export("Always")?,
-            eventually: get_export("Eventually")?,
-            runtime: get_export("runtime")?.as_object().ok_or(
-                SpecificationError::OtherError(
-                    "runtime is not an object".to_string(),
-                ),
-            )?,
-            action_generator: get_export("ActionGenerator")?,
+            formula: Persistent::save(ctx, formula),
+            pure: Persistent::save(ctx, pure),
+            thunk: Persistent::save(ctx, thunk),
+            not: Persistent::save(ctx, not),
+            and: Persistent::save(ctx, and),
+            or: Persistent::save(ctx, or),
+            implies: Persistent::save(ctx, implies),
+            next: Persistent::save(ctx, next),
+            always: Persistent::save(ctx, always),
+            eventually: Persistent::save(ctx, eventually),
+            runtime: Persistent::save(ctx, runtime.clone()),
+            action_generator: Persistent::save(ctx, action_generator),
             prototypes: OnceCell::new(),
         })
     }
 }
 
-pub fn module_exports(
-    module: &Module,
-    context: &mut Context,
-) -> Result<HashMap<PropertyKey, JsValue>> {
-    let mut exports = HashMap::new();
-    for key in module.namespace(context).own_property_keys(context)? {
-        let value = module.namespace(context).get(key.clone(), context)?;
-        exports.insert(key, value);
-    }
-    Ok(exports)
-}
-
 pub struct Extractors {
-    instances: Vec<JsObject>,
+    instances: Vec<Persistent<Object<'static>>>,
 }
 
 impl Extractors {
@@ -336,42 +307,37 @@ impl Extractors {
         Self { instances: vec![] }
     }
 
-    pub fn register(&mut self, obj: JsObject) {
+    pub fn register(&mut self, obj: Persistent<Object<'static>>) {
         self.instances.push(obj);
     }
 
-    pub fn get(&self, index: usize) -> Option<&JsObject> {
+    pub fn get(&self, index: usize) -> Option<&Persistent<Object<'static>>> {
         self.instances.get(index)
     }
 
     #[hotpath::measure]
-    pub fn update_from_snapshots(
+    pub fn update_from_snapshots<'js>(
         &self,
         snapshots: &[Snapshot],
-        context: &mut Context,
+        ctx: &Ctx<'js>,
     ) -> Result<()> {
-        let update = |extractor: &JsObject,
-                      value: JsValue,
-                      context: &mut Context|
-         -> Result<()> {
-            let method = extractor
-                .get(js_string!("update"), context)?
-                .as_callable()
-                .ok_or(SpecificationError::OtherError(
-                    "update is not callable".to_string(),
-                ))?;
-            method.call(
-                &JsValue::from(extractor.clone()),
-                &[value],
-                context,
-            )?;
-            Ok(())
-        };
-
         for (index, snapshot) in snapshots.iter().enumerate() {
-            if let Some(obj) = self.get(index) {
-                let js_value = JsValue::from_json(&snapshot.value, context)?;
-                update(obj, js_value, context)?;
+            if let Some(instance) = self.get(index) {
+                let extractor = instance.clone().restore(ctx).js(ctx)?;
+                let json_text = serde_json::to_string(&snapshot.value)
+                    .map_err(|error| {
+                        SpecificationError::OtherError(error.to_string())
+                    })?;
+                let value = ctx.json_parse(json_text).js(ctx)?;
+                let update = extractor.get::<_, Value>("update").js(ctx)?;
+                let update = update.as_function().ok_or(
+                    SpecificationError::OtherError(
+                        "update is not callable".to_string(),
+                    ),
+                )?;
+                update
+                    .call::<_, Value>((This(extractor.clone()), value))
+                    .js(ctx)?;
             }
         }
         Ok(())

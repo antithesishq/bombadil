@@ -3,7 +3,6 @@
 use std::io::Write as _;
 use std::sync::OnceLock;
 
-use boa_engine::{Context, JsValue, Source};
 use hegel::TestCase;
 use hegel::generators::{
     Generator, booleans, integers, just, one_of, sampled_from, text, vecs,
@@ -11,7 +10,11 @@ use hegel::generators::{
 use serde_json::{self as json, json};
 use tempfile::NamedTempFile;
 
+use rquickjs::{Function, Value};
+
 use crate::specification::bundler::bundle;
+use crate::specification::engine::Engine;
+use crate::specification::result::JsResultExt;
 
 fn console_errors(console: &json::Value) -> json::Value {
     static BUNDLE: OnceLock<String> = OnceLock::new();
@@ -25,23 +28,31 @@ fn console_errors(console: &json::Value) -> json::Value {
         bundle(".", &specification_file.path().display().to_string()).unwrap()
     });
 
-    let mut context = Context::default();
-    context.eval(Source::from_bytes(bundle_code)).unwrap();
-    let run = context
-        .eval(Source::from_bytes(
-            r#"(console) => __bombadilRequire("@antithesishq/bombadil").runtime.extractors
+    let engine = Engine::new().unwrap();
+    engine.context.with(|ctx| {
+        ctx.eval::<Value, _>(bundle_code.as_str()).js(&ctx).unwrap();
+        let run: Function = ctx
+            .eval(
+                r#"(console) => __bombadilRequire("@antithesishq/bombadil").runtime.extractors
                 .find((extractor) => extractor.name === "consoleErrors")
                 .run({ console })"#,
-        ))
-        .unwrap();
-    let console = JsValue::from_json(console, &mut context).unwrap();
-    run.as_callable()
-        .unwrap()
-        .call(&JsValue::undefined(), &[console], &mut context)
-        .unwrap()
-        .to_json(&mut context)
-        .unwrap()
-        .unwrap()
+            )
+            .js(&ctx)
+            .unwrap();
+        let console = ctx
+            .json_parse(json::to_string(console).unwrap())
+            .js(&ctx)
+            .unwrap();
+        let result: Value = run.call((console,)).js(&ctx).unwrap();
+        let text = ctx
+            .json_stringify(result)
+            .js(&ctx)
+            .unwrap()
+            .unwrap()
+            .to_string()
+            .unwrap();
+        json::from_str(&text).unwrap()
+    })
 }
 
 fn args(tc: &TestCase) -> json::Value {

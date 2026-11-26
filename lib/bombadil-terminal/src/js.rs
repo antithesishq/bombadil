@@ -1,13 +1,6 @@
 use std::{ops::RangeInclusive, sync::Arc};
 
 use anyhow::Result;
-use boa_engine::{
-    Context, JsResult, JsString, JsValue, NativeFunction,
-    gc::{Finalize, Trace, empty_trace},
-    js_string, js_value,
-    object::{ObjectInitializer, builtins::JsArray},
-    property::Attribute,
-};
 use bombadil::{
     driver::FromGeneratedAction,
     specification::js::{JsRange, JsStringGenerator},
@@ -16,6 +9,9 @@ use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalCell, TerminalColor, TerminalCursor,
     TerminalCursorPosition, TerminalCursorVisualStyle, TerminalGrid,
     TerminalSize, TerminalStyle, TerminalUnderline,
+};
+use rquickjs::{
+    Array, Coerced, Ctx, Function, IntoJs, Object, Value, function::Opt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json as json;
@@ -38,116 +34,71 @@ enum GridKind {
     Scrollback,
 }
 
-// Captured by a grid's `row`/`rowText` functions so they can read the shared
-// state without copying the grid. Holds no garbage-collected pointers, hence
-// the empty `Trace`.
-struct GridCapture {
+#[hotpath::measure]
+pub fn terminal_state_to_js<'js>(
     state: Arc<TerminalState>,
-    kind: GridKind,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let grid = grid_to_js(&state, GridKind::Screen, ctx)?;
+    let scrollback = grid_to_js(&state, GridKind::Scrollback, ctx)?;
+    let cursor = cursor_to_js(&state.cursor, ctx)?;
+    let last_action = match &state.last_action {
+        Some(action) => action_to_js(action, ctx)?,
+        None => Value::new_null(ctx.clone()),
+    };
+    let exit_status: Value<'js> = match &state.exit_status {
+        Some(ProcessExitStatus { code, signal }) => {
+            let object = Object::new(ctx.clone())?;
+            object.set("code", *code)?;
+            object.set("signal", string_or_null(signal.as_deref(), ctx)?)?;
+            object.into()
+        }
+        None => Value::new_null(ctx.clone()),
+    };
+    let object = Object::new(ctx.clone())?;
+    object.set("grid", grid)?;
+    object.set("scrollback", scrollback)?;
+    object.set("scrollOffset", state.scroll_offset as f64)?;
+    object.set("cursor", cursor)?;
+    object.set("exitStatus", exit_status)?;
+    object.set("lastAction", last_action)?;
+    Ok(object.into())
 }
 
-impl Finalize for GridCapture {}
-
-unsafe impl Trace for GridCapture {
-    empty_trace!();
-}
-
-impl GridCapture {
-    fn grid(&self) -> &TerminalGrid {
-        state_grid(&self.state, self.kind)
+fn string_or_null<'js>(
+    text: Option<&str>,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    match text {
+        Some(text) => text.into_js(ctx),
+        None => Ok(Value::new_null(ctx.clone())),
     }
 }
 
-#[hotpath::measure]
-pub fn terminal_state_to_js(
-    state: Arc<TerminalState>,
-    context: &mut Context,
-) -> JsValue {
-    let grid = grid_to_js(&state, GridKind::Screen, context);
-    let scrollback = grid_to_js(&state, GridKind::Scrollback, context);
-    let cursor = cursor_to_js(&state.cursor, context);
-    let last_action = match &state.last_action {
-        Some(action) => action_to_js(action, context),
-        None => JsValue::null(),
-    };
-    let exit_status = match &state.exit_status {
-        Some(ProcessExitStatus { code, signal }) => {
-            ObjectInitializer::new(context)
-                .property(
-                    js_string!("code"),
-                    JsValue::from(*code),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("signal"),
-                    signal
-                        .clone()
-                        .map(|name| js_string!(name).into())
-                        .unwrap_or(JsValue::null()),
-                    Attribute::all(),
-                )
-                .build()
-                .into()
-        }
-        None => JsValue::null(),
-    };
-    ObjectInitializer::new(context)
-        .property(js_string!("grid"), grid, Attribute::all())
-        .property(js_string!("scrollback"), scrollback, Attribute::all())
-        .property(
-            js_string!("scrollOffset"),
-            JsValue::from(state.scroll_offset as f64),
-            Attribute::all(),
-        )
-        .property(js_string!("cursor"), cursor, Attribute::all())
-        .property(js_string!("exitStatus"), exit_status, Attribute::all())
-        .property(js_string!("lastAction"), last_action, Attribute::all())
-        .build()
-        .into()
+fn cursor_to_js<'js>(
+    cursor: &TerminalCursor,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let object = Object::new(ctx.clone())?;
+    object.set("position", cursor_position_to_js(cursor.position, ctx)?)?;
+    object.set("visible", cursor.visible)?;
+    object.set("blinking", cursor.blinking)?;
+    object.set(
+        "visualStyle",
+        cursor_visual_style_name(&cursor.visual_style),
+    )?;
+    object.set("color", color_to_js(&cursor.color, ctx)?)?;
+    Ok(object.into())
 }
 
-fn cursor_to_js(cursor: &TerminalCursor, context: &mut Context) -> JsValue {
-    let position = cursor_position_to_js(cursor.position, context);
-    let color = color_to_js(&cursor.color, context);
-    ObjectInitializer::new(context)
-        .property(js_string!("position"), position, Attribute::all())
-        .property(
-            js_string!("visible"),
-            JsValue::from(cursor.visible),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("blinking"),
-            JsValue::from(cursor.blinking),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("visualStyle"),
-            JsString::from(cursor_visual_style_name(&cursor.visual_style)),
-            Attribute::all(),
-        )
-        .property(js_string!("color"), color, Attribute::all())
-        .build()
-        .into()
-}
-
-fn cursor_position_to_js(
+fn cursor_position_to_js<'js>(
     position: TerminalCursorPosition,
-    context: &mut Context,
-) -> JsValue {
-    ObjectInitializer::new(context)
-        .property(
-            js_string!("column"),
-            JsValue::from(position.column as f64),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("row"),
-            JsValue::from(position.row as f64),
-            Attribute::all(),
-        )
-        .build()
-        .into()
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let object = Object::new(ctx.clone())?;
+    object.set("column", position.column as f64)?;
+    object.set("row", position.row as f64)?;
+    Ok(object.into())
 }
 
 fn cursor_visual_style_name(
@@ -162,20 +113,19 @@ fn cursor_visual_style_name(
     }
 }
 
-fn grid_to_js(
+fn grid_to_js<'js>(
     state: &Arc<TerminalState>,
     kind: GridKind,
-    context: &mut Context,
-) -> JsValue {
-    let size = size_to_js(state_grid(state, kind).size, context);
-    let row = grid_function(state, kind, row_at);
-    let row_text = grid_function(state, kind, row_text_at);
-    ObjectInitializer::new(context)
-        .property(js_string!("size"), size, Attribute::all())
-        .function(row, js_string!("row"), 1)
-        .function(row_text, js_string!("rowText"), 1)
-        .build()
-        .into()
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let object = Object::new(ctx.clone())?;
+    object.set("size", size_to_js(state_grid(state, kind).size, ctx)?)?;
+    object.set("row", grid_function(ctx, state, kind, "row", row_at)?)?;
+    object.set(
+        "rowText",
+        grid_function(ctx, state, kind, "rowText", row_text_at)?,
+    )?;
+    Ok(object.into())
 }
 
 fn state_grid(state: &Arc<TerminalState>, kind: GridKind) -> &TerminalGrid {
@@ -185,33 +135,40 @@ fn state_grid(state: &Arc<TerminalState>, kind: GridKind) -> &TerminalGrid {
     }
 }
 
-fn grid_function(
+fn grid_function<'js>(
+    ctx: &Ctx<'js>,
     state: &Arc<TerminalState>,
     kind: GridKind,
+    name: &str,
     function: fn(
-        &JsValue,
-        &[JsValue],
-        &GridCapture,
-        &mut Context,
-    ) -> JsResult<JsValue>,
-) -> NativeFunction {
-    let capture = GridCapture {
-        state: Arc::clone(state),
-        kind,
-    };
-    // `GridCapture` holds no garbage-collected pointers (see the empty `Trace` impl).
-    unsafe { NativeFunction::from_closure_with_captures(function, capture) }
+        &Ctx<'js>,
+        &TerminalGrid,
+        Opt<Value<'js>>,
+    ) -> rquickjs::Result<Value<'js>>,
+) -> rquickjs::Result<Function<'js>> {
+    let state = Arc::clone(state);
+    Function::new(ctx.clone(), move |ctx: Ctx<'js>, index: Opt<Value<'js>>| {
+        function(&ctx, state_grid(&state, kind), index)
+    })?
+    .with_name(name)?
+    .with_length(1)
+}
+
+fn to_uint32(number: f64) -> u32 {
+    if !number.is_finite() {
+        return 0;
+    }
+    number.trunc().rem_euclid(4_294_967_296.0) as u32
 }
 
 fn row_index_arg(
-    args: &[JsValue],
+    index: Opt<Value<'_>>,
     grid: &TerminalGrid,
-    context: &mut Context,
-) -> JsResult<Option<u16>> {
-    let index = match args.first() {
-        Some(value) => value.to_u32(context)?,
-        None => return Ok(None),
+) -> rquickjs::Result<Option<u16>> {
+    let Opt(Some(value)) = index else {
+        return Ok(None);
     };
+    let index = to_uint32(value.get::<Coerced<f64>>()?.0);
     if index >= grid.size.rows as u32 {
         return Ok(None);
     }
@@ -219,17 +176,15 @@ fn row_index_arg(
 }
 
 #[hotpath::measure]
-fn row_text_at(
-    _this: &JsValue,
-    args: &[JsValue],
-    capture: &GridCapture,
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let grid = capture.grid();
-    let Some(row_index) = row_index_arg(args, grid, context)? else {
-        return Ok(JsValue::undefined());
+fn row_text_at<'js>(
+    ctx: &Ctx<'js>,
+    grid: &TerminalGrid,
+    index: Opt<Value<'js>>,
+) -> rquickjs::Result<Value<'js>> {
+    let Some(row_index) = row_index_arg(index, grid)? else {
+        return Ok(Value::new_undefined(ctx.clone()));
     };
-    Ok(JsString::from(row_text(grid, row_index).as_str()).into())
+    row_text(grid, row_index).as_str().into_js(ctx)
 }
 
 /// The text of row `row_index` of `grid`, as `rowText` gives it: a space
@@ -250,25 +205,26 @@ pub(crate) fn row_text(grid: &TerminalGrid, row_index: u16) -> String {
 }
 
 #[hotpath::measure]
-fn row_at(
-    _this: &JsValue,
-    args: &[JsValue],
-    capture: &GridCapture,
-    context: &mut Context,
-) -> JsResult<JsValue> {
-    let grid = capture.grid();
-    let Some(row_index) = row_index_arg(args, grid, context)? else {
-        return Ok(JsValue::undefined());
+fn row_at<'js>(
+    ctx: &Ctx<'js>,
+    grid: &TerminalGrid,
+    index: Opt<Value<'js>>,
+) -> rquickjs::Result<Value<'js>> {
+    let Some(row_index) = row_index_arg(index, grid)? else {
+        return Ok(Value::new_undefined(ctx.clone()));
     };
-    let row = JsArray::new(context)?;
+    let row = Array::new(ctx.clone())?;
     for column_index in 0..grid.size.columns {
-        let cell = cell_to_js(&grid[(row_index, column_index)], context);
-        row.push(cell, context)?;
+        let cell = cell_to_js(&grid[(row_index, column_index)], ctx)?;
+        row.set(column_index as usize, cell)?;
     }
     Ok(row.into())
 }
 
-fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
+fn cell_to_js<'js>(
+    cell: &TerminalCell,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
     let (contents, wide, style) = match cell {
         TerminalCell::Empty { style } => (" ".to_string(), false, style),
         TerminalCell::Continuation { style } => (String::new(), false, style),
@@ -278,76 +234,51 @@ fn cell_to_js(cell: &TerminalCell, context: &mut Context) -> JsValue {
             style,
         } => (contents.to_string(), *wide, style),
     };
-    let style = style_to_js(style, context);
-    ObjectInitializer::new(context)
-        .property(
-            js_string!("contents"),
-            JsString::from(contents.as_str()),
-            Attribute::all(),
-        )
-        .property(js_string!("wide"), JsValue::from(wide), Attribute::all())
-        .property(js_string!("style"), style, Attribute::all())
-        .build()
-        .into()
+    let object = Object::new(ctx.clone())?;
+    object.set("contents", contents.as_str())?;
+    object.set("wide", wide)?;
+    object.set("style", style_to_js(style, ctx)?)?;
+    Ok(object.into())
 }
 
-fn style_to_js(style: &TerminalStyle, context: &mut Context) -> JsValue {
-    let foreground = color_to_js(&style.foreground_color, context);
-    let background = color_to_js(&style.background_color, context);
-    let underline_color = color_to_js(&style.underline_color, context);
-    let underline: JsValue =
-        JsString::from(underline_name(&style.underline)).into();
-    ObjectInitializer::new(context)
-        .property(js_string!("foregroundColor"), foreground, Attribute::all())
-        .property(js_string!("backgroundColor"), background, Attribute::all())
-        .property(
-            js_string!("underlineColor"),
-            underline_color,
-            Attribute::all(),
-        )
-        .property(js_string!("underline"), underline, Attribute::all())
-        .property(
-            js_string!("attributes"),
-            JsValue::from(style.attributes.bits() as f64),
-            Attribute::all(),
-        )
-        .build()
-        .into()
+fn style_to_js<'js>(
+    style: &TerminalStyle,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let object = Object::new(ctx.clone())?;
+    object.set(
+        "foregroundColor",
+        color_to_js(&style.foreground_color, ctx)?,
+    )?;
+    object.set(
+        "backgroundColor",
+        color_to_js(&style.background_color, ctx)?,
+    )?;
+    object.set("underlineColor", color_to_js(&style.underline_color, ctx)?)?;
+    object.set("underline", underline_name(&style.underline))?;
+    object.set("attributes", style.attributes.bits() as f64)?;
+    Ok(object.into())
 }
 
-fn color_to_js(color: &TerminalColor, context: &mut Context) -> JsValue {
+fn color_to_js<'js>(
+    color: &TerminalColor,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
     match color {
-        TerminalColor::None => js_string!("None").into(),
-        TerminalColor::Palette(index) => ObjectInitializer::new(context)
-            .property(
-                js_string!("Palette"),
-                JsValue::from(*index as f64),
-                Attribute::all(),
-            )
-            .build()
-            .into(),
+        TerminalColor::None => "None".into_js(ctx),
+        TerminalColor::Palette(index) => {
+            let object = Object::new(ctx.clone())?;
+            object.set("Palette", *index as f64)?;
+            Ok(object.into())
+        }
         TerminalColor::RGB { r, g, b } => {
-            let rgb = ObjectInitializer::new(context)
-                .property(
-                    js_string!("r"),
-                    JsValue::from(*r as f64),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("g"),
-                    JsValue::from(*g as f64),
-                    Attribute::all(),
-                )
-                .property(
-                    js_string!("b"),
-                    JsValue::from(*b as f64),
-                    Attribute::all(),
-                )
-                .build();
-            ObjectInitializer::new(context)
-                .property(js_string!("RGB"), rgb, Attribute::all())
-                .build()
-                .into()
+            let rgb = Object::new(ctx.clone())?;
+            rgb.set("r", *r as f64)?;
+            rgb.set("g", *g as f64)?;
+            rgb.set("b", *b as f64)?;
+            let object = Object::new(ctx.clone())?;
+            object.set("RGB", rgb)?;
+            Ok(object.into())
         }
     }
 }
@@ -363,58 +294,45 @@ fn underline_name(underline: &TerminalUnderline) -> &'static str {
     }
 }
 
-fn size_to_js(size: TerminalSize, context: &mut Context) -> JsValue {
-    ObjectInitializer::new(context)
-        .property(
-            js_string!("columns"),
-            JsValue::from(size.columns as f64),
-            Attribute::all(),
-        )
-        .property(
-            js_string!("rows"),
-            JsValue::from(size.rows as f64),
-            Attribute::all(),
-        )
-        .build()
-        .into()
+fn size_to_js<'js>(
+    size: TerminalSize,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let object = Object::new(ctx.clone())?;
+    object.set("columns", size.columns as f64)?;
+    object.set("rows", size.rows as f64)?;
+    Ok(object.into())
 }
 
-fn action_to_js(action: &TerminalAction, context: &mut Context) -> JsValue {
-    let (key, payload): (JsString, JsValue) = match action {
+fn action_to_js<'js>(
+    action: &TerminalAction,
+    ctx: &Ctx<'js>,
+) -> rquickjs::Result<Value<'js>> {
+    let (key, payload): (&str, Value<'js>) = match action {
         TerminalAction::TypeText { text } => {
-            (js_string!("TypeText"), js_value!(js_string!(text.as_str())))
+            ("TypeText", text.as_str().into_js(ctx)?)
         }
         TerminalAction::Resize { size } => {
-            let size = size_to_js(*size, context);
-            let payload = ObjectInitializer::new(context)
-                .property(js_string!("size"), size, Attribute::all())
-                .build();
-            (js_string!("Resize"), js_value!(payload))
+            let payload = Object::new(ctx.clone())?;
+            payload.set("size", size_to_js(*size, ctx)?)?;
+            ("Resize", payload.into())
         }
-        TerminalAction::ScrollUp {} => (
-            js_string!("ScrollUp"),
-            js_value!(ObjectInitializer::new(context).build()),
-        ),
-        TerminalAction::ScrollDown {} => (
-            js_string!("ScrollDown"),
-            js_value!(ObjectInitializer::new(context).build()),
-        ),
+        TerminalAction::ScrollUp {} => {
+            ("ScrollUp", Object::new(ctx.clone())?.into())
+        }
+        TerminalAction::ScrollDown {} => {
+            ("ScrollDown", Object::new(ctx.clone())?.into())
+        }
         TerminalAction::Click { row, column } => {
-            let payload = ObjectInitializer::new(context)
-                .property(js_string!("row"), js_value!(*row), Attribute::all())
-                .property(
-                    js_string!("column"),
-                    js_value!(*column),
-                    Attribute::all(),
-                )
-                .build();
-            (js_string!("Click"), js_value!(payload))
+            let payload = Object::new(ctx.clone())?;
+            payload.set("row", *row)?;
+            payload.set("column", *column)?;
+            ("Click", payload.into())
         }
     };
-    ObjectInitializer::new(context)
-        .property(key, payload, Attribute::all())
-        .build()
-        .into()
+    let object = Object::new(ctx.clone())?;
+    object.set(key, payload)?;
+    Ok(object.into())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -480,5 +398,20 @@ impl TryFrom<JsTerminalSize> for TerminalSize<RangeInclusive<u16>> {
             rows: value.rows.try_into()?,
             columns: value.columns.try_into()?,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_uint32;
+
+    #[test]
+    fn to_uint32_follows_ecmascript() {
+        assert_eq!(to_uint32(2.0), 2);
+        assert_eq!(to_uint32(2.7), 2);
+        assert_eq!(to_uint32(-1.0), u32::MAX);
+        assert_eq!(to_uint32(4_294_967_296.0 + 3.0), 3);
+        assert_eq!(to_uint32(f64::NAN), 0);
+        assert_eq!(to_uint32(f64::INFINITY), 0);
     }
 }

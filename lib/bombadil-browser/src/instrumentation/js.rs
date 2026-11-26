@@ -655,7 +655,6 @@ impl<'a> Traverse<'a, ()> for Instrumenter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boa_engine::{Context, Source, object::builtins::JsUint8Array};
     use hegel::{
         Generator, TestCase,
         generators::{
@@ -664,6 +663,7 @@ mod tests {
     };
     use insta::assert_snapshot;
     use oxc::span::ContentEq;
+    use rquickjs::{CatchResultExt, Context, Runtime};
     use std::collections::{BTreeMap, BTreeSet};
 
     fn instrument(source: &str, source_type: SourceType) -> Instrumented {
@@ -690,21 +690,19 @@ mod tests {
         let code = instrument_source_code(source_id, source, SourceType::cjs())
             .unwrap()
             .text;
-        let mut context = Context::default();
-        context
-            .eval(Source::from_bytes("var window = globalThis;"))
-            .unwrap();
-        context.eval(Source::from_bytes(&code)).unwrap();
-        let edges = context
-            .eval(Source::from_bytes("__bombadil__.edges_current"))
-            .unwrap();
-        JsUint8Array::from_object(edges.as_object().unwrap())
-            .unwrap()
-            .to_vec(&mut context)
-            .unwrap()
-            .into_iter()
-            .map(u32::from)
-            .sum()
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
+        context.with(|ctx| {
+            ctx.eval::<(), _>("var window = globalThis;")
+                .catch(&ctx)
+                .unwrap();
+            ctx.eval::<(), _>(code.as_str()).catch(&ctx).unwrap();
+            let bytes = ctx
+                .eval::<Vec<u8>, _>("Array.from(__bombadil__.edges_current)")
+                .catch(&ctx)
+                .unwrap();
+            bytes.into_iter().map(u32::from).sum()
+        })
     }
 
     #[hegel::test(test_cases = 32)]
@@ -1420,7 +1418,8 @@ mod tests {
             .map(|&index| blocks[index].id)
             .collect();
 
-        let mut context = Context::default();
+        let runtime = Runtime::new().unwrap();
+        let context = Context::full(&runtime).unwrap();
         let prelude = format!(
             "var window = globalThis; var app = {{}}; var reads = {};
             Object.defineProperty(globalThis, 'x', {{
@@ -1428,16 +1427,15 @@ mod tests {
             }});",
             serde_json::to_string(&reads).unwrap()
         );
-        context.eval(Source::from_bytes(&prelude)).unwrap();
-        context.eval(Source::from_bytes(&code)).unwrap();
-        let hits = context
-            .eval(Source::from_bytes(formatcp!(
+        let hits = context.with(|ctx| {
+            ctx.eval::<(), _>(prelude.as_str()).catch(&ctx).unwrap();
+            ctx.eval::<(), _>(code.as_str()).catch(&ctx).unwrap();
+            ctx.eval::<String, _>(formatcp!(
                 "JSON.stringify(Array.from({NAMESPACE}.{HITS}))"
-            )))
+            ))
+            .catch(&ctx)
             .unwrap()
-            .to_string(&mut context)
-            .unwrap()
-            .to_std_string_escaped();
+        });
         let hits: Vec<u32> = serde_json::from_str(&hits).unwrap();
         assert_eq!(hits.into_iter().collect::<BTreeSet<u32>>(), expected);
     }

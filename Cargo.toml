@@ -36,7 +36,6 @@ anyhow = "1.0.99"
 axum = "0.8.8"
 base64 = "0.22.1"
 bitflags = "2.12.1"
-boa_engine = "0.22.0"
 bytes = "1.11.0"
 clap = { version = "4.5.46", features = ["derive"] }
 const_format = "0.2.35"
@@ -79,6 +78,7 @@ rand_regex = "0.19"
 regex = "1.12"
 regex-syntax = "0.8"
 reqwest = { version = "0.13.4", features = ["blocking", "json"] }
+rquickjs = "0.14.0"
 scraper = "0.27.0"
 serde = "1.0.228"
 serde_json = { version = "1.0.145", features = ["raw_value"] }
@@ -104,13 +104,7 @@ strip = true
 
 # The JS engine evaluating specifications is very slow unoptimised, which
 # dominates tests that run the verifier many times.
-[profile.dev.package.boa_ast]
+[profile.dev.package.rquickjs-sys]
 opt-level = 2
-[profile.dev.package.boa_engine]
-opt-level = 2
-[profile.dev.package.boa_gc]
-opt-level = 2
-[profile.dev.package.boa_interner]
-opt-level = 2
-[profile.dev.package.boa_string]
+[profile.dev.package.rquickjs-core]
 opt-level = 2
