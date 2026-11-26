@@ -587,12 +587,14 @@ dependencies = [
  "mime_guess",
  "open",
  "rand 0.10.2",
+ "reqwest",
  "serde",
  "serde_json",
  "stdx",
  "tempfile",
  "tokio",
  "url",
+ "zstd",
 ]
 
 [[package]]
@@ -4190,6 +4192,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",

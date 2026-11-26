@@ -96,6 +96,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 yew = "0.23"
 zerocopy = { version = "0.8.57", features = ["derive"] }
+zstd = { version = "0.13.3", default-features = false }
 
 [profile.release]
 opt-level = "z"

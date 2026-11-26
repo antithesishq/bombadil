@@ -23,7 +23,7 @@ bombadil-schema = { path = "../bombadil-schema" }
 bombadil-terminal = { path = "../bombadil-terminal", optional = true }
 bombadil-trace = { path = "../bombadil-trace" }
 stdx = { path = "../stdx" }
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 ctrlc.workspace = true
 env_logger.workspace = true
 hotpath.workspace = true
@@ -32,11 +32,13 @@ log.workspace = true
 mime_guess.workspace = true
 open.workspace = true
 rand.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "fs", "sync"] }
 url = { workspace = true, features = ["serde"] }
+zstd.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
