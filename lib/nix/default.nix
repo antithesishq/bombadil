@@ -86,6 +86,8 @@ let
         || (lib.hasSuffix ".css" path)
         || (lib.hasSuffix ".txt" path)
         || (lib.hasSuffix ".dat" path)
+        # Agent skills and guides embedded by `bombadil skill`.
+        || (lib.hasSuffix ".md" path && lib.hasInfix "/skills/" path)
         || (craneLib.filterCargoSources path type)
       );
   };
