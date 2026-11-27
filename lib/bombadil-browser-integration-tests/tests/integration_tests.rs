@@ -765,6 +765,44 @@ export const halvesNeverAllReplaced = always(
 }
 
 #[test]
+fn test_lone_surrogate_in_specification() {
+    // The violation needs a half typed and a half parsed, both as U+FFFD.
+    BrowserIntegrationTest::new("lone-surrogate")
+        .expect_error("halvesNeverBothReplaced")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+const half = String.fromCodePoint(0x1f600).slice(0, 1);
+
+export const typeHalf = actions(() => [
+  { TypeText: { text: { CharSet: [{ Literal: "A" + half }] } } },
+]);
+
+const serialised = extract((state) =>
+  JSON.stringify(state.document.querySelector("\#half").textContent),
+);
+
+const typed = extract(
+  (state) => state.document.querySelector("\#text-input").value,
+);
+
+const replacement = String.fromCharCode(0xfffd);
+
+export const halvesNeverBothReplaced = always(
+  () =>
+    !(
+      JSON.parse(serialised.current) === replacement &&
+      typed.current.startsWith("A" + replacement)
+    ),
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_textarea_backspace() {
     BrowserIntegrationTest::new("textarea-backspace")
         .specification(
