@@ -254,6 +254,26 @@ export const hasShortTitle = always(() =>
 );
 ```
 
+::: browser
+The browser defaults have two such cells in
+`@antithesishq/bombadil/browser/defaults/cells`. `consoleErrorEntries` has every
+`console.error` call with its whole arguments and its stack trace, and
+`consoleErrors`, which the `noConsoleErrors` property reads, is that cell
+mapped to the first line of each message. Both are recorded as snapshots in the
+trace, and you can read them in your own properties:
+
+```typescript
+import { always } from "@antithesishq/bombadil";
+import { consoleErrorEntries } from "@antithesishq/bombadil/browser/defaults/cells";
+
+export const noHydrationErrors = always(() =>
+    consoleErrorEntries.current.every(
+        (entry) => !String(entry.args[0]).includes("Hydration"),
+    ),
+);
+```
+:::
+
 ### Formulas
 
 Formulas and temporal operators may sound scary, but fear not --- they are

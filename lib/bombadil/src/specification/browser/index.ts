@@ -108,13 +108,28 @@ export type NavigationEntry = {
 };
 
 /**
+ * A frame of a JavaScript call stack. `line` and `column` are 0-based and
+ * refer to the script as loaded, which is the instrumented code unless
+ * instrumentation is off.
+ */
+export type CallFrame = {
+  name: string;
+  line: number;
+  column: number;
+  url: string;
+};
+
+/**
  * A `console.warn` or `console.error` call. `timestamp` is in microseconds
- * since the Unix epoch.
+ * since the Unix epoch. `stackTrace` has the innermost frame first and at most
+ * 32 frames. Each level keeps at most 256 frames per state, and entries past
+ * that have `null`.
  */
 export type ConsoleEntry = {
   timestamp: number;
   level: "warning" | "error";
   args: JSON[];
+  stackTrace: CallFrame[] | null;
 };
 
 // Specifically-typed wrappers over the generic factory functions in

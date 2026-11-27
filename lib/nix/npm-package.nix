@@ -36,6 +36,9 @@ let
         "./browser/defaults/actions" = {
           types = "./dist/browser/defaults/actions.d.ts";
         };
+        "./browser/defaults/cells" = {
+          types = "./dist/browser/defaults/cells.d.ts";
+        };
         "./browser/defaults/properties" = {
           types = "./dist/browser/defaults/properties.d.ts";
         };

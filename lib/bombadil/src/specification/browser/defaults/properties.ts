@@ -1,5 +1,6 @@
 import { always, Formula } from "@antithesishq/bombadil";
-import { type ConsoleEntry, extract } from "@antithesishq/bombadil/browser";
+import { extract } from "@antithesishq/bombadil/browser";
+import { consoleErrors } from "@antithesishq/bombadil/browser/defaults/cells";
 
 const responseStatus = extract((state) => {
   const first = state.window.performance.getEntriesByType("navigation")[0];
@@ -68,31 +69,6 @@ export const noUnhandledPromiseRejections: Formula = always(() =>
     (e) => !e.startsWith("Uncaught (in promise)"),
   ),
 );
-
-function firstLine(text: string): string {
-  const end = text.indexOf("\n");
-  return end === -1 ? text : text.slice(0, end);
-}
-
-function consoleMessage(args: ConsoleEntry["args"]): string {
-  let message = "";
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
-    if (index > 0) message += " ";
-    message += typeof arg === "string" ? firstLine(arg) : JSON.stringify(arg);
-  }
-  return message;
-}
-
-const consoleErrors = extract((state) => {
-  const errors: { level: "error"; message: string }[] = [];
-  for (const entry of state.console) {
-    if (entry.level === "error") {
-      errors.push({ level: "error", message: consoleMessage(entry.args) });
-    }
-  }
-  return errors;
-});
 
 export const noConsoleErrors: Formula = always(
   () => consoleErrors.current?.length === 0,

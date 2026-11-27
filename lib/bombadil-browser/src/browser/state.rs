@@ -17,6 +17,7 @@ use cdp_protocol::cdp::{
 use const_format::formatcp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json as json;
+use std::sync::Arc;
 use std::time::SystemTime;
 use url::Url;
 
@@ -51,7 +52,7 @@ pub struct BrowserState {
     pub url: Url,
     pub title: String,
     pub content_type: String,
-    pub console_entries: Vec<ConsoleEntry>,
+    pub console_entries: ConsoleEntries,
     pub navigation_history: NavigationHistory,
     pub exceptions: Vec<Exception>,
     pub coverage: Coverage,
@@ -157,11 +158,17 @@ pub struct CallFrame {
     pub url: String,
 }
 
+pub const CONSOLE_STACK_FRAMES_MAX: usize = 32;
+/// Per level and state. Entries past it get no stack, so a page logging in a
+/// loop stays cheap.
+pub const CONSOLE_STACK_FRAMES_STATE_MAX: usize = 256;
+
 #[derive(Clone, Debug)]
 pub struct ConsoleEntry {
     pub timestamp: SystemTime,
     pub level: ConsoleEntryLevel,
     pub args: Vec<json::Value>,
+    pub stack_trace: Option<Arc<[CallFrame]>>,
 }
 
 impl ConsoleEntry {
@@ -170,7 +177,58 @@ impl ConsoleEntry {
             "timestamp": Time::from_system_time(self.timestamp),
             "level": self.level.as_str(),
             "args": self.args,
+            "stackTrace": self.stack_trace.as_deref(),
         })
+    }
+}
+
+pub fn console_stack_trace(
+    stack_trace: runtime::StackTrace,
+) -> Arc<[CallFrame]> {
+    stack_trace
+        .call_frames
+        .into_iter()
+        .take(CONSOLE_STACK_FRAMES_MAX)
+        .map(|frame| CallFrame {
+            name: frame.function_name,
+            line: frame.line_number as u32,
+            column: frame.column_number as u32,
+            url: frame.url,
+        })
+        .collect()
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ConsoleEntries {
+    entries: Vec<ConsoleEntry>,
+    // Indexed by level.
+    stack_frames: [usize; 2],
+}
+
+impl ConsoleEntries {
+    pub fn push(&mut self, mut entry: ConsoleEntry) {
+        if let Some(stack_trace) = &entry.stack_trace {
+            let stack_frames = &mut self.stack_frames[entry.level as usize];
+            let total = *stack_frames + stack_trace.len();
+            if total > CONSOLE_STACK_FRAMES_STATE_MAX {
+                entry.stack_trace = None;
+            } else {
+                *stack_frames = total;
+            }
+        }
+        self.entries.push(entry);
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.stack_frames = [0; 2];
+    }
+}
+
+impl std::ops::Deref for ConsoleEntries {
+    type Target = [ConsoleEntry];
+    fn deref(&self) -> &Self::Target {
+        &self.entries
     }
 }
 
@@ -310,7 +368,7 @@ impl BrowserState {
         connection: &cdp::Connection,
         session_id: &SessionId,
         call_frame_id: &CallFrameId,
-        console_entries: Vec<ConsoleEntry>,
+        console_entries: ConsoleEntries,
         exceptions: Vec<Exception>,
         screenshot: Screenshot,
         generation: Generation,
@@ -476,27 +534,103 @@ mod tests {
     use std::time::Duration;
 
     use hegel::TestCase;
-    use hegel::generators::{booleans, integers, text, vecs};
+    use hegel::generators::{Generator, booleans, integers, text, vecs};
 
     use super::*;
 
-    #[hegel::test]
-    fn console_entry_json_has_the_timestamp_in_microseconds(tc: TestCase) {
-        let micros = tc.draw(integers::<u64>().max_value(1 << 53));
-        let level = if tc.draw(booleans()) {
+    #[hegel::composite]
+    fn levels(tc: &TestCase) -> ConsoleEntryLevel {
+        if tc.draw(booleans()) {
             ConsoleEntryLevel::Error
         } else {
             ConsoleEntryLevel::Warning
-        };
+        }
+    }
+
+    #[hegel::composite]
+    fn cdp_call_frames(tc: &TestCase) -> runtime::CallFrame {
+        runtime::CallFrame {
+            function_name: tc.draw(text().max_size(8)),
+            script_id: runtime::ScriptId::from("1".to_string()),
+            url: tc.draw(text().max_size(8)),
+            line_number: tc.draw(integers::<u32>()) as i64,
+            column_number: tc.draw(integers::<u32>()) as i64,
+        }
+    }
+
+    fn frames_json(frames: &[runtime::CallFrame]) -> json::Value {
+        frames
+            .iter()
+            .map(|frame| {
+                json::json!({
+                    "name": frame.function_name,
+                    "line": frame.line_number,
+                    "column": frame.column_number,
+                    "url": frame.url,
+                })
+            })
+            .collect()
+    }
+
+    fn entry(
+        level: ConsoleEntryLevel,
+        frames_count: Option<usize>,
+    ) -> ConsoleEntry {
+        ConsoleEntry {
+            timestamp: SystemTime::UNIX_EPOCH,
+            level,
+            args: vec![],
+            stack_trace: frames_count.map(|count| {
+                (0..count)
+                    .map(|line| CallFrame {
+                        name: String::new(),
+                        line: line as u32,
+                        column: 0,
+                        url: String::new(),
+                    })
+                    .collect()
+            }),
+        }
+    }
+
+    #[hegel::test]
+    fn console_stack_trace_is_the_innermost_frames(tc: TestCase) {
+        let frames = tc.draw(
+            vecs(cdp_call_frames())
+                .max_size(CONSOLE_STACK_FRAMES_MAX + 8)
+                .print_as_debug(),
+        );
+        let kept =
+            console_stack_trace(runtime::StackTrace::new(frames.clone()));
+
+        let kept_count = frames.len().min(CONSOLE_STACK_FRAMES_MAX);
+        assert_eq!(
+            json::to_value(&*kept).unwrap(),
+            frames_json(&frames[..kept_count])
+        );
+    }
+
+    #[hegel::test]
+    fn console_entry_json_is_the_specification_shape(tc: TestCase) {
+        let micros = tc.draw(integers::<u64>().max_value(1 << 53));
+        let level = tc.draw(levels().print_as_debug());
         let args: Vec<json::Value> = tc
             .draw(vecs(text()).max_size(3))
             .into_iter()
             .map(json::Value::String)
             .collect();
+        let frames = if tc.draw(booleans()) {
+            Some(tc.draw(vecs(cdp_call_frames()).max_size(3).print_as_debug()))
+        } else {
+            None
+        };
         let entry = ConsoleEntry {
             timestamp: SystemTime::UNIX_EPOCH + Duration::from_micros(micros),
             level,
             args: args.clone(),
+            stack_trace: frames.clone().map(|frames| {
+                console_stack_trace(runtime::StackTrace::new(frames))
+            }),
         };
 
         assert_eq!(
@@ -505,7 +639,55 @@ mod tests {
                 "timestamp": micros,
                 "level": level.as_str(),
                 "args": args,
+                "stackTrace": frames.as_deref().map(frames_json),
             })
         );
+    }
+
+    #[hegel::test]
+    fn console_entries_keep_stacks_within_the_state_budget(tc: TestCase) {
+        let mut entries = ConsoleEntries::default();
+        // Per pushed entry: its level and the frames it should have kept.
+        let mut model: Vec<(ConsoleEntryLevel, Option<usize>)> = Vec::new();
+        let mut model_frames = [0usize; 2];
+
+        let steps = tc.draw(integers::<usize>().max_value(64));
+        for _ in 0..steps {
+            if tc.draw(integers::<u8>().max_value(31)) == 0 {
+                entries.clear();
+                model.clear();
+                model_frames = [0; 2];
+                continue;
+            }
+            let level = tc.draw(levels().print_as_debug());
+            let frames_count = if tc.draw(integers::<u8>().max_value(7)) == 0 {
+                None
+            } else {
+                Some(tc.draw(
+                    integers::<usize>().max_value(CONSOLE_STACK_FRAMES_MAX),
+                ))
+            };
+            entries.push(entry(level, frames_count));
+
+            let level_frames = &mut model_frames[level as usize];
+            let kept = frames_count.filter(|count| {
+                *level_frames + count <= CONSOLE_STACK_FRAMES_STATE_MAX
+            });
+            *level_frames += kept.unwrap_or(0);
+            model.push((level, kept));
+
+            let actual: Vec<(ConsoleEntryLevel, Option<usize>)> = entries
+                .iter()
+                .map(|entry| {
+                    (entry.level, entry.stack_trace.as_ref().map(|s| s.len()))
+                })
+                .collect();
+            assert_eq!(actual, model);
+            assert!(
+                model_frames
+                    .iter()
+                    .all(|frames| *frames <= CONSOLE_STACK_FRAMES_STATE_MAX)
+            );
+        }
     }
 }

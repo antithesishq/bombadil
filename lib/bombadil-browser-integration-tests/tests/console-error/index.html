@@ -15,12 +15,16 @@
     <script>
       const button = document.querySelector("button");
       let count = 0;
-      button.addEventListener("click", event => {
+      function reportTooMuch() {
+        console.error("oh no you pressed too much\n    in Counter\n    in App");
+      }
+      function onPress() {
         count++;
         if (count >= 3) {
-          console.error("oh no you pressed too much");
+          reportTooMuch();
         }
-      });
+      }
+      button.addEventListener("click", onPress);
     </script>
   </body>
 </html>
