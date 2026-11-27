@@ -241,6 +241,12 @@ Two things to note about this example:
 This is a custom property using the *temporal* operator called `always`.
 There are other temporal operators, described in [Formulas](#formulas) below.
 
+JavaScript strings can hold lone surrogates, for example half an emoji left by
+`slice`. Bombadil replaces each with U+FFFD (the replacement character) in
+extracted values, in the actions a specification generates, and in
+`JSON.parse`. So `JSON.parse(JSON.stringify(s))` is not `s` for such a string,
+and two object keys that differ only in a lone surrogate become one.
+
 #### Transforming cells
 
 A cell can be turned into a new cell with `map`, which applies a function to

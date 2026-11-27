@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::driver::FromGeneratedAction;
 use crate::specification::js::{
-    BombadilExports, Extractors, RuntimeFunction, syntax_from_value,
+    BombadilExports, Extractors, RuntimeFunction,
+    json_parse_accept_lone_surrogates, syntax_from_value, to_json_lossy,
+    to_string_lossy,
 };
 use crate::specification::result::{Result, SpecificationError};
 use crate::specification::snapshots::with_snapshot_tracking;
@@ -58,7 +60,7 @@ pub struct Specification {
 fn format_console_args(args: &[JsValue]) -> String {
     args.iter()
         .map(|v| match v.as_string() {
-            Some(s) => s.to_std_string_escaped(),
+            Some(s) => to_string_lossy(&s),
             None => v.display().to_string(),
         })
         .collect::<Vec<_>>()
@@ -70,6 +72,7 @@ impl Verifier {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|error| SpecificationError::JS(error.to_string()))?;
+        json_parse_accept_lone_surrogates(&mut context)?;
 
         // Add console object for compatibility with libraries that use console
         let console_obj =
@@ -392,13 +395,12 @@ impl ActionGenerator {
         context: &mut Context,
     ) -> Result<Tree<A>> {
         let value = self.function.call(&self.this, &[], context)?;
-        let actions_json =
-            value
-                .to_json(context)?
-                .ok_or(SpecificationError::OtherError(format!(
-                    "action generator {} returned undefined",
-                    self.name
-                )))?;
+        let actions_json = to_json_lossy(&value, context)?.ok_or(
+            SpecificationError::OtherError(format!(
+                "action generator {} returned undefined",
+                self.name
+            )),
+        )?;
         let value_tree: Tree<json::Value> = json::from_value(actions_json)
             .map_err(|error| {
                 SpecificationError::OtherError(format!(
@@ -1338,6 +1340,42 @@ mod tests {
         assert!(step(true, 0).is_some());
         assert!(step(false, 1).is_none());
         assert!(step(true, 2).is_some());
+    }
+
+    #[test]
+    fn test_lone_surrogate_in_action() {
+        let mut verifier = verifier(
+            r#"
+            import { actions } from "@antithesishq/bombadil";
+
+            const half = String.fromCharCode(0xd83d);
+            export const types = actions(() => [
+              { TypeText: "a" + half + JSON.parse(JSON.stringify(half)) },
+            ]);
+            "#,
+        );
+
+        let result: StepResult<json::Value> =
+            verifier.step(&[], time_from_millis(0)).unwrap();
+
+        assert_eq!(
+            result.actions.prune(),
+            Some(Tree::Branch {
+                branches: vec![(
+                    1,
+                    Tree::Branch {
+                        branches: vec![(
+                            1,
+                            Tree::Leaf {
+                                value: json::json!({
+                                    "TypeText": "a\u{fffd}\u{fffd}"
+                                })
+                            }
+                        )],
+                    },
+                )],
+            })
+        );
     }
 
     #[test]

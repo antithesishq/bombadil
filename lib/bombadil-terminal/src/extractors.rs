@@ -6,6 +6,9 @@ use boa_engine::{
     context::ContextBuilder, js_string,
 };
 use bombadil::specification::domain::Snapshot;
+use bombadil::specification::js::{
+    json_parse_accept_lone_surrogates, to_json_lossy, to_string_lossy,
+};
 use bombadil_schema::Time;
 use serde::Deserialize;
 use serde_json as json;
@@ -29,6 +32,8 @@ impl Extractors {
         let mut context = ContextBuilder::default()
             .build()
             .map_err(|e| anyhow!("Boa build: {e}"))?;
+        json_parse_accept_lone_surrogates(&mut context)
+            .map_err(from_js_error)?;
 
         let console_obj =
             boa_engine::object::ObjectInitializer::new(&mut context)
@@ -123,8 +128,7 @@ impl Extractors {
                 &mut self.context,
             )
             .map_err(from_js_error)?;
-        let result_json = result
-            .to_json(&mut self.context)
+        let result_json = to_json_lossy(&result, &mut self.context)
             .map_err(from_js_error)?
             .ok_or(anyhow!("runExtractors returned undefined"))?;
 
@@ -147,7 +151,7 @@ impl Extractors {
 fn format_console_args(args: &[JsValue]) -> String {
     args.iter()
         .map(|v| match v.as_string() {
-            Some(s) => s.to_std_string_escaped(),
+            Some(s) => to_string_lossy(&s),
             None => v.display().to_string(),
         })
         .collect::<Vec<_>>()
