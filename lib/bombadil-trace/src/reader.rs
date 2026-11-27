@@ -1,14 +1,16 @@
 use std::{
+    collections::VecDeque,
     fs::File,
     io::{BufReader, Cursor, Read},
     path::Path,
 };
 
 use anyhow::{Context, Result, bail};
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
+use serde_json::value::RawValue;
 
 use crate::{
-    ENVELOPE_LEN, PayloadLocation, RECORD_HEADER_LEN, TraceDriver,
+    ENVELOPE_LEN, PayloadLocation, RECORD_HEADER_LEN, StepError, TraceDriver,
     envelope::read_envelope,
     record::{RawRecord, RecordHeader, RecordReader},
     tag,
@@ -21,12 +23,166 @@ pub struct State<M> {
     pub index: usize,
     pub metadata: M,
     /// The state's driver-defined bytes, if it has any and they weren't
-    /// skipped (see [`StateReader::without_payloads`]).
+    /// skipped (see [`TraceReader::without_payloads`]).
     pub payload: Option<Vec<u8>>,
     pub payload_location: Option<PayloadLocation>,
     /// Size of the payload in bytes, even if it was skipped.
     pub payload_length: Option<usize>,
+    action: Option<ActionJson>,
 }
+
+/// One step of a run.
+#[derive(Debug)]
+pub enum Record<M, A> {
+    /// A state and the action that led to it (none for the first).
+    State { action: Option<A>, state: State<M> },
+    /// The actions the trace has no state after (one, unless the run was
+    /// killed), and why the last has none. Only ever the last record.
+    Error {
+        /// The index the first missing state would have.
+        index: usize,
+        actions: Vec<A>,
+        error: StepError,
+    },
+}
+
+/// Reads a trace as its [`Record`]s: each state's metadata as `M`, each
+/// action as `A` from the JSON object `{"action": …, "action_taken": …}`.
+/// A bad record ends them with an error; a cut tail only logs a warning.
+pub struct TraceReader<R, M, A> {
+    pub driver: TraceDriver,
+    states: StateReader<R, M>,
+    failed: bool,
+    action: std::marker::PhantomData<A>,
+}
+
+impl<R: Read, M: DeserializeOwned, A: DeserializeOwned> TraceReader<R, M, A> {
+    /// Reads the envelope from `reader`; records are read on iteration.
+    pub fn new(reader: R) -> Result<Self> {
+        let states = StateReader::new(reader)?;
+        Ok(TraceReader {
+            driver: states.driver,
+            states,
+            failed: false,
+            action: std::marker::PhantomData,
+        })
+    }
+
+    /// Whether the trace ended with its [`tag::END`] record.
+    pub fn finished(&self) -> bool {
+        self.states.finished()
+    }
+
+    /// Fails unless the trace was written by `driver`.
+    pub fn expect_driver(mut self, driver: TraceDriver) -> Result<Self> {
+        self.states = self.states.expect_driver(driver)?;
+        Ok(self)
+    }
+
+    /// Checks payloads but doesn't keep them.
+    pub fn without_payloads(mut self) -> Self {
+        self.states = self.states.without_payloads();
+        self
+    }
+
+    fn read_record(&mut self) -> Result<Option<Record<M, A>>> {
+        let parse = |action: &[u8], index: usize| {
+            serde_json::from_slice(action).with_context(|| {
+                format!("invalid action of trace record {index}")
+            })
+        };
+        if let Some(state) = self.states.next() {
+            let mut state = state?;
+            let action = state
+                .action
+                .take()
+                .map(|action| parse(action.json(), state.index))
+                .transpose()?;
+            return Ok(Some(Record::State { action, state }));
+        }
+        let Some((index, error)) = self.states.error()? else {
+            return Ok(None);
+        };
+        let actions = self
+            .states
+            .actions
+            .drain(..)
+            .map(|(_, record)| parse(&record[STATE_INDEX_LEN..], index))
+            .collect::<Result<_>>()?;
+        Ok(Some(Record::Error {
+            index,
+            actions,
+            error,
+        }))
+    }
+}
+
+impl<R: Read, M: DeserializeOwned, A: DeserializeOwned> Iterator
+    for TraceReader<R, M, A>
+{
+    type Item = Result<Record<M, A>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.failed {
+            return None;
+        }
+        let result = self.read_record().transpose();
+        self.failed = matches!(result, Some(Err(_)));
+        result
+    }
+}
+
+/// An action as recorded, at the end of `bytes`.
+#[derive(Debug)]
+struct ActionJson {
+    bytes: Vec<u8>,
+    start: usize,
+}
+
+impl ActionJson {
+    fn json(&self) -> &[u8] {
+        &self.bytes[self.start..]
+    }
+
+    /// The action in a state's metadata, where traces without action
+    /// records hold it: `action`, with the `action_taken` of `state`.
+    fn of_state(metadata: &[u8]) -> Option<Self> {
+        #[derive(Deserialize)]
+        struct Metadata<'a> {
+            #[serde(borrow, default)]
+            action: Option<&'a RawValue>,
+            #[serde(borrow, default)]
+            state: Option<&'a RawValue>,
+        }
+        #[derive(Deserialize)]
+        struct State<'a> {
+            #[serde(borrow, default)]
+            action_taken: Option<&'a RawValue>,
+        }
+        if metadata.first() != Some(&b'{') {
+            return None;
+        }
+        let metadata: Metadata = serde_json::from_slice(metadata).ok()?;
+        let action = metadata.action?;
+        let action_taken = metadata
+            .state
+            .filter(|state| state.get().starts_with('{'))
+            .and_then(|state| serde_json::from_str::<State>(state.get()).ok())
+            .and_then(|state| state.action_taken)
+            .map_or("null", RawValue::get);
+        Some(ActionJson {
+            bytes: format!(
+                r#"{{"action":{},"action_taken":{action_taken}}}"#,
+                action.get()
+            )
+            .into_bytes(),
+            start: 0,
+        })
+    }
+}
+
+// The index of a state, which starts an action or error record.
+const STATE_INDEX_LEN: usize = size_of::<u64>();
 
 /// Reads the states of a trace, in the order they were written, with
 /// their metadata deserialized as `M`.
@@ -37,12 +193,16 @@ pub struct State<M> {
 /// run killed while writing), ends them with a logged warning instead,
 /// and without that state. A trace without a [`tag::END`] record also
 /// ends with a logged warning; see [`finished`](Self::finished).
-pub struct StateReader<R, M> {
+pub(crate) struct StateReader<R, M> {
     pub driver: TraceDriver,
     records: RecordReader<R>,
     states_read: usize,
     // A state whose payload hasn't been read yet.
     pending: Option<PendingState<M>>,
+    // The actions whose state hasn't been read, by the state each was applied in.
+    actions: VecDeque<(u64, Vec<u8>)>,
+    error: Option<Vec<u8>>,
+    failed: bool,
     // Whether iteration ended, with or without an error.
     ended: bool,
     // Whether the end record was read.
@@ -52,12 +212,24 @@ pub struct StateReader<R, M> {
 
 struct PendingState<M> {
     metadata: M,
+    action: Option<ActionJson>,
     // The index of the record holding the metadata.
     record: usize,
 }
 
 /// Opens a trace file. Directories are not trace inputs.
-pub fn open_trace<M: DeserializeOwned>(
+pub fn open_trace<M: DeserializeOwned, A: DeserializeOwned>(
+    path: &Path,
+) -> Result<TraceReader<BufReader<File>, M, A>> {
+    let file = File::open(path).with_context(|| {
+        format!("failed to open trace file {}", path.display())
+    })?;
+    TraceReader::new(BufReader::new(file))
+        .with_context(|| format!("failed to read {}", path.display()))
+}
+
+#[cfg(test)]
+pub(crate) fn open_states<M: DeserializeOwned>(
     path: &Path,
 ) -> Result<StateReader<BufReader<File>, M>> {
     let file = File::open(path).with_context(|| {
@@ -102,7 +274,7 @@ pub fn read_payload_at(
 /// On Unix and Windows, concurrent calls on one handle always read the
 /// right bytes, as each read names its offset. On Unix the cursor isn't
 /// used at all, so this can also run alongside a reader of the same
-/// handle (e.g. a [`StateReader`] of a [`File::try_clone`] of it), even
+/// handle (e.g. a [`TraceReader`] of a [`File::try_clone`] of it), even
 /// concurrently. On Windows each read moves the cursor and it is put
 /// back after, so a single call leaves it where it was, but concurrent
 /// calls can interleave their saving and restoring and leave it
@@ -237,6 +409,9 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
             records: RecordReader::new(reader),
             states_read: 0,
             pending: None,
+            actions: VecDeque::new(),
+            error: None,
+            failed: false,
             ended: false,
             finished: false,
             keep_payloads: true,
@@ -267,7 +442,53 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
         self
     }
 
-    fn state(&mut self, metadata: M, payload: Option<RawRecord>) -> State<M> {
+    /// Once the states are read: the index and error of [`Record::Error`].
+    fn error(&mut self) -> Result<Option<(usize, StepError)>> {
+        if !self.ended || self.failed {
+            return Ok(None);
+        }
+        let Some((last, _)) = self.actions.back() else {
+            return Ok(None);
+        };
+        let error = match &self.error {
+            Some(error) => {
+                let (state, error) = error.split_at(STATE_INDEX_LEN);
+                if state != last.to_le_bytes() {
+                    self.failed = true;
+                    bail!("trace error is for another action than its last");
+                }
+                serde_json::from_slice(error)
+                    .inspect_err(|_| self.failed = true)
+                    .context("invalid trace error")?
+            }
+            None => StepError::Unknown,
+        };
+        Ok(Some((self.states_read, error)))
+    }
+
+    /// The action that led to the state: its record's, or its metadata's.
+    fn action(&mut self, index: usize, metadata: &[u8]) -> Option<ActionJson> {
+        while let Some((state, _)) = self.actions.front() {
+            if *state as usize + 1 > index {
+                break;
+            }
+            let (state, bytes) = self.actions.pop_front().unwrap();
+            if state as usize + 1 == index {
+                return Some(ActionJson {
+                    bytes,
+                    start: STATE_INDEX_LEN,
+                });
+            }
+        }
+        ActionJson::of_state(metadata)
+    }
+
+    fn state(
+        &mut self,
+        metadata: M,
+        action: Option<ActionJson>,
+        payload: Option<RawRecord>,
+    ) -> State<M> {
         let index = self.states_read;
         self.states_read += 1;
         let (payload_location, payload_length, payload) = match payload {
@@ -284,6 +505,7 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
             payload,
             payload_location,
             payload_length,
+            action,
         }
     }
 
@@ -291,7 +513,14 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
         loop {
             let Some(record) = self.records.next_record(self.keep_payloads)
             else {
-                if self.pending.take().is_some() {
+                if let Some(pending) = self.pending.take() {
+                    // Its action is one no state follows, after all.
+                    if let Some(action) = pending.action
+                        && action.start > 0
+                    {
+                        let state = self.states_read as u64 - 1;
+                        self.actions.push_front((state, action.bytes));
+                    }
                     log::warn!(
                         "trace ends before the payload of state {} (the run \
                          was probably killed while writing it); reading up \
@@ -338,20 +567,21 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
                             record.index
                         );
                     }
-                    let metadata = serde_json::from_slice(
-                        record.payload.as_deref().unwrap_or_default(),
-                    )
-                    .with_context(|| {
-                        format!(
-                            "invalid state in trace record {}",
-                            record.index
-                        )
-                    })?;
+                    let encoded = record.payload.as_deref().unwrap_or_default();
+                    let metadata = serde_json::from_slice(encoded)
+                        .with_context(|| {
+                            format!(
+                                "invalid state in trace record {}",
+                                record.index
+                            )
+                        })?;
+                    let action = self.action(self.states_read, encoded);
                     if record.tag == tag::STATE {
-                        return Ok(Some(self.state(metadata, None)));
+                        return Ok(Some(self.state(metadata, action, None)));
                     }
                     self.pending = Some(PendingState {
                         metadata,
+                        action,
                         record: record.index,
                     });
                 }
@@ -363,9 +593,27 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
                             record.index
                         );
                     };
-                    return Ok(Some(
-                        self.state(pending.metadata, Some(record)),
-                    ));
+                    return Ok(Some(self.state(
+                        pending.metadata,
+                        pending.action,
+                        Some(record),
+                    )));
+                }
+                tag::ACTION | tag::ERROR => {
+                    let payload = record.payload.unwrap_or_default();
+                    let Some(state) = payload.first_chunk::<STATE_INDEX_LEN>()
+                    else {
+                        bail!(
+                            "invalid action or error in trace record {}",
+                            record.index
+                        );
+                    };
+                    if record.tag == tag::ACTION {
+                        self.actions
+                            .push_back((u64::from_le_bytes(*state), payload));
+                    } else {
+                        self.error = Some(payload);
+                    }
                 }
                 tag if tag & tag::OPTIONAL != 0 => {}
                 tag => {
@@ -390,6 +638,7 @@ impl<R: Read, M: DeserializeOwned> Iterator for StateReader<R, M> {
         // Once ended, stay ended, so warnings aren't logged again and no
         // state is read after an error.
         self.ended = !matches!(result, Some(Ok(_)));
+        self.failed = matches!(result, Some(Err(_)));
         result
     }
 }
@@ -459,7 +708,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(TRACE_FILE_NAME);
         std::fs::write(&path, three_states()).unwrap();
-        let states = open_trace::<Metadata>(&path)
+        let states = open_states::<Metadata>(&path)
             .unwrap()
             .without_payloads()
             .collect::<Result<Vec<_>>>()
@@ -497,7 +746,7 @@ mod tests {
         );
 
         assert!(read_payload_at(directory.path(), offset).is_err());
-        assert!(open_trace::<Metadata>(directory.path()).is_err());
+        assert!(open_states::<Metadata>(directory.path()).is_err());
 
         // A header with a matching checksum is still checked.
         let mut file = three_states();
@@ -533,7 +782,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(TRACE_FILE_NAME);
         std::fs::write(&path, three_states()).unwrap();
-        let offset = open_trace::<Metadata>(&path)
+        let offset = open_states::<Metadata>(&path)
             .unwrap()
             .nth(2)
             .unwrap()
@@ -622,6 +871,78 @@ mod tests {
         assert!(states[0].is_ok());
         let error = format!("{:#}", states[1].as_ref().unwrap_err());
         assert!(error.contains("test error"), "{error}");
+    }
+
+    /// An action record too short for the index of its state is an
+    /// error, as other optional records are skipped, not this one.
+    #[test]
+    fn rejects_an_action_without_its_state() {
+        let mut file = three_states();
+        write_record(&mut file, tag::ACTION, &[&[0; 7]]).unwrap();
+        let states: Vec<_> = StateReader::<_, Metadata>::new(&file[..])
+            .unwrap()
+            .collect();
+        assert_eq!(states.len(), 4);
+        let error = format!("{:#}", states[3].as_ref().unwrap_err());
+        assert_eq!(error, "invalid action or error in trace record 5");
+    }
+
+    fn indexed(state: u64, json: &[u8]) -> Vec<u8> {
+        [&state.to_le_bytes()[..], json].concat()
+    }
+
+    /// An error is for the last action; for another, the trace is bad.
+    #[test]
+    fn rejects_an_error_for_another_action() {
+        let action = indexed(1, br#""a""#);
+        let file = |error_state| {
+            let error = indexed(error_state, br#"{"kind":"stalled"}"#);
+            trace(&[
+                (tag::STATE, br#"{"n":0}"#),
+                (tag::STATE, br#"{"n":1}"#),
+                (tag::ACTION, &action),
+                (tag::ERROR, &error),
+                (tag::END, b""),
+            ])
+        };
+        let read = |file: Vec<u8>| {
+            TraceReader::<_, Metadata, String>::new(&file[..])
+                .unwrap()
+                .collect::<Vec<_>>()
+        };
+        let records = read(file(1));
+        assert!(matches!(
+            &records[..],
+            [Ok(_), Ok(_), Ok(Record::Error { index: 2, actions, error })]
+                if actions[..] == ["a"] && *error == StepError::Stalled
+        ));
+        let records = read(file(0));
+        assert_eq!(records.len(), 3);
+        let error = records[2].as_ref().unwrap_err().to_string();
+        assert_eq!(error, "trace error is for another action than its last");
+    }
+
+    /// A state whose payload the trace ends before isn't read, so the
+    /// action that led to it has no state.
+    #[test]
+    fn keeps_the_action_of_a_state_cut_before_its_payload() {
+        let action = indexed(0, br#""a""#);
+        let file = trace(&[
+            (tag::STATE, br#"{"n":0}"#),
+            (tag::ACTION, &action),
+            (tag::STATE_WITH_PAYLOAD, br#"{"n":1}"#),
+        ]);
+        let records = TraceReader::<_, Metadata, String>::new(&file[..])
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert!(matches!(
+            &records[..],
+            [
+                Record::State { action: None, .. },
+                Record::Error { index: 1, actions, error: StepError::Unknown },
+            ] if actions[..] == ["a"]
+        ));
     }
 
     #[test]

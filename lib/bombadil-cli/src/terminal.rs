@@ -1,23 +1,18 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
-use std::{
-    collections::VecDeque, num::NonZeroUsize, path::PathBuf, process::exit,
-};
+use std::{num::NonZeroUsize, path::PathBuf, process::exit};
 
 use antithesis_sdk::random::AntithesisRng;
 use anyhow::{Result, bail};
 use bombadil::driver::{InterfaceDriver, RunId};
 use bombadil::fuzzer::FuzzOptions;
-use bombadil::model::Recorded;
 use bombadil::specification::convert::ToInternal;
 use bombadil::specification::verifier::Specification;
 use bombadil::{antithesis, fuzzer, runner};
 use bombadil_schema::Time;
 use bombadil_schema::terminal::{ProcessExitStatus, TerminalSize};
-use bombadil_terminal::driver::{
-    TerminalAction, TerminalDriver, TerminalProgramOptions,
-};
+use bombadil_terminal::driver::{TerminalDriver, TerminalProgramOptions};
 use bombadil_terminal::trace::{
     TerminalOutputWriter, TerminalTraceWriter, load_trace_actions,
 };
@@ -238,9 +233,14 @@ pub fn run(command: Command) {
                 let output_path = resolve_output_path(&output_path)?;
 
                 let mode = match reproduce {
-                    Some(path) => TerminalTestMode::Reproduce(
-                        load_reproduce_actions(&path)?,
-                    ),
+                    Some(path) => {
+                        let trace = load_trace_actions(&path)?
+                            .map_actions(|action| action.to_internal());
+                        TerminalTestMode::Reproduce(
+                            trace.actions.into(),
+                            trace.ended,
+                        )
+                    }
                     None => TerminalTestMode::RandomWalk,
                 };
 
@@ -464,15 +464,6 @@ pub fn run(command: Command) {
             }
         }
     }
-}
-
-fn load_reproduce_actions(
-    path: &std::path::Path,
-) -> Result<VecDeque<Recorded<TerminalAction>>> {
-    Ok(load_trace_actions(path)?
-        .map_actions(|action| action.to_internal())
-        .actions
-        .into())
 }
 
 fn terminal_shrink(

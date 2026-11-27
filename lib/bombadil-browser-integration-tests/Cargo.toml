@@ -15,12 +15,17 @@ bombadil = { path = "../bombadil" }
 bombadil-browser = { path = "../bombadil-browser" }
 bombadil-ltl = { path = "../bombadil-ltl" }
 bombadil-schema = { path = "../bombadil-schema" }
+bombadil-trace = { path = "../bombadil-trace" }
+cdp = { path = "../cdp" }
 env_logger.workspace = true
 indoc.workspace = true
 insta.workspace = true
+libc.workspace = true
 log.workspace = true
 hegeltest.workspace = true
 rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time"] }
 tokio-stream = { workspace = true, features = ["time"] }

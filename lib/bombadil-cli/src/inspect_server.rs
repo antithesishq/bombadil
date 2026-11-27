@@ -19,7 +19,7 @@ use axum::{
     routing::get,
 };
 use bombadil_schema::browser::BrowserTraceEntry;
-use bombadil_trace::{StateReader, TraceDriver, read_payload_from};
+use bombadil_trace::{Record, TraceDriver, TraceReader, read_payload_from};
 use include_dir::{Dir, include_dir};
 use serde_json::value::RawValue;
 
@@ -500,18 +500,28 @@ fn scan_states(
     generation: u64,
     body_bytes_max: usize,
 ) -> Result<Scanned> {
-    let mut states =
-        StateReader::<_, Box<RawValue>>::new(BufReader::new(opened))
-            .and_then(|states| states.expect_driver(TraceDriver::Browser))
-            .with_context(|| format!("failed to read {}", file.display()))?
-            .without_payloads();
+    let mut states = TraceReader::<_, Box<RawValue>, Box<RawValue>>::new(
+        BufReader::new(opened),
+    )
+    .and_then(|states| states.expect_driver(TraceDriver::Browser))
+    .with_context(|| format!("failed to read {}", file.display()))?
+    .without_payloads();
     let mut body = Body::new(body_bytes_max);
     let mut screenshots = Vec::new();
     let mut error = None;
     let mut missing = 0;
-    for trace_state in states.by_ref() {
-        let trace_state = match trace_state {
-            Ok(trace_state) => trace_state,
+    for record in states.by_ref() {
+        let trace_state = match record {
+            Ok(Record::State { state, .. }) => state,
+            // The page reads every entry as a state.
+            Ok(Record::Error { error, .. }) => {
+                log::warn!(
+                    "{} ends with an action that no state followed \
+                     ({error}), which the page doesn't show",
+                    file.display()
+                );
+                continue;
+            }
             Err(state_error) => {
                 error = Some(truncated(format!("{state_error:#}")));
                 break;
@@ -1370,6 +1380,38 @@ mod tests {
             std::fs::write(&path, &finished).unwrap();
             let response = trace_handler(State(state.clone())).await;
             assert!(!response.headers().contains_key(TRACE_UNFINISHED_HEADER));
+        });
+    }
+
+    #[test]
+    fn leaves_out_the_action_no_state_followed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let entry: serde_json::Value =
+            serde_json::from_str(&metadata("https://a/", "jpeg")).unwrap();
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &path,
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        writer.write_state(entry, None).unwrap();
+        writer
+            .write_action(&serde_json::json!({ "action": "Back" }))
+            .unwrap();
+        writer
+            .write_error(bombadil_trace::StepError::Stalled)
+            .unwrap();
+        writer.finish().unwrap();
+        let state = binary_state(&path);
+        block_on(async {
+            let response = trace_handler(State(state.clone())).await;
+            assert!(!response.headers().contains_key(TRACE_ERROR_HEADER));
+            assert!(!response.headers().contains_key(TRACE_UNFINISHED_HEADER));
+            assert_eq!(
+                served(&trace_body(&state).await.unwrap().body).len(),
+                1
+            );
         });
     }
 

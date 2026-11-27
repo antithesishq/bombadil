@@ -1,17 +1,18 @@
 //! Reading binary browser traces and their embedded screenshots.
 
-use std::{collections::BTreeMap, path::Path};
+use std::path::Path;
 
+#[cfg(test)]
+use bombadil::model::Recorded;
 #[cfg(test)]
 use bombadil_schema::browser::BrowserTraceEntry;
 #[cfg(test)]
 use std::{fs::File, io::BufReader};
 
 use anyhow::{Result, bail};
-use bombadil::{model::Recorded, shrink::TraceActions};
-use bombadil_schema::{ActionKey, browser::BrowserAction};
+use bombadil::shrink::{TraceActions, read_trace_actions};
+use bombadil_schema::browser::BrowserAction;
 use bombadil_trace::{TraceDriver, open_trace};
-use serde::Deserialize;
 
 use crate::output_path::resolve_browser_trace_file;
 
@@ -27,16 +28,19 @@ pub fn screenshot_media_type(format: &str) -> Option<&'static str> {
 }
 
 #[cfg(test)]
-pub type BrowserStates =
-    bombadil_trace::StateReader<BufReader<File>, BrowserTraceEntry>;
+pub type BrowserRecords = bombadil_trace::TraceReader<
+    BufReader<File>,
+    BrowserTraceEntry,
+    Recorded<BrowserAction>,
+>;
 
 /// Opens a binary browser trace.
 #[cfg(test)]
-pub fn open_binary(file: &Path) -> Result<BrowserStates> {
+pub fn open_binary(file: &Path) -> Result<BrowserRecords> {
     open_trace(file)?.expect_driver(TraceDriver::Browser)
 }
 
-/// The recorded actions of the browser trace at `path`, for replaying.
+#[cfg(test)]
 pub fn load_actions(path: &Path) -> Result<Vec<Recorded<BrowserAction>>> {
     Ok(load_trace_actions(path)?.actions)
 }
@@ -45,61 +49,24 @@ pub fn load_actions(path: &Path) -> Result<Vec<Recorded<BrowserAction>>> {
 /// of each property, for shrinking.
 pub fn load_trace_actions(path: &Path) -> Result<TraceActions<BrowserAction>> {
     let file = resolve_browser_trace_file(path)?;
-    // Only what is needed: the rest
-    // (e.g. snapshot values) would be read into `serde_json::Value`s,
-    // which fail on, or misread, some JSON.
-    #[derive(Deserialize)]
-    struct Entry {
-        #[serde(default)]
-        action: Option<BrowserAction>,
-        #[serde(default)]
-        state: State,
-        #[serde(default)]
-        violations: Vec<Violation>,
-    }
-    #[derive(Deserialize, Default)]
-    struct State {
-        #[serde(default)]
-        action_taken: Option<ActionKey>,
-    }
-    #[derive(Deserialize)]
-    struct Violation {
-        name: String,
-    }
-    let mut actions = Vec::new();
-    let mut violations_earliest = BTreeMap::new();
-    let mut states = 0;
-    let reader = open_trace::<Entry>(&file)?
-        .expect_driver(TraceDriver::Browser)?
-        .without_payloads();
-    for state in reader {
-        let entry = state?.metadata;
-        states += 1;
-        if let Some(action) = entry.action {
-            actions.push(Recorded {
-                action,
-                template: entry.state.action_taken,
-            });
-        }
-        for violation in entry.violations {
-            violations_earliest
-                .entry(violation.name)
-                .or_insert(actions.len());
-        }
-    }
-    if states == 0 {
+    let trace = read_trace_actions(
+        open_trace(&file)?
+            .expect_driver(TraceDriver::Browser)?
+            .without_payloads(),
+    )?;
+    // A run killed early leaves actions and no states.
+    if trace.states == 0 && trace.actions.is_empty() {
         bail!("{} holds no states", path.display());
     }
-    Ok(TraceActions {
-        actions,
-        violations_earliest,
-    })
+    Ok(trace)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bombadil_schema::ActionKey;
     use bombadil_trace::{TRACE_FILE_NAME, tag, write_envelope, write_record};
+    use std::collections::BTreeMap;
 
     const STATE: &str = r#"{"timestamp":0,"action":"Back","state":{"url":"https://example.com/","screenshot":"jpeg","resources":{"js_heap_used":0,"js_heap_total":0,"dom_nodes":0,"documents":0,"js_event_listeners":0,"layout_objects":0,"timestamp":0.0,"thread_time":0.0,"task_duration":0.0,"script_duration":0.0}},"snapshots":[],"violations":[]}"#;
 
@@ -125,7 +92,12 @@ mod tests {
         );
         let mut states =
             open_binary(&directory.path().join(TRACE_FILE_NAME)).unwrap();
-        let state = states.next().unwrap().unwrap();
+        let Some(Ok(bombadil_trace::Record::State { action, state })) =
+            states.next()
+        else {
+            panic!("no state");
+        };
+        assert_eq!(action.unwrap().action, BrowserAction::Back);
         assert_eq!(state.metadata.state.screenshot, "jpeg");
         assert_eq!(state.payload.as_deref(), Some(&b"image"[..]));
         assert!(states.next().is_none());
@@ -236,6 +208,53 @@ mod tests {
             load_actions(&directory.path().join(TRACE_FILE_NAME)).unwrap(),
             vec![recorded(Some(ActionKey(0xa1))), recorded(None)]
         );
+    }
+
+    /// Actions that no state followed are loaded too, even alone.
+    #[test]
+    fn reads_the_actions_no_state_followed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let recorded = |action| Recorded {
+            action,
+            template: Some(ActionKey(0xa1)),
+        };
+        let state: serde_json::Value = serde_json::from_str(
+            &STATE.replace(r#""action":"Back""#, r#""action":null"#),
+        )
+        .unwrap();
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &path,
+            TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        writer.write_state(state.clone(), None).unwrap();
+        writer
+            .write_action(&recorded(BrowserAction::Reload))
+            .unwrap();
+        writer.write_state(state, None).unwrap();
+        writer
+            .write_action(&recorded(BrowserAction::Forward))
+            .unwrap();
+        writer
+            .write_error(bombadil_trace::StepError::Stalled)
+            .unwrap();
+        writer.finish().unwrap();
+        let both = vec![
+            recorded(BrowserAction::Reload),
+            recorded(BrowserAction::Forward),
+        ];
+        assert_eq!(load_actions(&path).unwrap(), both);
+
+        // Cut before its first chunk of states.
+        let file = std::fs::read(&path).unwrap();
+        let chunk = file
+            .windows(2)
+            .position(|tag| tag == tag::CHUNK.to_le_bytes())
+            .unwrap();
+        std::fs::write(&path, &file[..chunk]).unwrap();
+        assert_eq!(load_actions(&path).unwrap(), both);
     }
 
     #[test]

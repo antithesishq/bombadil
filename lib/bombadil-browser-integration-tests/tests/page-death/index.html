@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Page death</title>
+  </head>
+  <body>
+    <!-- Lets the test prepare before there is anything to click. -->
+    <script src="/ready.js"></script>
+    <button id="arm">Arm</button>
+    <button id="die" hidden>Die</button>
+    <script>
+      let armed = 0;
+      document.getElementById("arm").addEventListener("click", () => {
+        armed += 1;
+        document.getElementById("die").hidden = armed < 2;
+      });
+      // Synchronous, so the page does nothing more until the test, which
+      // serves the request, has killed what it kills.
+      document.getElementById("die").addEventListener("click", () => {
+        const request = new XMLHttpRequest();
+        request.open("GET", "/die", false);
+        request.send();
+      });
+    </script>
+  </body>
+</html>

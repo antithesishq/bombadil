@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 use anyhow::{Result, anyhow, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, Recorded, accepting_key};
+use bombadil::model::{Picked, Recorded, accepting_key, replayed_end_report};
 use bombadil::render::Formatted;
 use bombadil::runner::{ControlFlow, PropertiesState, RunStrategy};
 use bombadil::specification::convert::ToSchema;
@@ -15,6 +15,7 @@ use bombadil_schema::terminal::{
     ProcessExitStatus, TerminalAttributes, TerminalCell, TerminalColor,
     TerminalStyle, TerminalUnderline,
 };
+use bombadil_trace::StepError;
 use owo_colors::{OwoColorize, XtermColors};
 use rand::{RngExt, TryRng};
 
@@ -30,7 +31,8 @@ pub mod trace;
 
 pub enum TerminalTestMode {
     RandomWalk,
-    Reproduce(VecDeque<Recorded<TerminalAction>>),
+    /// The actions, and why the recorded run had no state after the last.
+    Reproduce(VecDeque<Recorded<TerminalAction>>, Option<StepError>),
 }
 
 pub struct TerminalStrategy<Rng: TryRng> {
@@ -45,6 +47,15 @@ pub struct TerminalStrategy<Rng: TryRng> {
 }
 
 impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
+    fn report_replayed_end(&self, state_followed: bool) {
+        if let TerminalTestMode::Reproduce(actions, Some(recorded)) = &self.mode
+            && actions.is_empty()
+            && !self.quiet
+        {
+            println!("{}", replayed_end_report(recorded, state_followed));
+        }
+    }
+
     #[hotpath::measure]
     fn pick_action(
         &mut self,
@@ -57,7 +68,7 @@ impl<Rng: TryRng + RngExt> TerminalStrategy<Rng> {
             TerminalTestMode::RandomWalk => {
                 Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
-            TerminalTestMode::Reproduce(actions) => {
+            TerminalTestMode::Reproduce(actions, _) => {
                 let original = actions.pop_front().ok_or_else(|| {
                     anyhow!("no remaining actions in reproduce queue")
                 })?;
@@ -168,10 +179,11 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
             return self.stop(ExitReason::ExitOnViolation);
         }
 
-        if let TerminalTestMode::Reproduce(remaining) = &self.mode
+        if let TerminalTestMode::Reproduce(remaining, _) = &self.mode
             && remaining.is_empty()
         {
             log::info!("reproduction complete, stopping");
+            self.report_replayed_end(true);
             return self.stop(ExitReason::Reproduced);
         }
 
@@ -213,14 +225,17 @@ impl<Rng: TryRng + RngExt> RunStrategy<TerminalSession>
     }
 
     fn on_time_limit(&mut self) -> Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(ExitReason::TimeLimit)
     }
 
     fn on_stalled(&mut self) -> Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(ExitReason::Stalled)
     }
 
     fn on_interrupted(&mut self) -> Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(ExitReason::Interrupted)
     }
 }

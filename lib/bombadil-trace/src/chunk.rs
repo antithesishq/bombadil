@@ -4,7 +4,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
-use crate::{RECORD_HEADER_LEN, RECORD_PAYLOAD_BYTES_MAX, tag, write_record};
+use crate::{
+    RECORD_HEADER_LEN, RECORD_PAYLOAD_BYTES_MAX, record::seal_record, tag,
+    write_record,
+};
 
 const TARGET_BYTES: usize = 1024 * 1024;
 const STATES_MAX: usize = 32;
@@ -31,7 +34,9 @@ pub(crate) struct ChunkWriter<W, T> {
     receiver: Receiver<T>,
     compressor: zstd::bulk::Compressor<'static>,
     buffer: Vec<u8>,
-    compressed: Vec<u8>,
+    // A whole chunk record, written at once: actions are appended to the
+    // file from another thread.
+    record: Vec<u8>,
     states: usize,
     started: Option<Instant>,
 }
@@ -43,9 +48,7 @@ impl<W: Write, T> ChunkWriter<W, T> {
             receiver,
             compressor: zstd::bulk::Compressor::new(3)?,
             buffer: Vec::with_capacity(TARGET_BYTES),
-            compressed: Vec::with_capacity(zstd::zstd_safe::compress_bound(
-                TARGET_BYTES,
-            )),
+            record: Vec::new(),
             states: 0,
             started: None,
         })
@@ -122,18 +125,21 @@ impl<W: Write, T> ChunkWriter<W, T> {
         if self.buffer.is_empty() {
             return self.writer.flush();
         }
-        self.compressed.clear();
-        self.compressed
-            .reserve(zstd::zstd_safe::compress_bound(self.buffer.len()));
-        self.compressor
-            .compress_to_buffer(&self.buffer, &mut self.compressed)?;
-        if self.compressed.len() + 4 <= RECORD_PAYLOAD_BYTES_MAX {
-            let length = (self.buffer.len() as u32).to_le_bytes();
-            write_record(
-                &mut self.writer,
-                tag::CHUNK,
-                &[&length, &self.compressed],
-            )?;
+        let compressed_start = RECORD_HEADER_LEN + 4;
+        let bound = zstd::zstd_safe::compress_bound(self.buffer.len());
+        if self.record.len() < compressed_start + bound {
+            self.record.resize(compressed_start + bound, 0);
+        }
+        let compressed = self.compressor.compress_to_buffer(
+            &self.buffer,
+            &mut self.record[compressed_start..],
+        )?;
+        if compressed + 4 <= RECORD_PAYLOAD_BYTES_MAX {
+            let record = &mut self.record[..compressed_start + compressed];
+            record[RECORD_HEADER_LEN..compressed_start]
+                .copy_from_slice(&(self.buffer.len() as u32).to_le_bytes());
+            seal_record(record, tag::CHUNK)?;
+            self.writer.write_all(record)?;
         } else {
             self.writer.write_all(&self.buffer)?;
         }
@@ -141,6 +147,19 @@ impl<W: Write, T> ChunkWriter<W, T> {
         self.states = 0;
         self.started = None;
         self.writer.flush()
+    }
+
+    pub fn write_error(&mut self, state: u64, error: &[u8]) -> io::Result<()> {
+        write_record(
+            &mut self.writer,
+            tag::ERROR,
+            &[&state.to_le_bytes(), error],
+        )
+    }
+
+    #[cfg(test)]
+    pub fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     pub fn finish(&mut self) -> io::Result<()> {
@@ -154,8 +173,9 @@ impl<W: Write, T> ChunkWriter<W, T> {
 mod tests {
     use super::*;
     use crate::{
-        StateReader, TraceDriver, TraceFileWriter, open_trace, read_payload_at,
-        read_payload_from, write_envelope,
+        TraceDriver, TraceFileWriter, read_payload_at, read_payload_from,
+        reader::{StateReader, open_states},
+        write_envelope,
     };
     use hegel::{TestCase, generators::integers};
     use std::{
@@ -293,7 +313,7 @@ mod tests {
             writer.write_state(n, Some(Arc::new(payload(n)))).unwrap();
         }
         writer.finish().unwrap();
-        let read = open_trace::<u32>(&path)
+        let read = open_states::<u32>(&path)
             .unwrap()
             .without_payloads()
             .collect::<Result<Vec<_>>>()
@@ -316,7 +336,7 @@ mod tests {
         let index = first.chunk.unwrap() as usize + RECORD_HEADER_LEN + 5;
         bytes[index] ^= 1;
         std::fs::write(&path, &bytes).unwrap();
-        assert!(open_trace::<u32>(&path).unwrap().next().unwrap().is_err());
+        assert!(open_states::<u32>(&path).unwrap().next().unwrap().is_err());
         assert_eq!(read_payload_at(&path, last).unwrap(), payload(69));
     }
 

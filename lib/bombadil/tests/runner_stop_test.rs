@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use bombadil::render::Format;
 use bombadil_schema::Time;
 use serde::{Deserialize, Serialize};
@@ -418,6 +418,14 @@ impl bombadil::driver::TraceWriter<FakeSession> for FinishingWriter {
         Ok(())
     }
 
+    fn write_action(&mut self, _picked: &Picked<FakeAction>) -> Result<()> {
+        Ok(())
+    }
+
+    fn write_error(&mut self, _error: bombadil_trace::StepError) -> Result<()> {
+        Ok(())
+    }
+
     fn finish(&mut self) -> Result<()> {
         self.finish_calls += 1;
         match self.failure {
@@ -603,4 +611,384 @@ fn run_reports_the_first_error_and_still_finishes_and_terminates() {
         !logged.iter().any(|logged| logged.contains("write failed")),
         "{logged:?}"
     );
+}
+
+type Steps = Arc<std::sync::Mutex<Vec<String>>>;
+
+enum Next {
+    State,
+    /// No event; with `true`, the run is interrupted.
+    Wait(bool),
+    Error,
+    Closed,
+}
+
+struct ScriptedSession {
+    steps: Steps,
+    script: std::collections::VecDeque<Next>,
+    interrupted: Arc<AtomicBool>,
+    apply_fails: bool,
+    extract_fails_at: Option<usize>,
+    states: usize,
+}
+
+impl InterfaceSession for ScriptedSession {
+    type Action = FakeAction;
+    type ActionTemplate = FakeAction;
+    type State = FakeState;
+
+    const STALL_TIMEOUT: Duration = Duration::from_millis(300);
+
+    fn terminate(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    fn next_event(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<DriverEvent<Self::State>> {
+        match self.script.pop_front() {
+            Some(Next::State) => {
+                Some(DriverEvent::StateChanged(Arc::new(FakeState)))
+            }
+            Some(Next::Wait(interrupt)) => {
+                self.script.push_front(Next::Wait(interrupt));
+                self.interrupted.store(interrupt, Ordering::SeqCst);
+                thread::sleep(timeout.min(Duration::from_millis(20)));
+                Some(DriverEvent::Timeout)
+            }
+            Some(Next::Error) => {
+                Some(DriverEvent::Error(Arc::new(anyhow!("boom"))))
+            }
+            Some(Next::Closed) | None => None,
+        }
+    }
+
+    fn apply(
+        &mut self,
+        _action: FakeAction,
+        _state: Arc<FakeState>,
+    ) -> Result<()> {
+        self.steps.lock().unwrap().push("apply".into());
+        if self.apply_fails {
+            anyhow::bail!("apply failed");
+        }
+        Ok(())
+    }
+
+    fn extract_snapshots(
+        &mut self,
+        _state: Arc<FakeState>,
+        _last_action: Option<&FakeAction>,
+    ) -> Result<Vec<Snapshot>> {
+        self.states += 1;
+        if self.extract_fails_at == Some(self.states) {
+            anyhow::bail!("extractor failed");
+        }
+        Ok(vec![])
+    }
+
+    fn state_timestamp(_state: &FakeState) -> SystemTime {
+        SystemTime::UNIX_EPOCH
+    }
+}
+
+/// Picks an action in each of its first `actions` states, then stops.
+struct PickingStrategy {
+    actions: usize,
+    fails: bool,
+    deadline: Option<Time>,
+}
+
+impl RunStrategy<ScriptedSession> for PickingStrategy {
+    type StopValue = &'static str;
+
+    fn on_new_state(
+        &mut self,
+        _state: &FakeState,
+        _leaves: &Leaves<'_, FakeAction>,
+        _last_action: Option<&FakeAction>,
+        _snapshots: &[Snapshot],
+        _properties: PropertiesState,
+    ) -> Result<ControlFlow<&'static str, Picked<FakeAction>>> {
+        let Some(actions) = self.actions.checked_sub(1) else {
+            if self.fails {
+                anyhow::bail!("strategy failed");
+            }
+            return Ok(ControlFlow::Stop("stopped"));
+        };
+        self.actions = actions;
+        Ok(ControlFlow::Continue(Picked {
+            action: FakeAction,
+            template: bombadil_schema::ActionKey(0),
+        }))
+    }
+
+    fn deadline(&self) -> Option<Time> {
+        self.deadline
+    }
+
+    fn on_time_limit(&mut self) -> Result<&'static str> {
+        Ok("time limit")
+    }
+
+    fn on_stalled(&mut self) -> Result<&'static str> {
+        Ok("stalled")
+    }
+
+    fn on_interrupted(&mut self) -> Result<&'static str> {
+        Ok("interrupted")
+    }
+}
+
+struct RecordingWriter {
+    steps: Steps,
+    write_fails_at: Option<usize>,
+    states: usize,
+}
+
+impl bombadil::driver::TraceWriter<ScriptedSession> for RecordingWriter {
+    fn write(
+        &mut self,
+        _state: &FakeState,
+        _snapshots: &[Snapshot],
+        _violations: &[bombadil::runner::PropertyViolation],
+        _actions_available: &Leaves<'_, FakeAction>,
+        _action_previous: Option<&Picked<FakeAction>>,
+    ) -> Result<()> {
+        self.states += 1;
+        if self.write_fails_at == Some(self.states) {
+            anyhow::bail!("write failed");
+        }
+        self.steps.lock().unwrap().push("state".into());
+        Ok(())
+    }
+
+    fn write_action(&mut self, _picked: &Picked<FakeAction>) -> Result<()> {
+        self.steps.lock().unwrap().push("action".into());
+        Ok(())
+    }
+
+    fn write_error(&mut self, error: bombadil_trace::StepError) -> Result<()> {
+        self.steps.lock().unwrap().push(format!("error: {error}"));
+        Ok(())
+    }
+
+    fn finish(&mut self) -> Result<()> {
+        self.steps.lock().unwrap().push("finish".into());
+        Ok(())
+    }
+}
+
+/// An action is written before it is applied, and however the run ends
+/// while it has no state, the trace gets one error saying why.
+#[test]
+fn writes_each_action_before_applying_it_and_why_no_state_followed() {
+    use Next::*;
+    #[derive(Default)]
+    struct Case {
+        name: &'static str,
+        script: Vec<Next>,
+        actions: usize,
+        deadline: bool,
+        apply_fails: bool,
+        extract_fails_at: Option<usize>,
+        write_fails_at: Option<usize>,
+        strategy_fails: bool,
+        result: &'static str,
+        steps: &'static [&'static str],
+    }
+    let cases = [
+        Case {
+            name: "stall",
+            script: vec![State, Wait(false)],
+            actions: 1,
+            result: "stalled",
+            steps: &["state", "action", "apply", "error: the driver stalled"],
+            ..Case::default()
+        },
+        Case {
+            name: "time limit while waiting",
+            script: vec![State, Wait(false)],
+            actions: 1,
+            deadline: true,
+            result: "time limit",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: the time limit was reached",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "interrupt",
+            script: vec![State, Wait(true)],
+            actions: 1,
+            result: "interrupted",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: the run was interrupted",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "driver error",
+            script: vec![State, Error],
+            actions: 1,
+            result: "driver error: boom",
+            steps: &["state", "action", "apply", "error: driver error: boom"],
+            ..Case::default()
+        },
+        Case {
+            name: "driver closed",
+            script: vec![State, Closed],
+            actions: 1,
+            result: "driver closed",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: driver error: driver closed",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "apply fails",
+            script: vec![State],
+            actions: 1,
+            apply_fails: true,
+            result: "apply failed",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: driver error: apply failed",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "extractors fail on the state after",
+            script: vec![State, State],
+            actions: 1,
+            extract_fails_at: Some(2),
+            result: "extractor failed",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: the run failed: extractor failed",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "the state after can't be written",
+            script: vec![State, State],
+            actions: 1,
+            write_fails_at: Some(2),
+            result: "write failed",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "error: the run failed: write failed",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "a state followed",
+            script: vec![State, State],
+            actions: 1,
+            result: "stopped",
+            steps: &["state", "action", "apply", "state"],
+            ..Case::default()
+        },
+        Case {
+            name: "a state followed, then a stall",
+            script: vec![State, State, Wait(false)],
+            actions: 2,
+            result: "stalled",
+            steps: &[
+                "state",
+                "action",
+                "apply",
+                "state",
+                "action",
+                "apply",
+                "error: the driver stalled",
+            ],
+            ..Case::default()
+        },
+        Case {
+            name: "driver error before any action",
+            script: vec![Error],
+            result: "driver error: boom",
+            steps: &[],
+            ..Case::default()
+        },
+        Case {
+            name: "first extractors fail",
+            script: vec![State],
+            extract_fails_at: Some(1),
+            result: "extractor failed",
+            steps: &[],
+            ..Case::default()
+        },
+        Case {
+            name: "the run fails after a state followed",
+            script: vec![State, State],
+            actions: 1,
+            strategy_fails: true,
+            result: "strategy failed",
+            steps: &["state", "action", "apply", "state"],
+            ..Case::default()
+        },
+        Case {
+            name: "interrupt before any action",
+            script: vec![Wait(true)],
+            result: "interrupted",
+            steps: &[],
+            ..Case::default()
+        },
+    ];
+    for case in cases {
+        let steps = Steps::default();
+        let interrupted = Arc::new(AtomicBool::new(false));
+        let result = runner::run(
+            &mut ScriptedSession {
+                steps: steps.clone(),
+                script: case.script.into(),
+                interrupted: interrupted.clone(),
+                apply_fails: case.apply_fails,
+                extract_fails_at: case.extract_fails_at,
+                states: 0,
+            },
+            &mut PickingStrategy {
+                actions: case.actions,
+                fails: case.strategy_fails,
+                deadline: case.deadline.then(|| {
+                    Time::from_system_time(
+                        SystemTime::now() + Duration::from_millis(50),
+                    )
+                }),
+            },
+            dummy_verifier(),
+            &mut RecordingWriter {
+                steps: steps.clone(),
+                write_fails_at: case.write_fails_at,
+                states: 0,
+            },
+            interrupted,
+        );
+        let result = match result {
+            Ok(stop) => stop.to_string(),
+            Err(error) => format!("{error:#}"),
+        };
+        assert_eq!(result, case.result, "{}", case.name);
+        let mut expected: Vec<&str> = case.steps.to_vec();
+        expected.push("finish");
+        assert_eq!(*steps.lock().unwrap(), expected, "{}", case.name);
+    }
 }

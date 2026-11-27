@@ -74,6 +74,16 @@
 //! skipped it would also accept records after it, and would take a cut
 //! trace for a finished one without knowing.
 //!
+//! # Actions and errors
+//!
+//! Before an action is applied it is appended as a [`tag::ACTION`] record:
+//! the index (`u64`) of the state it is applied in, then the JSON object
+//! `{"action": …, "action_taken": …}`. If the run ends before its state
+//! comes, a [`tag::ERROR`] record says why: the same index, then a
+//! [`StepError`] as JSON. Readers join each action with the state after
+//! it, or with the error ([`Record`]). Both tags are optional, and states
+//! still hold their action, so older readers read the states as before.
+//!
 //! # Creating a trace
 //!
 //! Unless asked to overwrite, the writer creates the named file only if no
@@ -98,6 +108,11 @@
 //! panic or an early return, writes every queued state and leaves the
 //! trace unfinished.
 
+use std::borrow::Cow;
+
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+
 mod chunk;
 mod envelope;
 mod reader;
@@ -108,10 +123,148 @@ mod writer;
 
 pub use envelope::{TraceDriver, trace_driver, write_envelope};
 pub use reader::{
-    State, StateReader, open_trace, read_payload_at, read_payload_from,
+    Record, State, TraceReader, open_trace, read_payload_at, read_payload_from,
 };
 pub use record::{PayloadLocation, write_record};
 pub use writer::TraceFileWriter;
+
+/// Why no state followed an action. JSON tagged with `kind`; a kind's
+/// fields can't be removed or renamed, or old traces stop reading.
+#[derive(Debug, Clone)]
+pub enum StepError {
+    /// The run was killed or the trace cut. Only reported by readers.
+    Unknown,
+    Stalled,
+    /// The driver failed, e.g. its connection to the browser closed.
+    Driver {
+        message: String,
+    },
+    /// The run failed otherwise, e.g. an extractor threw.
+    Failed {
+        message: String,
+    },
+    Interrupted,
+    TimeLimit,
+    /// A kind this version doesn't know, as written.
+    Other(Box<RawValue>),
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum StepErrorKnown<'a> {
+    Unknown,
+    Stalled,
+    Driver {
+        message: Cow<'a, str>,
+    },
+    Failed {
+        message: Cow<'a, str>,
+    },
+    Interrupted,
+    TimeLimit,
+    #[serde(other)]
+    Other,
+}
+
+const MESSAGE_BYTES_MAX: usize = 4096;
+
+impl StepError {
+    fn bounded(mut self) -> Self {
+        if let StepError::Driver { message } | StepError::Failed { message } =
+            &mut self
+            && message.len() > MESSAGE_BYTES_MAX
+        {
+            let end = (0..=MESSAGE_BYTES_MAX)
+                .rev()
+                .find(|&end| message.is_char_boundary(end))
+                .unwrap_or(0);
+            message.truncate(end);
+            message.push('…');
+        }
+        self
+    }
+}
+
+impl PartialEq for StepError {
+    fn eq(&self, other: &Self) -> bool {
+        use StepError::*;
+        match (self, other) {
+            (Unknown, Unknown)
+            | (Stalled, Stalled)
+            | (Interrupted, Interrupted)
+            | (TimeLimit, TimeLimit) => true,
+            (Driver { message: a }, Driver { message: b })
+            | (Failed { message: a }, Failed { message: b }) => a == b,
+            (Other(a), Other(b)) => a.get() == b.get(),
+            _ => false,
+        }
+    }
+}
+
+impl Serialize for StepError {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match self {
+            StepError::Unknown => StepErrorKnown::Unknown,
+            StepError::Stalled => StepErrorKnown::Stalled,
+            StepError::Driver { message } => StepErrorKnown::Driver {
+                message: Cow::Borrowed(message),
+            },
+            StepError::Failed { message } => StepErrorKnown::Failed {
+                message: Cow::Borrowed(message),
+            },
+            StepError::Interrupted => StepErrorKnown::Interrupted,
+            StepError::TimeLimit => StepErrorKnown::TimeLimit,
+            StepError::Other(raw) => return raw.serialize(serializer),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for StepError {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Self, D::Error> {
+        let raw = Box::<RawValue>::deserialize(deserializer)?;
+        let known = serde_json::from_str(raw.get())
+            .map_err(serde::de::Error::custom)?;
+        Ok(match known {
+            StepErrorKnown::Unknown => StepError::Unknown,
+            StepErrorKnown::Stalled => StepError::Stalled,
+            StepErrorKnown::Driver { message } => StepError::Driver {
+                message: message.into_owned(),
+            },
+            StepErrorKnown::Failed { message } => StepError::Failed {
+                message: message.into_owned(),
+            },
+            StepErrorKnown::Interrupted => StepError::Interrupted,
+            StepErrorKnown::TimeLimit => StepError::TimeLimit,
+            StepErrorKnown::Other => StepError::Other(raw),
+        })
+    }
+}
+
+impl std::fmt::Display for StepError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StepError::Unknown => {
+                write!(f, "unknown (the trace ends before what came of it)")
+            }
+            StepError::Stalled => write!(f, "the driver stalled"),
+            StepError::Driver { message } => {
+                write!(f, "driver error: {message}")
+            }
+            StepError::Failed { message } => {
+                write!(f, "the run failed: {message}")
+            }
+            StepError::Interrupted => write!(f, "the run was interrupted"),
+            StepError::TimeLimit => write!(f, "the time limit was reached"),
+            StepError::Other(raw) => write!(f, "{}", raw.get()),
+        }
+    }
+}
 
 /// Conventional trace filename, useful for fixtures. Readers accept any name.
 pub const TRACE_FILE_NAME: &str = "trace.bin";
@@ -171,6 +324,10 @@ pub mod tag {
     pub const CHUNK: u16 = 6;
     /// Set on tags that readers which don't know them may skip.
     pub const OPTIONAL: u16 = 0x8000;
+    /// An action about to be applied.
+    pub const ACTION: u16 = OPTIONAL | 1;
+    /// Why the last action has no state.
+    pub const ERROR: u16 = OPTIONAL | 2;
 }
 
 /// Captures warnings and errors, which tests running at the same time

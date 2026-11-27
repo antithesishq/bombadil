@@ -5,6 +5,7 @@ use std::{fmt::Debug, hash::Hasher};
 
 use anyhow::Result;
 use bombadil_schema::Time;
+use bombadil_trace::StepError;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json as json;
 
@@ -75,6 +76,13 @@ pub trait TraceWriter<Session: InterfaceSession> {
         action_previous: Option<&Picked<Session::Action>>,
     ) -> Result<()>;
 
+    /// Records `picked` before it is applied, so that it survives this
+    /// process being killed: no state may follow it.
+    fn write_action(&mut self, picked: &Picked<Session::Action>) -> Result<()>;
+
+    /// Records why no state followed the last action written.
+    fn write_error(&mut self, error: StepError) -> Result<()>;
+
     /// Completes the trace after the last state, reporting any failure to
     /// write it. Called once by the runner when a run ends.
     fn finish(&mut self) -> Result<()> {
@@ -100,6 +108,14 @@ impl<Session: InterfaceSession> TraceWriter<Session>
             actions_available,
             action_previous,
         )
+    }
+
+    fn write_action(&mut self, picked: &Picked<Session::Action>) -> Result<()> {
+        (**self).write_action(picked)
+    }
+
+    fn write_error(&mut self, error: StepError) -> Result<()> {
+        (**self).write_error(error)
     }
 
     fn finish(&mut self) -> Result<()> {
@@ -128,6 +144,14 @@ impl<Session: InterfaceSession> TraceWriter<Session> for NoopTraceWriter {
         _actions_available: &Leaves<'_, Session::ActionTemplate>,
         _action_previous: Option<&Picked<Session::Action>>,
     ) -> Result<()> {
+        Ok(())
+    }
+
+    fn write_action(&mut self, _: &Picked<Session::Action>) -> Result<()> {
+        Ok(())
+    }
+
+    fn write_error(&mut self, _: StepError) -> Result<()> {
         Ok(())
     }
 }

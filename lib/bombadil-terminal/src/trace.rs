@@ -9,10 +9,10 @@
 //! which ghostty's decoder checks; that format has no cross-version
 //! compatibility guarantee yet.
 
-use std::{collections::BTreeMap, fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, path::Path};
 
 use anyhow::{Result, anyhow, bail};
-use bombadil::shrink::TraceActions;
+use bombadil::shrink::{TraceActions, read_trace_actions};
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
     model::{Picked, Recorded, StepModel},
@@ -20,12 +20,14 @@ use bombadil::{
     specification::{convert::ToSchema, domain::Snapshot},
     tree::Leaves,
 };
-use bombadil_schema::Time;
 use bombadil_schema::terminal::TerminalSize;
 use bombadil_schema::terminal::{
     self as schema, TerminalStateSummary, TerminalTraceEntry,
 };
-use bombadil_trace::{StateReader, TraceDriver, TraceFileWriter, open_trace};
+use bombadil_schema::{Time, TraceEntry};
+use bombadil_trace::{
+    StepError, TraceDriver, TraceFileWriter, TraceReader, open_trace,
+};
 use libghostty_vt::{
     RenderState,
     fmt::{Extras, Format, Formatter},
@@ -34,6 +36,7 @@ use libghostty_vt::{
     selection::Selection,
     terminal::ScrollViewport,
 };
+use serde_json::value::RawValue;
 
 use crate::{
     driver::{
@@ -60,15 +63,30 @@ impl OutputWriter<TerminalSession> for TerminalOutputWriter {
     }
 }
 
-pub struct TerminalTraceWriter(TraceFileWriter<TerminalTraceEntry>);
+pub struct TerminalTraceWriter {
+    trace: TraceFileWriter<TraceEntry<Box<RawValue>, TerminalStateSummary>>,
+    // The last action, as encoded, for the state it leads to.
+    action: Option<Box<RawValue>>,
+}
 
 impl TerminalTraceWriter {
     /// Creates the trace file at `run_path`, replacing an existing file
     /// only when `overwrite` is set. Parent directories must exist.
     pub fn initialize(run_path: &Path, overwrite: bool) -> Result<Self> {
-        TraceFileWriter::create(run_path, TraceDriver::Terminal, overwrite)
-            .map(TerminalTraceWriter)
+        let trace = TraceFileWriter::create(
+            run_path,
+            TraceDriver::Terminal,
+            overwrite,
+        )?;
+        Ok(TerminalTraceWriter {
+            trace,
+            action: None,
+        })
     }
+}
+
+fn encode(action: &TerminalAction) -> Result<Box<RawValue>> {
+    Ok(serde_json::value::to_raw_value(&action.to_schema())?)
 }
 
 impl TraceWriter<TerminalSession> for TerminalTraceWriter {
@@ -81,14 +99,18 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
         actions_available: &Leaves<'_, TerminalActionTemplate>,
         action_previous: Option<&Picked<TerminalAction>>,
     ) -> Result<()> {
-        let last_action = action_previous.map(|picked| &picked.action);
         let model = StepModel::new(
             actions_available,
             action_previous.map(|picked| picked.template),
         );
-        let entry = TerminalTraceEntry {
+        let action = match (self.action.take(), action_previous) {
+            (Some(action), Some(_)) => Some(action),
+            (_, Some(picked)) => Some(encode(&picked.action)?),
+            (_, None) => None,
+        };
+        let entry = TraceEntry {
             timestamp: Time::from_system_time(state.timestamp),
-            action: last_action.map(ToSchema::to_schema),
+            action,
             state: TerminalStateSummary {
                 scroll_offset: state.scroll_offset,
                 cursor: state.cursor.clone(),
@@ -100,18 +122,37 @@ impl TraceWriter<TerminalSession> for TerminalTraceWriter {
             violations: violations.iter().map(|v| v.to_schema()).collect(),
         };
         // The snapshot is shared with the state, not copied.
-        self.0.write_state(entry, state.terminal_snapshot.clone())
+        self.trace
+            .write_state(entry, state.terminal_snapshot.clone())
+    }
+
+    fn write_action(&mut self, picked: &Picked<TerminalAction>) -> Result<()> {
+        let action = encode(&picked.action)?;
+        self.trace.write_action(&Recorded {
+            action: &*action,
+            template: Some(picked.template),
+        })?;
+        self.action = Some(action);
+        Ok(())
+    }
+
+    fn write_error(&mut self, error: StepError) -> Result<()> {
+        self.trace.write_error(error)
     }
 
     fn finish(&mut self) -> Result<()> {
-        self.0.finish()
+        self.trace.finish()
     }
 }
 
-pub type TerminalStates = StateReader<BufReader<File>, TerminalTraceEntry>;
+pub type TerminalRecords = TraceReader<
+    BufReader<File>,
+    TerminalTraceEntry,
+    Recorded<schema::TerminalAction>,
+>;
 
 /// Opens a terminal trace file.
-pub fn open_terminal_trace(path: &Path) -> Result<TerminalStates> {
+pub fn open_terminal_trace(path: &Path) -> Result<TerminalRecords> {
     open_trace(path)?.expect_driver(TraceDriver::Terminal)
 }
 
@@ -120,28 +161,13 @@ pub fn open_terminal_trace(path: &Path) -> Result<TerminalStates> {
 pub fn load_trace_actions(
     path: &Path,
 ) -> Result<TraceActions<schema::TerminalAction>> {
-    let mut trace = TraceActions {
-        actions: Vec::new(),
-        violations_earliest: BTreeMap::new(),
-    };
-    let mut states = 0;
-    for state in open_terminal_trace(path)?.without_payloads() {
-        states += 1;
-        let entry = state?.metadata;
-        if let Some(action) = entry.action {
-            trace.actions.push(Recorded {
-                action,
-                template: entry.state.action_taken,
-            });
-        }
-        for violation in entry.violations {
-            trace
-                .violations_earliest
-                .entry(violation.name)
-                .or_insert(trace.actions.len());
-        }
-    }
-    if states == 0 {
+    let trace = read_trace_actions(
+        open_trace(path)?
+            .expect_driver(TraceDriver::Terminal)?
+            .without_payloads(),
+    )?;
+    // A run killed early leaves actions and no states.
+    if trace.states == 0 && trace.actions.is_empty() {
         bail!("{} holds no states", path.display());
     }
     Ok(trace)
@@ -243,7 +269,7 @@ mod tests {
         TerminalColor, TerminalCursor, TerminalCursorPosition,
         TerminalCursorVisualStyle, TerminalGrid, TerminalSize,
     };
-    use bombadil_trace::{tag, write_envelope, write_record};
+    use bombadil_trace::{Record, tag, write_envelope, write_record};
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
@@ -328,13 +354,27 @@ mod tests {
         let mut reader =
             open_terminal_trace(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap();
-        let states = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
+        let records = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
         assert!(reader.finished());
-        assert_eq!(states.len(), 2);
+        let [
+            Record::State {
+                action: Some(action),
+                state: first,
+            },
+            Record::State {
+                action: None,
+                state: second,
+            },
+        ] = &records[..]
+        else {
+            panic!("unexpected records: {records:?}");
+        };
         assert!(matches!(
-            &states[0].metadata.action,
-            Some(schema::TerminalAction::TypeText { text }) if text == "hi"
+            &action.action,
+            schema::TerminalAction::TypeText { text } if text == "hi"
         ));
+        assert_eq!(action.template, Some(type_text_key));
+        let states = [first, second];
         assert_eq!(states[0].metadata.state.scroll_offset, 3);
         assert_eq!(
             states[0].metadata.state.actions_available,
@@ -395,7 +435,7 @@ mod tests {
             .actions;
         let mut strategy = TerminalStrategy {
             rng: StdRng::seed_from_u64(0),
-            mode: TerminalTestMode::Reproduce(actions.into()),
+            mode: TerminalTestMode::Reproduce(actions.into(), None),
             test_start: None,
             violations_count: 0,
             exit_on_violation: false,
@@ -483,6 +523,61 @@ mod tests {
         std::fs::rename(directory.path().join(TRACE_FILE_NAME), &renamed)
             .unwrap();
         assert_eq!(load_trace_actions(&renamed).unwrap().actions.len(), 3);
+    }
+
+    #[test]
+    fn test_writes_and_loads_the_action_no_state_followed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let template: TerminalActionTemplate = TerminalAction::ScrollUp {};
+        let picked = Picked {
+            action: TerminalAction::ScrollUp {},
+            template: action_key(&template),
+        };
+        let tree = Tree::Leaf { value: template };
+        let mut writer = TerminalTraceWriter::initialize(&path, false).unwrap();
+        writer
+            .write(&state(None), &[], &[], &tree.leaves(), None)
+            .unwrap();
+        writer.write_action(&picked).unwrap();
+        writer
+            .write(&state(None), &[], &[], &tree.leaves(), Some(&picked))
+            .unwrap();
+        writer.write_action(&picked).unwrap();
+        writer.write_error(StepError::Stalled).unwrap();
+        writer.finish().unwrap();
+
+        let records = open_terminal_trace(&path)
+            .unwrap()
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        let scrolled_up = |action: &Recorded<schema::TerminalAction>| {
+            matches!(action.action, schema::TerminalAction::ScrollUp {})
+                && action.template == Some(picked.template)
+        };
+        assert!(
+            matches!(
+                &records[..],
+                [
+                    Record::State { action: None, .. },
+                    Record::State {
+                        action: Some(led),
+                        ..
+                    },
+                    Record::Error {
+                        index: 2,
+                        actions,
+                        error: StepError::Stalled,
+                    },
+                ] if scrolled_up(led)
+                    && actions.len() == 1
+                    && scrolled_up(&actions[0])
+            ),
+            "{records:?}"
+        );
+        let trace = load_trace_actions(&path).unwrap();
+        assert_eq!(trace.actions.len(), 2);
+        assert!(trace.actions.iter().all(scrolled_up));
     }
 
     #[test]

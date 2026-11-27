@@ -473,6 +473,20 @@ impl<'a> BrowserIntegrationTest<'a> {
                 }
                 Ok(())
             }
+
+            fn write_action(
+                &mut self,
+                _picked: &bombadil::model::Picked<BrowserAction>,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
+
+            fn write_error(
+                &mut self,
+                _error: bombadil_trace::StepError,
+            ) -> anyhow::Result<()> {
+                Ok(())
+            }
         }
 
         let trace_writer = ViolationsCollectingTraceWriter::default();

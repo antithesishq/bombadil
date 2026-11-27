@@ -1,14 +1,15 @@
-use std::{borrow::Cow, path::PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Result;
 use bombadil::{
     driver::{OutputWriter, RunId, TraceWriter},
-    model::{Picked, StepModel},
+    model::{Picked, Recorded, StepModel},
     specification::domain::Snapshot,
     tree::Leaves,
 };
-use bombadil_schema::browser::BrowserTraceEntry;
-use bombadil_trace::{TraceDriver, TraceFileWriter};
+use bombadil_schema::{Time, TraceEntry, browser::BrowserStateSummary};
+use bombadil_trace::{StepError, TraceDriver, TraceFileWriter};
+use serde_json::value::RawValue;
 
 use crate::{
     browser::{
@@ -17,7 +18,7 @@ use crate::{
     },
     convert::ToSchema,
     driver::BrowserSession,
-    trace::{PropertyViolation, TraceEntry},
+    trace::PropertyViolation,
 };
 
 pub struct FileOutputWriter {
@@ -39,7 +40,9 @@ impl OutputWriter<BrowserSession> for FileOutputWriter {
 /// [`BrowserTraceEntry`], with the screenshot's format in its
 /// `screenshot` field and the screenshot itself as the state's payload.
 pub struct FileTraceWriter {
-    trace: TraceFileWriter<BrowserTraceEntry>,
+    trace: TraceFileWriter<TraceEntry<Box<RawValue>, BrowserStateSummary>>,
+    // The last action, as encoded, for the state it leads to.
+    action: Option<Box<RawValue>>,
 }
 
 impl FileTraceWriter {
@@ -51,8 +54,15 @@ impl FileTraceWriter {
             TraceDriver::Browser,
             overwrite,
         )?;
-        Ok(FileTraceWriter { trace })
+        Ok(FileTraceWriter {
+            trace,
+            action: None,
+        })
     }
+}
+
+fn encode(action: &BrowserAction) -> Result<Box<RawValue>> {
+    Ok(serde_json::value::to_raw_value(&action.to_schema())?)
 }
 
 impl TraceWriter<BrowserSession> for FileTraceWriter {
@@ -64,26 +74,46 @@ impl TraceWriter<BrowserSession> for FileTraceWriter {
         actions_available: &Leaves<'_, BrowserActionTemplate>,
         action_previous: Option<&Picked<BrowserAction>>,
     ) -> Result<()> {
-        let last_action = action_previous.map(|picked| &picked.action);
         let model = StepModel::new(
             actions_available,
             action_previous.map(|picked| picked.template),
         );
+        let action = match (self.action.take(), action_previous) {
+            (Some(action), Some(_)) => Some(action),
+            (_, Some(picked)) => Some(encode(&picked.action)?),
+            (_, None) => None,
+        };
         let entry = TraceEntry {
-            timestamp: state.timestamp,
-            url: Cow::Borrowed(&state.url),
-            action: last_action.map(Cow::Borrowed),
-            screenshot: state.screenshot.format.extension(),
-            snapshots: Cow::Borrowed(snapshots),
-            violations: Cow::Borrowed(violations),
-            resources: Cow::Borrowed(&state.resources),
-            actions_available: Cow::Borrowed(&model.actions_available),
-            action_taken: model.action_taken,
-            branches: Cow::Borrowed(&state.coverage.branches),
+            timestamp: Time::from_system_time(state.timestamp),
+            action,
+            state: BrowserStateSummary {
+                url: state.url.to_string(),
+                screenshot: state.screenshot.format.extension().to_string(),
+                resources: state.resources.to_schema(),
+                actions_available: Some(model.actions_available),
+                action_taken: model.action_taken,
+                branches: Some(state.coverage.branches.clone()),
+            },
+            snapshots: snapshots.iter().map(|s| s.to_schema()).collect(),
+            violations: violations.iter().map(|v| v.to_schema()).collect(),
         };
         // The screenshot is shared with the state, not copied.
         self.trace
-            .write_state(entry.to_schema(), Some(state.screenshot.data.clone()))
+            .write_state(entry, Some(state.screenshot.data.clone()))
+    }
+
+    fn write_action(&mut self, picked: &Picked<BrowserAction>) -> Result<()> {
+        let action = encode(&picked.action)?;
+        self.trace.write_action(&Recorded {
+            action: &*action,
+            template: Some(picked.template),
+        })?;
+        self.action = Some(action);
+        Ok(())
+    }
+
+    fn write_error(&mut self, error: StepError) -> Result<()> {
+        self.trace.write_error(error)
     }
 
     fn finish(&mut self) -> Result<()> {

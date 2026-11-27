@@ -30,6 +30,14 @@ with an error. For reproductions to succeed, it's important to use the same
 options as in the original test. After a test run, Bombadil prints both the
 `inspect` and `--reproduce` commands you can use.
 
+A trace holds every action from before it was applied: it is written to the
+operating system first, so it survives a kill of Bombadil, though not a
+machine crash. A run can end with an action that no state followed, because
+the system under test stalled, the driver or the run failed, the time limit
+passed or the run was interrupted. Its trace then ends with that action and the
+reason. Reproducing it applies the action too, and then says how the recorded
+run ended there and whether a state followed this time.
+
 ## Shrinking violations
 
 When Bombadil finds a violation, the trace leading up to it is often long and
@@ -104,6 +112,16 @@ one JSON object per state with `--json` to process the trace with tools like
 `jq`. Running `--screenshots` again leaves the screenshots already written as
 they are.
 
+If the run ended with an action that no state followed, it is listed last, with
+the reason (such as `no state followed: the driver stalled`). After a kill of
+Bombadil itself, that entry also lists the actions whose states weren't
+written yet. Bombadil Inspect doesn't show it.
+
+In JSON, each state's object has the action that led to it in `action` (the
+action itself is `.action.action`). The entry without a state is a last object
+with `actions` and `error`, and null for `metadata` and `payload_bytes`; filter
+it out with `jq 'select(.error == null)'`.
+
 :::
 
 ::: terminal
@@ -121,7 +139,8 @@ and the properties it violated. With `--screen`, you also see the terminal
 screen as the properties saw it. Pick states with `--state` (`--state 40..50`
 shows states 40 to 49), keep the screen's colors with `--color`, or print one
 JSON object per state with `--json` (with `--screen`, including the screen) to
-process the trace with tools like `jq`.
+process the trace with tools like `jq`. If the run ended with an action that no
+state followed, it is listed last, with the reason.
 
 :::
 
