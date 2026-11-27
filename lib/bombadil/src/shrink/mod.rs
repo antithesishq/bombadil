@@ -31,7 +31,9 @@ use crate::{
 
 mod trace_actions;
 
-pub use trace_actions::{TraceActions, load_trace_actions};
+pub use trace_actions::{
+    StateViolations, TraceActions, load_trace_actions, read_trace_actions,
+};
 
 #[derive(Debug, Clone)]
 pub struct ShrinkSettings {

@@ -331,6 +331,17 @@ impl TraceWriter<FakeSession> for FakeTraceWriter {
         self.0.write_state(metadata, None)
     }
 
+    fn write_action(&mut self, picked: &Picked<FakeAction>) -> Result<()> {
+        self.0.write_action(&Recorded {
+            action: picked.action,
+            template: Some(picked.template),
+        })
+    }
+
+    fn write_error(&mut self, error: bombadil_trace::StepError) -> Result<()> {
+        self.0.write_error(error)
+    }
+
     fn finish(&mut self) -> Result<()> {
         self.0.finish()
     }
@@ -409,6 +420,8 @@ fn shrinks_to_failing_sequence(tc: TestCase) {
             PROPERTY_NAME.to_string(),
             executed.len(),
         )]),
+        states: executed.len() + 1,
+        ended: None,
     };
 
     let steps_max = executed.len() as u64 + 1;
@@ -551,6 +564,8 @@ fn shrink_actions_with_writer(
             PROPERTY_NAME.to_string(),
             executed.len(),
         )]),
+        states: executed.len() + 1,
+        ended: None,
     };
     let steps_max = executed.len() as u64 + 1;
     shrink(ShrinkOptions {
@@ -584,8 +599,11 @@ fn shrinks_to_arbitrary_files_without_touching_siblings() {
     std::fs::write(&sibling, b"kept").unwrap();
     for overwrite in [false, true] {
         shrink_with_writer(&path, overwrite, FakeTraceWriter::file).unwrap();
-        let mut reader =
-            bombadil_trace::open_trace::<json::Value>(&path).unwrap();
+        let mut reader = bombadil_trace::open_trace::<
+            json::Value,
+            serde::de::IgnoredAny,
+        >(&path)
+        .unwrap();
         assert!(reader.by_ref().count() > 0);
         assert!(reader.finished());
         assert_eq!(std::fs::read(&sibling).unwrap(), b"kept");
@@ -736,7 +754,9 @@ fn failed_replacement_preserves_the_published_trace() {
         original.lock().unwrap().as_ref().unwrap().as_slice()
     );
     assert_eq!(std::fs::read_dir(output.path()).unwrap().count(), 1);
-    let mut reader = bombadil_trace::open_trace::<json::Value>(&path).unwrap();
+    let mut reader =
+        bombadil_trace::open_trace::<json::Value, serde::de::IgnoredAny>(&path)
+            .unwrap();
     assert!(reader.by_ref().count() > 0);
     assert!(reader.finished());
 }

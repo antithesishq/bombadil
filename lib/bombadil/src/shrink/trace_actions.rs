@@ -1,33 +1,28 @@
 //! Loading the actions and property violations of a recorded trace.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, io::Read, path::Path};
 
 use anyhow::{Result, bail};
-use bombadil_schema::ActionKey;
+use bombadil_trace::{Record, StepError, TraceReader};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::model::Recorded;
 
 #[derive(Debug, Clone)]
 pub struct TraceActions<A> {
+    /// Every action of the trace, those no state followed included.
     pub actions: Vec<Recorded<A>>,
     /// Number of actions before each property's earliest violation.
     pub violations_earliest: BTreeMap<String, usize>,
+    pub states: usize,
+    /// Why no state followed the last action, if none did.
+    pub ended: Option<StepError>,
 }
 
 #[derive(Deserialize)]
-struct TraceEntryActionAndViolations<A> {
-    action: Option<A>,
-    #[serde(default)]
-    state: StateActionTaken,
+pub struct StateViolations {
     #[serde(default)]
     violations: Vec<ViolationName>,
-}
-
-#[derive(Deserialize, Default)]
-struct StateActionTaken {
-    #[serde(default)]
-    action_taken: Option<ActionKey>,
 }
 
 #[derive(Deserialize)]
@@ -35,35 +30,42 @@ struct ViolationName {
     name: String,
 }
 
-/// Skips states and snapshots without allocating them.
 pub fn load_trace_actions<A: DeserializeOwned>(
     trace_file_path: &Path,
 ) -> Result<TraceActions<A>> {
-    let reader =
-        bombadil_trace::open_trace::<TraceEntryActionAndViolations<A>>(
-            trace_file_path,
-        )?
-        .without_payloads();
-    let mut actions = Vec::new();
-    let mut violations_earliest = BTreeMap::new();
-    for state in reader {
-        let entry = state?.metadata;
-        if let Some(action) = entry.action {
-            actions.push(Recorded {
-                action,
-                template: entry.state.action_taken,
-            });
-        }
-        for violation in entry.violations {
-            violations_earliest
-                .entry(violation.name)
-                .or_insert(actions.len());
+    read_trace_actions(
+        bombadil_trace::open_trace(trace_file_path)?.without_payloads(),
+    )
+}
+
+pub fn read_trace_actions<R: Read, A: DeserializeOwned>(
+    reader: TraceReader<R, StateViolations, Recorded<A>>,
+) -> Result<TraceActions<A>> {
+    let mut trace = TraceActions {
+        actions: Vec::new(),
+        violations_earliest: BTreeMap::new(),
+        states: 0,
+        ended: None,
+    };
+    for record in reader {
+        match record? {
+            Record::State { action, state } => {
+                trace.states += 1;
+                trace.actions.extend(action);
+                for violation in state.metadata.violations {
+                    trace
+                        .violations_earliest
+                        .entry(violation.name)
+                        .or_insert(trace.actions.len());
+                }
+            }
+            Record::Error { actions, error, .. } => {
+                trace.actions.extend(actions);
+                trace.ended = Some(error);
+            }
         }
     }
-    Ok(TraceActions {
-        actions,
-        violations_earliest,
-    })
+    Ok(trace)
 }
 
 impl<A> TraceActions<A> {
@@ -76,6 +78,8 @@ impl<A> TraceActions<A> {
                 .map(|recorded| recorded.map(&mut f))
                 .collect(),
             violations_earliest: self.violations_earliest,
+            states: self.states,
+            ended: self.ended,
         }
     }
 
@@ -122,6 +126,7 @@ impl<A> TraceActions<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bombadil_schema::ActionKey;
 
     #[test]
     fn loads_actions_and_earliest_violations() {
@@ -163,5 +168,44 @@ mod tests {
         assert_eq!(trace.select_property(Some("q")).unwrap(), ("q".into(), 2));
         assert!(trace.select_property(None).is_err());
         assert!(trace.select_property(Some("r")).is_err());
+    }
+
+    /// Shrinking never replays the action no state followed: violations
+    /// are of states, which all come before it.
+    #[test]
+    fn loads_the_action_no_state_followed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("trace.bin");
+        let recorded = |action: &str| Recorded {
+            action: action.to_string(),
+            template: Some(ActionKey(0xa1)),
+        };
+        let state = |violations: &[&str]| {
+            let violations: Vec<_> = violations
+                .iter()
+                .map(|name| serde_json::json!({ "name": name }))
+                .collect();
+            serde_json::json!({ "violations": violations })
+        };
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            &path,
+            bombadil_trace::TraceDriver::Browser,
+            false,
+        )
+        .unwrap();
+        writer.write_state(state(&[]), None).unwrap();
+        writer.write_action(&recorded("a")).unwrap();
+        writer.write_state(state(&["p"]), None).unwrap();
+        writer.write_action(&recorded("b")).unwrap();
+        writer
+            .write_error(bombadil_trace::StepError::Stalled)
+            .unwrap();
+        writer.finish().unwrap();
+
+        let trace = load_trace_actions::<String>(&path).unwrap();
+        assert_eq!(trace.actions, vec![recorded("a"), recorded("b")]);
+        assert_eq!(trace.states, 2);
+        assert_eq!(trace.ended, Some(bombadil_trace::StepError::Stalled));
+        assert_eq!(trace.select_property(None).unwrap(), ("p".into(), 1));
     }
 }

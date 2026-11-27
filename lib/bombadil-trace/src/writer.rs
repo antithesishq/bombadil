@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread::JoinHandle,
@@ -14,8 +14,11 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
 use crate::{
-    TraceDriver, WRITER_FAILED_EARLIER, chunk::ChunkWriter,
-    envelope::driver_code, record::check_payload_length, write_envelope,
+    RECORD_HEADER_LEN, StepError, TraceDriver, WRITER_FAILED_EARLIER,
+    chunk::ChunkWriter,
+    envelope::driver_code,
+    record::{check_payload_length, seal_record},
+    tag, write_envelope,
 };
 
 // Bounds the number of in-flight states to cap memory while letting the
@@ -25,6 +28,7 @@ const PENDING_STATES_MAX: usize = 32;
 /// Writes the states of a trace on a dedicated thread, so that encoding
 /// and disk I/O overlap with the test loop instead of stalling it. The
 /// bounded channel provides backpressure if the writer can't keep up.
+/// Actions are appended by the caller; see [`write_action`](Self::write_action).
 ///
 /// Dropping the writer without finishing it writes the queued states but
 /// no END, so the trace reads as unfinished, and can only log a failure
@@ -39,10 +43,25 @@ pub struct TraceFileWriter<M> {
     // The error that stopped the worker, once returned, so that every
     // later call reports it too.
     failure: Option<String>,
+    // So no action is appended after a record the worker left half written.
+    worker_failed: Arc<AtomicBool>,
+    // A second handle on the file, in append mode like the worker's.
+    actions: File,
+    action_record: Vec<u8>,
+    states_written: u64,
+    step: Step,
+}
+
+#[derive(PartialEq)]
+enum Step {
+    State,
+    Action,
+    Error,
 }
 
 enum Message<M> {
     State(Box<PendingState<M>>),
+    Error { state: u64, error: StepError },
     // Writes the END record after everything before it, and stops. If
     // the channel closes without it, the worker flushes and stops
     // without END, leaving the trace unfinished.
@@ -87,11 +106,14 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
         } else {
             (trace_path.clone(), create_new_trace(&trace_path)?)
         };
+        let actions = file.try_clone().with_context(|| {
+            format!("failed to create {}", trace_path.display())
+        });
         let mut trace_file = BufWriter::new(wrap(file));
         let created = write_envelope(&mut trace_file, driver)
             .and_then(|()| trace_file.flush())
             .map_err(trace_write_error)
-            .and_then(|()| Self::start(trace_file))
+            .and_then(|()| Self::start(trace_file, actions?))
             .and_then(|writer| {
                 // The last step that can fail, so a failure leaves an
                 // existing trace as it was. Writing continues on the same
@@ -121,15 +143,26 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
     /// Starts the worker, writing to `trace_file` after its envelope.
     fn start<W: Write + Send + 'static>(
         trace_file: BufWriter<W>,
+        actions: File,
     ) -> Result<Self> {
         let (sender, receiver) = mpsc::sync_channel(PENDING_STATES_MAX);
+        let worker_failed = Arc::new(AtomicBool::new(false));
+        let failed = worker_failed.clone();
         let worker = std::thread::Builder::new()
             .name("bombadil-trace-writer".to_string())
-            .spawn(move || worker_loop(receiver, trace_file))?;
+            .spawn(move || {
+                worker_loop(receiver, trace_file)
+                    .inspect_err(|_| failed.store(true, Ordering::SeqCst))
+            })?;
         Ok(TraceFileWriter {
             sender: Some(sender),
             worker: Some(worker),
             failure: None,
+            worker_failed,
+            actions,
+            action_record: Vec::new(),
+            states_written: 0,
+            step: Step::State,
         })
     }
 
@@ -148,12 +181,72 @@ impl<M: Serialize + Send + 'static> TraceFileWriter<M> {
             check_payload_length(payload.len())
                 .map_err(|error| anyhow!(error).context("invalid state"))?;
         }
+        if self.step == Step::Error {
+            bail!("invalid state: the trace ended with an error");
+        }
         let state = Box::new(PendingState { metadata, payload });
-        self.send(Message::State(state))
+        self.send(Message::State(state))?;
+        self.states_written += 1;
+        self.step = Step::State;
+        Ok(())
     }
 }
 
 impl<M> TraceFileWriter<M> {
+    /// Appends an action about to be applied in the last state written. It
+    /// is written to the OS on return: it survives a kill of this
+    /// process, not a machine crash.
+    pub fn write_action(&mut self, action: &impl Serialize) -> Result<()> {
+        if let Some(error) = self.earlier_failure() {
+            return Err(error);
+        }
+        if self.sender.is_none() {
+            bail!("trace writer already finished");
+        }
+        let Some(state) = self.states_written.checked_sub(1) else {
+            bail!("invalid action: no state was written before it");
+        };
+        if self.step != Step::State {
+            bail!("invalid action: no state was written since the last one");
+        }
+        if self.worker_failed.load(Ordering::SeqCst) {
+            return Err(self.worker_failure());
+        }
+        let record = &mut self.action_record;
+        record.clear();
+        record.resize(RECORD_HEADER_LEN, 0);
+        record.extend_from_slice(&state.to_le_bytes());
+        serde_json::to_writer(&mut *record, action)
+            .context("failed to encode trace action")?;
+        seal_record(record, tag::ACTION)
+            .map_err(|error| anyhow!(error).context("invalid action"))?;
+        // Appended here, not sent to the writer thread: that costs two
+        // wake-ups a step. No lock is held, and whole-record appends
+        // can't split each other.
+        if let Err(error) = (&self.actions).write_all(record) {
+            return Err(self.failed(trace_write_error(error)));
+        }
+        self.step = Step::Action;
+        Ok(())
+    }
+
+    /// Records why no state followed the last action. Only `finish` may follow.
+    pub fn write_error(&mut self, error: StepError) -> Result<()> {
+        if matches!(error, StepError::Unknown | StepError::Other(_)) {
+            bail!("invalid error: {error:?} is for readers to report");
+        }
+        if self.step != Step::Action {
+            bail!("invalid error: no action is without a state");
+        }
+        let state = self.states_written - 1;
+        self.send(Message::Error {
+            state,
+            error: error.bounded(),
+        })?;
+        self.step = Step::Error;
+        Ok(())
+    }
+
     fn send(&mut self, message: Message<M>) -> Result<()> {
         if let Some(error) = self.earlier_failure() {
             return Err(error);
@@ -225,7 +318,7 @@ impl<M> TraceFileWriter<M> {
 /// Creates `trace_path`, failing if there is a file there.
 fn create_new_trace(trace_path: &Path) -> Result<File> {
     match File::options()
-        .write(true)
+        .append(true)
         .create_new(true)
         .open(trace_path)
     {
@@ -266,7 +359,7 @@ fn create_temp(run_path: &Path) -> Result<(PathBuf, File)> {
     for _ in 0..TEMP_ATTEMPTS_MAX {
         let n = TEMP_FILES_CREATED.fetch_add(1, Ordering::Relaxed);
         let path = temp_path(run_path, n);
-        match File::options().write(true).create_new(true).open(&path) {
+        match File::options().append(true).create_new(true).open(&path) {
             Ok(file) => return Ok((path, file)),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => {
@@ -339,6 +432,14 @@ fn worker_loop<M: Serialize, W: Write>(
                     )
                     .map_err(trace_write_error)?;
             }
+            Message::Error { state, error } => {
+                metadata.clear();
+                serde_json::to_writer(&mut metadata, &error)
+                    .context("failed to encode trace error")?;
+                trace_file
+                    .write_error(state, &metadata)
+                    .map_err(trace_write_error)?;
+            }
             Message::Finish => {
                 // Every state is written: mark the trace as finished.
                 return trace_file.finish().map_err(trace_write_error);
@@ -363,7 +464,7 @@ fn trace_write_error(error: io::Error) -> anyhow::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{State, TRACE_FILE_NAME, open_trace};
+    use crate::{State, TRACE_FILE_NAME, reader::open_states};
     use serde::Deserialize;
 
     #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -382,13 +483,13 @@ mod tests {
         .unwrap();
         // The envelope is there before any state.
         assert!(
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .is_ok()
         );
         writer.write_state(Metadata { n: 0 }, None).unwrap();
         // The writer flushes once it is idle; wait for that.
         let read = || {
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap()
                 .collect::<Result<Vec<_>>>()
                 .unwrap()
@@ -425,7 +526,7 @@ mod tests {
         assert!(writer.finish().is_err());
         // The state before the failure is kept, but the trace isn't
         // marked as finished.
-        let mut reader = open_trace::<serde_json::Value>(
+        let mut reader = open_states::<serde_json::Value>(
             &directory.path().join(TRACE_FILE_NAME),
         )
         .unwrap();
@@ -496,7 +597,7 @@ mod tests {
         drop(writer);
 
         let mut reader =
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap();
         let states = reader
             .by_ref()
@@ -580,7 +681,7 @@ mod tests {
         let results = threads.map(|thread| thread.join().unwrap());
 
         let mut reader =
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap();
         let driver = reader.driver;
         let numbers: Vec<_> = reader
@@ -678,7 +779,7 @@ mod tests {
         assert!(format!("{error:#}").contains("too large"), "{error:#}");
         writer.finish().unwrap();
         let states =
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap()
                 .collect::<Result<Vec<_>>>()
                 .unwrap();
@@ -711,7 +812,7 @@ mod tests {
         writer.finish().unwrap();
         assert_eq!(files(directory.path()), [TRACE_FILE_NAME]);
         let mut reader =
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap();
         assert_eq!(reader.driver, TraceDriver::Browser);
         let numbers: Vec<_> = reader
@@ -881,7 +982,7 @@ mod tests {
             writer.write_state(Metadata { n: n as u32 }, None).unwrap();
             writer.finish().unwrap();
             assert_eq!(
-                open_trace::<Metadata>(&path)
+                open_states::<Metadata>(&path)
                     .unwrap()
                     .next()
                     .unwrap()
@@ -958,7 +1059,7 @@ mod tests {
             .unwrap();
             writer.write_state(Metadata { n }, None).unwrap();
             writer.finish().unwrap();
-            let mut reader = open_trace::<Metadata>(&path).unwrap();
+            let mut reader = open_states::<Metadata>(&path).unwrap();
             let states = reader.by_ref().collect::<Result<Vec<_>>>().unwrap();
             assert_eq!(states.len(), 1);
             assert_eq!(states[0].metadata.n, n);
@@ -1044,7 +1145,7 @@ mod tests {
         }
         assert_eq!(files(directory.path()), [TRACE_FILE_NAME]);
         let mut reader =
-            open_trace::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
+            open_states::<Metadata>(&directory.path().join(TRACE_FILE_NAME))
                 .unwrap();
         assert_eq!(reader.by_ref().count(), 1);
         assert!(reader.finished());

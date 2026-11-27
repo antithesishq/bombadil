@@ -10,7 +10,9 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use bombadil_trace::{State, StateReader, TraceDriver, read_payload_from};
+use bombadil_trace::{
+    Record, State, StepError, TraceDriver, TraceReader, read_payload_from,
+};
 use serde::{
     Deserialize, Deserializer,
     de::{IgnoredAny, MapAccess, Visitor},
@@ -24,12 +26,16 @@ pub struct TraceArgs {
     /// Trace FILE to read (any filename, not a directory)
     trace_path: PathBuf,
     /// Only show this state, or a range of states such as `40..50` (from
-    /// 40 up to but not including 50), `40..` or `..50`
+    /// 40 up to but not including 50), `40..` or `..50`. With the last
+    /// state, an action that no state followed is shown too
     #[arg(long, value_name = "INDEX|START..END")]
     state: Option<StateRange>,
-    /// Print one JSON object per state: its index, metadata and payload
-    /// size, with --screen its screen (a string, or null without one), and
-    /// with --screenshots the file its screenshot is in, if it has one
+    /// Print one JSON object per state: its index, the action that led to
+    /// it, its metadata and payload size, with --screen its screen (a
+    /// string, or null without one), and with --screenshots the file its
+    /// screenshot is in, if it has one. If the run ended with an action
+    /// that no state followed, a last object has it in `actions`, why in
+    /// `error`, and null for the rest
     #[arg(long)]
     json: bool,
     /// Show each state's screen (terminal traces)
@@ -161,7 +167,9 @@ fn show_into(
         .try_clone()
         .map_err(anyhow::Error::from)
         .and_then(|clone| {
-            StateReader::<_, Box<RawValue>>::new(BufReader::new(clone))
+            TraceReader::<_, Box<RawValue>, Box<RawValue>>::new(BufReader::new(
+                clone,
+            ))
         })
         .with_context(|| format!("failed to read {}", trace_path.display()))?;
     if show_screen && states.driver != TraceDriver::Terminal {
@@ -188,14 +196,31 @@ fn show_into(
         writeln!(out, "{} trace", states.driver)?;
     }
     let mut start_time = None;
-    let mut states_read = 0;
-    // Stop at the end of the range, without reading (and failing on) the
-    // records after it.
-    while states_read < range.end {
-        let Some(state) = states.next() else {
-            break;
+    let (mut states_read, mut records_read, mut shown) = (0, 0, 0);
+    loop {
+        // Past the range, only how the last state shown ended is shown.
+        let past = records_read >= range.end;
+        let record = match states.next() {
+            None => break,
+            Some(Err(_)) if past => break,
+            Some(record) => record?,
         };
-        let state = state?;
+        records_read += 1;
+        let (action, state) = match record {
+            Record::State { .. } if past => break,
+            Record::State { action, state } => (action, state),
+            Record::Error {
+                index,
+                actions,
+                error,
+            } => {
+                if index >= range.start {
+                    shown += 1;
+                    write_error(out, index, &actions, &error, args.json)?;
+                }
+                continue;
+            }
+        };
         states_read += 1;
         let time = read_object::<Timed>(state.metadata.get())
             .and_then(|timed| timed.timestamp);
@@ -203,6 +228,7 @@ fn show_into(
         if state.index < range.start {
             continue;
         }
+        shown += 1;
         let screen = match (&state.payload, show_screen) {
             (Some(snapshot), true) => {
                 let scroll_offset = read_scroll_offset(state.metadata.get());
@@ -229,8 +255,9 @@ fn show_into(
         if args.json {
             // The metadata as written, so its numbers aren't rounded.
             let mut line = format!(
-                r#"{{"index":{},"metadata":{},"payload_bytes":{}"#,
+                r#"{{"index":{},"action":{},"metadata":{},"payload_bytes":{}"#,
                 state.index,
+                action.as_deref().map_or("null", RawValue::get),
                 state.metadata.get(),
                 state
                     .payload_length
@@ -267,12 +294,52 @@ fn show_into(
             }
         }
     }
-    if args.state.is_some() && states_read <= range.start {
+    if args.state.is_some() && shown == 0 {
         let noun = if states_read == 1 { "state" } else { "states" };
         bail!(
             "no state {} in a trace of {states_read} {noun}",
             range.start
         );
+    }
+    Ok(())
+}
+
+fn write_error(
+    out: &mut impl Write,
+    index: usize,
+    actions: &[Box<RawValue>],
+    error: &StepError,
+    json: bool,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    struct Recorded<'a> {
+        #[serde(borrow)]
+        action: &'a RawValue,
+    }
+    if json {
+        let line = format!(
+            r#"{{"index":{index},"actions":{},"metadata":null,"payload_bytes":null,"error":{}}}"#,
+            serde_json::to_string(actions)?,
+            serde_json::to_string(error)?
+        );
+        writeln!(out, "{}", escape_json_line(&line))?;
+        return Ok(());
+    }
+    for (offset, action) in actions.iter().enumerate() {
+        let action = match read_object::<Recorded>(action.get()) {
+            Some(recorded) => describe_action(recorded.action),
+            None => format!("(unexpected action) {}", printable(action.get())),
+        };
+        writeln!(out, "#{:<5} {:>10}  {action}", index + offset, "?")?;
+    }
+    let reason = printable(&error.to_string());
+    match actions.len() {
+        1 => writeln!(out, "       no state followed: {reason}")?,
+        count => writeln!(
+            out,
+            "       the trace has no states for these {count} actions; \
+             after the last: {reason}"
+        )?,
     }
     Ok(())
 }
@@ -1031,6 +1098,190 @@ mod tests {
         );
     }
 
+    /// Two states, then an action that no state followed.
+    fn write_run(path: &Path, error: Option<StepError>, finished: bool) {
+        let state = |timestamp: u64, action: Option<&str>| serde_json::json!({ "timestamp": timestamp, "action": action });
+        let action = |action: &str| serde_json::json!({ "action": action, "action_taken": "0a" });
+        let mut writer = bombadil_trace::TraceFileWriter::create(
+            path,
+            TraceDriver::Browser,
+            true,
+        )
+        .unwrap();
+        writer.write_state(state(1_000_000, None), None).unwrap();
+        writer.write_action(&action("Back")).unwrap();
+        writer
+            .write_state(state(1_500_000, Some("Back")), None)
+            .unwrap();
+        writer.write_action(&action("Reload")).unwrap();
+        if let Some(error) = error {
+            writer.write_error(error).unwrap();
+        }
+        if finished {
+            writer.finish().unwrap();
+        }
+    }
+
+    #[test]
+    fn shows_the_action_no_state_followed() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let mut args = TraceArgs::new(path.clone());
+        let message = || "connection\x1b closed".to_string();
+        for (error, finished, reason) in [
+            (Some(StepError::Stalled), true, "the driver stalled"),
+            (
+                Some(StepError::Driver { message: message() }),
+                true,
+                "driver error: connection\\u{1b} closed",
+            ),
+            (
+                Some(StepError::Failed { message: message() }),
+                true,
+                "the run failed: connection\\u{1b} closed",
+            ),
+            (
+                Some(StepError::Interrupted),
+                true,
+                "the run was interrupted",
+            ),
+            (
+                Some(StepError::TimeLimit),
+                true,
+                "the time limit was reached",
+            ),
+            (
+                None,
+                false,
+                "unknown (the trace ends before what came of it)",
+            ),
+        ] {
+            write_run(&path, error, finished);
+            assert_eq!(
+                output(&args),
+                format!(
+                    "browser trace\n\
+                     #0        +0.000s  (initial state)\n\
+                     #1        +0.500s  Back\n\
+                     #2              ?  Reload\n\
+                     \x20      no state followed: {reason}\n"
+                )
+            );
+        }
+
+        write_run(&path, Some(StepError::Stalled), true);
+        args.json = true;
+        let lines: Vec<Value> = output(&args)
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                serde_json::json!({
+                    "index": 0,
+                    "action": null,
+                    "metadata": { "timestamp": 1_000_000, "action": null },
+                    "payload_bytes": null,
+                }),
+                serde_json::json!({
+                    "index": 1,
+                    "action": { "action": "Back", "action_taken": "0a" },
+                    "metadata": { "timestamp": 1_500_000, "action": "Back" },
+                    "payload_bytes": null,
+                }),
+                serde_json::json!({
+                    "index": 2,
+                    "actions": [{ "action": "Reload", "action_taken": "0a" }],
+                    "metadata": null,
+                    "payload_bytes": null,
+                    "error": { "kind": "stalled" },
+                }),
+            ]
+        );
+
+        // With the last state, or by its own index.
+        args.json = false;
+        for (range, lines) in [
+            ("1", 4),
+            ("1..", 4),
+            ("2", 3),
+            ("2..", 3),
+            ("0", 2),
+            ("0..1", 2),
+        ] {
+            args.state = Some(range.parse().unwrap());
+            let output = output(&args);
+            assert_eq!(output.lines().count(), lines, "{range}: {output}");
+        }
+        args.state = Some("3".parse().unwrap());
+        let error = show(&args, &mut Vec::new()).unwrap_err();
+        assert_eq!(error.to_string(), "no state 3 in a trace of 2 states");
+    }
+
+    #[test]
+    fn shows_several_actions_without_states_as_one_entry() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        write_run(&path, None, true);
+        let file = std::fs::read(&path).unwrap();
+        let chunk = file
+            .windows(2)
+            .position(|tag| tag == tag::CHUNK.to_le_bytes())
+            .unwrap();
+        let mut args = TraceArgs::new(path.clone());
+        std::fs::write(&path, &file[..chunk]).unwrap();
+        assert_eq!(
+            output(&args),
+            "browser trace\n\
+             #0              ?  Back\n\
+             #1              ?  Reload\n\
+             \x20      the trace has no states for these 2 actions; after \
+             the last: unknown (the trace ends before what came of it)\n"
+        );
+
+        args.json = true;
+        assert_eq!(
+            output(&args),
+            "{\"index\":0,\"actions\":[\
+             {\"action\":\"Back\",\"action_taken\":\"0a\"},\
+             {\"action\":\"Reload\",\"action_taken\":\"0a\"}],\
+             \"metadata\":null,\"payload_bytes\":null,\
+             \"error\":{\"kind\":\"unknown\"}}\n"
+        );
+    }
+
+    #[test]
+    fn shows_the_actions_of_traces_without_action_records() {
+        let directory = tempfile::tempdir().unwrap();
+        write_states(
+            directory.path(),
+            &[
+                br#"{"timestamp":1,"action":null,"state":{}}"#,
+                br#"{"timestamp":2,"action":"Back","state":{"action_taken":"0a"}}"#,
+                br#"{"timestamp":3,"action":{"Wait":{}},"state":{}}"#,
+            ],
+        );
+        let mut args = TraceArgs::new(directory.path().join(TRACE_FILE_NAME));
+        args.json = true;
+        let actions: Vec<Value> = output(&args)
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .map(|mut line| line["action"].take())
+            .collect();
+        assert_eq!(
+            actions,
+            [
+                Value::Null,
+                serde_json::json!({ "action": "Back", "action_taken": "0a" }),
+                serde_json::json!({
+                    "action": { "Wait": {} },
+                    "action_taken": null,
+                }),
+            ]
+        );
+    }
+
     #[test]
     fn marks_unexpected_metadata() {
         let directory = tempfile::tempdir().unwrap();
@@ -1123,11 +1374,11 @@ mod tests {
         });
         assert_eq!(
             json,
-            "{\"index\":0,\"metadata\":\
+            "{\"index\":0,\"action\":null,\"metadata\":\
              {\"big\":18446744073709551616,\"small\":1e300,\"x\":[1.50]},\
              \"payload_bytes\":null}\n\
-             {\"index\":1,\"metadata\":{\"a\":[1,\"b c\\\"\\\\\"]},\
-             \"payload_bytes\":null}\n"
+             {\"index\":1,\"action\":null,\"metadata\":\
+             {\"a\":[1,\"b c\\\"\\\\\"]},\"payload_bytes\":null}\n"
         );
         for line in json.lines() {
             serde_json::from_str::<Value>(line).unwrap();

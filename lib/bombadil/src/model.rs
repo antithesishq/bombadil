@@ -6,7 +6,9 @@
 use std::hash::Hasher;
 
 use bombadil_schema::ActionKey;
+use bombadil_trace::StepError;
 use rand::{RngExt, TryRng};
+use serde::{Deserialize, Serialize};
 
 use crate::driver::ActionTemplate;
 use crate::tree::Leaves;
@@ -61,12 +63,14 @@ impl<A> Picked<A> {
     }
 }
 
-/// An action read back from a trace, for replay.
-#[derive(Clone, Debug, PartialEq)]
+/// An action read back from a trace, for replay. Serialized, it is what
+/// a trace holds for an action about to be applied.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Recorded<A> {
     pub action: A,
     /// The trace's `action_taken`: the key of the template the action
     /// was credited to. `None` for traces that don't record it.
+    #[serde(rename = "action_taken", default)]
     pub template: Option<ActionKey>,
 }
 
@@ -77,6 +81,21 @@ impl<A> Recorded<A> {
             template: self.template,
         }
     }
+}
+
+/// What to say once the actions of a run that ended without a state are replayed.
+pub fn replayed_end_report(
+    recorded: &StepError,
+    state_followed: bool,
+) -> String {
+    let this_time = if state_followed {
+        "this time a state followed"
+    } else {
+        "this time no state followed either"
+    };
+    format!(
+        "The recorded run ended after the last action: {recorded}; {this_time}."
+    )
 }
 
 /// Key of the template to credit for a replayed action, or `None` if no
@@ -126,6 +145,21 @@ mod tests {
     use hegel::TestCase;
     use hegel::generators::{booleans, integers};
     use std::convert::Infallible;
+
+    #[test]
+    fn reports_how_the_recorded_run_ended() {
+        assert_eq!(
+            replayed_end_report(&StepError::Stalled, true),
+            "The recorded run ended after the last action: the driver \
+             stalled; this time a state followed."
+        );
+        assert_eq!(
+            replayed_end_report(&StepError::Unknown, false),
+            "The recorded run ended after the last action: unknown (the \
+             trace ends before what came of it); this time no state \
+             followed either."
+        );
+    }
 
     #[derive(Clone, Debug, PartialEq)]
     struct Key(&'static str);

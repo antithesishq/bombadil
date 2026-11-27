@@ -30,16 +30,14 @@ use bombadil::{
     antithesis,
     driver::{RunId, TraceWriter},
     fuzzer,
-    model::Recorded,
     specification::{bundler::bundle, verifier::Specification},
     styled,
 };
+use bombadil_browser::instrumentation::{
+    self, BlockRegistry, InstrumentationConfig,
+};
 use bombadil_browser::strategy::{
     ExitReason, TestMode, TestResult, TestStrategy,
-};
-use bombadil_browser::{
-    browser::actions::BrowserAction,
-    instrumentation::{self, BlockRegistry, InstrumentationConfig},
 };
 
 use crate::shrink::{self, ShrinkOptions};
@@ -633,12 +631,9 @@ fn resolve_test_mode(test_options: &TestOptions) -> Result<TestMode> {
     match &test_options.reproduce {
         None => Ok(TestMode::RandomWalk),
         Some(path) => {
-            let actions: Vec<Recorded<BrowserAction>> =
-                browser_trace::load_actions(path)?
-                    .into_iter()
-                    .map(|recorded| recorded.map(|action| action.to_internal()))
-                    .collect();
-            Ok(TestMode::Reproduce(actions.into()))
+            let trace = browser_trace::load_trace_actions(path)?
+                .map_actions(|action| action.to_internal());
+            Ok(TestMode::Reproduce(trace.actions.into(), trace.ended))
         }
     }
 }

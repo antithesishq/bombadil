@@ -44,6 +44,16 @@ pub fn write_record(
     Ok(())
 }
 
+/// Fills in the header of `record`, a payload after room for the header.
+pub(crate) fn seal_record(record: &mut [u8], tag: u16) -> io::Result<()> {
+    let (header, payload) = record.split_at_mut(RECORD_HEADER_LEN);
+    check_payload_length(payload.len())?;
+    let sealed =
+        RecordHeader::new(tag, payload.len() as u32, crc32fast::hash(payload));
+    header.copy_from_slice(sealed.as_bytes());
+    Ok(())
+}
+
 /// Reads into `buffer` until it is full or the input ends, and returns
 /// the number of bytes read.
 pub(crate) fn read_full(
@@ -215,7 +225,7 @@ impl<R: Read> RecordReader<R> {
     }
 
     /// The next record, with its payload unless `keep_payload` is false
-    /// and it isn't a state's metadata.
+    /// and it isn't a state's metadata, an action or an error.
     pub fn next_record(
         &mut self,
         keep_payload: bool,
@@ -263,7 +273,11 @@ impl<R: Read> RecordReader<R> {
             let keep = keep_payload
                 || matches!(
                     header.tag,
-                    tag::STATE | tag::STATE_WITH_PAYLOAD | tag::CHUNK
+                    tag::STATE
+                        | tag::STATE_WITH_PAYLOAD
+                        | tag::CHUNK
+                        | tag::ACTION
+                        | tag::ERROR
                 );
             let Some(payload) = header.read_payload(&mut reader, keep)? else {
                 if chunk_offset.is_some() {

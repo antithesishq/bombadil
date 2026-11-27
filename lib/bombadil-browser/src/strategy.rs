@@ -4,7 +4,7 @@ use crate::match_pattern::MatchPattern;
 use crate::url::parse_browser_url;
 use anyhow::{Result, bail};
 use bombadil::driver::RunState;
-use bombadil::model::{Picked, Recorded, accepting_key};
+use bombadil::model::{Picked, Recorded, accepting_key, replayed_end_report};
 use bombadil::render::Formatted;
 use bombadil::runner::PropertiesState;
 use bombadil::styled;
@@ -13,6 +13,7 @@ use bombadil::{
     tree::{Leaves, Tree},
 };
 use bombadil_schema::browser::Fingerprint;
+use bombadil_trace::StepError;
 use rand::{RngExt, TryRng};
 use std::{collections::VecDeque, time::SystemTime};
 use url::Url;
@@ -26,7 +27,8 @@ use bombadil_schema::markup;
 
 pub enum TestMode {
     RandomWalk,
-    Reproduce(VecDeque<Recorded<BrowserAction>>),
+    /// The actions, and why the recorded run had no state after the last.
+    Reproduce(VecDeque<Recorded<BrowserAction>>, Option<StepError>),
 }
 
 pub struct TestStrategy<Rng> {
@@ -57,6 +59,15 @@ pub struct TestResult {
 }
 
 impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
+    fn report_replayed_end(&self, state_followed: bool) {
+        if let TestMode::Reproduce(actions, Some(recorded)) = &self.mode
+            && actions.is_empty()
+            && !self.quiet
+        {
+            println!("{}", replayed_end_report(recorded, state_followed));
+        }
+    }
+
     fn is_url_allowed(&self, url: &Url) -> bool {
         self.allow_urls.iter().any(|pattern| pattern.matches(url))
     }
@@ -105,7 +116,7 @@ impl<Rng: TryRng + RngExt> TestStrategy<Rng> {
             TestMode::RandomWalk => {
                 Ok(Picked::generate(leaves.pick(&mut self.rng)?, &mut self.rng))
             }
-            TestMode::Reproduce(actions_original) => {
+            TestMode::Reproduce(actions_original, _) => {
                 if let Some(original) = actions_original.pop_front() {
                     let available_actions = leaves.as_slice();
                     if let Some(template) = accepting_key(leaves, &original) {
@@ -193,9 +204,10 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
             }));
         }
 
-        if let TestMode::Reproduce(browser_actions) = &self.mode
+        if let TestMode::Reproduce(browser_actions, _) = &self.mode
             && browser_actions.is_empty()
         {
+            self.report_replayed_end(true);
             return Ok(ControlFlow::Stop(TestResult {
                 exit_reason: ExitReason::Reproduced,
                 violations_count: self.violations_count,
@@ -231,6 +243,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     }
 
     fn on_time_limit(&mut self) -> anyhow::Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(TestResult {
             exit_reason: ExitReason::TimeLimit,
             violations_count: self.violations_count,
@@ -238,6 +251,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     }
 
     fn on_stalled(&mut self) -> anyhow::Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(TestResult {
             exit_reason: ExitReason::Stalled,
             violations_count: self.violations_count,
@@ -253,6 +267,7 @@ impl<Rng: TryRng + RngExt> RunStrategy<BrowserSession> for TestStrategy<Rng> {
     }
 
     fn on_interrupted(&mut self) -> anyhow::Result<Self::StopValue> {
+        self.report_replayed_end(false);
         Ok(TestResult {
             exit_reason: ExitReason::Interrupted,
             violations_count: self.violations_count,
@@ -295,7 +310,7 @@ mod tests {
         };
         let mut strategy = TestStrategy {
             rng: StdRng::seed_from_u64(0),
-            mode: TestMode::Reproduce([recorded].into()),
+            mode: TestMode::Reproduce([recorded].into(), None),
             exit_on_violation: false,
             test_start: None,
             deadline: None,

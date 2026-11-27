@@ -18,6 +18,7 @@ use crate::specification::convert::{
 use crate::specification::domain::Snapshot;
 use crate::specification::verifier::Verifier;
 use crate::tree::{Leaves, Tree};
+use bombadil_trace::StepError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ControlFlow<T, A> {
@@ -141,6 +142,16 @@ pub fn run<
     Err(first)
 }
 
+enum End<Stop> {
+    Stop(Stop),
+    TimeLimit,
+    Stalled,
+    Interrupted,
+    /// The driver's error, and what the run fails with.
+    Driver(String, anyhow::Error),
+    Failed(anyhow::Error),
+}
+
 fn run_test<
     Session: InterfaceSession,
     Strategy: RunStrategy<Session>,
@@ -153,11 +164,26 @@ fn run_test<
     strategy: &mut Strategy,
 ) -> Result<Strategy::StopValue> {
     let mut action_previous: Option<Picked<Session::Action>> = None;
+    // Whether the trace has no state yet for `action_previous`.
+    let mut action_pending = false;
     let mut violations = Vec::new();
 
     let mut waiting_since = Instant::now();
 
-    while !interrupted.load(Ordering::SeqCst) {
+    // Leaves through `End`, so a pending action gets its outcome written.
+    macro_rules! attempt {
+        ($result:expr) => {
+            match $result {
+                Ok(value) => value,
+                Err(error) => break End::Failed(error.into()),
+            }
+        };
+    }
+
+    let end = loop {
+        if interrupted.load(Ordering::SeqCst) {
+            break End::Interrupted;
+        }
         match driver.next_event(POLL_INTERVAL) {
             Some(DriverEvent::StateChanged(state)) => {
                 if antithesis::is_in_guest() {
@@ -169,8 +195,9 @@ fn run_test<
 
                 let last_action =
                     action_previous.as_ref().map(|picked| &picked.action);
-                let snapshots =
-                    driver.extract_snapshots(state.clone(), last_action)?;
+                let snapshots = attempt!(
+                    driver.extract_snapshots(state.clone(), last_action)
+                );
                 for value in snapshots.iter() {
                     log::debug!(
                         "snapshot {}: {}",
@@ -179,10 +206,13 @@ fn run_test<
                     );
                 }
 
-                let step_result = verifier.step::<Session::ActionTemplate>(
-                    &snapshots,
-                    Time::from_system_time(Session::state_timestamp(&state)),
-                )?;
+                let step_result =
+                    attempt!(verifier.step::<Session::ActionTemplate>(
+                        &snapshots,
+                        Time::from_system_time(Session::state_timestamp(
+                            &state
+                        )),
+                    ));
 
                 violations.clear();
                 for (name, value) in step_result.properties() {
@@ -228,28 +258,35 @@ fn run_test<
                 let actions = strategy.constrain(&state, step_result.actions);
                 let leaves = actions.leaves();
 
-                writer.write(
+                attempt!(writer.write(
                     &state,
                     &snapshots,
                     properties.violations,
                     &leaves,
                     action_previous.as_ref(),
-                )?;
+                ));
+                action_pending = false;
 
-                let control = strategy.on_new_state(
+                let control = attempt!(strategy.on_new_state(
                     &state,
                     &leaves,
                     last_action,
                     &snapshots,
                     properties,
-                )?;
+                ));
 
                 match control {
-                    ControlFlow::Stop(value) => return Ok(value),
+                    ControlFlow::Stop(value) => break End::Stop(value),
                     ControlFlow::Continue(picked) => {
                         log::info!("picked action: {:?}", picked.action);
-                        driver.apply(picked.action.clone(), state.clone())?;
+                        attempt!(writer.write_action(&picked));
+                        action_pending = true;
+                        let applied =
+                            driver.apply(picked.action.clone(), state.clone());
                         action_previous = Some(picked);
+                        if let Err(error) = applied {
+                            break End::Driver(format!("{error:#}"), error);
+                        }
                         waiting_since = Instant::now();
                     }
                 }
@@ -261,24 +298,61 @@ fn run_test<
                     log::warn!(
                         "time limit reached while waiting for driver, stopping"
                     );
-                    return strategy.on_time_limit();
+                    break End::TimeLimit;
                 }
                 if waiting_since.elapsed() >= Session::STALL_TIMEOUT {
                     log::error!(
                         "driver stalled: no event for {:?}, stopping",
                         Session::STALL_TIMEOUT
                     );
-                    return strategy.on_stalled();
+                    break End::Stalled;
                 }
             }
             Some(DriverEvent::Error(error)) => {
-                anyhow::bail!("driver error: {}", error);
+                break End::Driver(
+                    error.to_string(),
+                    anyhow::anyhow!("driver error: {}", error),
+                );
             }
             None => {
-                anyhow::bail!("driver closed");
+                break End::Driver(
+                    "driver closed".to_string(),
+                    anyhow::anyhow!("driver closed"),
+                );
             }
         }
+    };
+
+    let (step_error, result) = match end {
+        End::Stop(value) => (None, Ok(value)),
+        End::TimeLimit => {
+            (Some(StepError::TimeLimit), strategy.on_time_limit())
+        }
+        End::Stalled => (Some(StepError::Stalled), strategy.on_stalled()),
+        End::Interrupted => {
+            log::debug!("interrupted, stopping runner");
+            (Some(StepError::Interrupted), strategy.on_interrupted())
+        }
+        End::Driver(message, error) => {
+            (Some(StepError::Driver { message }), Err(error))
+        }
+        End::Failed(error) => {
+            let message = format!("{error:#}");
+            (Some(StepError::Failed { message }), Err(error))
+        }
+    };
+    let written = match step_error {
+        Some(step_error) if action_pending => writer.write_error(step_error),
+        _ => Ok(()),
+    };
+    match (result, written) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(error), written) => {
+            if let Err(written) = written {
+                log::error!("{written:#}");
+            }
+            Err(error)
+        }
     }
-    log::debug!("interrupted, stopping runner");
-    strategy.on_interrupted()
 }
