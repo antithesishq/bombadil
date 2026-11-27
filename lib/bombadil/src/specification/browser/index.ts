@@ -107,6 +107,10 @@ export type NavigationEntry = {
   url: string;
 };
 
+/**
+ * A `console.warn` or `console.error` call. `timestamp` is in microseconds
+ * since the Unix epoch.
+ */
 export type ConsoleEntry = {
   timestamp: number;
   level: "warning" | "error";
