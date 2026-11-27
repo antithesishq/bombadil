@@ -124,15 +124,8 @@ struct FileStamp {
 
 impl FileStamp {
     fn of(metadata: &std::fs::Metadata) -> Self {
-        #[cfg(unix)]
-        let identity = {
-            use std::os::unix::fs::MetadataExt;
-            Some((metadata.dev(), metadata.ino()))
-        };
-        #[cfg(not(unix))]
-        let identity = None;
         FileStamp {
-            identity,
+            identity: stdx::fs::identity(metadata),
             length: metadata.len(),
             modified: metadata.modified().ok(),
         }

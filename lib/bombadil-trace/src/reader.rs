@@ -546,13 +546,6 @@ impl<R: Read, M: DeserializeOwned> StateReader<R, M> {
                             record.index
                         );
                     }
-                    if record.payload_length != 0 {
-                        bail!(
-                            "invalid end of trace in trace record {} (it \
-                             has a payload)",
-                            record.index
-                        );
-                    }
                     self.records.expect_end()?;
                     self.finished = true;
                     return Ok(None);
