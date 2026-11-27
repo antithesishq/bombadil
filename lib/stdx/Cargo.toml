@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+memchr.workspace = true
 
 [dev-dependencies]
 hegeltest.workspace = true
+insta.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true

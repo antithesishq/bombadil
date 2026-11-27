@@ -61,6 +61,7 @@ js-sys = "0.3"
 libc = "0.2"
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "32a75a6ca183ed57e18511ff0dbd21a2b957a805" }
 log = "0.4.29"
+memchr = "2.8.3"
 mime_guess = "2.0"
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 num-traits = "0.2"

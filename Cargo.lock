@@ -760,6 +760,7 @@ dependencies = [
  "mio",
  "serde",
  "serde_json",
+ "stdx",
  "tungstenite 0.30.0",
 ]
 
@@ -4720,6 +4721,9 @@ name = "stdx"
 version = "0.8.0"
 dependencies = [
  "hegeltest",
+ "insta",
+ "memchr",
+ "serde_json",
  "tempfile",
 ]
 

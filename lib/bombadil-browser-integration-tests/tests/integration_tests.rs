@@ -731,6 +731,40 @@ export const inputEventuallyHasText = eventually(
 }
 
 #[test]
+fn test_lone_surrogate() {
+    // The run only ends, in the expected violation, once the halves in the
+    // page and of the typed text have all been read as U+FFFD.
+    BrowserIntegrationTest::new("lone-surrogate")
+        .expect_error("halvesNeverAllReplaced")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+
+export const emoji = actions(() => [
+  { TypeText: { text: { CharSet: [{ Range: [0x1f600, 0x1f64f] }] } } },
+]);
+
+const halves = extract((state) => {
+  const value = state.document.querySelector("\#text-input").value;
+  return [
+    state.document.querySelector("\#half").textContent,
+    value.slice(0, 1),
+    value.slice(-1),
+  ];
+});
+
+const replacement = String.fromCharCode(0xfffd);
+
+export const halvesNeverAllReplaced = always(
+  () => !halves.current.every((half) => half === replacement),
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_textarea_backspace() {
     BrowserIntegrationTest::new("textarea-backspace")
         .specification(
