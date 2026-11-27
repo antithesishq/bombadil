@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>App shell</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      body { display: flex; flex-direction: column; }
+      header, footer { flex: none; height: 60px; background: #eef; }
+      .panes { flex: 1; min-height: 0; display: flex; }
+      nav { width: 200px; background: #efe; }
+      main { flex: 1; overflow: auto; }
+      button { display: block; width: 300px; height: 90px; margin: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- The window never scrolls. Clipped rows have boxes over the footer. -->
+    <header></header>
+    <div class="panes">
+      <nav></nav>
+      <main data-scroller="list"></main>
+    </div>
+    <footer></footer>
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.querySelector("main"), "row", 8);
+    </script>
+  </body>
+</html>

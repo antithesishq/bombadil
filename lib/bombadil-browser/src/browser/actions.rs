@@ -32,6 +32,7 @@ fn mouse_wheel(
     session_id: &SessionId,
     options: &ActionOptions,
     origin: Point,
+    delta_x: f64,
     delta_y: f64,
 ) -> Result<()> {
     mouse_event(
@@ -42,7 +43,7 @@ fn mouse_wheel(
             .r#type(input::DispatchMouseEventType::MouseWheel)
             .x(origin.x)
             .y(origin.y)
-            .delta_x(0.0)
+            .delta_x(delta_x)
             .delta_y(delta_y)
             .build()
             .map_err(|err| anyhow!(err))?,
@@ -105,6 +106,14 @@ pub enum BrowserAction<U8 = u8, U16 = u16, U64 = u64, F64 = f64, Text = String>
         distance: F64,
     },
     ScrollDown {
+        origin: Point<F64>,
+        distance: F64,
+    },
+    ScrollLeft {
+        origin: Point<F64>,
+        distance: F64,
+    },
+    ScrollRight {
         origin: Point<F64>,
         distance: F64,
     },
@@ -200,12 +209,22 @@ impl BrowserAction {
             BrowserAction::Wait => {}
             BrowserAction::ScrollUp { origin, distance } => {
                 mouse_wheel(
-                    connection, session_id, &options, *origin, -distance,
+                    connection, session_id, &options, *origin, 0.0, -distance,
                 )?;
             }
             BrowserAction::ScrollDown { origin, distance } => {
                 mouse_wheel(
-                    connection, session_id, &options, *origin, *distance,
+                    connection, session_id, &options, *origin, 0.0, *distance,
+                )?;
+            }
+            BrowserAction::ScrollLeft { origin, distance } => {
+                mouse_wheel(
+                    connection, session_id, &options, *origin, -distance, 0.0,
+                )?;
+            }
+            BrowserAction::ScrollRight { origin, distance } => {
+                mouse_wheel(
+                    connection, session_id, &options, *origin, *distance, 0.0,
                 )?;
             }
             BrowserAction::Click { point, .. } => {
@@ -478,6 +497,20 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                     distance,
                 }
             }
+            BrowserAction::ScrollLeft { origin, distance } => {
+                let distance = rng.random_range(distance.clone());
+                BrowserAction::ScrollLeft {
+                    origin: origin.generate(rng),
+                    distance,
+                }
+            }
+            BrowserAction::ScrollRight { origin, distance } => {
+                let distance = rng.random_range(distance.clone());
+                BrowserAction::ScrollRight {
+                    origin: origin.generate(rng),
+                    distance,
+                }
+            }
             BrowserAction::Reload => BrowserAction::Reload,
             BrowserAction::Wait => BrowserAction::Wait,
             BrowserAction::SetFileInputFiles { selector, files } => {
@@ -576,6 +609,32 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
                 origin_candidate.accepts(origin_original)
                     && distance_candidate.contains(distance_original)
             }
+            (
+                BrowserAction::ScrollLeft {
+                    origin: origin_candidate,
+                    distance: distance_candidate,
+                },
+                BrowserAction::ScrollLeft {
+                    origin: origin_original,
+                    distance: distance_original,
+                },
+            ) => {
+                origin_candidate.accepts(origin_original)
+                    && distance_candidate.contains(distance_original)
+            }
+            (
+                BrowserAction::ScrollRight {
+                    origin: origin_candidate,
+                    distance: distance_candidate,
+                },
+                BrowserAction::ScrollRight {
+                    origin: origin_original,
+                    distance: distance_original,
+                },
+            ) => {
+                origin_candidate.accepts(origin_original)
+                    && distance_candidate.contains(distance_original)
+            }
             (BrowserAction::Reload, BrowserAction::Reload) => true,
             (BrowserAction::Wait, BrowserAction::Wait) => true,
             (
@@ -649,6 +708,12 @@ impl ActionTemplate<BrowserAction> for BrowserActionTemplate {
             }
             BrowserAction::ScrollDown { .. } => {
                 "ScrollDown".hash(hasher);
+            }
+            BrowserAction::ScrollLeft { .. } => {
+                "ScrollLeft".hash(hasher);
+            }
+            BrowserAction::ScrollRight { .. } => {
+                "ScrollRight".hash(hasher);
             }
             BrowserAction::Reload => {
                 "Reload".hash(hasher);
@@ -750,6 +815,14 @@ mod tests {
                 distance: coordinate_range(tc),
             },
             ScrollDown {
+                origin: point(tc),
+                distance: coordinate_range(tc),
+            },
+            ScrollLeft {
+                origin: point(tc),
+                distance: coordinate_range(tc),
+            },
+            ScrollRight {
                 origin: point(tc),
                 distance: coordinate_range(tc),
             },
@@ -948,6 +1021,14 @@ mod tests {
                 origin: point.clone(),
                 distance: 100.0..=200.0,
             },
+            ScrollLeft {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
+            ScrollRight {
+                origin: point.clone(),
+                distance: 100.0..=200.0,
+            },
             Reload,
             Wait,
             SetFileInputFiles {
@@ -987,6 +1068,8 @@ mod tests {
         PressKey c93bc450d62fd98b
         ScrollUp 85945a0874e9846a
         ScrollDown e809786b3eb1b325
+        ScrollLeft 3133c845e8ec5166
+        ScrollRight 7815c8eeb4dd5a0b
         Reload 5baacf2d68f01b69
         Wait 7a8f94b3770568cd
         SetFileInputFiles 13c1eaddc053ff99

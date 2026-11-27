@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Inner frame</title>
+    <style>
+      body { margin: 0; }
+      .panel { height: 200px; margin: 10px; overflow: auto; background: #eef; }
+      button { display: block; width: 200px; height: 50px; margin: 10px; }
+    </style>
+  </head>
+  <body>
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.body, "framed", 2);
+      const panel = document.createElement("div");
+      panel.className = "panel";
+      panel.setAttribute("data-scroller", "panel");
+      document.body.appendChild(panel);
+      addButtons(panel, "panel", 4);
+      addButtons(document.body, "below", 3);
+    </script>
+  </body>
+</html>

@@ -74,6 +74,18 @@ impl ToSchema<browser::BrowserAction> for BrowserAction {
                     distance: *distance,
                 }
             }
+            BrowserAction::ScrollLeft { origin, distance } => {
+                browser::BrowserAction::ScrollLeft {
+                    origin: origin.to_schema(),
+                    distance: *distance,
+                }
+            }
+            BrowserAction::ScrollRight { origin, distance } => {
+                browser::BrowserAction::ScrollRight {
+                    origin: origin.to_schema(),
+                    distance: *distance,
+                }
+            }
             BrowserAction::Reload => browser::BrowserAction::Reload,
             BrowserAction::Wait => browser::BrowserAction::Wait,
             BrowserAction::SetFileInputFiles { selector, files } => {
@@ -140,6 +152,18 @@ impl ToInternal<BrowserAction> for browser::BrowserAction {
             }
             browser::BrowserAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown {
+                    origin: origin.to_internal(),
+                    distance: *distance,
+                }
+            }
+            browser::BrowserAction::ScrollLeft { origin, distance } => {
+                BrowserAction::ScrollLeft {
+                    origin: origin.to_internal(),
+                    distance: *distance,
+                }
+            }
+            browser::BrowserAction::ScrollRight { origin, distance } => {
+                BrowserAction::ScrollRight {
                     origin: origin.to_internal(),
                     distance: *distance,
                 }

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Nested scrollers</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .outer { height: 100%; overflow: auto; }
+      .inner { height: 300px; margin: 20px 0; overflow: auto; background: #eef; }
+      button { display: block; width: 300px; height: 90px; margin: 10px; }
+    </style>
+  </head>
+  <body>
+    <!-- The inner scroller covers the middle of the outer one, where a wheel
+         event only gets to the outer one once the inner one is at its end. -->
+    <div class="outer" data-scroller="outer">
+      <div class="before"></div>
+      <div class="inner" data-scroller="inner"></div>
+      <div class="after"></div>
+    </div>
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.querySelector(".before"), "before", 1);
+      addButtons(document.querySelector(".inner"), "inner", 4);
+      addButtons(document.querySelector(".after"), "after", 3);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Reversed flex containers</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .rows, .columns, .stack, .zoomed { float: left; margin: 10px; overflow: auto; background: #eef; }
+      .rows { display: flex; flex-wrap: wrap-reverse; width: 320px; height: 150px; }
+      .columns { display: flex; flex-direction: column; flex-wrap: wrap-reverse; width: 320px; height: 150px; }
+      .stack { display: flex; flex-direction: column-reverse; width: 320px; height: 150px; }
+      .zoomed { zoom: 1.5; width: 220px; height: 100px; }
+      button { flex: none; display: block; width: 300px; height: 110px; margin: 10px; }
+      .zoomed button { width: 180px; height: 60px; }
+    </style>
+  </head>
+  <body>
+    <!-- The first three start at the far end of a negative scroll range. -->
+    <div class="rows" data-scroller="rows"></div>
+    <div class="columns" data-scroller="columns"></div>
+    <div class="stack" data-scroller="stack"></div>
+    <!-- Scrolls by two thirds of the wheel's distance. -->
+    <div class="zoomed" data-scroller="zoomed"></div>
+    <script src="oracle.js"></script>
+    <script>
+      for (const name of ["rows", "columns", "stack", "zoomed"]) {
+        addButtons(document.querySelector(`.${name}`), name, 2);
+      }
+    </script>
+  </body>
+</html>

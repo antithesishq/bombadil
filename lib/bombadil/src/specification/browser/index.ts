@@ -42,6 +42,8 @@ export type Action<Number = number, String = string> =
   | { PressKey: { code: number } }
   | { ScrollUp: { origin: Point; distance: Number } }
   | { ScrollDown: { origin: Point; distance: Number } }
+  | { ScrollLeft: { origin: Point; distance: Number } }
+  | { ScrollRight: { origin: Point; distance: Number } }
   | { SetFileInputFiles: { selector: string; files: string[] } }
   | {
       MouseDrag: {

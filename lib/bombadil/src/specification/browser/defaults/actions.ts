@@ -1,5 +1,5 @@
 import type { Cell } from "@antithesishq/bombadil";
-import type { ActionGenerator } from "@antithesishq/bombadil/actions";
+import type { ActionGenerator, Range } from "@antithesishq/bombadil/actions";
 import {
   actions,
   weighted,
@@ -14,6 +14,7 @@ import {
   hitTests,
   isVisible,
   queryAll,
+  wheelScrolls,
 } from "@antithesishq/bombadil/browser/dom";
 
 const contentType = extract((state) => state.document.contentType);
@@ -63,41 +64,71 @@ export const waitOnce: ActionGenerator<ActionTemplate> = actions(() => {
   }
 });
 
+const wheels = extract((state) => {
+  if (!state.document.body) return null;
+  const { viewport, inner } = wheelScrolls(hitTests(state.window));
+  return {
+    viewport,
+    inner: inner.map(({ horizontal, size, snaps, backward, forward }) => ({
+      horizontal,
+      size,
+      snaps,
+      backward,
+      forward,
+    })),
+  };
+});
+
+/**
+ * Scrolls the window and the scroll containers in the page with the mouse
+ * wheel: forward until the end, then back to the start in one go.
+ */
 export const scroll: ActionGenerator<ActionTemplate> = actions(() => {
   if (contentType.current !== "text/html") return [];
 
-  if (!body.current) return [];
+  if (!body.current || !wheels.current) return [];
+
+  const scrolls: ActionTemplate[] = [];
+  const { viewport, inner } = wheels.current;
 
   const scrollYMax = body.current.scrollHeight - window.current.inner.height;
   const scrollYMaxDiff = scrollYMax - window.current.scroll.y;
 
   if (scrollYMaxDiff >= 1) {
-    return [
-      {
+    if (viewport.down) {
+      scrolls.push({
         ScrollDown: {
-          origin: {
-            x: window.current.inner.width / 2,
-            y: window.current.inner.height / 2,
-          },
+          origin: viewport.down,
           distance: Math.min(window.current.inner.height / 2, scrollYMaxDiff),
         },
-      },
-    ];
-  } else if (window.current.scroll.y > 0) {
-    return [
-      {
-        ScrollUp: {
-          origin: {
-            x: window.current.inner.width / 2,
-            y: window.current.inner.height / 2,
-          },
-          distance: window.current.scroll.y,
-        },
-      },
-    ];
+      });
+    }
+  } else if (window.current.scroll.y > 0 && viewport.up) {
+    scrolls.push({
+      ScrollUp: { origin: viewport.up, distance: window.current.scroll.y },
+    });
   }
 
-  return [];
+  for (const { horizontal, size, snaps, backward, forward } of inner) {
+    if (forward) {
+      // Half a page, or a whole one where anything less snaps back. Up to
+      // the end otherwise, so that one scroll can get deep into a long list.
+      const step = snaps ? size : size / 2;
+      const distance: Range =
+        snaps || forward.distance <= step
+          ? Math.min(step, forward.distance)
+          : [step, forward.distance];
+      const scroll = { origin: forward.origin, distance };
+      scrolls.push(
+        horizontal ? { ScrollRight: scroll } : { ScrollDown: scroll },
+      );
+    } else if (backward) {
+      scrolls.push(
+        horizontal ? { ScrollLeft: backward } : { ScrollUp: backward },
+      );
+    }
+  }
+  return scrolls;
 });
 
 // Clicks
