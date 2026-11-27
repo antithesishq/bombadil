@@ -1,0 +1,34 @@
+---
+source: lib/bombadil-browser/src/instrumentation/js.rs
+expression: instrumented.snapshot()
+---
+window.__bombadil__ = window.__bombadil__ || {
+	edges_previous: new window.Uint8Array(65536),
+	edges_current: new window.Uint8Array(65536),
+	previous: 0,
+	hits: new window.Set(),
+	hits_cache: new window.Int32Array(65536).fill(-1)
+};
+function f30245(x) {
+	if (x) {
+		__bombadil__.edges_current[((263401120 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+		__bombadil__.previous = 263401120 >> 1;
+		__bombadil__.hits_cache[11936] === 263401120 || (__bombadil__.hits_cache[11936] = 263401120, __bombadil__.hits.add(263401120));
+	} else {
+		__bombadil__.edges_current[((1637176797 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+		__bombadil__.previous = 1637176797 >> 1;
+		__bombadil__.hits_cache[21981] === 1637176797 || (__bombadil__.hits_cache[21981] = 1637176797, __bombadil__.hits.add(1637176797));
+	}
+}
+function g1155(x) {
+	for (;;) {
+		__bombadil__.edges_current[((1297366624 ^ __bombadil__.previous) >>> 0) % 65536] += 1;
+		__bombadil__.previous = 1297366624 >> 1;
+		__bombadil__.hits_cache[15968] === 1297366624 || (__bombadil__.hits_cache[15968] = 1297366624, __bombadil__.hits.add(1297366624));
+	}
+}
+
+---- blocks ----
+ 263401120  /test.js:1  f30245
+1637176797  /test.js:1  f30245
+1297366624  /test.js:2  g1155

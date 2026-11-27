@@ -80,10 +80,25 @@ impl BlockIdPrefix {
     }
 
     pub fn id(self, ordinal: u32) -> u32 {
-        let hash = fnv1a64_from(self.0, ordinal.to_le_bytes());
-        ((hash ^ (hash >> BLOCK_ID_BITS) ^ (hash >> (2 * BLOCK_ID_BITS)))
-            & BLOCK_ID_MASK) as u32
+        self.id_attempt(ordinal, 0)
     }
+
+    /// The ID to try after `attempt` taken ones. A block takes the first
+    /// that no earlier block of its script has, so IDs are distinct within
+    /// a script and depend on its ID and contents only. An edit can thus
+    /// move the ID of a later block that hashes to the same one.
+    pub fn id_attempt(self, ordinal: u32, attempt: u32) -> u32 {
+        let hash = fnv1a64_from(self.0, ordinal.to_le_bytes());
+        fold(match attempt {
+            0 => hash,
+            _ => fnv1a64_from(hash, attempt.to_le_bytes()),
+        })
+    }
+}
+
+fn fold(hash: u64) -> u32 {
+    ((hash ^ (hash >> BLOCK_ID_BITS) ^ (hash >> (2 * BLOCK_ID_BITS)))
+        & BLOCK_ID_MASK) as u32
 }
 
 /// Every block instrumented so far, in registration order, shared between
@@ -124,7 +139,7 @@ impl BlockRegistry {
     }
 
     /// Adds the `blocks` whose IDs are not yet registered. A block whose
-    /// ID another function's block has shares that block's coverage: IDs
+    /// ID another script's block has shares that block's coverage: IDs
     /// are hashes, and another ID would depend on load order.
     pub fn register(&self, blocks: impl IntoIterator<Item = Block>) {
         // Logged after unlocking.
