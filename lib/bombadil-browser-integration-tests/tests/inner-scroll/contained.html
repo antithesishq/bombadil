@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Scrollers and positioned content</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .outer { position: relative; height: 100%; overflow: auto; }
+      .inner { height: 300px; margin: 50px 0; overflow: auto; background: #eef; will-change: transform; }
+      .content { position: absolute; top: 0; left: 0; width: 100%; }
+      .plain { width: 380px; height: 200px; overflow: auto; background: #efe; }
+      .badge { position: absolute; top: 470px; left: 120px; width: 140px; height: 60px; background: #fee; }
+      button { display: block; width: 300px; height: 90px; margin: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="outer" data-scroller="outer">
+      <!-- Not positioned, but `will-change` makes it the containing block of
+           its content: a wheel event there scrolls it. -->
+      <div class="inner" data-scroller="inner"><div class="content"></div></div>
+      <!-- The badge over its centre is positioned in the outer scroller: a
+           wheel event there scrolls the outer one. -->
+      <div class="plain" data-scroller="plain"><div class="badge"></div></div>
+      <div class="after"></div>
+    </div>
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.querySelector(".content"), "inner", 4);
+      addButtons(document.querySelector(".plain"), "plain", 3);
+      addButtons(document.querySelector(".after"), "after", 2);
+    </script>
+  </body>
+</html>

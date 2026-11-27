@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Scroller in a modal</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      main { height: 100%; overflow: auto; }
+      button { display: block; width: 300px; height: 50px; margin: 10px; }
+      .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); }
+      .dialog { position: fixed; inset: 100px 200px; background: white; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <!-- The modal is inside the page's scroller, but not contained by it: a
+         wheel event over the modal never scrolls the page. -->
+    <main data-scroller="page">
+      <div class="covered"></div>
+      <div class="backdrop"></div>
+      <div class="dialog" data-scroller="dialog"></div>
+    </main>
+    <script src="oracle.js"></script>
+    <script>
+      const covered = document.querySelector(".covered");
+      for (let i = 0; i < 30; i++) {
+        covered.appendChild(document.createElement("button")).id = `covered-${i}`;
+      }
+      addButtons(document.querySelector(".dialog"), "dialog", 8);
+    </script>
+  </body>
+</html>

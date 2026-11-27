@@ -1841,3 +1841,243 @@ fn test_hit_test_shadow_dom() {
 fn test_hit_test_iframe() {
     hit_test("iframe", false);
 }
+
+/// Runs the default clicks and scrolls on an `inner-scroll` fixture page
+/// until every button named in the body's `data-expect` has been pressed.
+/// Until then, or for 100 states, every press must land on the button it was
+/// meant for, and every scroll must move the container it was meant for, and
+/// no other, by its distance. The container named in the body's `data-dead`
+/// must not move at all.
+fn inner_scroll(page: &str) {
+    BrowserIntegrationTest::new(&format!("inner-scroll/{page}.html"))
+        .time_limit(Duration::from_secs(45))
+        .specification(
+            r#"
+import { eventually, now, next } from "@antithesishq/bombadil";
+import { extract, weighted } from "@antithesishq/bombadil/browser";
+import { clicks, scroll, lastAction } from "@antithesishq/bombadil/browser/defaults/actions";
+import { hitTests, wheelScrolls } from "@antithesishq/bombadil/browser/dom";
+
+// Weighted as in the default actions.
+export const clicksAndScrolls = weighted([
+  [100, clicks],
+  [50, scroll],
+]);
+
+const page = extract((state) => {
+  const data = state.document.body.dataset;
+  const hits = (data.hits ?? "").split(" ");
+
+  // In top viewport pixels, like the distance of a scroll.
+  const positions = { window: [state.window.scrollX, state.window.scrollY] };
+  const documents = [state.document];
+  while (documents.length > 0) {
+    const document = documents.pop();
+    for (const element of document.querySelectorAll("[data-scroller]")) {
+      const inner = element.contentDocument;
+      if (inner) documents.push(inner);
+      const zoom = element.currentCSSZoom;
+      positions[element.dataset.scroller] = inner
+        ? [inner.defaultView.scrollX, inner.defaultView.scrollY]
+        : [element.scrollLeft * zoom, element.scrollTop * zoom];
+    }
+  }
+
+  // The container each wheel event that can be offered is meant for.
+  const meant = {};
+  const { viewport, inner } = wheelScrolls(hitTests(state.window));
+  const mean = (name, wheel, container) => {
+    if (wheel) meant[`${name}@${wheel.x},${wheel.y}`] = container;
+  };
+  mean("ScrollUp", viewport.up, "window");
+  mean("ScrollDown", viewport.down, "window");
+  for (const { element, horizontal, backward, forward } of inner) {
+    const container = element.dataset.scroller;
+    mean(horizontal ? "ScrollLeft" : "ScrollUp", backward?.origin, container);
+    mean(horizontal ? "ScrollRight" : "ScrollDown", forward?.origin, container);
+  }
+
+  return {
+    last: data.last ?? null,
+    presses: Number(data.presses ?? 0),
+    done: (data.expect ?? "")
+      .split(" ")
+      .every((name) => name === "" || hits.includes(name)),
+    positions,
+    meant,
+    dead: data.dead ?? null,
+  };
+});
+
+export const targetsAreReached = eventually(() => page.current.done).within(
+  30,
+  "seconds",
+);
+
+// Decided once the targets are reached, so that the run can end. The
+// verifier's stack does not take many more states than this.
+const untilReached = (check, states = 100) =>
+  now(() =>
+    page.current.done || states === 1
+      ? true
+      : now(check).and(next(untilReached(check, states - 1))),
+  );
+
+export const clicksLandOnTheirTarget = untilReached(() => {
+  const presses = page.current.presses;
+  return next(() => {
+    const action = lastAction.current;
+    if (action === null || typeof action === "string" || !("Click" in action))
+      return true;
+    // A click offered on what covers a button lands on no button.
+    return (
+      page.current.presses === presses + 1 &&
+      page.current.last === (action.Click.fingerprint.id ?? "none")
+    );
+  });
+});
+
+const DIRECTIONS = {
+  ScrollUp: [0, -1],
+  ScrollDown: [0, 1],
+  ScrollLeft: [-1, 0],
+  ScrollRight: [1, 0],
+};
+
+export const scrollsMoveTheirContainer = untilReached(() => {
+  const { positions: before, meant, dead } = page.current;
+  return next(() => {
+    const action = lastAction.current;
+    if (action === null || typeof action === "string") return true;
+    const [name] = Object.keys(action);
+    const direction = DIRECTIONS[name];
+    if (!direction) return true;
+
+    const { origin, distance } = action[name];
+    const container = meant[`${name}@${origin.x},${origin.y}`];
+    const after = page.current.positions;
+    const moved = Object.keys(after).filter(
+      (key) => after[key][0] !== before[key][0] || after[key][1] !== before[key][1],
+    );
+    if (container === dead) return moved.length === 0;
+    if (moved.length !== 1 || moved[0] !== container) return false;
+
+    const x = after[container][0] - before[container][0];
+    const y = after[container][1] - before[container][1];
+    return (
+      Math.abs(x - direction[0] * distance) < 1 &&
+      Math.abs(y - direction[1] * distance) < 1
+    );
+  });
+});
+"#,
+        )
+        .run();
+}
+
+#[test]
+fn test_inner_scroll_shell() {
+    inner_scroll("shell");
+}
+
+#[test]
+fn test_inner_scroll_horizontal() {
+    inner_scroll("horizontal");
+}
+
+#[test]
+fn test_inner_scroll_nested() {
+    inner_scroll("nested");
+}
+
+#[test]
+fn test_inner_scroll_modal() {
+    inner_scroll("modal");
+}
+
+#[test]
+fn test_inner_scroll_virtual_list() {
+    inner_scroll("virtual");
+}
+
+#[test]
+fn test_inner_scroll_frame() {
+    inner_scroll("frame");
+}
+
+#[test]
+fn test_inner_scroll_snap() {
+    inner_scroll("snap");
+}
+
+#[test]
+fn test_inner_scroll_wheel_prevented() {
+    inner_scroll("prevent");
+}
+
+#[test]
+fn test_inner_scroll_infinite_feed() {
+    inner_scroll("infinite");
+}
+
+#[test]
+fn test_inner_scroll_contained() {
+    inner_scroll("contained");
+}
+
+#[test]
+fn test_inner_scroll_reversed() {
+    inner_scroll("reversed");
+}
+
+#[test]
+fn test_inner_scroll_under_window_centre() {
+    inner_scroll("window");
+}
+
+/// On a page without inner scrollers, `scroll` offers what it did when it
+/// only scrolled the window.
+#[test]
+fn test_inner_scroll_leaves_other_pages_alone() {
+    BrowserIntegrationTest::new("inner-scroll/plain.html")
+        .time_limit(Duration::from_secs(30))
+        .specification(
+            r#"
+import { now, next } from "@antithesishq/bombadil";
+import { actions, extract } from "@antithesishq/bombadil/browser";
+import { defaultActions } from "@antithesishq/bombadil/browser/defaults";
+import { scroll } from "@antithesishq/bombadil/browser/defaults/actions";
+export { defaultActions };
+
+const window = extract((state) => ({
+  scrollY: state.window.scrollY,
+  width: state.window.innerWidth,
+  height: state.window.innerHeight,
+  scrollHeight: state.document.body.scrollHeight,
+}));
+
+const windowScroll = actions(() => {
+  const { scrollY, width, height, scrollHeight } = window.current;
+  const origin = { x: width / 2, y: height / 2 };
+  const remaining = scrollHeight - height - scrollY;
+  if (remaining >= 1)
+    return [{ ScrollDown: { origin, distance: Math.min(height / 2, remaining) } }];
+  if (scrollY > 0) return [{ ScrollUp: { origin, distance: scrollY } }];
+  return [];
+});
+
+// Decided after a fixed number of states, so that the run can end.
+const inEveryState = (check, states = 30) =>
+  states === 1
+    ? now(check)
+    : now(check).and(next(inEveryState(check, states - 1)));
+
+export const offersTheScrollsFromBefore = inEveryState(
+  () =>
+    JSON.stringify(scroll.generate()) ===
+    JSON.stringify(windowScroll.generate()),
+);
+"#,
+        )
+        .run();
+}

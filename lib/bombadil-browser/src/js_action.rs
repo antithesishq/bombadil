@@ -48,6 +48,16 @@ pub enum JsAction {
         origin: JsPoint,
         distance: JsRange,
     },
+    #[serde(rename_all = "camelCase")]
+    ScrollLeft {
+        origin: JsPoint,
+        distance: JsRange,
+    },
+    #[serde(rename_all = "camelCase")]
+    ScrollRight {
+        origin: JsPoint,
+        distance: JsRange,
+    },
     Reload,
     Wait,
     #[serde(rename_all = "camelCase")]
@@ -138,6 +148,18 @@ impl TryInto<BrowserActionTemplate> for JsAction {
             }
             JsAction::ScrollDown { origin, distance } => {
                 BrowserAction::ScrollDown {
+                    origin: origin.try_into()?,
+                    distance: distance.try_into()?,
+                }
+            }
+            JsAction::ScrollLeft { origin, distance } => {
+                BrowserAction::ScrollLeft {
+                    origin: origin.try_into()?,
+                    distance: distance.try_into()?,
+                }
+            }
+            JsAction::ScrollRight { origin, distance } => {
+                BrowserAction::ScrollRight {
                     origin: origin.try_into()?,
                     distance: distance.try_into()?,
                 }

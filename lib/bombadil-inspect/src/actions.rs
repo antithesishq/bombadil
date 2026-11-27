@@ -143,6 +143,20 @@ fn ActionEntry(props: &HistoryEntryProps) -> Html {
                         ("Distance", format!("{}px", distance)),
                     ]),
                 ),
+                BrowserAction::ScrollLeft { origin, distance } => (
+                    html!(<span class="action-name">{"Scroll left"}</span>),
+                    Some(vec![
+                        ("Origin", format_point(origin)),
+                        ("Distance", format!("{}px", distance)),
+                    ]),
+                ),
+                BrowserAction::ScrollRight { origin, distance } => (
+                    html!(<span class="action-name">{"Scroll right"}</span>),
+                    Some(vec![
+                        ("Origin", format_point(origin)),
+                        ("Distance", format!("{}px", distance)),
+                    ]),
+                ),
                 BrowserAction::Reload => {
                     (html!(<span class="action-name">{"Reload"}</span>), None)
                 }

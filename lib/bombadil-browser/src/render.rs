@@ -109,6 +109,26 @@ impl<U8: Format, U16: Format, U64: Format, F64: Format, Text: Format> Format
                     styled::maybe_blue(format!("{}px", Formatted(distance)))
                 )
             }
+            BrowserAction::ScrollLeft { origin, distance } => {
+                write!(
+                    f,
+                    "{} (x: {}, y: {}, distance: {})",
+                    styled::maybe_bold("Scrolling left".to_string()),
+                    styled::maybe_blue(format!("{}", Formatted(&origin.x))),
+                    styled::maybe_blue(format!("{}", Formatted(&origin.y))),
+                    styled::maybe_blue(format!("{}px", Formatted(distance)))
+                )
+            }
+            BrowserAction::ScrollRight { origin, distance } => {
+                write!(
+                    f,
+                    "{} (x: {}, y: {}, distance: {})",
+                    styled::maybe_bold("Scrolling right".to_string()),
+                    styled::maybe_blue(format!("{}", Formatted(&origin.x))),
+                    styled::maybe_blue(format!("{}", Formatted(&origin.y))),
+                    styled::maybe_blue(format!("{}px", Formatted(distance)))
+                )
+            }
             BrowserAction::SetFileInputFiles { selector, files } => {
                 write!(
                     f,

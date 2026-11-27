@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Scroll snap</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .pages { width: 400px; height: 400px; margin: 40px; overflow-y: auto; scroll-snap-type: y mandatory; }
+      section { height: 400px; overflow: hidden; scroll-snap-align: start; scroll-snap-stop: always; }
+      button { display: block; width: 300px; height: 90px; margin: 10px; }
+    </style>
+  </head>
+  <!-- Less than a whole page snaps back to where it was. -->
+  <body>
+    <div class="pages" data-scroller="pages"></div>
+    <script src="oracle.js"></script>
+    <script>
+      const pages = document.querySelector(".pages");
+      for (let i = 0; i < 4; i++) {
+        addButtons(pages.appendChild(document.createElement("section")), `page${i}`, 1);
+      }
+    </script>
+  </body>
+</html>

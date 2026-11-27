@@ -280,6 +280,14 @@ pub enum BrowserAction {
         origin: Point,
         distance: f64,
     },
+    ScrollLeft {
+        origin: Point,
+        distance: f64,
+    },
+    ScrollRight {
+        origin: Point,
+        distance: f64,
+    },
     Reload,
     Wait,
     SetFileInputFiles {

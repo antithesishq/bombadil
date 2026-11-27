@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Wheel events prevented</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .map { width: 400px; height: 250px; margin: 20px; overflow: auto; background: #eef; }
+      .map div { height: 100000px; }
+      .list { width: 400px; height: 250px; margin: 20px; overflow: auto; }
+      button { display: block; width: 300px; height: 90px; margin: 10px; }
+    </style>
+  </head>
+  <!-- The map handles the wheel itself, and never scrolls. -->
+  <body data-dead="map">
+    <div class="map" data-scroller="map"><div></div></div>
+    <div class="list" data-scroller="list"></div>
+    <script src="oracle.js"></script>
+    <script>
+      document
+        .querySelector(".map")
+        .addEventListener("wheel", (event) => event.preventDefault(), {
+          passive: false,
+        });
+      addButtons(document.querySelector(".list"), "row", 6);
+    </script>
+  </body>
+</html>

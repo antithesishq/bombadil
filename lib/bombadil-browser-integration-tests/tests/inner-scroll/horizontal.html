@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Horizontal scrollers</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .row { width: 600px; margin: 40px; overflow-x: auto; white-space: nowrap; }
+      button { width: 180px; height: 50px; margin: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="row" data-scroller="table"></div>
+    <!-- Starts at its right end, with negative scroll positions. -->
+    <div class="row" dir="rtl" data-scroller="rtl"></div>
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.querySelector(".row"), "cell", 6);
+      addButtons(document.querySelector("[dir=rtl]"), "rtl", 6);
+    </script>
+  </body>
+</html>

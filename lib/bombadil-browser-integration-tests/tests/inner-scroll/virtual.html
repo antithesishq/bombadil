@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Virtual list</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; }
+      .list { position: relative; width: 400px; height: 400px; margin: 50px; overflow: auto; }
+      button { position: absolute; left: 10px; width: 300px; height: 90px; }
+    </style>
+  </head>
+  <body>
+    <div class="list" data-scroller="list"><div class="spacer"></div></div>
+    <script src="oracle.js"></script>
+    <script>
+      // Only the rows in view exist, and only scroll events bring in others.
+      const ROWS = 8;
+      const ROW_HEIGHT = 110;
+      const list = document.querySelector(".list");
+      const spacer = document.querySelector(".spacer");
+      spacer.style.height = `${ROWS * ROW_HEIGHT}px`;
+      function render() {
+        const first = Math.floor(list.scrollTop / ROW_HEIGHT);
+        const last = Math.min(
+          ROWS - 1,
+          Math.floor((list.scrollTop + list.clientHeight) / ROW_HEIGHT),
+        );
+        for (const button of list.querySelectorAll("button")) button.remove();
+        for (let i = first; i <= last; i++) {
+          const button = document.createElement("button");
+          button.id = `row-${i}`;
+          button.textContent = button.id;
+          button.style.top = `${i * ROW_HEIGHT + 10}px`;
+          list.appendChild(button);
+        }
+      }
+      list.addEventListener("scroll", render);
+      render();
+      const expected = [];
+      for (let i = 0; i < ROWS; i++) expected.push(`row-${i}`);
+      document.body.dataset.expect = expected.join(" ");
+    </script>
+  </body>
+</html>

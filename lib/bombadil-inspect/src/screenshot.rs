@@ -126,7 +126,9 @@ fn action_point(action: &BrowserAction) -> Option<&Point> {
         BrowserAction::Click { point, .. }
         | BrowserAction::DoubleClick { point, .. } => Some(point),
         BrowserAction::ScrollUp { origin, .. }
-        | BrowserAction::ScrollDown { origin, .. } => Some(origin),
+        | BrowserAction::ScrollDown { origin, .. }
+        | BrowserAction::ScrollLeft { origin, .. }
+        | BrowserAction::ScrollRight { origin, .. } => Some(origin),
         _ => None,
     }
 }

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>No inner scrollers</title>
+    <style>
+      body { margin: 0; }
+      button, a, input { display: block; height: 50px; margin: 10px; }
+      .box { width: 300px; height: 100px; }
+      .box div { width: 600px; height: 400px; }
+    </style>
+  </head>
+  <body>
+    <!-- Only scripts can scroll this one. -->
+    <div class="box" style="overflow: hidden"><div></div></div>
+    <!-- Overflows without clipping. -->
+    <div class="box" style="overflow: visible"><div></div></div>
+    <!-- Nothing to scroll. -->
+    <div class="box" style="overflow: auto">Fits</div>
+    <a href="#top">Link</a>
+    <input type="text" />
+    <script src="oracle.js"></script>
+    <script>
+      addButtons(document.body, "button", 20);
+    </script>
+  </body>
+</html>
