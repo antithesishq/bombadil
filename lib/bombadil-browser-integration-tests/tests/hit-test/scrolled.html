@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Scrolled out of view</title>
+    <style>
+      body { margin: 0; }
+      #sticky { position: sticky; top: 0; height: 80px; background: #eef; }
+      #scroller { height: 70px; overflow: auto; }
+      button { display: block; height: 40px; margin: 20px; }
+      #below { height: 200px; background: #fee; }
+    </style>
+  </head>
+  <body data-expect="first below-fold">
+    <!-- Buttons clipped by the scroller have boxes on top of `#below`. -->
+    <header id="sticky">
+      <div id="scroller">
+        <button id="first">Visible in scroller</button>
+        <button id="clipped-1">Clipped by scroller</button>
+        <button id="clipped-2">Clipped by scroller</button>
+        <button id="clipped-3">Clipped by scroller</button>
+      </div>
+    </header>
+    <div id="below"></div>
+    <main id="main"></main>
+    <script src="oracle.js"></script>
+    <script>
+      // The first five are above the fold, the last six far below it.
+      const main = document.getElementById("main");
+      for (let i = 0; i < 16; i++) {
+        const button = document.createElement("button");
+        button.id = button.textContent = `button-${i}`;
+        if (i >= 10) {
+          button.addEventListener("click", () => {
+            document.body.dataset.reached += "below-fold ";
+          });
+        }
+        main.appendChild(button);
+      }
+    </script>
+  </body>
+</html>

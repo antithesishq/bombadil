@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Covered targets</title>
+    <style>
+      body { margin: 0; }
+      body > * { position: absolute; margin: 0; padding: 0; border: 0; }
+      #backdrop { background: rgba(0, 0, 0, 0.5); }
+      #banner { background: #fee; }
+    </style>
+  </head>
+  <body
+    data-expect="confirm partial backdrop banner"
+    data-offered="backdrop@120,90 banner@200,450 confirm@420,140 partial@150,475"
+  >
+    <button id="under" style="left: 20px; top: 20px; width: 200px; height: 40px">Under</button>
+    <a id="under-link" href="#" style="left: 20px; top: 80px; width: 200px; height: 20px">Under</a>
+    <div id="backdrop" style="left: 0; top: 0; width: 800px; height: 300px"></div>
+    <button id="confirm" style="left: 320px; top: 120px; width: 200px; height: 40px">Confirm</button>
+
+    <!-- Only the lower quarter points are free. -->
+    <button id="partial" style="left: 100px; top: 400px; width: 200px; height: 100px">Partial</button>
+    <div id="banner" style="left: 0; top: 380px; width: 800px; height: 90px"></div>
+    <script src="oracle.js"></script>
+  </body>
+</html>

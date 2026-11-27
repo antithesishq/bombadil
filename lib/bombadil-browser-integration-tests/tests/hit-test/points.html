@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Point choice</title>
+    <style>
+      html { scrollbar-width: none; }
+      body { margin: 0; width: 1600px; height: 1600px; }
+      body > *, button { position: absolute; margin: 0; padding: 0; border: 0; border-radius: 0; }
+      body > div { background: rgba(255, 0, 0, 0.3); }
+      .ghost { pointer-events: none; }
+    </style>
+  </head>
+  <!-- Offered points are in the viewport, which is scrolled by (40, 60). -->
+  <body
+    data-expect="quarter quarter-cover strip-cover stack-top edge-left edge-right order-obg shadow-cover"
+    data-offered="
+      quarter@120,50 quarter-cover@100,60
+      strip-cover@300,60
+      stack-top@500,60
+      edge-left@5,150 edge-right@780,150
+      order-bgo-cover@80,260 order-bog-cover@140,260 order-gbo-cover@200,260
+      order-obg@260,260 order-gob@320,260 order-ogb@380,260
+      shadow-cover@100,360 child-cover@300,360"
+  >
+    <!-- Only the upper right quarter point is free. -->
+    <button id="quarter" style="left: 100px; top: 100px; width: 80px; height: 40px"></button>
+    <div id="quarter-cover" style="left: 100px; top: 100px; width: 50px; height: 40px"></div>
+    <div id="quarter-cover-2" style="left: 150px; top: 120px; width: 30px; height: 20px"></div>
+
+    <!-- Free only below every tried point. -->
+    <button id="strip" style="left: 300px; top: 100px; width: 80px; height: 40px"></button>
+    <div id="strip-cover" style="left: 300px; top: 100px; width: 80px; height: 34px"></div>
+
+    <button id="stack-bottom" style="left: 500px; top: 100px; width: 80px; height: 40px"></button>
+    <button id="stack-top" style="left: 500px; top: 100px; width: 80px; height: 40px"></button>
+
+    <!-- The centre is left of the viewport. -->
+    <button id="edge-left" style="left: 0; top: 200px; width: 60px; height: 40px"></button>
+    <!-- The centre is on the right edge, which is outside. -->
+    <button id="edge-right" style="left: 800px; top: 200px; width: 80px; height: 40px"></button>
+    <button id="outside" style="left: 1200px; top: 1200px; width: 80px; height: 40px"></button>
+
+    <!-- A button, a cover and a cover without pointer events, in every order. -->
+    <button id="order-bgo" style="left: 100px; top: 300px; width: 40px; height: 40px"></button>
+    <div class="ghost" style="left: 100px; top: 300px; width: 40px; height: 40px"></div>
+    <div id="order-bgo-cover" style="left: 100px; top: 300px; width: 40px; height: 40px"></div>
+
+    <button id="order-bog" style="left: 160px; top: 300px; width: 40px; height: 40px"></button>
+    <div id="order-bog-cover" style="left: 160px; top: 300px; width: 40px; height: 40px"></div>
+    <div class="ghost" style="left: 160px; top: 300px; width: 40px; height: 40px"></div>
+
+    <div class="ghost" style="left: 220px; top: 300px; width: 40px; height: 40px"></div>
+    <button id="order-gbo" style="left: 220px; top: 300px; width: 40px; height: 40px"></button>
+    <div id="order-gbo-cover" style="left: 220px; top: 300px; width: 40px; height: 40px"></div>
+
+    <div id="order-obg-cover" style="left: 280px; top: 300px; width: 40px; height: 40px"></div>
+    <button id="order-obg" style="left: 280px; top: 300px; width: 40px; height: 40px"></button>
+    <div class="ghost" style="left: 280px; top: 300px; width: 40px; height: 40px"></div>
+
+    <div class="ghost" style="left: 340px; top: 300px; width: 40px; height: 40px"></div>
+    <div id="order-gob-cover" style="left: 340px; top: 300px; width: 40px; height: 40px"></div>
+    <button id="order-gob" style="left: 340px; top: 300px; width: 40px; height: 40px"></button>
+
+    <div id="order-ogb-cover" style="left: 400px; top: 300px; width: 40px; height: 40px"></div>
+    <div class="ghost" style="left: 400px; top: 300px; width: 40px; height: 40px"></div>
+    <button id="order-ogb" style="left: 400px; top: 300px; width: 40px; height: 40px"></button>
+
+    <div id="shadow-host" style="left: 100px; top: 400px; width: 80px; height: 40px; background: none"></div>
+    <div id="shadow-cover" style="left: 100px; top: 400px; width: 80px; height: 40px"></div>
+
+    <button id="child" style="left: 300px; top: 400px; width: 80px; height: 40px">
+      <span style="position: absolute; inset: 0"></span>
+    </button>
+    <div id="child-cover" style="left: 300px; top: 400px; width: 80px; height: 40px"></div>
+
+    <script>
+      document.getElementById("shadow-host").attachShadow({ mode: "open" }).innerHTML =
+        `<button id="shadow" style="display: block; width: 100%; height: 100%; padding: 0; border: 0"></button>`;
+      window.scrollTo(40, 60);
+    </script>
+    <script src="oracle.js"></script>
+  </body>
+</html>

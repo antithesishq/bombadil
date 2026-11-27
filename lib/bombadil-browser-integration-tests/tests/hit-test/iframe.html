@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html id="page">
+  <head>
+    <title>Iframes</title>
+    <style>
+      body { margin: 0; }
+      body > * { position: absolute; }
+      #decoy { top: 0; left: 0; width: 250px; height: 150px; background: #fee; }
+      #plain { top: 200px; left: 300px; width: 300px; height: 70px; border: 5px solid gray; padding: 7px; }
+      #scaled { top: 350px; left: 20px; width: 300px; height: 200px; border: 0; transform: scale(0.5); transform-origin: 0 0; }
+    </style>
+  </head>
+  <!-- The buttons clipped by the plain frame have their centres on the page. -->
+  <body data-expect="framed page" data-offered="framed@432,252 page@432,372">
+    <!-- Where the framed buttons would be without the frame's offset. -->
+    <div id="decoy"></div>
+    <iframe id="plain" src="iframe-inner.html"></iframe>
+    <!-- Nothing in a transformed frame is offered. -->
+    <iframe id="scaled" src="iframe-inner.html?scaled-"></iframe>
+    <script src="oracle.js"></script>
+  </body>
+</html>

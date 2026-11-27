@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Click-away drawer</title>
+    <style>
+      body { margin: 0; }
+      button { margin: 20px; width: 120px; height: 40px; }
+      #backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); display: none; }
+      #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 300px; background: white; display: none; }
+      .open #backdrop, .open #drawer { display: block; }
+    </style>
+  </head>
+  <!-- The drawer closes only by a click on its backdrop. -->
+  <body data-expect="inside dismissed-thrice">
+    <button id="open">Open drawer</button>
+    <button id="other">Other</button>
+    <div id="backdrop"></div>
+    <div id="drawer"><button id="inside">Inside</button></div>
+    <script src="oracle.js"></script>
+    <script>
+      let dismissed = 0;
+      document.getElementById("open").addEventListener("click", () => {
+        document.body.classList.add("open");
+      });
+      document.getElementById("backdrop").addEventListener("click", () => {
+        document.body.classList.remove("open");
+        if (++dismissed === 3) document.body.dataset.reached += "dismissed-thrice ";
+      });
+    </script>
+  </body>
+</html>
