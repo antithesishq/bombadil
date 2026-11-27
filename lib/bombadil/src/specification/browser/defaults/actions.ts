@@ -10,8 +10,8 @@ import {
   ActionTemplate,
 } from "@antithesishq/bombadil/browser";
 import {
-  clickablePoint,
-  inViewport,
+  hitTestPoint,
+  hitTests,
   isVisible,
   queryAll,
 } from "@antithesishq/bombadil/browser/dom";
@@ -126,6 +126,7 @@ const clickablePoints = extract((state) => {
 
   const targets: ClickTarget[] = [];
   const added = new Set<Element>();
+  const tests = hitTests(state.window);
 
   // Anchors
   for (const anchor of queryAll(state.document.body, "a")) {
@@ -135,9 +136,8 @@ const clickablePoints = extract((state) => {
     if (anchor.target === "_blank") continue;
     if (!isVisible(state.window, anchor)) continue;
 
-    const point = clickablePoint(anchor);
+    const point = hitTestPoint(tests, anchor);
     if (!point) continue;
-    if (!inViewport(state.window, point)) continue;
 
     targets.push({
       fingerprint: getFingerprint(anchor),
@@ -171,9 +171,8 @@ const clickablePoints = extract((state) => {
       if (control && control.matches(":disabled")) continue;
     }
 
-    const point = clickablePoint(element);
+    const point = hitTestPoint(tests, element);
     if (!point) continue;
-    if (!inViewport(state.window, point)) continue;
 
     if (
       element === state.document.activeElement &&
@@ -199,15 +198,21 @@ const clickablePoints = extract((state) => {
     if (added.has(element)) continue;
     if (!isVisible(state.window, element)) continue;
 
-    const point = clickablePoint(element);
+    const point = hitTestPoint(tests, element);
     if (!point) continue;
-    if (!inViewport(state.window, point)) continue;
 
     targets.push({
       fingerprint: getFingerprint(element),
       point,
     });
     added.add(element);
+  }
+
+  // What covers a target gets one click, so that an overlay dismissed by a
+  // click on it does not end the run.
+  for (const [cover, { point }] of tests.covers) {
+    if (!point) continue;
+    targets.push({ fingerprint: getFingerprint(cover), point });
   }
 
   return targets;

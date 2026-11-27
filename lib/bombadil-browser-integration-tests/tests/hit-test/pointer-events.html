@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Pointer events</title>
+    <style>
+      body { margin: 0; }
+      body > * { position: absolute; margin: 0; padding: 0; border: 0; }
+      #ghost { pointer-events: none; background: rgba(0, 0, 0, 0.1); }
+      #underlay { background: #fee; }
+    </style>
+  </head>
+  <body data-expect="through underlay" data-offered="through@200,120 underlay@200,250">
+    <button id="through" style="left: 100px; top: 100px; width: 200px; height: 40px">Under a ghost</button>
+    <div id="underlay" style="left: 0; top: 200px; width: 800px; height: 100px"></div>
+    <button id="inert" style="left: 100px; top: 230px; width: 200px; height: 40px; pointer-events: none">
+      Inert
+    </button>
+    <div id="ghost" style="left: 0; top: 0; width: 800px; height: 600px"></div>
+    <script src="oracle.js"></script>
+  </body>
+</html>

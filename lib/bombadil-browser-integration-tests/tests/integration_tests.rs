@@ -1738,3 +1738,106 @@ export const stillBlocked = always(() => clicks.current < 3);
         )
         .run();
 }
+
+/// Runs the default clicks on a `hit-test` fixture page. Every click must land
+/// on the element of its fingerprint, the offered clicks must be the ones in
+/// the body's `data-offered`, if any, and every id in `data-expect` must get
+/// clicked.
+fn hit_test(page: &str, scroll: bool) {
+    let specification = r#"
+import { eventually, now, next } from "@antithesishq/bombadil";
+import { extract } from "@antithesishq/bombadil/browser";
+import { clicks, lastAction, SCROLL } from "@antithesishq/bombadil/browser/defaults/actions";
+export { clicks, SCROLL };
+
+const words = (text) => (text ?? "").split(/\s+/).filter((word) => word !== "");
+
+const page = extract((state) => {
+  const data = state.document.body.dataset;
+  const reached = words(data.reached);
+  return {
+    landed: words(data.landed),
+    offered: data.offered === undefined ? null : words(data.offered).sort(),
+    pending: words(data.expect).filter((id) => !reached.includes(id)),
+  };
+});
+
+// Decided after a fixed number of states, so that the run can end.
+const inEveryState = (check, states = 40) =>
+  states === 1
+    ? now(check)
+    : now(check).and(next(inEveryState(check, states - 1)));
+
+export const clicksLandOnTheirTarget = inEveryState(() => {
+  const action = lastAction.current;
+  if (action === null || typeof action === "string" || !("Click" in action))
+    return true;
+  return page.current.landed.includes(action.Click.fingerprint.id);
+});
+
+export const offersTheExpectedClicks = inEveryState(() => {
+  if (page.current.offered === null) return true;
+  const offered = [];
+  const stack = [clicks.generate()];
+  while (stack.length > 0) {
+    const tree = stack.pop();
+    if ("value" in tree) {
+      const { fingerprint, point } = tree.value.Click;
+      offered.push(`${fingerprint.id}@${point.x},${point.y}`);
+    } else {
+      for (const [, subtree] of tree.branches) stack.push(subtree);
+    }
+  }
+  return offered.sort().join(" ") === page.current.offered.join(" ");
+});
+
+export const targetsAreReached = eventually(
+  () => page.current.pending.length === 0,
+).within(20, "seconds");
+"#
+    .replace(", SCROLL", if scroll { ", scroll" } else { "" });
+    BrowserIntegrationTest::new(&format!("hit-test/{page}.html"))
+        .time_limit(Duration::from_secs(30))
+        .specification(&specification)
+        .run();
+}
+
+#[test]
+fn test_hit_test_covered() {
+    hit_test("covered", false);
+}
+
+#[test]
+fn test_hit_test_points() {
+    hit_test("points", false);
+}
+
+#[test]
+fn test_hit_test_click_away() {
+    hit_test("click-away", false);
+}
+
+#[test]
+fn test_hit_test_scrolled() {
+    hit_test("scrolled", true);
+}
+
+#[test]
+fn test_hit_test_nested_child() {
+    hit_test("nested-child", false);
+}
+
+#[test]
+fn test_hit_test_pointer_events() {
+    hit_test("pointer-events", false);
+}
+
+#[test]
+fn test_hit_test_shadow_dom() {
+    hit_test("shadow-dom", false);
+}
+
+#[test]
+fn test_hit_test_iframe() {
+    hit_test("iframe", false);
+}

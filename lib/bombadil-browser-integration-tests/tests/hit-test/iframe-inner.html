@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Inner frame</title>
+    <style>
+      body { margin: 0; }
+      button { display: block; width: 200px; height: 40px; margin: 20px; }
+    </style>
+  </head>
+  <body>
+    <script>
+      const prefix = location.search.slice(1);
+      for (const id of ["framed", "clipped-1", "clipped-2"]) {
+        const button = document.createElement("button");
+        button.id = button.textContent = prefix + id;
+        document.body.appendChild(button);
+      }
+    </script>
+    <script src="oracle.js"></script>
+  </body>
+</html>

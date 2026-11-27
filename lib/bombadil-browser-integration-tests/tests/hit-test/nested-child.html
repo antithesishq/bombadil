@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Nested children</title>
+    <style>
+      body { margin: 20px; }
+      .icon-button { display: block; width: 200px; height: 60px; margin-bottom: 20px; }
+      .icon-button span, .icon-button svg { display: block; width: 100%; height: 100%; }
+      label.toggle { display: block; position: relative; width: 200px; height: 40px; margin-bottom: 20px; background: #eef; }
+      label.toggle input { position: absolute; top: 10px; left: 10px; opacity: 0; }
+      label.toggle span, label.toggle a { position: absolute; inset: 0; }
+      .helper { position: relative; width: 40px; height: 40px; margin-bottom: 20px; background: #efe; }
+      .helper input, .helper ins { position: absolute; inset: 0; margin: 0; opacity: 0; }
+      p { width: 150px; font: 16px/40px monospace; }
+    </style>
+  </head>
+  <body data-expect="span svg checkbox wrapped helper-toggled">
+    <button id="span" class="icon-button"><span>Text</span></button>
+    <button id="svg" class="icon-button">
+      <svg viewBox="0 0 10 10"><rect width="10" height="10" fill="teal" /></svg>
+    </button>
+    <!-- The span covers the input, a click on it still toggles. -->
+    <label class="toggle">
+      <input id="checkbox" type="checkbox" />
+      <span>Toggle</span>
+    </label>
+    <!-- A click on the link does not toggle. -->
+    <label class="toggle">
+      <input id="blocked" type="checkbox" />
+      <a id="link-in-label" href="#" target="_blank">Link</a>
+    </label>
+    <!-- The helper covers the input and toggles it from a script. -->
+    <div class="helper">
+      <input id="helped" type="checkbox" />
+      <ins id="helper"></ins>
+    </div>
+    <!-- The link wraps, so the centre of its bounding box is outside it. -->
+    <p id="paragraph">
+      Aaaaaaaaa <a id="wrapped" href="#">bbbbb cc</a> dddddddddddd
+    </p>
+    <script src="oracle.js"></script>
+    <script>
+      document.getElementById("helper").addEventListener("click", () => {
+        document.getElementById("helped").checked = true;
+        document.body.dataset.reached += "helper-toggled ";
+      });
+    </script>
+  </body>
+</html>

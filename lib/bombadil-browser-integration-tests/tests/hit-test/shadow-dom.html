@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Shadow DOM</title>
+    <style>
+      body { margin: 20px; }
+    </style>
+  </head>
+  <body data-expect="inner nested slotted shadow-cover">
+    <shadow-box id="outer"></shadow-box>
+    <shadow-box id="covered"></shadow-box>
+    <slot-button><span>Slotted text</span></slot-button>
+    <script>
+      const button = `style="display: block; width: 200px; height: 40px; padding: 0"`;
+      customElements.define(
+        "shadow-box",
+        class extends HTMLElement {
+          constructor() {
+            super();
+            const root = this.attachShadow({ mode: "open" });
+            if (this.id === "outer") {
+              root.innerHTML = `
+                <button id="inner" ${button}>Inner</button>
+                <shadow-box id="nested-host"></shadow-box>`;
+            } else if (this.id === "nested-host") {
+              root.innerHTML = `<button id="nested" ${button}>Nested</button>`;
+            } else {
+              root.innerHTML = `
+                <div style="position: relative; width: 200px; height: 40px">
+                  <button id="under-shadow-cover" ${button}>Covered</button>
+                  <div id="shadow-cover" style="position: absolute; inset: 0"></div>
+                </div>`;
+            }
+          }
+        },
+      );
+      customElements.define(
+        "slot-button",
+        class extends HTMLElement {
+          constructor() {
+            super();
+            this.attachShadow({ mode: "open" }).innerHTML = `
+              <button id="slotted" ${button}>
+                <slot style="display: block; height: 100%"></slot>
+              </button>`;
+          }
+        },
+      );
+    </script>
+    <script src="oracle.js"></script>
+  </body>
+</html>
