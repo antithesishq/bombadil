@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Lone Surrogate</title>
+</head>
+<body>
+    <input type="text" id="text-input" autofocus />
+    <p id="half"></p>
+
+    <script>
+        const half = String.fromCharCode(0xd83d);
+        document.getElementById('half').textContent = half;
+        console.log(half);
+
+        const input = document.getElementById('text-input');
+        input.addEventListener('input', () => {
+            console.log(input.value.slice(0, 1), input.value.slice(-1));
+        });
+    </script>
+</body>
+</html>

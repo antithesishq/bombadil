@@ -515,6 +515,41 @@ fn set_write_interest(
     Ok(())
 }
 
+/// The message with lone surrogates, which JavaScript strings may hold and
+/// serde_json cannot decode into a `String`, replaced by U+FFFD.
+fn replace_lone_surrogates(msg: WsMessage, logged: &mut bool) -> WsMessage {
+    let WsMessage::Text(text) = &msg else {
+        return msg;
+    };
+    let Some(replaced) = stdx::surrogates::replace_lone(text.as_str()) else {
+        return msg;
+    };
+    if !*logged && log::log_enabled!(log::Level::Debug) {
+        *logged = true;
+        #[derive(Default, Deserialize)]
+        struct Frame<'a> {
+            id: Option<CallId>,
+            #[serde(default, borrow)]
+            method: Cow<'a, str>,
+        }
+        // The escapes differ from their third byte.
+        let offset = text
+            .as_bytes()
+            .iter()
+            .zip(replaced.as_bytes())
+            .position(|(received, replaced)| received != replaced)
+            .map_or(0, |differing| differing - 2);
+        let frame: Frame<'_> =
+            serde_json::from_str(&replaced).unwrap_or_default();
+        log::debug!(
+            "replacing lone surrogates in received frames with U+FFFD, first at byte {offset} of frame with id {:?}, method {:?}",
+            frame.id,
+            frame.method,
+        );
+    }
+    WsMessage::Text(replaced.into())
+}
+
 #[hotpath::measure]
 fn handle_message(
     msg: WsMessage,
@@ -678,6 +713,7 @@ fn websocket_worker(
         _ => bail!("unsupported stream type"),
     };
     let mut write_interest_registered = false;
+    let mut lone_surrogates_logged = false;
 
     loop {
         if matches!(
@@ -719,7 +755,10 @@ fn websocket_worker(
                         loop {
                             match ws.read() {
                                 Ok(msg) => handle_message(
-                                    msg,
+                                    replace_lone_surrogates(
+                                        msg,
+                                        &mut lone_surrogates_logged,
+                                    ),
                                     &mut calls_in_flight,
                                     &subscribers,
                                 )?,
@@ -979,6 +1018,72 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("no corresponding request")
+        );
+    }
+
+    #[derive(Debug, Serialize)]
+    struct TextCommand {}
+
+    impl Method for TextCommand {
+        fn identifier(&self) -> MethodId {
+            Cow::Borrowed("Test.text")
+        }
+    }
+
+    impl Command for TextCommand {
+        type Response = String;
+    }
+
+    #[test]
+    fn lone_surrogates_decode_as_replacement_characters() {
+        let subscribers = Arc::new(Mutex::new(Subscribers::default()));
+        let received = |frame: &str| {
+            replace_lone_surrogates(WsMessage::text(frame), &mut false)
+        };
+        let wait = |frame: &str| {
+            let (tx, rx) = mpmc::bounded(1);
+            let id = CallId::new(7);
+            let mut calls = HashMap::from([(id, Some(tx))]);
+            handle_message(received(frame), &mut calls, &subscribers).unwrap();
+            PendingResponse::<TextCommand> {
+                call_id: id,
+                method: Cow::Borrowed("Test.text"),
+                deadline: Instant::now() + Duration::from_secs(1),
+                reply_rx: rx,
+                command: PhantomData,
+            }
+            .wait()
+        };
+        assert_eq!(
+            wait(
+                r#"{"id":7,"result":"a\ud83d\u00e9\ude00\ud83d\ude00\ud83d"}"#
+            )
+            .unwrap(),
+            "a\u{fffd}é\u{fffd}😀\u{fffd}"
+        );
+        assert!(
+            wait(r#"{"id":7,"error":{"code":1,"message":"\ud83d"}}"#)
+                .unwrap_err()
+                .chain()
+                .any(|cause| cause.to_string() == "Error 1: \u{fffd}")
+        );
+
+        let events = Events {
+            subscribers: subscribers.clone(),
+        };
+        let selected = events.methods([Cow::Borrowed("Test.event")]);
+        handle_message(
+            received(r#"{"method":"Test.event","params":{"text":"\ud83d"}}"#),
+            &mut HashMap::new(),
+            &subscribers,
+        )
+        .unwrap();
+        assert_eq!(
+            json::from_str::<json::Value>(
+                selected.recv().unwrap().params.get()
+            )
+            .unwrap(),
+            json::json!({"text": "\u{fffd}"})
         );
     }
 
