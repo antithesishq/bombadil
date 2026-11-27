@@ -17,7 +17,7 @@ use url::Url;
 
 use crate::browser::actions::BrowserAction;
 use crate::browser::actions::BrowserActionTemplate;
-use crate::browser::state::{BrowserState, Coverage};
+use crate::browser::state::{BrowserState, ConsoleEntry, Coverage};
 use crate::browser::{Browser, BrowserEvent, NAVIGATION_TIMEOUT};
 use crate::browser_options::BrowserOptions;
 use crate::chromium;
@@ -200,13 +200,7 @@ fn run_extractors(
     let console_entries: Vec<json::Value> = state
         .console_entries
         .iter()
-        .map(|entry| {
-            json::json!({
-                "timestamp": entry.timestamp,
-                "level": format!("{:?}", entry.level).to_ascii_lowercase(),
-                "args": entry.args,
-            })
-        })
+        .map(ConsoleEntry::to_json)
         .collect();
 
     let state_partial = json::json!({

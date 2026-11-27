@@ -164,10 +164,29 @@ pub struct ConsoleEntry {
     pub args: Vec<json::Value>,
 }
 
-#[derive(Clone, Debug)]
+impl ConsoleEntry {
+    pub fn to_json(&self) -> json::Value {
+        json::json!({
+            "timestamp": Time::from_system_time(self.timestamp),
+            "level": self.level.as_str(),
+            "args": self.args,
+        })
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ConsoleEntryLevel {
     Warning,
     Error,
+}
+
+impl ConsoleEntryLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConsoleEntryLevel::Warning => "warning",
+            ConsoleEntryLevel::Error => "error",
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -449,5 +468,44 @@ impl BrowserState {
             function_expression,
             arguments,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use hegel::TestCase;
+    use hegel::generators::{booleans, integers, text, vecs};
+
+    use super::*;
+
+    #[hegel::test]
+    fn console_entry_json_has_the_timestamp_in_microseconds(tc: TestCase) {
+        let micros = tc.draw(integers::<u64>().max_value(1 << 53));
+        let level = if tc.draw(booleans()) {
+            ConsoleEntryLevel::Error
+        } else {
+            ConsoleEntryLevel::Warning
+        };
+        let args: Vec<json::Value> = tc
+            .draw(vecs(text()).max_size(3))
+            .into_iter()
+            .map(json::Value::String)
+            .collect();
+        let entry = ConsoleEntry {
+            timestamp: SystemTime::UNIX_EPOCH + Duration::from_micros(micros),
+            level,
+            args: args.clone(),
+        };
+
+        assert_eq!(
+            entry.to_json(),
+            json::json!({
+                "timestamp": micros,
+                "level": level.as_str(),
+                "args": args,
+            })
+        );
     }
 }
