@@ -741,6 +741,7 @@ fn browser_test(
         shared_options.output_path_overwrite,
     )?;
     let result = run_with_writer(run_options, trace_writer);
+    blocks.log_ids_shared();
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
     let test_result = output_path::or_logged(result, written)?;
@@ -881,6 +882,7 @@ fn browser_fuzz(
         exit_on_violation: shared_options.exit_on_violation,
         output_writer,
     });
+    blocks.log_ids_shared();
     let written =
         coverage_symbols.map_or(Ok(()), |symbols| symbols.finish(&blocks));
     let result = output_path::or_logged(result, written)?;
@@ -967,6 +969,7 @@ fn browser_shrink(
     let allow_urls = resolve_allow_urls(&target)?;
     let browser_options =
         browser_options_from_target(&target, downloads.path());
+    let blocks = BlockRegistry::default();
     let driver = Arc::new(BrowserDriver {
         origin: target.origin.url.clone(),
         browser_options,
@@ -975,7 +978,7 @@ fn browser_shrink(
             ".",
             &specification.module_specifier,
         )?),
-        blocks: Default::default(),
+        blocks: blocks.clone(),
     });
 
     let result = bombadil::shrink::shrink(bombadil::shrink::ShrinkOptions {
@@ -999,7 +1002,9 @@ fn browser_shrink(
         interrupted: options.interrupted,
         time_limit: options.time_limit,
         settings: options.settings,
-    })?;
+    });
+    blocks.log_ids_shared();
+    let result = result?;
     shrink::print_result(&result);
     println!(
         "Inspect the shrunk trace using:\n\n  {}\n",

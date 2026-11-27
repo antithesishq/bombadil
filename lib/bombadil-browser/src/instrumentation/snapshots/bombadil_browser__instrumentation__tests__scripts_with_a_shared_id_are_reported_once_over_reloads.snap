@@ -1,0 +1,14 @@
+---
+source: lib/bombadil-browser/src/instrumentation/mod.rs
+expression: take_logged()
+---
+[
+    (
+        Debug,
+        "block ID 913279420 of g24320 in /b.js is taken by f12979 in /a.js, which gets its coverage",
+    ),
+    (
+        Info,
+        "1 of 3 block IDs is shared by blocks of different functions, which share coverage; rerun with debug logging to list them",
+    ),
+]

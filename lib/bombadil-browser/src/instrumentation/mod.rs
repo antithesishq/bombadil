@@ -97,6 +97,8 @@ struct BlockTable {
     blocks: Vec<Block>,
     /// Position in `blocks` by ID.
     ids: std::collections::BTreeMap<u32, usize>,
+    /// IDs that blocks of more than one function hash to.
+    ids_shared: std::collections::BTreeSet<u32>,
     source_ids: SourceIds,
     /// Receives each new block, in registration order.
     new_blocks: Option<mpsc::Sender<Block>>,
@@ -121,34 +123,58 @@ impl BlockRegistry {
         self.0.lock().expect("block registry poisoned")
     }
 
-    /// Adds the `blocks` whose IDs are not yet registered.
+    /// Adds the `blocks` whose IDs are not yet registered. A block whose
+    /// ID another function's block has shares that block's coverage: IDs
+    /// are hashes, and another ID would depend on load order.
     pub fn register(&self, blocks: impl IntoIterator<Item = Block>) {
-        let table = &mut *self.lock();
-        for block in blocks {
-            let Some(&index) = table.ids.get(&block.id) else {
-                let index = table.blocks.len();
-                table.ids.insert(block.id, index);
-                if let Some(new_blocks) = &table.new_blocks {
-                    // The receiver is gone if writing failed, which the
-                    // writer reports.
-                    let _ = new_blocks.send(block.clone());
+        // Logged after unlocking.
+        let mut shared_new: Vec<(Block, Block)> = Vec::new();
+        {
+            let table = &mut *self.lock();
+            for block in blocks {
+                let Some(&index) = table.ids.get(&block.id) else {
+                    let index = table.blocks.len();
+                    table.ids.insert(block.id, index);
+                    if let Some(new_blocks) = &table.new_blocks {
+                        // The receiver is gone if writing failed, which the
+                        // writer reports.
+                        let _ = new_blocks.send(block.clone());
+                    }
+                    table.blocks.push(block);
+                    continue;
+                };
+                let registered = &table.blocks[index];
+                if (&registered.script, &registered.function)
+                    != (&block.script, &block.function)
+                    && table.ids_shared.insert(block.id)
+                {
+                    shared_new.push((block, registered.clone()));
                 }
-                table.blocks.push(block);
-                continue;
-            };
-            let registered = &table.blocks[index];
-            if (&registered.script, &registered.function)
-                != (&block.script, &block.function)
-            {
-                log::warn!(
-                    "block ID {} of {} in {} is taken by {} in {}, which gets its coverage",
-                    block.id,
-                    block.function,
-                    block.script,
-                    registered.function,
-                    registered.script,
-                );
             }
+        }
+        for (block, registered) in shared_new {
+            log::debug!(
+                "block ID {} of {} in {} is taken by {} in {}, which gets its coverage",
+                block.id,
+                block.function,
+                block.script,
+                registered.function,
+                registered.script,
+            );
+        }
+    }
+
+    /// For the end of a run.
+    pub fn log_ids_shared(&self) {
+        let (shared, registered) = {
+            let table = self.lock();
+            (table.ids_shared.len(), table.ids.len())
+        };
+        if shared > 0 {
+            let verb = if shared == 1 { "is" } else { "are" };
+            log::info!(
+                "{shared} of {registered} block IDs {verb} shared by blocks of different functions, which share coverage; rerun with debug logging to list them"
+            );
         }
     }
 
@@ -170,6 +196,11 @@ impl BlockRegistry {
     #[cfg(test)]
     fn blocks(&self) -> Vec<Block> {
         self.lock().blocks.clone()
+    }
+
+    #[cfg(test)]
+    fn ids_shared(&self) -> std::collections::BTreeSet<u32> {
+        self.lock().ids_shared.clone()
     }
 }
 
@@ -209,9 +240,40 @@ mod tests {
     use super::*;
     use hegel::{
         Generator, TestCase,
-        generators::{integers, text, vecs},
+        generators::{integers, permutations, sampled_from, text, vecs},
     };
-    use std::collections::BTreeSet;
+    use std::cell::RefCell;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Per thread, so tests running at the same time see their own messages.
+    struct ThreadLog;
+
+    thread_local! {
+        static LOGGED: RefCell<Vec<(log::Level, String)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
+    impl log::Log for ThreadLog {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.target() == module_path!().trim_end_matches("::tests")
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                LOGGED.with_borrow_mut(|logged| {
+                    logged.push((record.level(), record.args().to_string()))
+                });
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    fn take_logged() -> Vec<(log::Level, String)> {
+        let _ = log::set_logger(&ThreadLog);
+        log::set_max_level(log::LevelFilter::Debug);
+        LOGGED.take()
+    }
 
     /// Blocks with IDs from a small range, so batches overlap.
     #[hegel::composite]
@@ -247,6 +309,149 @@ mod tests {
             })
             .collect();
         assert!(positions.is_sorted());
+    }
+
+    #[hegel::composite]
+    fn blocks_colliding(tc: &TestCase) -> Block {
+        let names = ["a", "b", "c"].as_slice();
+        Block {
+            id: tc.draw_silent(integers::<u32>().max_value(5)),
+            script: (*tc.draw_silent(sampled_from(names))).into(),
+            function: (*tc.draw_silent(sampled_from(names))).into(),
+            line: tc.draw_silent(integers::<u32>().min_value(1).max_value(2)),
+        }
+    }
+
+    type Function = (Arc<str>, Arc<str>);
+
+    #[derive(Debug, Default, PartialEq)]
+    struct Model {
+        blocks: Vec<Block>,
+        functions: BTreeMap<u32, BTreeSet<Function>>,
+        /// One line per ID, from when its second function arrived.
+        reports: Vec<String>,
+    }
+
+    impl Model {
+        fn register(&mut self, block: &Block) {
+            let functions = self.functions.entry(block.id).or_default();
+            if functions.is_empty() {
+                self.blocks.push(block.clone());
+            }
+            let new = functions
+                .insert((block.script.clone(), block.function.clone()));
+            if new && functions.len() == 2 {
+                let owner = self
+                    .blocks
+                    .iter()
+                    .find(|owner| owner.id == block.id)
+                    .expect("the first block of the ID");
+                self.reports.push(format!(
+                    "block ID {} of {} in {} is taken by {} in {}, which gets its coverage",
+                    block.id,
+                    block.function,
+                    block.script,
+                    owner.function,
+                    owner.script
+                ));
+            }
+        }
+
+        fn ids_shared(&self) -> BTreeSet<u32> {
+            self.functions
+                .iter()
+                .filter(|(_, functions)| functions.len() > 1)
+                .map(|(&id, _)| id)
+                .collect()
+        }
+    }
+
+    #[hegel::test]
+    fn registry_reports_each_shared_id_once(tc: TestCase) {
+        take_logged();
+        let registry = BlockRegistry::default();
+        let mut model = Model::default();
+        let batches = tc.draw(integers::<usize>().max_value(8));
+        for _ in 0..batches {
+            let batch =
+                tc.draw(vecs(blocks_colliding()).max_size(6).print_as_debug());
+            for block in &batch {
+                model.register(block);
+            }
+            registry.register(batch);
+
+            assert_eq!(registry.blocks(), model.blocks);
+            assert_eq!(registry.ids_shared(), model.ids_shared());
+            let reports: Vec<(log::Level, String)> = model
+                .reports
+                .drain(..)
+                .map(|report| (log::Level::Debug, report))
+                .collect();
+            assert_eq!(take_logged(), reports);
+        }
+
+        registry.log_ids_shared();
+        let shared = model.ids_shared().len();
+        let summary: Vec<(log::Level, String)> = match shared {
+            0 => Vec::new(),
+            _ => vec![(
+                log::Level::Info,
+                format!(
+                    "{shared} of {} block IDs {} shared by blocks of different functions, which share coverage; rerun with debug logging to list them",
+                    model.blocks.len(),
+                    if shared == 1 { "is" } else { "are" }
+                ),
+            )],
+        };
+        assert_eq!(take_logged(), summary);
+    }
+
+    /// The first blocks of the two functions hash to one ID.
+    #[test]
+    fn scripts_with_a_shared_id_are_reported_once_over_reloads() {
+        take_logged();
+        let registry = BlockRegistry::default();
+        let instrument = |script: &str, source: &str| {
+            js::instrument_source_code(
+                SourceId(script.into()),
+                source,
+                oxc::span::SourceType::unambiguous(),
+            )
+            .unwrap()
+            .blocks
+        };
+        for _ in 0..3 {
+            registry.register(instrument(
+                "/a.js",
+                "function f12979(x) { if (x) {} }",
+            ));
+            registry.register(instrument(
+                "/b.js",
+                "function g24320(x) { if (x) {} }",
+            ));
+        }
+        registry.log_ids_shared();
+        insta::assert_debug_snapshot!(take_logged());
+    }
+
+    #[hegel::test]
+    fn registered_and_shared_ids_do_not_depend_on_order(tc: TestCase) {
+        let blocks =
+            tc.draw(vecs(blocks_colliding()).max_size(24).print_as_debug());
+        let reordered = tc.draw(permutations(blocks.clone()).print_as_debug());
+        let ids = |blocks: Vec<Block>| {
+            let registry = BlockRegistry::default();
+            match tc.draw(hegel::generators::booleans()) {
+                true => registry.register(blocks),
+                false => blocks
+                    .into_iter()
+                    .for_each(|block| registry.register([block])),
+            }
+            let ids: BTreeSet<u32> =
+                registry.blocks().iter().map(|block| block.id).collect();
+            (ids, registry.ids_shared())
+        };
+        assert_eq!(ids(blocks), ids(reordered));
     }
 
     #[hegel::test]
