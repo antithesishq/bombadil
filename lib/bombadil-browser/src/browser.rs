@@ -28,7 +28,7 @@ use crate::browser::inbox::{InboxReceiver, InboxSender, inbox};
 use crate::browser::screenshots::{FrameControl, ScreencastFrame};
 use crate::browser::state::Generation;
 use crate::browser::state::{
-    BrowserState, ConsoleEntry, Exception, Screenshot,
+    BrowserState, ConsoleEntries, ConsoleEntry, Exception, Screenshot,
 };
 use crate::browser_options::BrowserOptions;
 use crate::chromium::Chromium;
@@ -53,7 +53,7 @@ pub enum BrowserEvent {
 #[derive(Debug, Default)]
 struct InnerStateShared {
     generation: Generation,
-    console_entries: Vec<ConsoleEntry>,
+    console_entries: ConsoleEntries,
     exceptions: Vec<Exception>,
     screenshot: Option<Screenshot>,
     execution_context_id: Option<String>,
@@ -711,6 +711,7 @@ fn forward_inner_events(
                                 ),
                             level,
                             args: call.args.iter().map(remote_object_to_json).collect(),
+                            stack_trace: call.stack_trace.map(state::console_stack_trace),
                         }))
                     },
                     }, _ => None);
@@ -1036,7 +1037,7 @@ fn process_event(
                         kind: Paused,
                         shared: InnerStateShared {
                             generation,
-                            console_entries: vec![],
+                            console_entries: ConsoleEntries::default(),
                             exceptions: vec![],
                             screenshot: None,
                             execution_context_id,

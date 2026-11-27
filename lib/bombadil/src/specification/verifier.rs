@@ -480,6 +480,31 @@ mod tests {
     }
 
     #[test]
+    fn test_exported_cell_is_rejected() {
+        use crate::specification::bundler::bundle;
+
+        let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
+        specification_file
+            .write_all(
+                br#"
+                import { extract } from "@antithesishq/bombadil/browser";
+                export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+                export const noConsoleOutput = extract((state) => state.console.length === 0);
+                "#,
+            )
+            .unwrap();
+        let bundle_code =
+            bundle(".", &specification_file.path().display().to_string())
+                .unwrap();
+
+        let error = Verifier::new(&bundle_code).err().unwrap().to_string();
+        assert!(
+            error.contains(r#"export "noConsoleOutput" is of unknown type"#),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn test_default_properties_reexported() {
         let verifier = verifier(
             r#"

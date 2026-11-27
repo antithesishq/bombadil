@@ -640,6 +640,34 @@ fn test_console_error() {
 }
 
 #[test]
+fn test_console_error_stack_trace() {
+    BrowserIntegrationTest::new("console-error")
+        .expect_error("noErrorWithComponentAndCallStack")
+        .specification(
+            r#"
+import { always } from "@antithesishq/bombadil";
+import { consoleErrorEntries } from "@antithesishq/bombadil/browser/defaults/cells";
+export { clicks } from "@antithesishq/bombadil/browser/defaults/actions";
+
+export const noErrorWithComponentAndCallStack = always(
+  () =>
+    !consoleErrorEntries.current.some(
+      (entry) =>
+        entry.args[0] ===
+          "oh no you pressed too much\n    in Counter\n    in App" &&
+        entry.stackTrace !== null &&
+        entry.stackTrace[0]?.name === "reportTooMuch" &&
+        entry.stackTrace[1]?.name === "onPress" &&
+        entry.stackTrace[0].url.includes("/console-error") &&
+        typeof entry.timestamp === "number",
+    ),
+);
+"#,
+        )
+        .run();
+}
+
+#[test]
 fn test_links() {
     BrowserIntegrationTest::new("links")
         .expect_error("404")

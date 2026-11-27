@@ -1,4 +1,5 @@
-//! The browser defaults' `consoleErrors` extract, run from the bundle.
+//! The browser defaults' `consoleErrorEntries` and `consoleErrors` cells, run
+//! from the bundle.
 
 use std::io::Write as _;
 use std::sync::OnceLock;
@@ -13,7 +14,7 @@ use tempfile::NamedTempFile;
 
 use crate::specification::bundler::bundle;
 
-fn console_errors(console: &json::Value) -> json::Value {
+fn console_errors(console: &json::Value) -> (json::Value, json::Value) {
     static BUNDLE: OnceLock<String> = OnceLock::new();
     let bundle_code = BUNDLE.get_or_init(|| {
         let mut specification_file = NamedTempFile::with_suffix(".ts").unwrap();
@@ -27,21 +28,49 @@ fn console_errors(console: &json::Value) -> json::Value {
 
     let mut context = Context::default();
     context.eval(Source::from_bytes(bundle_code)).unwrap();
+    // In registration order, as `runExtractors` runs them.
     let run = context
         .eval(Source::from_bytes(
             r#"(console) => __bombadilRequire("@antithesishq/bombadil").runtime.extractors
-                .find((extractor) => extractor.name === "consoleErrors")
-                .run({ console })"#,
+                .filter((extractor) =>
+                    extractor.name === "consoleErrorEntries" || extractor.name === "consoleErrors")
+                .map((extractor) => [extractor.name, extractor.run({ console })])"#,
         ))
         .unwrap();
     let console = JsValue::from_json(console, &mut context).unwrap();
-    run.as_callable()
+    let values = run
+        .as_callable()
         .unwrap()
         .call(&JsValue::undefined(), &[console], &mut context)
         .unwrap()
         .to_json(&mut context)
         .unwrap()
-        .unwrap()
+        .unwrap();
+    let [(detailed_name, detailed), (abstract_name, abstracted)]: [(
+        String,
+        json::Value,
+    ); 2] = json::from_value(values).unwrap();
+    assert_eq!(detailed_name, "consoleErrorEntries");
+    assert_eq!(abstract_name, "consoleErrors");
+    (detailed, abstracted)
+}
+
+#[hegel::composite]
+fn stack_trace(tc: &TestCase) -> json::Value {
+    if tc.draw_silent(booleans()) {
+        return json::Value::Null;
+    }
+    let frame_count = tc.draw_silent(integers::<usize>().max_value(3));
+    (0..frame_count)
+        .map(|_| {
+            json!({
+                "name": tc.draw_silent(text()),
+                "line": tc.draw_silent(integers::<i32>()),
+                "column": tc.draw_silent(integers::<i32>()),
+                "url": tc.draw_silent(text()),
+            })
+        })
+        .collect()
 }
 
 fn args(tc: &TestCase) -> json::Value {
@@ -62,20 +91,58 @@ fn args(tc: &TestCase) -> json::Value {
     ]))
 }
 
-#[hegel::test]
-fn console_errors_are_the_level_and_first_lines_of_error_entries(tc: TestCase) {
+/// Console entries as the driver passes them, and those of level `error`.
+#[hegel::composite]
+fn consoles(tc: &TestCase) -> (json::Value, Vec<json::Value>) {
     let entry_count = tc.draw_silent(integers::<usize>().max_value(5));
     let mut console = Vec::with_capacity(entry_count);
-    let mut expected = Vec::new();
+    let mut errors = Vec::new();
     for _ in 0..entry_count {
         let level =
             tc.draw_silent(sampled_from(["error", "warning"].as_slice()));
-        let timestamp = tc.draw_silent(integers::<u32>());
+        // Microseconds since the epoch, as a float like boa gives them back.
+        let timestamp = tc.draw_silent(
+            integers::<u64>()
+                .min_value(1_500_000_000_000_000)
+                .max_value(2_500_000_000_000_000),
+        ) as f64;
         let arg_count = tc.draw_silent(integers::<usize>().max_value(4));
-        let args: Vec<json::Value> =
-            (0..arg_count).map(|_| args(&tc)).collect();
+        let args: Vec<json::Value> = (0..arg_count).map(|_| args(tc)).collect();
+        let entry = json!({
+            "timestamp": timestamp,
+            "level": level,
+            "args": args,
+            "stackTrace": tc.draw_silent(stack_trace()),
+        });
         if level == "error" {
-            let message = args
+            errors.push(entry.clone());
+        }
+        console.push(entry);
+    }
+    let console = json::Value::Array(console);
+    tc.note(&format!("console: {console}"));
+    (console, errors)
+}
+
+#[hegel::test]
+fn console_error_entries_are_the_whole_error_entries(tc: TestCase) {
+    let (console, errors) = tc.draw_silent(consoles());
+
+    let (entries, _) = console_errors(&console);
+    assert_eq!(entries, json::Value::Array(errors));
+}
+
+#[hegel::test]
+fn console_errors_are_the_level_and_first_lines_of_the_error_entries(
+    tc: TestCase,
+) {
+    let (console, errors) = tc.draw_silent(consoles());
+    let expected: Vec<json::Value> = errors
+        .iter()
+        .map(|entry| {
+            let message = entry["args"]
+                .as_array()
+                .unwrap()
                 .iter()
                 .map(|arg| match arg {
                     json::Value::String(text) => {
@@ -85,14 +152,10 @@ fn console_errors_are_the_level_and_first_lines_of_error_entries(tc: TestCase) {
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            expected.push(json!({ "level": "error", "message": message }));
-        }
-        console.push(
-            json!({ "timestamp": timestamp, "level": level, "args": args }),
-        );
-    }
-    let console = json::Value::Array(console);
-    tc.note(&format!("console: {console}"));
+            json!({ "level": "error", "message": message })
+        })
+        .collect();
 
-    assert_eq!(console_errors(&console), json::Value::Array(expected));
+    let (_, abstracted) = console_errors(&console);
+    assert_eq!(abstracted, json::Value::Array(expected));
 }
