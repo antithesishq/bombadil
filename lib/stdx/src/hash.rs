@@ -20,6 +20,33 @@ pub fn fnv1a64_from(mut hash: u64, bytes: impl IntoIterator<Item = u8>) -> u64 {
     hash
 }
 
+/// For keys that are hashes already; not stable enough for files.
+#[derive(Default)]
+pub struct PrehashedHasher(u64);
+
+const PREHASHED_MULTIPLIER: u64 = 0x9e37_79b9_7f4a_7c15;
+
+impl Hasher for PrehashedHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.0 =
+                (self.0 ^ u64::from(byte)).wrapping_mul(PREHASHED_MULTIPLIER);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0 ^ value).wrapping_mul(PREHASHED_MULTIPLIER);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
 /// FNV-1a, with integers written little-endian and `usize` as 64 bits, so
 /// that hashes are the same on every platform. What a value writes still
 /// comes from std's `Hash` impls (string terminators, length prefixes),
@@ -78,6 +105,25 @@ mod tests {
         assert_eq!(fnv1a64([]), 0xcbf2_9ce4_8422_2325);
         assert_eq!(fnv1a64(*b"a"), 0xaf63_dc4c_8601_ec8c);
         assert_eq!(fnv1a64(*b"foobar"), 0x8594_4171_f739_67e8);
+    }
+
+    fn prehashed(key: impl Hash) -> u64 {
+        let mut hasher = PrehashedHasher::default();
+        key.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[hegel::test]
+    fn prehashed_hasher_keeps_keys_apart(tc: TestCase) {
+        let first = tc.draw(integers::<u64>());
+        let second = tc.draw(integers::<u64>());
+        assert_eq!(prehashed(first) == prehashed(second), first == second);
+    }
+
+    #[hegel::test]
+    fn prehashed_hasher_takes_a_u32_as_a_u64(tc: TestCase) {
+        let key = tc.draw(integers::<u32>());
+        assert_eq!(prehashed(key), prehashed(u64::from(key)));
     }
 
     fn stable_hash(value: impl Hash) -> u64 {

@@ -1,6 +1,7 @@
 use anyhow::anyhow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 
 use const_format::formatcp;
@@ -21,6 +22,7 @@ use oxc_traverse::{Ancestor, Traverse, TraverseCtx, traverse_mut};
 use crate::instrumentation::{
     Block, BlockIdPrefix, Instrumented, source_id::SourceId,
 };
+use stdx::hash::PrehashedHasher;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstrumentationError {
@@ -80,10 +82,29 @@ pub fn instrument_source_code(
     source_text: &str,
     source_type: SourceType,
 ) -> InstrumentationResult<Instrumented> {
+    instrument_with_ids(
+        source_id,
+        source_text,
+        source_type,
+        BlockIdPrefix::id_attempt,
+    )
+}
+
+fn instrument_with_ids(
+    source_id: SourceId,
+    source_text: &str,
+    source_type: SourceType,
+    id_attempt: impl Fn(BlockIdPrefix, u32, u32) -> u32,
+) -> InstrumentationResult<Instrumented> {
     let allocator = Allocator::default();
     let mut program = parse(&allocator, source_text, source_type)?;
-    let blocks =
-        instrument_program(&allocator, &mut program, source_id, source_text)?;
+    let blocks = instrument_program(
+        &allocator,
+        &mut program,
+        source_id,
+        source_text,
+        id_attempt,
+    )?;
 
     let prelude = parse(&allocator, PRELUDE, source_type)?;
     program.body.splice(0..0, prelude.body);
@@ -112,6 +133,7 @@ fn instrument_program<'a>(
     program: &mut ast::Program<'a>,
     source_id: SourceId,
     source_text: &str,
+    id_attempt: impl Fn(BlockIdPrefix, u32, u32) -> u32,
 ) -> InstrumentationResult<Vec<Block>> {
     let semantic = SemanticBuilder::new()
         .with_check_syntax_error(true)
@@ -130,6 +152,11 @@ fn instrument_program<'a>(
         functions: vec![top],
         scopes: vec![0],
         blocks: Vec::new(),
+        ids: HashSet::with_capacity_and_hasher(
+            source_text.len() / BYTES_PER_BLOCK,
+            BuildHasherDefault::default(),
+        ),
+        id_attempt,
     };
     traverse_mut(&mut instrumenter, allocator, program, scopes, ());
 
@@ -160,7 +187,10 @@ fn line_starts(source_text: &str) -> Vec<u32> {
     starts
 }
 
-struct Instrumenter {
+/// As in dense minified bundles, so that the ID set rarely grows.
+const BYTES_PER_BLOCK: usize = 16;
+
+struct Instrumenter<IdAttempt> {
     source_id: SourceId,
     line_starts: Vec<u32>,
     /// One per function path, `<top>` first.
@@ -170,6 +200,8 @@ struct Instrumenter {
     /// Anonymous scopes repeat their parent's.
     scopes: Vec<usize>,
     blocks: Vec<Block>,
+    ids: HashSet<u32, BuildHasherDefault<PrehashedHasher>>,
+    id_attempt: IdAttempt,
 }
 
 struct Function {
@@ -268,7 +300,7 @@ fn name_from_ancestors<'a, 't>(
     }
 }
 
-impl Instrumenter {
+impl<IdAttempt: Fn(BlockIdPrefix, u32, u32) -> u32> Instrumenter<IdAttempt> {
     fn enter_scope(&mut self, name: Option<String>) {
         let parent = *self.scopes.last().expect("no <top> scope");
         let index = match name {
@@ -303,8 +335,14 @@ impl Instrumenter {
     fn new_block(&mut self, span: Span) -> u32 {
         let scope = *self.scopes.last().expect("no <top> scope");
         let function = &mut self.functions[scope];
-        let id = function.id_prefix.id(function.blocks_count);
+        let ordinal = function.blocks_count;
         function.blocks_count += 1;
+        let mut attempt = 0;
+        let mut id = (self.id_attempt)(function.id_prefix, ordinal, attempt);
+        while !self.ids.insert(id) {
+            attempt += 1;
+            id = (self.id_attempt)(function.id_prefix, ordinal, attempt);
+        }
         let line = self
             .line_starts
             .partition_point(|&start| start <= span.start)
@@ -519,7 +557,9 @@ impl Instrumenter {
     }
 }
 
-impl<'a> Traverse<'a, ()> for Instrumenter {
+impl<'a, IdAttempt: Fn(BlockIdPrefix, u32, u32) -> u32> Traverse<'a, ()>
+    for Instrumenter<IdAttempt>
+{
     fn enter_function(
         &mut self,
         function: &mut ast::Function<'a>,
@@ -669,6 +709,33 @@ mod tests {
     fn instrument(source: &str, source_type: SourceType) -> Instrumented {
         instrument_source_code(SourceId("/test.js".into()), source, source_type)
             .unwrap()
+    }
+
+    /// IDs come from a range of twice the number of blocks, so many are
+    /// taken. Returns the size of the range too.
+    fn instrument_crowded(
+        source: &str,
+        source_type: SourceType,
+    ) -> (Instrumented, u32) {
+        let blocks_count = instrument(source, source_type).blocks.len();
+        let ids_count = 2 * blocks_count.max(1) as u32;
+        let instrumented = instrument_with_ids(
+            SourceId("/test.js".into()),
+            source,
+            source_type,
+            |prefix, ordinal, attempt| {
+                prefix.id_attempt(ordinal, attempt) % ids_count
+            },
+        )
+        .unwrap();
+        (instrumented, ids_count)
+    }
+
+    fn instrument_maybe_crowded(tc: &TestCase, source: &str) -> Instrumented {
+        match tc.draw(booleans()) {
+            true => instrument_crowded(source, SourceType::cjs()).0,
+            false => instrument(source, SourceType::cjs()),
+        }
     }
 
     fn snapshot(source: &str) -> String {
@@ -821,6 +888,9 @@ mod tests {
     struct Rendered {
         lines: Vec<String>,
         blocks: Vec<(String, u32)>,
+        /// Per block, the position of its hook in the instrumented text.
+        hooks: Vec<usize>,
+        hooks_count: usize,
     }
 
     impl Rendered {
@@ -829,8 +899,14 @@ mod tests {
             self.lines.len() as u32
         }
 
-        fn block(&mut self, path: &str, line: u32) {
+        fn hook(&mut self) -> usize {
+            self.hooks_count += 1;
+            self.hooks_count - 1
+        }
+
+        fn block(&mut self, path: &str, line: u32, hook: usize) {
             self.blocks.push((path.to_string(), line));
+            self.hooks.push(hook);
         }
 
         fn statements(&mut self, path: &str, statements: &[Statement]) {
@@ -843,24 +919,29 @@ mod tests {
             match statement {
                 Statement::If(body) => {
                     let line = self.line("if (x) {");
+                    let hook = self.hook();
                     self.statements(path, body);
                     self.line("}");
-                    self.block(path, line);
-                    self.block(path, line);
+                    let hook_else = self.hook();
+                    self.block(path, line, hook);
+                    self.block(path, line, hook_else);
                 }
                 Statement::IfElse(consequent, alternate) => {
                     let line = self.line("if (x) {");
+                    let hook = self.hook();
                     self.statements(path, consequent);
                     let line_else = self.line("} else {");
+                    let hook_else = self.hook();
                     self.statements(path, alternate);
                     self.line("}");
-                    self.block(path, line);
-                    self.block(path, line_else);
+                    self.block(path, line, hook);
+                    self.block(path, line_else, hook_else);
                 }
                 Statement::Ternary => {
                     let line = self.line("x ? 1 : 2;");
-                    self.block(path, line);
-                    self.block(path, line);
+                    let (hook, hook_else) = (self.hook(), self.hook());
+                    self.block(path, line, hook);
+                    self.block(path, line, hook_else);
                 }
                 Statement::Loop(kind, body) => {
                     let line = self.line(match kind {
@@ -868,9 +949,10 @@ mod tests {
                         Loop::ForIn => "for (const k in x) {",
                         Loop::ForOf => "for (const v of x) {",
                     });
+                    let hook = self.hook();
                     self.statements(path, body);
                     self.line("}");
-                    self.block(path, line);
+                    self.block(path, line, hook);
                 }
                 Statement::While(body) => {
                     self.line("while (x) {");
@@ -881,9 +963,10 @@ mod tests {
                     self.line("switch (x) {");
                     for (index, case) in cases.iter().enumerate() {
                         let line = self.line(format!("case {index}:"));
+                        let hook = self.hook();
                         self.statements(path, case);
                         self.line("break;");
-                        self.block(path, line);
+                        self.block(path, line, hook);
                     }
                     self.line("}");
                 }
@@ -938,6 +1021,12 @@ mod tests {
 
         fn blocks(&self) -> Vec<Block> {
             instrument(&self.render().0, SourceType::unambiguous()).blocks
+        }
+
+        fn hooks(&self) -> Vec<usize> {
+            let mut rendered = Rendered::default();
+            rendered.statements(TOP, &self.0);
+            rendered.hooks
         }
     }
 
@@ -1087,15 +1176,56 @@ mod tests {
         let program = tc.draw(programs(false).print_as_debug());
         let (source, _) = program.render();
         tc.note(&source);
-        let instrumented = instrument(&source, SourceType::unambiguous());
-
-        let table: BTreeSet<u32> =
-            instrumented.blocks.iter().map(|block| block.id).collect();
-        assert_eq!(table.len(), instrumented.blocks.len(), "duplicate ids");
+        let instrumented = instrument_maybe_crowded(&tc, &source);
 
         let hooks = hook_ids(&instrumented.text);
-        assert_eq!(hooks.len(), instrumented.blocks.len());
-        assert_eq!(hooks.into_iter().collect::<BTreeSet<u32>>(), table);
+        let table: Vec<u32> = program
+            .hooks()
+            .into_iter()
+            .map(|hook| hooks[hook])
+            .collect();
+        let ids: Vec<u32> =
+            instrumented.blocks.iter().map(|block| block.id).collect();
+        assert_eq!(table, ids);
+        assert_eq!(hooks.len(), ids.len());
+    }
+
+    #[hegel::test]
+    fn block_ids_are_distinct_in_a_script(tc: TestCase) {
+        let program = tc.draw(programs(false).print_as_debug());
+        let (source, _) = program.render();
+        tc.note(&source);
+        let (instrumented, _) =
+            instrument_crowded(&source, SourceType::unambiguous());
+        let ids: BTreeSet<u32> =
+            instrumented.blocks.iter().map(|block| block.id).collect();
+        assert_eq!(ids.len(), instrumented.blocks.len());
+    }
+
+    #[hegel::test]
+    fn blocks_take_the_first_id_no_earlier_block_has(tc: TestCase) {
+        let program = tc.draw(programs(false).print_as_debug());
+        let (source, _) = program.render();
+        tc.note(&source);
+        let (instrumented, ids_count) =
+            instrument_crowded(&source, SourceType::unambiguous());
+
+        let mut ordinals: BTreeMap<Arc<str>, u32> = BTreeMap::new();
+        let mut ids: BTreeSet<u32> = BTreeSet::new();
+        let mut moved = 0;
+        for block in &instrumented.blocks {
+            let prefix = BlockIdPrefix::new("/test.js", &block.function);
+            let ordinal = ordinals.entry(block.function.clone()).or_default();
+            let free = (0..)
+                .map(|attempt| prefix.id_attempt(*ordinal, attempt) % ids_count)
+                .find(|id| !ids.contains(id))
+                .unwrap();
+            assert_eq!(block.id, free);
+            moved += u32::from(free != prefix.id(*ordinal) % ids_count);
+            *ordinal += 1;
+            ids.insert(free);
+        }
+        tc.note(&format!("moved: {moved}"));
     }
 
     /// Inserts `statement` at the start of the `index`th function (source
@@ -1134,6 +1264,8 @@ mod tests {
         None
     }
 
+    /// Not so for blocks that hash to one ID, which these names do not:
+    /// see `blocks_hashing_to_one_id_take_ids_in_source_order`.
     #[hegel::test]
     fn block_ids_survive_edits_in_other_functions(tc: TestCase) {
         let before = tc.draw(programs(false).print_as_debug());
@@ -1180,6 +1312,7 @@ mod tests {
         }
     }
 
+    /// Not so for blocks that hash to one ID, which these names do not.
     #[hegel::test]
     fn block_ids_survive_reordering_functions(tc: TestCase) {
         let before = tc.draw(programs(true).print_as_debug());
@@ -1209,6 +1342,36 @@ mod tests {
             .collect()
         };
         assert!(ids("/a.js").is_disjoint(&ids("/b.js")));
+    }
+
+    /// The first blocks of the two functions hash to one ID.
+    #[test]
+    fn blocks_hashing_to_one_id_take_ids_in_source_order() {
+        let f = "function f30245(x) { if (x) {} }";
+        let g = "function g1155(x) { for (;;) {} }";
+        let prefix = |function| BlockIdPrefix::new("/test.js", function);
+        let hashed = prefix("f30245").id(0);
+        assert_eq!(prefix("g1155").id(0), hashed);
+        let ids = |source: &str| {
+            ids_by_function(&instrument(source, SourceType::cjs()).blocks)
+        };
+
+        let instrumented = instrument(&format!("{f}\n{g}"), SourceType::cjs());
+        assert_snapshot!(instrumented.snapshot());
+        let f_first = ids_by_function(&instrumented.blocks);
+        assert_eq!(f_first["f30245"], [hashed, prefix("f30245").id(1)]);
+        assert_eq!(f_first["g1155"], [prefix("g1155").id_attempt(0, 1)]);
+
+        let g_first = ids(&format!("{g}\n{f}"));
+        assert_eq!(g_first["g1155"], [hashed]);
+        assert_eq!(
+            g_first["f30245"],
+            [prefix("f30245").id_attempt(0, 1), prefix("f30245").id(1)]
+        );
+
+        // An edit in `f30245` that moves the block of `g1155`.
+        let f_without_blocks = ids(&format!("function f30245(x) {{}}\n{g}"));
+        assert_eq!(f_without_blocks["g1155"], [hashed]);
     }
 
     #[test]
@@ -1403,7 +1566,7 @@ mod tests {
         let (source, _) = program.render();
         tc.note(&source);
         let Instrumented { text: code, blocks } =
-            instrument(&source, SourceType::cjs());
+            instrument_maybe_crowded(&tc, &source);
 
         let mut execution = Execution {
             tc: &tc,
