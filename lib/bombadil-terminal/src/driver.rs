@@ -826,8 +826,11 @@ mod tests {
         let widened = |range: &RangeInclusive<u16>| {
             range.start().saturating_sub(1)..=range.end().saturating_add(1)
         };
-        let letters =
-            |last: char| CharSetEntry::Range(u32::from('a')..=u32::from(last));
+        let letters = |last: char| {
+            CharSetEntry::Range(
+                (u32::from('a')..=u32::from(last)).try_into().unwrap(),
+            )
+        };
         let mut templates: Vec<TerminalActionTemplate> = (0..VARIANT_COUNT)
             .map(|variant| template(tc, variant))
             .collect();
