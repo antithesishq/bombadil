@@ -270,6 +270,10 @@ impl<R: Read> RecordReader<R> {
             {
                 bail!("invalid record inside compressed chunk");
             }
+            // Before its payload is read, so a follower doesn't wait for it.
+            if header.tag == tag::END && header.length() != 0 {
+                bail!("invalid end of trace (it has a payload)");
+            }
             let keep = keep_payload
                 || matches!(
                     header.tag,

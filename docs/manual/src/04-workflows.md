@@ -122,6 +122,42 @@ action itself is `.action.action`). The entry without a state is a last object
 with `actions` and `error`, and null for `metadata` and `payload_bytes`; filter
 it out with `jq 'select(.error == null)'`.
 
+A trace can be read while a test or fuzz run is still writing it. With
+`--follow` (or `-f`), `bombadil trace` shows the states that are there and then
+each new one as it is written, like `tail -f`, and exits when the run finishes
+its trace:
+
+```bash
+bombadil trace my-test --json --follow | jq .metadata.state.url
+```
+
+If the run is killed, its trace is never finished, and `--follow` waits until
+you interrupt it.
+
+An action is shown with the state that followed it, or with the reason none
+did, so the action being applied right now isn't shown yet.
+
+To start before the run does, follow the name instead of the file with
+`--follow-name` (or `-F`, like `tail -F`):
+
+```bash
+bombadil trace my-test --json --follow-name | jq .metadata.state.url
+```
+
+This waits for the trace if there is none yet. A trace that is there but
+already finished is taken for an earlier run's and skipped, and when a run
+with `--output-path-overwrite` replaces the trace, `bombadil trace` says so on
+its standard error and goes on with the new one (in JSON, `index` starts from 0
+again). It exits when a trace is finished while it is followed. With
+`--screenshots`, use a directory per run, as screenshots already there are
+never replaced.
+
+A fuzz run writes one trace per run, under numbered names (`run-0.bin` and so
+on for `--output-path run.bin`), to follow one at a time. `shrink` doesn't write
+its trace as it goes: each smaller trace it finds replaces the last one whole,
+so `--follow-name` shows each in turn and keeps waiting for the next until you
+interrupt it.
+
 :::
 
 ::: terminal
@@ -141,6 +177,42 @@ shows states 40 to 49), keep the screen's colors with `--color`, or print one
 JSON object per state with `--json` (with `--screen`, including the screen) to
 process the trace with tools like `jq`. If the run ended with an action that no
 state followed, it is listed last, with the reason.
+
+A trace can be read while a test or fuzz run is still writing it. With
+`--follow` (or `-f`), `bombadil trace` shows the states that are there and then
+each new one as it is written, like `tail -f`, and exits when the run finishes
+its trace:
+
+```bash
+bombadil trace my-test --json --follow | jq .action.action
+```
+
+If the run is killed, its trace is never finished, and `--follow` waits until
+you interrupt it.
+
+An action is shown with the state that followed it, or with the reason none
+did, so the action being applied right now isn't shown yet.
+
+To start before the run does, follow the name instead of the file with
+`--follow-name` (or `-F`, like `tail -F`):
+
+```bash
+bombadil trace my-test --json --follow-name | jq .action.action
+```
+
+This waits for the trace if there is none yet. A trace that is there but
+already finished is taken for an earlier run's and skipped, and when a run
+with `--output-path-overwrite` replaces the trace, `bombadil trace` says so on
+its standard error and goes on with the new one (in JSON, `index` starts from 0
+again). It exits when a trace is finished while it is followed. With
+`--screenshots`, use a directory per run, as screenshots already there are
+never replaced.
+
+A fuzz run writes one trace per run, under numbered names (`run-0.bin` and so
+on for `--output-path run.bin`), to follow one at a time. `shrink` doesn't write
+its trace as it goes: each smaller trace it finds replaces the last one whole,
+so `--follow-name` shows each in turn and keeps waiting for the next until you
+interrupt it.
 
 :::
 

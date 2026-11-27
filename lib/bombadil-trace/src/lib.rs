@@ -107,6 +107,12 @@
 //! [`TraceFileWriter::finish`]. A writer dropped without it, e.g. on a
 //! panic or an early return, writes every queued state and leaves the
 //! trace unfinished.
+//!
+//! # Following a trace
+//!
+//! The writer flushes whole records, within 100 ms of a state being
+//! queued, so a trace can be read while it is written. A
+//! [`FollowReader`] waits at the end of the file until the END record.
 
 use std::borrow::Cow;
 
@@ -115,6 +121,7 @@ use serde_json::value::RawValue;
 
 mod chunk;
 mod envelope;
+mod follow;
 mod reader;
 mod record;
 #[cfg(test)]
@@ -122,6 +129,7 @@ mod roundtrip_tests;
 mod writer;
 
 pub use envelope::{TraceDriver, trace_driver, write_envelope};
+pub use follow::{FollowReader, ends_with_end_record};
 pub use reader::{
     Record, State, TraceReader, open_trace, read_payload_at, read_payload_from,
 };

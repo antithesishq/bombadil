@@ -7,11 +7,13 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
 use bombadil_trace::{
-    Record, State, StepError, TraceDriver, TraceReader, read_payload_from,
+    FollowReader, Record, State, StepError, TraceDriver, TraceReader,
+    ends_with_end_record, read_payload_from,
 };
 use serde::{
     Deserialize, Deserializer,
@@ -38,6 +40,13 @@ pub struct TraceArgs {
     /// `error`, and null for the rest
     #[arg(long)]
     json: bool,
+    /// Keep showing states as the run writes them, like `tail -f`
+    #[arg(short, long)]
+    follow: bool,
+    /// Like --follow, but follow the path through replacement and wait for
+    /// it to appear, like `tail -F`
+    #[arg(short = 'F', long)]
+    follow_name: bool,
     /// Show each state's screen (terminal traces)
     #[arg(long)]
     screen: bool,
@@ -102,6 +111,10 @@ pub fn run(args: TraceArgs) -> Result<()> {
         &args,
         &mut io::stdout().lock(),
         &mut extracted,
+        || {
+            std::thread::sleep(FOLLOW_POLL_INTERVAL);
+            true
+        },
     ));
     if let Some(summary) = extraction_summary(&args, extracted.as_ref()) {
         eprintln!("{summary}");
@@ -144,31 +157,187 @@ fn ignore_broken_pipe(result: Result<()>) -> Result<()> {
     }
 }
 
+const FOLLOW_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+fn announce_waiting(args: &TraceArgs, announced: &mut bool) {
+    if !std::mem::replace(announced, true) {
+        eprintln!(
+            "waiting for {}",
+            printable(&args.trace_path.to_string_lossy())
+        );
+    }
+}
+
+/// Opens the trace, and tells whether it had to wait for it to appear.
+fn open(
+    args: &TraceArgs,
+    announced: &mut bool,
+    wait: &mut impl FnMut() -> bool,
+) -> io::Result<(File, bool)> {
+    let path = &args.trace_path;
+    let mut waited = false;
+    loop {
+        let error = match File::open(path) {
+            Ok(file) => return Ok((file, waited)),
+            Err(error) => error,
+        };
+        let parent = match path.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => parent,
+            _ => Path::new("."),
+        };
+        if !args.follow_name
+            || error.kind() != io::ErrorKind::NotFound
+            || !parent.is_dir()
+        {
+            return Err(error);
+        }
+        announce_waiting(args, announced);
+        waited = true;
+        if !wait() {
+            return Err(error);
+        }
+    }
+}
+
+/// Whether `path` names another file, or `file` was cut below `position`.
+fn replaced(path: &Path, file: &File, position: u64) -> bool {
+    let (Ok(at_path), Ok(open)) = (path.metadata(), file.metadata()) else {
+        return false;
+    };
+    match (stdx::fs::identity(&at_path), stdx::fs::identity(&open)) {
+        (Some(at_path), Some(open)) if at_path != open => true,
+        _ => at_path.len() < position,
+    }
+}
+
+struct Shown {
+    states: usize,
+    shown: usize,
+    finished: bool,
+    /// Stopped at the end of `--state`, before the end of the trace.
+    range_done: bool,
+}
+
 /// Writes the states to `out`, and with `--screenshots` their screenshots
 /// to files.
 /// Counts those in `extracted`, set once the trace is known to be one
-/// they can be extracted from.
+/// they can be extracted from. When following, `wait` is called to wait
+/// for more, and returns whether to go on.
 fn show_into(
     args: &TraceArgs,
     out: &mut impl Write,
     extracted: &mut Option<Extracted>,
+    mut wait: impl FnMut() -> bool,
 ) -> Result<()> {
     let path = &args.trace_path;
+    let mut announced = false;
+    let mut first = true;
+    loop {
+        let (mut opened, waited) = open(args, &mut announced, &mut wait)
+            .with_context(|| {
+                format!("failed to open trace file {}", path.display())
+            })?;
+        // Finished before it was followed, so not the run to wait for.
+        let complete = args.follow_name
+            && ends_with_end_record(&mut opened).with_context(|| {
+                format!("failed to read {}", path.display())
+            })?;
+        let skipped = complete && first && !waited;
+        first = false;
+        let mut was_replaced = false;
+        let result = if skipped {
+            Ok(Shown {
+                states: 0,
+                shown: 0,
+                finished: true,
+                range_done: false,
+            })
+        } else {
+            let wait = |position| {
+                if args.follow_name && replaced(path, &opened, position) {
+                    was_replaced = true;
+                    return false;
+                }
+                if position == 0 {
+                    announce_waiting(args, &mut announced);
+                }
+                wait()
+            };
+            show_file(args, &opened, out, extracted, wait)
+        };
+        let shown = match result {
+            Ok(shown) => Some(shown),
+            Err(error) if was_replaced => {
+                log::warn!("{error:#}");
+                None
+            }
+            Err(error) => return Err(error),
+        };
+        if let Some(shown) = &shown
+            && !was_replaced
+        {
+            let wait_for_next = complete && shown.finished && !shown.range_done;
+            if wait_for_next {
+                eprintln!(
+                    "{} is finished, waiting for a new trace",
+                    printable(&path.to_string_lossy())
+                );
+                let length = opened.metadata().map_or(0, |file| file.len());
+                while !was_replaced {
+                    was_replaced = replaced(path, &opened, length);
+                    if !was_replaced && !wait() {
+                        break;
+                    }
+                }
+            }
+            if !was_replaced {
+                if let Some(StateRange(range)) = &args.state
+                    && shown.shown == 0
+                    && !skipped
+                {
+                    let start = range.start;
+                    let noun =
+                        if shown.states == 1 { "state" } else { "states" };
+                    bail!(
+                        "no state {start} in a trace of {} {noun}",
+                        shown.states
+                    );
+                }
+                return Ok(());
+            }
+        }
+        eprintln!(
+            "{} was replaced, following the new trace",
+            printable(&path.to_string_lossy())
+        );
+    }
+}
+
+fn show_file(
+    args: &TraceArgs,
+    opened: &File,
+    out: &mut impl Write,
+    extracted: &mut Option<Extracted>,
+    wait: impl FnMut(u64) -> bool,
+) -> Result<Shown> {
     let show_screen = args.screen || args.color;
-    // Opened once: the states are read through a clone of the handle,
-    // and the screenshots by offset through the handle itself, so they
-    // are from the file whose states were read, even if its path names
-    // another trace since (as after an overwriting run).
-    let trace_path = path.to_path_buf();
-    let opened = File::open(&trace_path).with_context(|| {
-        format!("failed to open trace file {}", trace_path.display())
-    })?;
+    // The states are read through a clone of the handle, and the
+    // screenshots by offset through the handle itself, so they are from
+    // the file whose states were read, even if its path names another
+    // trace since (as after an overwriting run).
+    let trace_path = &args.trace_path;
     let states = opened
         .try_clone()
         .map_err(anyhow::Error::from)
         .and_then(|clone| {
+            let reader: Box<dyn Read + '_> = if args.follow || args.follow_name
+            {
+                Box::new(FollowReader::new(clone, wait))
+            } else {
+                Box::new(clone)
+            };
             TraceReader::<_, Box<RawValue>, Box<RawValue>>::new(BufReader::new(
-                clone,
+                reader,
             ))
         })
         .with_context(|| format!("failed to read {}", trace_path.display()))?;
@@ -181,7 +350,7 @@ fn show_into(
     let mut extracted = args
         .screenshots
         .as_ref()
-        .map(|_| extracted.insert(Extracted::default()));
+        .map(|_| extracted.get_or_insert_default());
     // Screenshots are read again by offset, only for the states shown.
     let mut states = if show_screen {
         states
@@ -197,17 +366,17 @@ fn show_into(
     }
     let mut start_time = None;
     let (mut states_read, mut records_read, mut shown) = (0, 0, 0);
-    loop {
+    let range_done = loop {
         // Past the range, only how the last state shown ended is shown.
         let past = records_read >= range.end;
         let record = match states.next() {
-            None => break,
-            Some(Err(_)) if past => break,
+            None => break false,
+            Some(Err(_)) if past => break true,
             Some(record) => record?,
         };
         records_read += 1;
         let (action, state) = match record {
-            Record::State { .. } if past => break,
+            Record::State { .. } if past => break true,
             Record::State { action, state } => (action, state),
             Record::Error {
                 index,
@@ -245,7 +414,7 @@ fn show_into(
         };
         let screenshot = match (&args.screenshots, extracted.as_deref_mut()) {
             (Some(directory), Some(extracted)) => Some(extract_screenshot(
-                (&trace_path, &opened),
+                (trace_path, opened),
                 directory,
                 &state,
                 extracted,
@@ -293,15 +462,13 @@ fn show_into(
                 writeln!(out, "       {screenshot}")?;
             }
         }
-    }
-    if args.state.is_some() && shown == 0 {
-        let noun = if states_read == 1 { "state" } else { "states" };
-        bail!(
-            "no state {} in a trace of {states_read} {noun}",
-            range.start
-        );
-    }
-    Ok(())
+    };
+    Ok(Shown {
+        states: states_read,
+        shown,
+        finished: states.finished(),
+        range_done,
+    })
 }
 
 fn write_error(
@@ -348,7 +515,7 @@ fn write_error(
 #[cfg(test)]
 fn show(args: &TraceArgs, out: &mut impl Write) -> Result<Extracted> {
     let mut extracted = None;
-    show_into(args, out, &mut extracted)?;
+    show_into(args, out, &mut extracted, || false)?;
     Ok(extracted.unwrap_or_default())
 }
 
@@ -988,6 +1155,8 @@ impl TraceArgs {
             trace_path,
             state: None,
             json: false,
+            follow: false,
+            follow_name: false,
             screen: false,
             color: false,
             screenshots: None,
@@ -1001,7 +1170,12 @@ mod tests {
     use bombadil_trace::{
         TRACE_FILE_NAME, TraceDriver, tag, write_envelope, write_record,
     };
+    use hegel::{
+        Generator, TestCase,
+        generators::{booleans, integers, optional, vecs},
+    };
     use serde_json::Value;
+    use std::cell::RefCell;
 
     /// Writes a trace of 4 states, ended with an end record if `finished`.
     fn write_trace(directory: &Path, finished: bool) {
@@ -1862,7 +2036,8 @@ mod tests {
         let screenshots = directory.path().join("shots");
         let summary = |args: &TraceArgs| {
             let mut extracted = None;
-            let result = show_into(args, &mut Vec::new(), &mut extracted);
+            let result =
+                show_into(args, &mut Vec::new(), &mut extracted, || false);
             (result.is_ok(), extraction_summary(args, extracted.as_ref()))
         };
         // No trace, and a terminal trace: never started.
@@ -2008,6 +2183,414 @@ mod tests {
              #4              ?  (unexpected metadata) \
              {\"timestamp\":\"x\",\"state\":{\"url\":\"https://x/\"}}\n"
         );
+    }
+
+    struct Written {
+        driver: TraceDriver,
+        payloads: Vec<Option<usize>>,
+        finished: bool,
+        bytes: Vec<u8>,
+    }
+
+    impl fmt::Debug for Written {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.debug_struct("Written")
+                .field("driver", &self.driver)
+                .field("payloads", &self.payloads)
+                .field("finished", &self.finished)
+                .field("bytes", &self.bytes.len())
+                .finish()
+        }
+    }
+
+    hegel::pretty_print_as_debug!(Written);
+
+    #[cfg(feature = "terminal")]
+    fn terminal_payload(n: usize, _length: usize) -> Vec<u8> {
+        let mut terminal = libghostty_vt::Terminal::new(12, 2).unwrap();
+        terminal.vt_write(format!("\x1b[31mstate {n}").as_bytes());
+        let mut snapshot = Vec::new();
+        terminal.encode_snapshot(&mut snapshot).unwrap();
+        snapshot
+    }
+
+    #[cfg(not(feature = "terminal"))]
+    fn terminal_payload(n: usize, length: usize) -> Vec<u8> {
+        vec![n as u8; length]
+    }
+
+    #[hegel::composite]
+    fn step_error(tc: &TestCase) -> StepError {
+        let message = "it broke".to_string();
+        match tc.draw(integers::<u8>().max_value(4)) {
+            0 => StepError::Stalled,
+            1 => StepError::Driver { message },
+            2 => StepError::Failed { message },
+            3 => StepError::Interrupted,
+            _ => StepError::TimeLimit,
+        }
+    }
+
+    #[hegel::composite]
+    fn written(tc: &TestCase) -> Written {
+        let driver = if tc.draw(booleans()) {
+            TraceDriver::Terminal
+        } else {
+            TraceDriver::Browser
+        };
+        let payloads = tc.draw(
+            vecs(optional(integers::<usize>().max_value(5000))).max_size(40),
+        );
+        let finished = tc.draw(booleans());
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(TRACE_FILE_NAME);
+        let mut writer =
+            bombadil_trace::TraceFileWriter::create(&path, driver, false)
+                .unwrap();
+        let mut pending = false;
+        for (n, payload) in payloads.iter().enumerate() {
+            let action = if n % 3 == 0 {
+                Value::Null
+            } else {
+                "Back".into()
+            };
+            let (metadata, payload) = if driver == TraceDriver::Terminal {
+                let metadata = serde_json::json!({
+                    "timestamp": 1_000_000 + 1000 * n,
+                    "action": action,
+                    "violations": [],
+                });
+                (metadata, payload.map(|length| terminal_payload(n, length)))
+            } else {
+                let metadata = serde_json::json!({
+                    "timestamp": 1_000_000 + 1000 * n,
+                    "action": action,
+                    "state": {
+                        "url": "https://example.com/",
+                        "screenshot": if n % 2 == 0 { "png" } else { "webp" },
+                    },
+                    "violations": [],
+                });
+                (metadata, payload.map(|length| vec![n as u8; length]))
+            };
+            writer
+                .write_state(metadata, payload.map(Into::into))
+                .unwrap();
+            pending = tc.draw(booleans());
+            if pending {
+                let action = serde_json::json!({
+                    "action": {"TypeText": {"text": n.to_string()}},
+                    "action_taken": null,
+                });
+                writer.write_action(&action).unwrap();
+            }
+        }
+        if pending && tc.draw(booleans()) {
+            writer
+                .write_error(tc.draw(step_error().print_as_debug()))
+                .unwrap();
+        }
+        if finished {
+            writer.finish().unwrap();
+        }
+        drop(writer);
+        Written {
+            driver,
+            payloads,
+            finished,
+            bytes: std::fs::read(&path).unwrap(),
+        }
+    }
+
+    #[hegel::composite]
+    fn shown_range(tc: &TestCase) -> Option<StateRange> {
+        let range = tc.draw(optional(integers::<usize>().max_value(45)))?;
+        let length = tc.draw(integers::<usize>().min_value(1).max_value(45));
+        Some(StateRange(range..range + length))
+    }
+
+    struct Shared<'a>(&'a RefCell<Vec<u8>>);
+
+    impl Write for Shared<'_> {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0.borrow_mut().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The output and the error, if any.
+    fn shown(
+        args: &TraceArgs,
+        wait: impl FnMut() -> bool,
+        out: &RefCell<Vec<u8>>,
+    ) -> (String, Option<String>) {
+        let result = show_into(args, &mut Shared(out), &mut None, wait);
+        (
+            String::from_utf8(out.take()).unwrap(),
+            result.err().map(|error| format!("{error:#}")),
+        )
+    }
+
+    /// The files in `directory`, which is removed.
+    fn take_files(directory: &Path) -> Vec<(std::ffi::OsString, Vec<u8>)> {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return Vec::new();
+        };
+        let mut files: Vec<_> = entries
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (entry.file_name(), std::fs::read(entry.path()).unwrap())
+            })
+            .collect();
+        files.sort();
+        std::fs::remove_dir_all(directory).unwrap();
+        files
+    }
+
+    const FOLLOW_STEPS_MAX: usize = 100;
+
+    /// The run writes the trace a few bytes at a time from inside `wait`,
+    /// and may be killed anywhere.
+    #[hegel::test]
+    fn follows_a_trace_as_showing_it_afterwards(tc: TestCase) {
+        let mut written = tc.draw(written());
+        let damaged = tc.draw(booleans());
+        if damaged {
+            let last = written.bytes.len() - 1;
+            let offset = tc.draw(integers::<usize>().max_value(last));
+            written.bytes[offset] ^=
+                1 << tc.draw(integers::<u8>().max_value(7));
+        }
+        let bytes = &written.bytes;
+        let cut = if tc.draw(booleans()) {
+            bytes.len()
+        } else {
+            tc.draw(integers::<usize>().max_value(bytes.len()))
+        };
+        let complete = written.finished && !damaged && cut == bytes.len();
+        let directory = tempfile::tempdir().unwrap();
+        let screenshots = directory.path().join("screenshots");
+        let terminal = written.driver == TraceDriver::Terminal;
+        let mut args = TraceArgs {
+            json: tc.draw(booleans()),
+            state: tc.draw(shown_range().print_as_debug()),
+            screen: tc.draw(integers::<u8>().max_value(9))
+                < 5 + 4 * terminal as u8,
+            color: terminal && tc.draw(booleans()),
+            screenshots: (tc.draw(integers::<u8>().max_value(9))
+                > 4 * terminal as u8)
+                .then(|| screenshots.clone()),
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+        };
+        args.screen &= terminal || tc.draw(booleans());
+        let path = args.trace_path.clone();
+        let out = RefCell::new(Vec::new());
+        std::fs::write(&path, &bytes[..cut]).unwrap();
+        let expected = shown(&args, || false, &out);
+        let expected_files = take_files(&screenshots);
+        std::fs::remove_file(&path).unwrap();
+
+        args.follow_name = tc.draw(booleans());
+        args.follow = !args.follow_name;
+        let mut file = args.follow.then(|| File::create_new(&path).unwrap());
+        let (mut wrote, mut steps, mut stopped) = (0, 0, false);
+        let wait = || {
+            {
+                let out = out.borrow();
+                assert!(expected.0.as_bytes().starts_with(&out));
+                assert!(out.last().is_none_or(|&last| last == b'\n'));
+            }
+            if stopped {
+                assert!(!complete, "waited after the end record");
+                return false;
+            }
+            steps += 1;
+            let hurried = steps > FOLLOW_STEPS_MAX;
+            if file.is_none() {
+                if hurried || tc.draw(booleans()) {
+                    file = Some(File::create_new(&path).unwrap());
+                }
+                return true;
+            }
+            let length = if hurried {
+                cut - wrote
+            } else {
+                tc.draw(integers::<usize>().max_value(cut - wrote))
+            };
+            let range = wrote..wrote + length;
+            file.as_mut().unwrap().write_all(&bytes[range]).unwrap();
+            wrote += length;
+            if wrote == cut {
+                (file, stopped) = (None, true);
+            }
+            true
+        };
+        assert_eq!(shown(&args, wait, &out), expected);
+        assert_eq!(take_files(&screenshots), expected_files);
+    }
+
+    struct Named {
+        bytes: Vec<u8>,
+        finished: bool,
+        wrote: usize,
+        /// Finished already when it got the name.
+        complete: bool,
+        skipped: bool,
+    }
+
+    /// Runs replace each other's traces from inside `wait`, by renaming
+    /// or by cutting the file shorter in place.
+    #[hegel::test]
+    fn follows_a_name_through_the_traces_that_replace_each_other(tc: TestCase) {
+        let count = tc.draw(integers::<usize>().min_value(1).max_value(3));
+        let mut traces = Vec::with_capacity(count);
+        for _ in 0..count {
+            let mut written = tc.draw(written());
+            let finished = written.finished && tc.draw(booleans());
+            if !finished {
+                let cut = tc.draw(integers().max_value(written.bytes.len()));
+                let cut = cut - (written.finished && cut > 0) as usize;
+                written.bytes.truncate(cut);
+            }
+            traces.push(Named {
+                bytes: written.bytes,
+                finished,
+                wrote: 0,
+                complete: false,
+                skipped: false,
+            });
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let args = TraceArgs {
+            json: tc.draw(booleans()),
+            follow_name: true,
+            ..TraceArgs::new(directory.path().join(TRACE_FILE_NAME))
+        };
+        let path = &args.trace_path;
+        let mut current = None;
+        let mut file = None;
+        if tc.draw(booleans()) {
+            let first = &mut traces[0];
+            std::fs::write(path, &first.bytes).unwrap();
+            first.wrote = first.bytes.len();
+            (first.complete, first.skipped) = (first.finished, first.finished);
+            current = Some(0);
+        }
+        let traces = RefCell::new(traces);
+        let out = RefCell::new(Vec::new());
+        let (mut steps, mut done) = (0, false);
+        let wait = || {
+            assert!(out.borrow().last().is_none_or(|&last| last == b'\n'));
+            let mut traces = traces.borrow_mut();
+            if let Some(current) = current {
+                let trace = &traces[current];
+                let ended = trace.finished && trace.wrote == trace.bytes.len();
+                assert!(
+                    !ended || trace.complete,
+                    "waited after the end record"
+                );
+            }
+            let next = current.map_or(0, |current| current + 1);
+            let writing = file.is_some();
+            done = !writing && next == count;
+            if done {
+                return false;
+            }
+            steps += 1;
+            let hurried = steps > FOLLOW_STEPS_MAX;
+            let replace =
+                !writing || (next < count && !hurried && tc.draw(booleans()));
+            if replace && (hurried || tc.draw(booleans())) {
+                let position =
+                    current.map_or(0, |current| traces[current].wrote);
+                let trace = &mut traces[next];
+                let length = trace.bytes.len();
+                trace.wrote = if hurried {
+                    length
+                } else {
+                    tc.draw(integers::<usize>().max_value(length))
+                };
+                trace.complete = trace.finished && trace.wrote == length;
+                let renamed = directory.path().join("renamed");
+                let new = if trace.wrote < position && tc.draw(booleans()) {
+                    path
+                } else {
+                    &renamed
+                };
+                let mut created = File::create(new).unwrap();
+                created.write_all(&trace.bytes[..trace.wrote]).unwrap();
+                if new != path {
+                    std::fs::rename(new, path).unwrap();
+                }
+                file = (trace.wrote < length).then_some(created);
+                current = Some(next);
+            } else if let (false, Some(writer)) = (replace, &mut file) {
+                let trace = &mut traces[current.unwrap()];
+                let rest = trace.bytes.len() - trace.wrote;
+                let length = if hurried {
+                    rest
+                } else {
+                    tc.draw(integers::<usize>().max_value(rest))
+                };
+                let range = trace.wrote..trace.wrote + length;
+                writer.write_all(&trace.bytes[range]).unwrap();
+                trace.wrote += length;
+                if trace.wrote == trace.bytes.len() {
+                    file = None;
+                }
+            }
+            true
+        };
+        let followed = shown(&args, wait, &out);
+
+        let traces = traces.into_inner();
+        let last = current.expect("it ended before there was a trace");
+        let mut expected = String::new();
+        let mut error = None;
+        for (index, trace) in traces[..=last].iter().enumerate() {
+            if trace.skipped {
+                continue;
+            }
+            std::fs::write(path, &trace.bytes[..trace.wrote]).unwrap();
+            let (output, failed) = shown(
+                &TraceArgs {
+                    json: args.json,
+                    ..TraceArgs::new(path.clone())
+                },
+                || false,
+                &out,
+            );
+            expected.push_str(&output);
+            // Errors in a replaced trace are only logged.
+            error = failed.filter(|_| index == last);
+        }
+        assert_eq!(followed, (expected, error));
+        let ended = traces[last].finished && !traces[last].complete;
+        assert!(done || ended || followed.1.is_some());
+    }
+
+    #[test]
+    fn fails_at_once_where_no_trace_can_come() {
+        let directory = tempfile::tempdir().unwrap();
+        let wait = || panic!("waited");
+        for (follow, follow_name, path) in [
+            (true, false, "missing.bin"),
+            (false, true, "missing/trace.bin"),
+            (true, true, "missing/trace.bin"),
+        ] {
+            let args = TraceArgs {
+                follow,
+                follow_name,
+                ..TraceArgs::new(directory.path().join(path))
+            };
+            let (output, error) = shown(&args, wait, &RefCell::default());
+            assert_eq!(output, "");
+            assert!(error.unwrap().contains("failed to open trace file"));
+        }
     }
 
     #[test]

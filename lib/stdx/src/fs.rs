@@ -1,14 +1,26 @@
-use std::path::Path;
+use std::{fs::Metadata, path::Path};
+
+/// The file's device and inode, or `None` off Unix.
+pub fn identity(metadata: &Metadata) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some((metadata.dev(), metadata.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        None
+    }
+}
 
 /// Whether `a` and `b` name the same existing file, through any spelling or
 /// link.
 pub fn same_file(a: &Path, b: &Path) -> bool {
-    #[cfg(unix)]
+    if let (Ok(a), Ok(b)) = (a.metadata(), b.metadata())
+        && let (Some(a), Some(b)) = (identity(&a), identity(&b))
     {
-        use std::os::unix::fs::MetadataExt;
-        if let (Ok(a), Ok(b)) = (a.metadata(), b.metadata()) {
-            return a.dev() == b.dev() && a.ino() == b.ino();
-        }
+        return a == b;
     }
     match (a.canonicalize(), b.canonicalize()) {
         (Ok(a), Ok(b)) => a == b,
