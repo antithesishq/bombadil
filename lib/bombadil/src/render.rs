@@ -67,9 +67,9 @@ impl Format for StringGenerator {
                 for entry in entries {
                     match entry {
                         CharSetEntry::Range(range) => {
-                            write!(f, "\\u{{{}}}", range.start())?;
+                            write!(f, "\\u{{{}}}", u32::from(range.first()))?;
                             write!(f, "..=")?;
-                            write!(f, "\\u{{{}}}", range.end())?;
+                            write!(f, "\\u{{{}}}", u32::from(range.last()))?;
                         }
                         CharSetEntry::Literal(string) => {
                             write!(f, "{:?}", string)?;

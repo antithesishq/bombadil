@@ -413,6 +413,19 @@ expression: bundle
     		_Entry.is = is;
     	})(Entry || (Entry = _CharSet.Entry || (_CharSet.Entry = {})));
     	function fromRange(from, to) {
+    		if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0) {
+    			throw new RangeError(`charset range ${from} to ${to} must be of non-negative integers`);
+    		}
+    		const range = `charset range 0x${from.toString(16)} to 0x${to.toString(16)}`;
+    		if (from > to) {
+    			throw new RangeError(`${range} is empty`);
+    		}
+    		if (to > 1114111) {
+    			throw new RangeError(`${range} ends above the last code point, 0x10ffff`);
+    		}
+    		if (from >= 55296 && to <= 57343) {
+    			throw new RangeError(`${range} has only surrogates (0xd800 to 0xdfff), which are not characters`);
+    		}
     		return [{ Range: [from, to] }];
     	}
     	_CharSet.fromRange = fromRange;

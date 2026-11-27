@@ -175,6 +175,11 @@ export type StringGenerator =
  * where Bombadil will generate concrete strings based on the charsets.
  */
 export namespace CharSet {
+  /**
+   * A `Range` is an inclusive range of Unicode code points and generates one
+   * character. It never generates a surrogate (`0xd800` to `0xdfff`), and a
+   * range of only surrogates is an error.
+   */
   export type Entry = { Range: Range } | { Literal: string };
 
   export namespace Entry {
@@ -189,7 +194,25 @@ export namespace CharSet {
 
   export type Entries = Entry[];
 
+  /** The characters with code points from `from` to `to`, inclusive. */
   export function fromRange(from: number, to: number): CharSet.Entries {
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0) {
+      throw new RangeError(
+        `charset range ${from} to ${to} must be of non-negative integers`,
+      );
+    }
+    const range = `charset range 0x${from.toString(16)} to 0x${to.toString(16)}`;
+    if (from > to) {
+      throw new RangeError(`${range} is empty`);
+    }
+    if (to > 0x10ffff) {
+      throw new RangeError(`${range} ends above the last code point, 0x10ffff`);
+    }
+    if (from >= 0xd800 && to <= 0xdfff) {
+      throw new RangeError(
+        `${range} has only surrogates (0xd800 to 0xdfff), which are not characters`,
+      );
+    }
     return [{ Range: [from, to] }];
   }
 

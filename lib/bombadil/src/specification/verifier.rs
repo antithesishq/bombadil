@@ -1379,6 +1379,58 @@ mod tests {
     }
 
     #[test]
+    fn test_charset_range_is_checked_when_loaded() {
+        let load = |from: &str, to: &str| {
+            let mut specification_file =
+                NamedTempFile::with_suffix(".ts").unwrap();
+            write!(
+                specification_file,
+                r#"
+                import {{ actions }} from "@antithesishq/bombadil";
+                import {{ CharSet }} from "@antithesishq/bombadil/actions";
+                const set = CharSet.fromRange({from}, {to});
+                export const types = actions(() => [{{ TypeText: {{ CharSet: set }} }}]);
+                "#
+            )
+            .unwrap();
+            let bundle_code = crate::specification::bundler::bundle(
+                ".",
+                &specification_file.path().display().to_string(),
+            )
+            .unwrap();
+            Verifier::new(&bundle_code).err().map(|error| {
+                error.to_string().lines().next().unwrap().to_string()
+            })
+        };
+        insta::assert_debug_snapshot!(
+            [
+                load("0xd7ff", "0xe000"),
+                load("0xd800", "0xdfff"),
+                load("0", "0x110000"),
+                load("5", "4"),
+                load("0.5", "4"),
+            ],
+            @r#"
+        [
+            None,
+            Some(
+                "RangeError: charset range 0xd800 to 0xdfff has only surrogates (0xd800 to 0xdfff), which are not characters (unknown at :489:3)",
+            ),
+            Some(
+                "RangeError: charset range 0x0 to 0x110000 ends above the last code point, 0x10ffff (unknown at :489:3)",
+            ),
+            Some(
+                "RangeError: charset range 0x5 to 0x4 is empty (unknown at :489:3)",
+            ),
+            Some(
+                "RangeError: charset range 0.5 to 4 must be of non-negative integers (unknown at :489:3)",
+            ),
+        ]
+        "#
+        );
+    }
+
+    #[test]
     fn test_is_action() {
         let mut verifier = verifier(
             r#"

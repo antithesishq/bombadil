@@ -729,7 +729,8 @@ impl TryFrom<JsCharSetEntry> for CharSetEntry {
     ) -> std::result::Result<Self, Self::Error> {
         match value {
             JsCharSetEntry::Range(js_range) => {
-                Ok(CharSetEntry::Range(js_range.try_into()?))
+                let range: RangeInclusive<u32> = js_range.try_into()?;
+                Ok(CharSetEntry::Range(range.try_into()?))
             }
             JsCharSetEntry::Literal(s) => Ok(CharSetEntry::Literal(s)),
         }
@@ -902,6 +903,22 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             cyclic.to_json(&mut context).unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn charset_range_of_surrogates_is_an_error() {
+        let entry = |start: f64, end: f64| {
+            CharSetEntry::try_from(JsCharSetEntry::Range(JsRange::Range((
+                start, end,
+            ))))
+        };
+        assert!(entry(55295.0, 57344.0).is_ok());
+        assert!(
+            entry(55296.0, 57343.0)
+                .unwrap_err()
+                .to_string()
+                .contains("only surrogates")
         );
     }
 
